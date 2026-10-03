@@ -57,6 +57,16 @@
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
+  /*
+    Type sizes between Tailwind's stock steps, named by the job they do. They set font-size only,
+    so line height and weight stay with the caller.
+  */
+  --text-badge: 0.625rem; /* 10px: the bot badge and counters inside mock chrome */
+  --text-meta: 0.6875rem; /* 11px: meta lines, inline code, pills and pre blocks inside mocks */
+  --text-label: 0.8125rem; /* 13px: eyebrows, small print, compact controls, code blocks */
+  --text-ui: 0.9375rem; /* 15px: card copy, row and FAQ headings, tabs, menu links, brand name */
+  --text-lead: 1.0625rem; /* 17px: card titles, and section descriptions from `sm` */
+
   /* Drop the stock palette so only the semantic tokens below become utilities. */
   --color-*: initial;
 
@@ -205,7 +215,7 @@
     --shadow-ink: var(--palette-ink-wash);
   }
 
-  .wash :is(.window, .bg-surface) * {
+  .wash :is(.window, .card, .bg-surface) * {
     --shadow-ink: var(--palette-ink-neutral);
   }
 
@@ -429,6 +439,18 @@
     border-radius: var(--radius-md);
     @apply shadow-float;
     will-change: transform;
+  }
+
+  /* White content card on the page. Padding and layout stay with the caller. */
+  .card {
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    @apply shadow-card;
+  }
+
+  /* Small raised tag for a label or a command. Colour and font family stay with the caller. */
+  .chip {
+    @apply rounded-xs bg-surface-raised px-2 py-1 text-xs shadow-ring;
   }
 
   /*

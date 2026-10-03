@@ -56,7 +56,7 @@ export function ReviewSummaryMock({ compact = false, frame = "inline" }: ReviewS
       value: (
         <div className="space-y-0.5">
           <p className="font-medium text-text">{finding.title}</p>
-          <p className="text-[11px] text-text-tertiary italic">
+          <p className="text-meta text-text-tertiary italic">
             {finding.marker} · <GhCode>{finding.file}</GhCode> · {finding.lines}
           </p>
         </div>

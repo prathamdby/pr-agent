@@ -47,7 +47,7 @@ export function CopyButton({
   };
 
   const chassis = {
-    primary: "btn btn-primary btn-leading h-9 rounded-xs text-[13px]",
+    primary: "btn btn-primary btn-leading h-9 rounded-xs text-label",
     // Marks before the label and the icon after it: both sides take the tighter icon padding.
     secondary: prefix ? "btn btn-secondary px-3" : "btn btn-secondary btn-trailing",
     ghost: "btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs",

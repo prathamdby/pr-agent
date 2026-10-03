@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { Server, Shield, Wallet } from "@/components/icons";
-import { Eyebrow, Section } from "@/components/section";
+import { Section, SectionTitle } from "@/components/section";
 import { PRICING_PLANS } from "@/lib/content";
 
 type IconComponent = ComponentType<{ readonly className?: string }>;
@@ -16,14 +16,10 @@ export function Pricing() {
     <Section id="pricing" labelledBy="pricing-heading">
       <div className="grid gap-8 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-end">
         <div className="max-w-2xl">
-          <Eyebrow>Pricing</Eyebrow>
-          <h2
-            id="pricing-heading"
-            className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
-          >
+          <SectionTitle id="pricing-heading" eyebrow="Pricing">
             No per-seat fee, ever
-          </h2>
-          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]">
+          </SectionTitle>
+          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-lead">
             Know the cost before you connect GitHub or add an AI provider.
           </p>
         </div>
@@ -60,7 +56,7 @@ export function Pricing() {
                 </span>
               </div>
               <div className={`flex-1 px-3 ${flipped ? "order-first pt-3 pb-4" : "pt-4 pb-3"}`}>
-                <h3 className="text-[17px] leading-snug font-medium text-text">{plan.title}</h3>
+                <h3 className="text-lead leading-snug font-medium text-text">{plan.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-text-secondary">{plan.detail}</p>
               </div>
             </li>

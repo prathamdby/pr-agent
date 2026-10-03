@@ -24,10 +24,31 @@ export function Section({ id, labelledBy, className, children }: SectionProps) {
 
 export function Eyebrow({ children }: { readonly children: ReactNode }) {
   return (
-    <p className="inline-flex items-center gap-2 text-[13px] font-medium text-text-secondary">
+    <p className="inline-flex items-center gap-2 text-label font-medium text-text-secondary">
       <span aria-hidden="true" className="h-1.5 w-3.5 rounded-full bg-accent-solid" />
       {children}
     </p>
+  );
+}
+
+type SectionTitleProps = {
+  readonly id: string;
+  readonly eyebrow: string;
+  readonly children: ReactNode;
+};
+
+/** The eyebrow and section `h2` pair. Side-column sections place it themselves. */
+export function SectionTitle({ id, eyebrow, children }: SectionTitleProps) {
+  return (
+    <>
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <h2
+        id={id}
+        className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
+      >
+        {children}
+      </h2>
+    </>
   );
 }
 
@@ -44,15 +65,11 @@ export function SectionHeading({ id, eyebrow, title, description, action }: Sect
   return (
     <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between md:gap-12">
       <div className="max-w-2xl">
-        <Eyebrow>{eyebrow}</Eyebrow>
-        <h2
-          id={id}
-          className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
-        >
+        <SectionTitle id={id} eyebrow={eyebrow}>
           {title}
-        </h2>
+        </SectionTitle>
         {description ? (
-          <p className="mt-4 max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]">
+          <p className="mt-4 max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-lead">
             {description}
           </p>
         ) : null}

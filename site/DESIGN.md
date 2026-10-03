@@ -134,6 +134,20 @@ Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hos
 
 Weights: 400 for body copy and ghost nav items, 500 for headings, buttons, and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
 
+### Type sizes
+
+Stock Tailwind steps (`text-xs` 12px, `text-sm` 14px, `text-base` 16px, `text-lg` and up) cover most text. The sizes between them are `@theme` tokens named by the job they do. Each sets `font-size` only, so line height and weight stay with the caller. Never write a fixed `text-[…px]` or `text-[…rem]`; display headings keep their fluid `text-[clamp(…)]`.
+
+| Token          | Value       | Utility      | Purpose                                                               |
+| -------------- | ----------- | ------------ | --------------------------------------------------------------------- |
+| `--text-badge` | `0.625rem`  | `text-badge` | 10px. The bot badge and counters inside mock chrome                   |
+| `--text-meta`  | `0.6875rem` | `text-meta`  | 11px. Meta lines, inline code, pills, and `pre` blocks inside mocks   |
+| `--text-label` | `0.8125rem` | `text-label` | 13px. Eyebrows, small print, compact controls, code blocks            |
+| `--text-ui`    | `0.9375rem` | `text-ui`    | 15px. Card copy, row and FAQ headings, tabs, menu links, product name |
+| `--text-lead`  | `1.0625rem` | `text-lead`  | 17px. Card titles, and section descriptions from `sm`                 |
+
+The tokens are `rem`, so they follow a reader's browser font size the way `text-sm` already does.
+
 ### Headings
 
 | Where                     | Recipe                                                                                           |
@@ -145,23 +159,23 @@ Weights: 400 for body copy and ghost nav items, 500 for headings, buttons, and l
 | Tab panel `h3`            | `text-2xl font-medium tracking-[-0.02em] text-text`                                              |
 | Quickstart step `h3`      | `text-xl font-medium tracking-[-0.015em] text-text`                                              |
 | Feature step `h3`         | `text-lg leading-snug font-medium text-text sm:text-xl`                                          |
-| Card and pricing `h3`     | `text-[17px] leading-snug font-medium text-text`                                                 |
-| Row heading, FAQ question | `text-[15px] leading-snug font-medium text-text`                                                 |
+| Card and pricing `h3`     | `text-lead leading-snug font-medium text-text`                                                   |
+| Row heading, FAQ question | `text-ui leading-snug font-medium text-text`                                                     |
 | Pricing figure            | `tabular text-[clamp(4.5rem,10vw,8rem)] leading-none font-medium tracking-[-0.05em] text-text`   |
 
 The pattern: `font-medium`, tighter tracking as the size grows (`-0.015em` at 20px up to `-0.035em` at 68px), line height between `1.04` and `1.12`, and `clamp()` for anything that scales with the viewport. Headings never go bold. The hero `h1` keeps the brand in a `sr-only` span (`HERO_BRAND`) so the accessible name matches the markdown page while only the tagline is visible.
 
 ### Body and labels
 
-| Role                | Recipe                                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------------------- |
-| Hero support        | `max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg`                            |
-| Section description | `max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]`                   |
-| Card body           | `text-[15px] leading-relaxed text-text-secondary` or `text-sm leading-relaxed text-text-secondary` |
-| Muted detail        | `text-sm leading-relaxed text-text-tertiary`                                                       |
-| Eyebrow             | `text-[13px] font-medium text-text-secondary`                                                      |
-| Small print         | `text-[13px] text-text-tertiary`                                                                   |
-| Mock body           | `text-xs leading-relaxed text-text`, `text-[11px]` for meta, `text-[10px]` for the bot badge       |
+| Role                | Recipe                                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| Hero support        | `max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg`                        |
+| Section description | `max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-lead`                      |
+| Card body           | `text-ui leading-relaxed text-text-secondary` or `text-sm leading-relaxed text-text-secondary` |
+| Muted detail        | `text-sm leading-relaxed text-text-tertiary`                                                   |
+| Eyebrow             | `text-label font-medium text-text-secondary`                                                   |
+| Small print         | `text-label text-text-tertiary`                                                                |
+| Mock body           | `text-xs leading-relaxed text-text`, `text-meta` for meta, `text-badge` for the bot badge      |
 
 Numbers that count or line up take `.tabular` (`font-variant-numeric: tabular-nums`): `$0`, `Step 1`, `#284`, tab counts, the copyright year.
 
@@ -375,24 +389,26 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 </section>
 ```
 
-- `Eyebrow`: `inline-flex items-center gap-2 text-[13px] font-medium text-text-secondary` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word.
-- `SectionHeading`: eyebrow, then the section `h2` recipe at `mt-4`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
-- Sections with a side column (features, pricing, FAQ) inline the same eyebrow and `h2` recipe instead of `SectionHeading`.
+- `Eyebrow`: `inline-flex items-center gap-2 text-label font-medium text-text-secondary` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word.
+- `SectionTitle`: the eyebrow, then the section `h2` recipe at `mt-4`, as a fragment. It takes the `h2` `id` and the eyebrow text.
+- `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
+- Sections with a side column (features, pricing, FAQ) place `SectionTitle` in that column themselves instead of using `SectionHeading`.
 - Pricing plans are shell cards: each `li` is a grey shell (`flex flex-col rounded-xl bg-surface-raised p-2 shadow-ring`) holding a `wash wash-grid` (or `wash-clouds`) `aspect-[4/3] rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
 
 ### Cards, tiles, chips, wells
 
-- **Card**: `rounded-lg bg-surface p-6 shadow-card` (`flex flex-col` when the card needs a bottom slot). No border.
+- **Card**: `.card p-6` (`flex flex-col` when the card needs a bottom slot). `.card` is `border-radius: var(--radius-lg)`, `bg-surface`, and `@apply shadow-card`; padding stays with the caller. No border. `.card` sits in the `.wash :is(.window, .card, .bg-surface) *` selector, so shadows inside a card on a wash stay neutral.
 - **Icon tile**: `grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text` holding a `size-5` icon. The features timeline uses the white variant, `grid size-11 place-items-center rounded-sm bg-surface text-accent-text shadow-soft`, joined by a `w-px bg-line` spine.
-- **Command chip**: `rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs font-medium text-accent-text shadow-ring`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
+- **Chip**: `.chip` is `@apply rounded-xs bg-surface-raised px-2 py-1 text-xs shadow-ring`. Ink, weight, and font family stay with the caller.
+- **Command chip**: `chip font-mono font-medium text-accent-text`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
 - **Step pill**: `tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-text`.
-- **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
+- **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-label whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
 - **Well** (a list inside a card): `divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring`.
-- **Feature cue**: `inline-flex max-w-full items-center rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs text-text-secondary shadow-ring`.
+- **Feature cue**: `inline-flex max-w-full items-center chip font-mono text-text-secondary`.
 
 ### CodeBlock and CopyButton
 
-`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-[13px] leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
+`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-label leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
 
 `site/components/copy-button.tsx` confirms with an icon swap and a label change, so the state never rests on colour alone:
 
@@ -428,29 +444,29 @@ const icon = (
 </>;
 ```
 
-Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-[13px]` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
+Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-label` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
 
 ### GitHub output primitives
 
 `site/components/github-output/primitives.tsx` renders bot output the way GitHub’s light theme does, so the examples look like the real thing.
 
-| Primitive   | Recipe                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GhComment` | `article overflow-hidden text-xs leading-relaxed text-text` in a `window` frame or the inline `rounded-sm bg-surface shadow-soft`; header `border-b border-line bg-surface-raised px-3 py-2` with the logo, `pr-agent`, a `bot` badge (`rounded-xs px-1 py-px text-[10px] font-medium text-text-secondary shadow-ring`), “commented just now”, and the `surface` label on `sm` |
-| `GhTitle`   | `border-b border-line pb-1.5 text-sm font-semibold text-text`, a markdown `##` as GitHub renders it                                                                                                                                                                                                                                                                            |
-| `GhNote`    | `border-l-[3px] border-accent-solid py-0.5 pl-3 text-text-secondary` with an `Info` icon and “Note” in `text-accent-text`                                                                                                                                                                                                                                                      |
-| `GhCode`    | `rounded-xs bg-surface-raised px-1 py-px font-mono text-[11px] text-text`                                                                                                                                                                                                                                                                                                      |
-| `GhLabel`   | `font-semibold text-text`                                                                                                                                                                                                                                                                                                                                                      |
-| `GhKvTable` | `w-full border-collapse text-left`, rows `border-b border-line align-top last:border-b-0`, `th` `w-24 py-2 pr-3 font-semibold sm:w-28`, no header row                                                                                                                                                                                                                          |
-| `GhDetails` | `details.disclosure.group` with a `ChevronRight size-3.5` that rotates 90° on open                                                                                                                                                                                                                                                                                             |
-| `GhPill`    | `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap` plus a tone                                                                                                                                                                                                                                                                |
-| `GhPre`     | `overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-[11px] leading-relaxed text-text`                                                                                                                                                                                                                                                                           |
+| Primitive   | Recipe                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GhComment` | `article overflow-hidden text-xs leading-relaxed text-text` in a `window` frame or the inline `rounded-sm bg-surface shadow-soft`; header `border-b border-line bg-surface-raised px-3 py-2` with the logo, `pr-agent`, a `bot` badge (`rounded-xs px-1 py-px text-badge font-medium text-text-secondary shadow-ring`), “commented just now”, and the `surface` label on `sm` |
+| `GhTitle`   | `border-b border-line pb-1.5 text-sm font-semibold text-text`, a markdown `##` as GitHub renders it                                                                                                                                                                                                                                                                           |
+| `GhNote`    | `border-l-[3px] border-accent-solid py-0.5 pl-3 text-text-secondary` with an `Info` icon and “Note” in `text-accent-text`                                                                                                                                                                                                                                                     |
+| `GhCode`    | `rounded-xs bg-surface-raised px-1 py-px font-mono text-meta text-text`                                                                                                                                                                                                                                                                                                       |
+| `GhLabel`   | `font-semibold text-text`                                                                                                                                                                                                                                                                                                                                                     |
+| `GhKvTable` | `w-full border-collapse text-left`, rows `border-b border-line align-top last:border-b-0`, `th` `w-24 py-2 pr-3 font-semibold sm:w-28`, no header row                                                                                                                                                                                                                         |
+| `GhDetails` | `details.disclosure.group` with a `ChevronRight size-3.5` that rotates 90° on open                                                                                                                                                                                                                                                                                            |
+| `GhPill`    | `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium whitespace-nowrap` plus a tone                                                                                                                                                                                                                                                                 |
+| `GhPre`     | `overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-relaxed text-text`                                                                                                                                                                                                                                                                            |
 
 Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-soft text-danger`, `warning` is `bg-warning-soft text-warning`, `neutral` is `bg-surface-raised text-text-secondary shadow-ring`, `accent` is `bg-accent-soft text-accent-text`. The four mocks (`review-summary.tsx`, `description-block.tsx`, `ask-reply.tsx`, `triage-report.tsx`) mirror the real renderers named in their doc comments; keep their structure in step with the output the bot actually posts.
 
 ### Window and wash
 
-`.window` is the mock-up shell: `bg-surface`, `border-radius: var(--radius-md)`, `--shadow-float`, `will-change: transform`. `PrWindow` (`site/components/pr-window.tsx`) adds browser chrome: `border-b border-line bg-surface-raised px-3 py-2`, three `size-2.5 rounded-full bg-line` dots, and a URL pill `tabular rounded-xs bg-surface px-2.5 py-1 text-[11px] text-text-tertiary shadow-ring`. The PR tabs are one `scrollbar-none flex overflow-x-auto` row of `shrink-0 whitespace-nowrap` items, so narrow screens scroll them instead of wrapping; the baseline is `shadow-[inset_0_-1px_0_var(--color-line)]` rather than a border, so the active tab's `border-b-2` paints over it without a negative margin the scroll box would clip. The PR mock is `aria-hidden`; the real examples live in the use-cases tabs.
+`.window` is the mock-up shell: `bg-surface`, `border-radius: var(--radius-md)`, `--shadow-float`, `will-change: transform`. `PrWindow` (`site/components/pr-window.tsx`) adds browser chrome: `border-b border-line bg-surface-raised px-3 py-2`, three `size-2.5 rounded-full bg-line` dots, and a URL pill `tabular rounded-xs bg-surface px-2.5 py-1 text-meta text-text-tertiary shadow-ring`. The PR tabs are one `scrollbar-none flex overflow-x-auto` row of `shrink-0 whitespace-nowrap` items, so narrow screens scroll them instead of wrapping; the baseline is `shadow-[inset_0_-1px_0_var(--color-line)]` rather than a border, so the active tab's `border-b-2` paints over it without a negative margin the scroll box would clip. The PR mock is `aria-hidden`; the real examples live in the use-cases tabs.
 
 `.wash` is the blue panel behind mock-ups:
 
@@ -475,7 +491,7 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 `site/components/use-cases.tsx` is the section the maintainer cares most about. The strip and the panel share one shell, so the strip reads as the top of the card rather than a separate control.
 
 - Shell: `tabs-shell mt-10 sm:mt-12` (`--shadow-card`, `bg-surface-raised`, 8px padding).
-- Strip: `role="tablist"` in `grid grid-cols-2 gap-1 sm:grid-cols-4`. Selected tab is `btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-soft`, the same depth as the panel below it; the rest are `btn btn-ghost tabs-tab h-11 text-[15px] font-normal`. Roving `tabIndex` (`0` on the selected tab, `-1` elsewhere) with ArrowLeft, ArrowRight, Home, and End handled on the list.
+- Strip: `role="tablist"` in `grid grid-cols-2 gap-1 sm:grid-cols-4`. Selected tab is `btn tabs-tab h-11 bg-surface text-ui text-text shadow-soft`, the same depth as the panel below it; the rest are `btn btn-ghost tabs-tab h-11 text-ui font-normal`. Roving `tabIndex` (`0` on the selected tab, `-1` elsewhere) with ArrowLeft, ArrowRight, Home, and End handled on the list.
 - Panel: `tabs-panel grid gap-1.5 lg:h-[39rem] lg:grid-cols-[minmax(0,9fr)_minmax(0,11fr)] lg:overflow-hidden`. The height is fixed at `lg` so switching tabs never moves the page.
 - Copy column: `flex flex-col p-5 sm:p-8 lg:p-10`, plus `motion-safe:animate-panel-in` after a pointer pick, with the command chip, the `h3`, the description, a `divide-y divide-line` bullet list, and a `mt-auto pt-8` button so the CTA sits on the same baseline in every tab.
 - Preview: `wash wash-clouds tabs-media p-4 sm:p-6 lg:p-8`, then a frame at `h-[24rem] [mask-image:linear-gradient(to_bottom,black_78%,transparent_100%)] sm:h-[27rem] lg:absolute lg:inset-8 lg:h-auto`. At `lg` the preview is taken out of flow, so its content can never stretch the row. Inside it, `role="region"` with `aria-label="{tab} example output"` and `tabIndex={0}` is `scrollbar-none h-full overflow-y-auto overscroll-contain rounded-md focus-visible:outline-offset-[-3px]`: long outputs scroll behind the bottom fade with no visible scrollbar.
@@ -485,30 +501,30 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 
 `site/components/capabilities.tsx` lays five of the six capabilities out (`docs-only` stays in `CAPABILITIES` for the markdown page) as `ul mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3`. Copy comes only from `CAPABILITIES` in `content.ts`; the file owns arrangement.
 
-- **Review and verify “loop” card** (`sm:row-span-2`): a `grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4`. A dashed `Rail` (an `absolute left-0 w-10` span with an SVG `line` at `x=20.5`, `strokeDasharray="3 3"`, `text-line`) runs from under the review tile through an 18px info dot (`size-[18px] rounded-full bg-accent-solid text-on-accent` with `Info size-3.5`) beside the 12px subtext “Then, after every push” (`text-xs text-text-tertiary`, both in an `h-20` row), then behind the verify tile, where a `viewBox="0 0 56 160"` path `M20.5 0V126a16 16 0 0 0 16 16H52` bends with a 16px corner into the verify copy. The tiles sit at `relative z-10` so the rail passes behind them. A wrapper span takes the insets because an absolutely positioned SVG keeps its intrinsic height instead of stretching.
-- **Describe and ask cards**: the plain `Card` recipe with an icon tile top-left and a command chip top-right.
+- **Review and verify “loop” card** (`sm:row-span-2`): a `grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4`. A dashed `Rail` (an `absolute left-0 w-10` span with an SVG `line` at `x=20.5`, `strokeDasharray="3 3"`, `text-line`) runs from under the review tile through an 18px info dot (`size-4.5 rounded-full bg-accent-solid text-on-accent` with `Info size-3.5`) beside the 12px subtext “Then, after every push” (`text-xs text-text-tertiary`, both in an `h-20` row), then behind the verify tile, where a `viewBox="0 0 56 160"` path `M20.5 0V126a16 16 0 0 0 16 16H52` bends with a 16px corner into the verify copy. The tiles sit at `relative z-10` so the rail passes behind them. A wrapper span takes the insets because an absolutely positioned SVG keeps its intrinsic height instead of stretching.
+- **Describe and ask cards**: the plain `.card p-6` recipe with an icon tile top-left and a command chip top-right.
 - **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
 
 ### Comparison matrix
 
 `site/components/alternatives.tsx` renders `COMPARISON_CRITERIA` against `ALTERNATIVE_ROWS` twice:
 
-- From `md`, a table in `hidden overflow-hidden rounded-lg bg-surface shadow-card md:block`: `table-fixed`, criteria column `w-[26%]`, brand mark `size-6` over a `text-[13px] font-medium` name in each header, and the PR Agent column tinted `bg-accent-soft/60` in both header and cells.
-- Below `md`, one card per criterion (`rounded-lg bg-surface px-5 pt-5 pb-2 shadow-card`) with `min-h-12` rows, `size-[18px]` marks, and the product row in `font-medium text-text` while the others are `text-text-secondary`, so the comparison stays two columns wide on a phone.
+- From `md`, a table in `hidden overflow-hidden card md:block`: `table-fixed`, criteria column `w-[26%]`, brand mark `size-6` over a `text-label font-medium` name in each header, and the PR Agent column tinted `bg-accent-soft/60` in both header and cells.
+- Below `md`, one card per criterion (`card px-5 pt-5 pb-2`) with `min-h-12` rows, `size-4.5` marks, and the product row in `font-medium text-text` while the others are `text-text-secondary`, so the comparison stays two columns wide on a phone.
 
-Marks always pair an icon with text: “yes” is `Check size-[18px] text-accent-text` with a `sr-only` “Yes”; “partial” is `Minus size-3.5` with a visible “Partial” in `text-xs text-text-secondary`; “no” is `X size-4 text-text-tertiary` with a `sr-only` “No”. The markdown page uses `comparisonMarkLabel` for the same three states.
+Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-text` with a `sr-only` “Yes”; “partial” is `Minus size-3.5` with a visible “Partial” in `text-xs text-text-secondary`; “no” is `X size-4 text-text-tertiary` with a `sr-only` “No”. The markdown page uses `comparisonMarkLabel` for the same three states.
 
 ### FAQ
 
-`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `rounded-lg bg-surface px-5 shadow-card sm:px-6` card. The summary is `group/summary flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`; hovering the question darkens the icon with `group-hover/summary:text-text`. Answers are `max-w-[52ch] pb-5 text-[15px] leading-relaxed text-text-secondary`.
+`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `card px-5 sm:px-6`. The summary is `group/summary flex items-center justify-between gap-6 py-5 text-ui font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`; hovering the question darkens the icon with `group-hover/summary:text-text`. Answers are `max-w-[52ch] pb-5 text-ui leading-relaxed text-text-secondary`.
 
 ### Header and mobile menu
 
-`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-[15px] font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover`.
+`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`.
 
 ### Footer and wordmark
 
-`site/components/footer.tsx` sits straight on the CTA band, with no divider, and holds the logo, a `max-w-xs text-sm` blurb, and a `mt-auto pt-6 flex gap-2` row of social links on the left (the column is `flex flex-col items-start` and stretches to the grid row from `lg`, so the row sits level with the bottom of the longest link column; stacked, `pt-6` keeps it off the blurb), three link columns (`Product`, `Documentation`, `For agents`) on the right, a `text-[13px] text-text-tertiary` legal bar, and the wordmark. Links are `inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text`; agent file links add `font-mono text-[13px]`. Legal bar links are `hit-area rounded-xs`, so their focus ring is rounded and their target reaches 24px. The bar also carries a followable text credit, “Featured on UsefulShelf”, with that same legal-link recipe. The social links come from `SOCIAL_LINKS` (GitHub at `REPO_URL`, X at `X_URL`, LinkedIn at `LINKEDIN_URL`, all in `site/lib/site.ts`): each is an icon-only `size-10 rounded-sm bg-surface-raised text-text-secondary shadow-ring` tile holding a `size-[18px]` mark, with an `aria-label` and a matching `title`, opening in a new tab. Hover lifts to `bg-surface-hover text-text`; press is `active:scale-[0.97]`, with `transition-[color,background-color,scale] duration-[150ms,150ms,200ms] ease-out`.
+`site/components/footer.tsx` sits straight on the CTA band, with no divider, and holds the logo, a `max-w-xs text-sm` blurb, and a `mt-auto pt-6 flex gap-2` row of social links on the left (the column is `flex flex-col items-start` and stretches to the grid row from `lg`, so the row sits level with the bottom of the longest link column; stacked, `pt-6` keeps it off the blurb), three link columns (`Product`, `Documentation`, `For agents`) on the right, a `text-label text-text-tertiary` legal bar, and the wordmark. Links are `inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text`; agent file links add `font-mono text-label`. Legal bar links are `hit-area rounded-xs`, so their focus ring is rounded and their target reaches 24px. The bar also carries a followable text credit, “Featured on UsefulShelf”, with that same legal-link recipe. The social links come from `SOCIAL_LINKS` (GitHub at `REPO_URL`, X at `X_URL`, LinkedIn at `LINKEDIN_URL`, all in `site/lib/site.ts`): each is an icon-only `size-10 rounded-sm bg-surface-raised text-text-secondary shadow-ring` tile holding a `size-4.5` mark, with an `aria-label` and a matching `title`, opening in a new tab. Hover lifts to `bg-surface-hover text-text`; press is `active:scale-[0.97]`, with `transition-[color,background-color,scale] duration-[150ms,150ms,200ms] ease-out`.
 
 The wordmark is the page’s closing note:
 
@@ -546,7 +562,7 @@ The CTA banner (`site/components/cta-banner.tsx`) is a full-bleed band inside th
 
 ### 404
 
-`site/components/not-found.tsx` reuses `Header`, `Eyebrow`, the button pair, a `divide-y divide-line rounded-lg bg-surface px-5 shadow-card sm:px-6` list of `AGENT_RESOURCES`, and `Footer`. The markdown twin is `renderNotFoundMarkdown` in `site/lib/pageMarkdown.ts`.
+`site/components/not-found.tsx` reuses `Header`, `Eyebrow`, the button pair, a `divide-y divide-line card px-5 sm:px-6` list of `AGENT_RESOURCES`, and `Footer`. The markdown twin is `renderNotFoundMarkdown` in `site/lib/pageMarkdown.ts`.
 
 ## Icons and marks
 
@@ -606,7 +622,7 @@ Learned over the design session. Treat these as review criteria for any site cha
 - Merge logos with their text: flat, monochrome, `currentColor`, no tile behind them.
 - Merge the tab strip into its card: one shell, one shadow.
 - Use soft, realistic, layered shadows everywhere depth is needed. Never a border for depth.
-- Reuse `Section`, `SectionHeading`, `Eyebrow`, the `.btn` chassis, the card recipe, the icon tile, and the tokens. A new section built from those already looks right.
+- Reuse `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`, the `.btn` chassis, `.card`, `.chip`, the icon tile, and the tokens. A new section built from those already looks right.
 - Keep the PR Agent look no matter what feature is added: white sheet, blue washes, GitHub mocks, calm spacing.
 
 **Don’t**
@@ -675,7 +691,7 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities     |
 | `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                        |
 | `site/app/index.tsx`                  | Section order                                                                                |
-| `site/components/section.tsx`         | `Section`, `SectionHeading`, `Eyebrow`                                                       |
+| `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                       |
 | `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                       |
 | `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                    |
 | `site/components/header.tsx`          | Sticky header, mobile menu                                                                   |

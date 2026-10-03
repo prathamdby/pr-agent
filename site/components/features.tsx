@@ -1,6 +1,6 @@
 import { ButtonLink } from "@/components/button";
 import { ArrowUpRight, Comment, Gauge, PullRequest, Scan, Server } from "@/components/icons";
-import { Eyebrow, Section } from "@/components/section";
+import { Section, SectionTitle } from "@/components/section";
 import { FEATURES } from "@/lib/content";
 import { DOCS_URL } from "@/lib/site";
 
@@ -11,14 +11,10 @@ export function Features() {
     <Section id="features" labelledBy="features-heading">
       <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
         <div className="lg:sticky lg:top-28 lg:self-start">
-          <Eyebrow>How it works</Eyebrow>
-          <h2
-            id="features-heading"
-            className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
-          >
+          <SectionTitle id="features-heading" eyebrow="How it works">
             How a pull request gets its first pass
-          </h2>
-          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]">
+          </SectionTitle>
+          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-lead">
             One deploy. After that, every pull request follows the same path inside GitHub. No extra
             dashboard, no per-seat bill from PR Agent.
           </p>
@@ -57,10 +53,10 @@ export function Features() {
                   <h3 className="mt-1 text-lg leading-snug font-medium text-text sm:text-xl">
                     {feature.title}
                   </h3>
-                  <p className="mt-2 text-[15px] leading-relaxed text-text-secondary">
+                  <p className="mt-2 text-ui leading-relaxed text-text-secondary">
                     {feature.detail}
                   </p>
-                  <p className="mt-4 inline-flex max-w-full items-center rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs text-text-secondary shadow-ring">
+                  <p className="mt-4 inline-flex max-w-full items-center chip font-mono text-text-secondary">
                     {feature.cue}
                   </p>
                 </div>

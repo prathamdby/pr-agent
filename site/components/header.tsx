@@ -90,7 +90,7 @@ export function Header() {
               height={28}
               className="size-7 shrink-0 rounded-sm outline-none"
             />
-            <span className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+            <span className="truncate text-ui font-semibold tracking-[-0.01em]">
               {PRODUCT_NAME}
             </span>
           </Link>
@@ -154,7 +154,7 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 onClick={closeForNavigation}
-                className="flex h-11 items-center rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
+                className="flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover"
               >
                 {item.label}
               </a>
@@ -164,7 +164,7 @@ export function Header() {
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setOpen(false)}
-              className="flex h-11 items-center gap-2 rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
+              className="flex h-11 items-center gap-2 rounded-sm px-3 text-ui text-text hover:bg-surface-hover"
             >
               <GitHubMark className="size-4" />
               GitHub
