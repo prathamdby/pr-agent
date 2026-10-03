@@ -10,6 +10,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { PromptCacheRetention } from "./promptCachePolicy.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const EMPTY_USAGE: Usage = {
   input: 0,
@@ -36,7 +37,7 @@ export type SessionStream = {
 function failureMessage(
   model: Model<Api>,
   stopReason: "error" | "aborted",
-  errorMessage: string,
+  reason: string,
 ): AssistantMessage {
   return {
     role: "assistant",
@@ -46,7 +47,7 @@ function failureMessage(
     model: model.id,
     usage: EMPTY_USAGE,
     stopReason,
-    errorMessage,
+    errorMessage: reason,
     timestamp: Date.now(),
   };
 }
@@ -56,8 +57,7 @@ function encodeFailureStream(
   stopReason: "error" | "aborted",
   error: unknown,
 ): ReturnType<typeof createAssistantMessageEventStream> {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  const message = failureMessage(model, stopReason, errorMessage);
+  const message = failureMessage(model, stopReason, errorMessage(error));
   const stream = createAssistantMessageEventStream();
   stream.push({ type: "error", reason: stopReason, error: message });
   stream.end(message);

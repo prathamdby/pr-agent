@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   formatReviewQueuePosition,
   initialProgressTickState,
-  parseProgressRevision,
-  parseProgressRevisionState,
   renderReviewCancelledNotice,
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
+import {
+  parseProgressRevision,
+  parseProgressRevisionState,
+  parseReviewMetaFromCommentBody,
+} from "../src/review/run/commentMarkers.js";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_PROGRESS_NOTE,
@@ -25,7 +28,7 @@ import {
   STATUS_NO_FINDINGS,
   STATUS_RUNNING,
   STATUS_WAITING,
-} from "../src/github/statusCopy.js";
+} from "../src/review/statusCopy.js";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {
@@ -378,5 +381,23 @@ describe("progressComment fallback wording", () => {
     expect(
       parseProgressRevisionState("<!-- pr-agent:progress-revision workItemId=%E0%A4%A value=1 -->"),
     ).toBeNull();
+  });
+});
+
+describe("parseReviewMetaFromCommentBody", () => {
+  it("parses headSha, lens, and stale from the review-meta marker", () => {
+    const body = [
+      "## PR Agent Review",
+      "<!-- pr-agent:review-meta headSha=deadbeef lens=security stale=true -->",
+    ].join("\n");
+    expect(parseReviewMetaFromCommentBody(body)).toEqual({
+      headSha: "deadbeef",
+      lens: "security",
+      stale: true,
+    });
+  });
+
+  it("returns null when the marker is missing", () => {
+    expect(parseReviewMetaFromCommentBody("no meta here")).toBeNull();
   });
 });

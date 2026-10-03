@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { AppError } from "../errors/appError.js";
 import {
   applyCiCheckFact,
   classifySnapshot,
@@ -6,9 +7,10 @@ import {
   mergeGithubSnapshotIntoChecks,
   type CiCheckFact,
   type CiRollup,
-} from "../review/ci/classifySnapshot.js";
-import type { CiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+  type CiAuthoredCache,
+  type CiCheckRunSnapshot,
+  type CiLegacyStatus,
+} from "../review/ci/ciFacts.js";
 import {
   CI_STATE_MAX_CHECKS,
   DEFERRED_HEAD_SHA,
@@ -114,7 +116,11 @@ export async function applyPrHeadCiFact(
   );
   const row = locked.rows[0];
   if (row == null) {
-    throw new Error("pr_head_ci_state lock missed after insert");
+    throw new AppError({
+      domain: "ci",
+      kind: "head_state_lock_missed",
+      message: "pr_head_ci_state lock missed after insert",
+    });
   }
   const currentChecks = asCheckMap(row.checks);
   const previousRollup = asRollup(row.rollup);
@@ -363,7 +369,11 @@ export async function seedPrHeadCiStateFromSnapshot(
     );
     const row = locked.rows[0];
     if (row == null) {
-      throw new Error("pr_head_ci_state lock missed after seed insert");
+      throw new AppError({
+        domain: "ci",
+        kind: "head_state_lock_missed",
+        message: "pr_head_ci_state lock missed after seed insert",
+      });
     }
     if (row.seeded_at != null) {
       await client.query("COMMIT");
@@ -402,7 +412,11 @@ export async function seedPrHeadCiStateFromSnapshot(
   }
   const seeded = await loadPrHeadCiState(pool, input.owner, input.repo, input.headSha);
   if (seeded == null) {
-    throw new Error("pr_head_ci_state missing after seed");
+    throw new AppError({
+      domain: "ci",
+      kind: "head_state_missing",
+      message: "pr_head_ci_state missing after seed",
+    });
   }
   return { row: seeded, previousRollup };
 }
@@ -426,10 +440,18 @@ export async function refreshPrHeadCiFromGithubSnapshot(
     );
     const row = locked.rows[0];
     if (row == null) {
-      throw new Error("pr_head_ci_state missing for pending refresh");
+      throw new AppError({
+        domain: "ci",
+        kind: "head_state_missing",
+        message: "pr_head_ci_state missing for pending refresh",
+      });
     }
     if (row.seeded_at == null) {
-      throw new Error("pr_head_ci_state is unseeded for pending refresh");
+      throw new AppError({
+        domain: "ci",
+        kind: "head_state_unseeded",
+        message: "pr_head_ci_state is unseeded for pending refresh",
+      });
     }
     previousRollup = asRollup(row.rollup);
     const merged = mergeLockedGithubSnapshot(row, input, "pending-refresh");
@@ -474,7 +496,11 @@ export async function refreshPrHeadCiFromGithubSnapshot(
   }
   const refreshed = await loadPrHeadCiState(pool, input.owner, input.repo, input.headSha);
   if (refreshed == null) {
-    throw new Error("pr_head_ci_state missing after pending refresh");
+    throw new AppError({
+      domain: "ci",
+      kind: "head_state_missing",
+      message: "pr_head_ci_state missing after pending refresh",
+    });
   }
   return { row: refreshed, previousRollup };
 }
@@ -542,7 +568,11 @@ export async function advancePrHeadCiRevisionForVerificationSignal(
   );
   const row = locked.rows[0];
   if (row == null) {
-    throw new Error("pr_head_ci_state lock missed after verification revision insert");
+    throw new AppError({
+      domain: "ci",
+      kind: "head_state_lock_missed",
+      message: "pr_head_ci_state lock missed after verification revision insert",
+    });
   }
   const currentVersion = Number(row.version);
   if (!input.effective) {

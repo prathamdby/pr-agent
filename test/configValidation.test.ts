@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/errors/appError.js";
-import { ENV } from "../src/settings/index.js";
+import { ENV, type Config } from "../src/settings/index.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
@@ -15,7 +15,7 @@ async function load(extra: Record<string, string>) {
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
   };
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("../src/settings/index.js");
   return loadConfig();
 }
 
@@ -29,25 +29,26 @@ describe("loadConfig validation", () => {
 
   it("applies documented defaults", async () => {
     const cfg = await load({});
-    expect(cfg.port).toBe(3000);
-    expect(cfg.providerPromptTimeoutMs).toBe(300_000);
-    expect(cfg.reviewSpecialistTimeoutMs).toBe(900_000);
-    expect(cfg.piProviderRetryMax).toBe(2);
-    expect(cfg.piProviderMaxRetryDelayMs).toBe(60_000);
-    expect(cfg.queueRetryLimit).toBe(3);
-    expect(cfg.queueHeartbeatSeconds).toBe(60);
-    expect(cfg.shutdownDrainTimeoutSeconds).toBe(25);
-    expect(cfg.retentionEnabled).toBe(true);
-    expect(cfg.logRedact).toBe(true);
-    expect(cfg.role).toBe("web");
-    expect(cfg.logLevel).toBe("info");
-    expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
-    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
-    expect(cfg.askActorMaxOutstanding).toBe(2);
-    expect(cfg.askRepositoryMaxOutstanding).toBe(8);
-    expect(cfg.askInstallationMaxOutstanding).toBe(32);
-    expect(cfg.askProviderBudgetTokens).toBe(0);
-    expect(cfg.askProviderReservationTokens).toBe(16_384);
+    expect(cfg.runtime.port).toBe(3000);
+    expect(cfg.provider.promptTimeoutMs).toBe(300_000);
+    expect(cfg.review.specialistTimeoutMs).toBe(900_000);
+    expect(cfg.provider.retryMax).toBe(2);
+    expect(cfg.provider.maxRetryDelayMs).toBe(60_000);
+    expect(cfg.queue.retryLimit).toBe(3);
+    expect(cfg.queue.heartbeatSeconds).toBe(60);
+    expect(cfg.queue.shutdownDrainTimeoutSeconds).toBe(25);
+    expect(cfg.retention.enabled).toBe(true);
+    expect(cfg.logging.redact).toBe(true);
+    expect(cfg.runtime.role).toBe("web");
+    expect(cfg.logging.level).toBe("info");
+    expect([...cfg.associations.slashAllowed]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect([...cfg.associations.maintainerDecision]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect(cfg.ask.actorMaxOutstanding).toBe(2);
+    expect(cfg.ask.repositoryMaxOutstanding).toBe(8);
+    expect(cfg.ask.installationMaxOutstanding).toBe(32);
+    expect(cfg.ask.providerBudgetTokens).toBe(0);
+    expect(cfg.ask.providerReservationTokens).toBe(16_384);
+    expect(cfg.codeMode.executorKind).toBe("in_process");
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -64,7 +65,7 @@ describe("loadConfig validation", () => {
 
   it("allows zero to disable provider transport retry", async () => {
     const cfg = await load({ PI_PROVIDER_RETRY_MAX: "0" });
-    expect(cfg.piProviderRetryMax).toBe(0);
+    expect(cfg.provider.retryMax).toBe(0);
   });
 
   it("rejects a provider retry delay cap at or above the inactivity cap", async () => {
@@ -93,7 +94,7 @@ describe("loadConfig validation", () => {
 
   it("allows zero for zero-or-positive knobs", async () => {
     const cfg = await load({ QUEUE_RETRY_LIMIT: "0" });
-    expect(cfg.queueRetryLimit).toBe(0);
+    expect(cfg.queue.retryLimit).toBe(0);
   });
 
   it("rejects zero for positive-only knobs", async () => {
@@ -124,13 +125,13 @@ describe("loadConfig validation", () => {
   });
 
   it.each([
-    ["LOG_REDACT", "logRedact"] as const,
-    ["AGENT_EVENTS_ENABLED", "agentEventsEnabled"] as const,
-    ["FINDING_HISTORY_ENABLED", "findingHistoryEnabled"] as const,
-    ["RETENTION_ENABLED", "retentionEnabled"] as const,
+    ["LOG_REDACT", (c: Config) => c.logging.redact] as const,
+    ["AGENT_EVENTS_ENABLED", (c: Config) => c.agentEvents.enabled] as const,
+    ["FINDING_HISTORY_ENABLED", (c: Config) => c.findingHistory.enabled] as const,
+    ["RETENTION_ENABLED", (c: Config) => c.retention.enabled] as const,
   ])("parses boolean knob %s as strict true/false", async (name, field) => {
-    expect((await load({ [name]: "false" }))[field]).toBe(false);
-    expect((await load({ [name]: "true" }))[field]).toBe(true);
+    expect(field(await load({ [name]: "false" }))).toBe(false);
+    expect(field(await load({ [name]: "true" }))).toBe(true);
     await expect(load({ [name]: "1" })).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).code).toBe("config.invalid_enum");
@@ -141,13 +142,13 @@ describe("loadConfig validation", () => {
 
   it("treats empty strict boolean env as the default", async () => {
     const cfg = await load({ LOG_REDACT: "", AGENT_EVENTS_ENABLED: "   " });
-    expect(cfg.logRedact).toBe(true);
-    expect(cfg.agentEventsEnabled).toBe(true);
+    expect(cfg.logging.redact).toBe(true);
+    expect(cfg.agentEvents.enabled).toBe(true);
   });
 
   it("parses LOG_PRETTY with the same strict boolean rules", async () => {
-    expect((await load({ LOG_PRETTY: "false" })).logPretty).toBe(false);
-    expect((await load({ LOG_PRETTY: "true" })).logPretty).toBe(true);
+    expect((await load({ LOG_PRETTY: "false" })).logging.pretty).toBe(false);
+    expect((await load({ LOG_PRETTY: "true" })).logging.pretty).toBe(true);
     await expect(load({ LOG_PRETTY: "yes" })).rejects.toThrow(
       /LOG_PRETTY must be one of true, false/,
     );
@@ -160,13 +161,13 @@ describe("loadConfig validation", () => {
   it("normalizes slash command author associations", async () => {
     const cfg = await load({ SLASH_ALLOWED_ASSOCIATIONS: " owner, collaborator " });
 
-    expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
+    expect([...cfg.associations.slashAllowed]).toEqual(["OWNER", "COLLABORATOR"]);
   });
 
   it("allows slash command association opt-out with star", async () => {
     const cfg = await load({ SLASH_ALLOWED_ASSOCIATIONS: "*" });
 
-    expect([...cfg.slashAllowedAssociations]).toEqual(["*"]);
+    expect([...cfg.associations.slashAllowed]).toEqual(["*"]);
   });
 
   it("rejects unknown slash command author associations", async () => {
@@ -177,7 +178,7 @@ describe("loadConfig validation", () => {
 
   it("normalizes and validates maintainer decision associations without wildcard access", async () => {
     const cfg = await load({ MAINTAINER_DECISION_ASSOCIATIONS: "owner, collaborator" });
-    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
+    expect([...cfg.associations.maintainerDecision]).toEqual(["OWNER", "COLLABORATOR"]);
   });
 
   it.each(["", "   ", "*", "*,OWNER", "OWNER,*", "OWNER,,MEMBER"])(
@@ -198,7 +199,7 @@ describe("loadConfig validation", () => {
 
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
-    expect(cfg.verificationConcurrency).toBe(1);
+    expect(cfg.concurrency.verification).toBe(1);
   });
 
   it("throws config.missing_env with the variable name in context", async () => {
@@ -207,7 +208,7 @@ describe("loadConfig validation", () => {
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     };
     delete process.env[ENV.DATABASE_URL];
-    const { loadConfig } = await import("../src/config.js");
+    const { loadConfig } = await import("../src/settings/index.js");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).code).toBe("config.missing_env");

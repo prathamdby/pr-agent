@@ -1,16 +1,14 @@
 import { Duration, Effect } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
 import { captureWebhookReceived } from "../../analytics/workCompleted.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
-import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
-import { toCiHeadSourceFromCompletedRun } from "../../webhook/payloads/ciHeadSource.js";
-import { isOwnCiCheck, observedAtFromGithub } from "../../review/ci/classifySnapshot.js";
-import { OWN_COMMIT_STATUS_CONTEXT } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
-import { WebhookHandlers } from "../services/webhookHandlers.js";
+import { toIntakeCommand } from "../../webhook/intakeCommand.js";
+import { getAppBotIdentity } from "../../github/appAuth.js";
+import { toError, errorMessage } from "../../errors/errorMessage.js";
 
 function webhookDuplicateReason(
   intakeLog: RequestLogger,
@@ -70,7 +68,7 @@ type DispatchInput = {
 
 function dispatchGithubEventEffect(
   input: DispatchInput,
-): Effect.Effect<DispatchResult, Error, AgentWorkScheduler | WebhookHandlers> {
+): Effect.Effect<DispatchResult, Error, AgentWorkScheduler> {
   return Effect.gen(function* () {
     const { cfg, headers, intakeLog, payload } = input;
     const event = headers.event ?? "";
@@ -87,137 +85,21 @@ function dispatchGithubEventEffect(
         recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
         return { kind: "parse_error" as const, message: e.message };
       }
-      yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
+      yield* Effect.fail(toError(e));
       return { kind: "failed" as const };
     }
 
     const scheduler = yield* AgentWorkScheduler;
-    if (parsed.name === "ignored") {
-      recordEvent(intakeLog, "ignored_event", { event }, "debug");
-      yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`, intakeLog);
-      return { kind: "ok" as const };
+    if (parsed.name === "ignored") recordEvent(intakeLog, "ignored_event", { event }, "debug");
+    let command = toIntakeCommand(cfg, headers, parsed);
+    if (command.kind === "auth_required") {
+      const bot = yield* Effect.tryPromise({ try: () => getAppBotIdentity(cfg), catch: toError });
+      command = toIntakeCommand(cfg, headers, parsed, bot);
     }
-
-    const handlers = yield* WebhookHandlers;
-    switch (parsed.name) {
-      case "pull_request":
-        yield* handlers.pullRequest(cfg, headers, parsed.data, intakeLog);
-        return { kind: "ok" as const };
-      case "pull_request_review":
-      case "workflow_run_started":
-        yield* handlers.reviewApproved(cfg, headers, parsed, intakeLog);
-        return { kind: "ok" as const };
-      case "issue_comment":
-        yield* handlers.issueComment(cfg, headers, parsed.data, intakeLog);
-        return { kind: "ok" as const };
-      case "pull_request_review_comment":
-        yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
-        return { kind: "ok" as const };
-      case "workflow_run":
-        yield* handlers.ciRefresh(
-          headers,
-          toCiHeadSourceFromCompletedRun({
-            installation: parsed.data.installation,
-            repository: parsed.data.repository,
-            run: parsed.data.workflow_run,
-          }),
-          intakeLog,
-        );
-        return { kind: "ok" as const };
-      case "check_suite": {
-        const suite = parsed.data.check_suite;
-        if (
-          isOwnCiCheck(
-            { githubAppId: cfg.githubAppId },
-            { app_id: suite.app?.id ?? null, external_id: null },
-          )
-        ) {
-          yield* scheduler.recordIgnored(headers, "ignored_own_check_suite", intakeLog);
-          return { kind: "ok" as const };
-        }
-        yield* handlers.ciRefresh(
-          headers,
-          toCiHeadSourceFromCompletedRun({
-            installation: parsed.data.installation,
-            repository: parsed.data.repository,
-            run: parsed.data.check_suite,
-          }),
-          intakeLog,
-        );
-        return { kind: "ok" as const };
-      }
-      case "check_run": {
-        const run = parsed.data.check_run;
-        if (
-          isOwnCiCheck(
-            { githubAppId: cfg.githubAppId },
-            { app_id: run.app?.id ?? null, external_id: run.external_id ?? null },
-          )
-        ) {
-          yield* scheduler.recordIgnored(headers, "ignored_own_check_run", intakeLog);
-          return { kind: "ok" as const };
-        }
-        yield* scheduler.submitCiState(
-          headers,
-          {
-            installationId: parsed.data.installation.id,
-            owner: parsed.data.repository.owner.login,
-            repo: parsed.data.repository.name,
-            headSha: run.head_sha,
-            fact: {
-              name: run.name,
-              source: "check_run",
-              status: run.status,
-              conclusion: run.conclusion,
-              url: run.html_url ?? null,
-              external_id: run.external_id ?? null,
-              app_id: run.app?.id ?? null,
-              check_run_id: run.id,
-              observed_at: observedAtFromGithub(run.completed_at, run.started_at),
-            },
-          },
-          intakeLog,
-        );
-        return { kind: "ok" as const };
-      }
-      case "status": {
-        if (parsed.data.context === OWN_COMMIT_STATUS_CONTEXT) {
-          yield* scheduler.recordIgnored(headers, "ignored_own_commit_status", intakeLog);
-          return { kind: "ok" as const };
-        }
-        yield* scheduler.submitCiState(
-          headers,
-          {
-            installationId: parsed.data.installation.id,
-            owner: parsed.data.repository.owner.login,
-            repo: parsed.data.repository.name,
-            headSha: parsed.data.sha,
-            fact: {
-              name: parsed.data.context,
-              source: "status",
-              status: parsed.data.state,
-              conclusion: null,
-              url: parsed.data.target_url ?? null,
-              external_id: null,
-              app_id: null,
-              check_run_id: null,
-              observed_at: observedAtFromGithub(parsed.data.updated_at, parsed.data.created_at),
-            },
-          },
-          intakeLog,
-        );
-        return { kind: "ok" as const };
-      }
-      default:
-        parsed satisfies never;
-        recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");
-        yield* scheduler.recordIgnored(
-          headers,
-          `ignored_unhandled_${event || "missing"}`,
-          intakeLog,
-        );
-        return { kind: "ok" as const };
-    }
+    if (command.kind === "auth_required")
+      return yield* Effect.fail(new Error("Bot identity did not resolve intake authorization"));
+    yield* scheduler.submit(command, intakeLog);
+    return { kind: "ok" as const };
   });
 }
 
@@ -225,7 +107,7 @@ export function processWebhookPostRequestEffect(
   cfg: Config,
   req: WebhookPostRequest,
   intakeLog: RequestLogger,
-): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler | WebhookHandlers> {
+): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler> {
   return Effect.gen(function* () {
     const t0 = Date.now();
     const delivery = req.headers["x-github-delivery"];
@@ -239,7 +121,7 @@ export function processWebhookPostRequestEffect(
     });
 
     const sig = req.headers["x-hub-signature-256"];
-    if (!verifyGithubWebhookSignature(cfg.webhookSecret, req.rawBody, sig)) {
+    if (!verifyGithubWebhookSignature(cfg.webhook.secret, req.rawBody, sig)) {
       recordEvent(intakeLog, "invalid_signature", undefined, "warn");
       const response = {
         status: 401,
@@ -280,7 +162,7 @@ export function processWebhookPostRequestEffect(
       return response;
     }
 
-    const responseBudgetMs = Math.max(1, WEBHOOK_TIMEOUT_MS - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const responseBudgetMs = Math.max(1, cfg.webhook.timeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
       event: githubEvent,
@@ -302,7 +184,7 @@ export function processWebhookPostRequestEffect(
             {
               event: githubEvent,
               delivery: logDelivery,
-              budgetMs: WEBHOOK_TIMEOUT_MS,
+              budgetMs: cfg.webhook.timeoutMs,
               responseBudgetMs,
             },
             "warn",
@@ -312,7 +194,7 @@ export function processWebhookPostRequestEffect(
       ),
       Effect.catch((err) =>
         Effect.sync(() => {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           recordEvent(
             intakeLog,
             "webhook_handler_error",
@@ -426,12 +308,12 @@ export function processWebhookPostRequestEffect(
       webhook: {
         status: 200,
         elapsedMs,
-        budgetExceeded: elapsedMs > WEBHOOK_TIMEOUT_MS,
-        budgetMs: WEBHOOK_TIMEOUT_MS,
+        budgetExceeded: elapsedMs > cfg.webhook.timeoutMs,
+        budgetMs: cfg.webhook.timeoutMs,
         responseBudgetMs,
       },
     });
-    if (elapsedMs > WEBHOOK_TIMEOUT_MS) {
+    if (elapsedMs > cfg.webhook.timeoutMs) {
       recordEvent(
         intakeLog,
         "webhook_timeout_budget_exceeded",
@@ -439,7 +321,7 @@ export function processWebhookPostRequestEffect(
           event: githubEvent,
           delivery: logDelivery,
           ms: elapsedMs,
-          budgetMs: WEBHOOK_TIMEOUT_MS,
+          budgetMs: cfg.webhook.timeoutMs,
         },
         "warn",
       );

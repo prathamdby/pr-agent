@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { makeTestConfig } from "../helpers/config.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -11,13 +12,13 @@ import {
   PR_ACTOR_LEASE_DEFER_SECONDS,
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
-import { acquireAndClaimWorkItem } from "../../src/agentWork/durableJob.js";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
 import {
   beginWorkAttempt,
   claimWorkForExecution,
   getWorkItem,
   markWorkCompleted,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -32,7 +33,6 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
-  MIGRATIONS_DIR_NAME,
   REVIEW_QUEUE,
 } from "../../src/settings/index.js";
 import { installationGroupId, type QueueConfig } from "../../src/agentWork/types.js";
@@ -40,17 +40,19 @@ import { hasDatabase, integrationPool } from "./db.js";
 
 const DATABASE_URL = process.env.DATABASE_URL!;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 const LEASED_QUEUES = [
   "agent-work-review",
@@ -93,7 +95,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
   });
 
@@ -639,7 +643,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
            FROM generate_series(0, 6) AS offsets(slot_offset)`,
         [REVIEW_QUEUE, workItemId],
       );
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, workItemId);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -697,7 +701,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         pool,
         workItemId,
         successor.leaseEpoch,
-        queueConfig.queueRetryLimit + 1,
+        queueConfig.queue.retryLimit + 1,
       );
       expect(admitted.kind).toBe("started");
       const fake = createFakePrSurface({ owner: "lease-it", repo: "r", prNumber: 1 });
@@ -751,7 +755,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       // never parking a held lease on the queued row.
       const coreRow = await pool.query(`SELECT id FROM agent_work_items WHERE id = $1`, [first]);
       expect(coreRow.rowCount).toBe(1);
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, first);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -856,7 +860,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     try {
       // Claim throws after a good acquire inside the real transaction: the
       // pair rolls back, so no partial commit parks a held lease.
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -919,7 +923,8 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       // Intake cancel already terminalized the row; the first attempt throws
       // 40P01, so the retry must re-read the cancelled row, claim-null, and
       // free the just-acquired epoch in-tx.
-      const { getWorkItemCore: getCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore: getCore } =
+        await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       let attempts = 0;
@@ -987,7 +992,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       ]);
 
       const sql = await readFile(
-        path.join(process.cwd(), MIGRATIONS_DIR_NAME, "023_pr_actor_leases.sql"),
+        path.join(process.cwd(), "migrations", "023_pr_actor_leases.sql"),
         "utf8",
       );
       await pool.query(sql);

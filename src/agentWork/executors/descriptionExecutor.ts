@@ -1,50 +1,26 @@
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { createPublishContext } from "../publishOnce.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { recordPublishStep, shouldSkipWork } from "../repository.js";
-import { isPrActorLeaseHeld } from "../prActorLease.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
-import { type DescriptionJobData } from "../types.js";
-import { DESCRIPTION_QUEUE } from "../../settings/index.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
-export async function executeDescriptionJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<DescriptionJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "description",
-    prActorLease: { queue: DESCRIPTION_QUEUE },
-    resolveHeadSha: resolveWorkItemHead,
+type DescriptionDegradationReason = "publish_not_completed";
+
+export function createDescriptionWorkExecution({
+  cfg,
+  pool,
+}: WorkExecutionDependencies): WorkExecution<"description"> {
+  return {
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      await env.beginAttempt();
-      return withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          {
-            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-            headSha,
-            pullRequest: env.pullRequest,
-          },
-          payload,
-        ),
+      return env.withAdmittedRepositoryView(
+        {
+          repositorySizeKb: payload.repositorySizeKb,
+        },
         async (repositoryView) => {
           const result = await runFullPrDescription({
             cfg,
@@ -57,34 +33,23 @@ export async function executeDescriptionJob(
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
             escalation: env.escalation,
-            shouldAbortPublish: async () =>
-              env.signal.aborted ||
-              (await shouldSkipWork(pool, item)) ||
-              (env.leaseEpoch != null &&
-                !(await isPrActorLeaseHeld(pool, item.id, env.leaseEpoch))),
+            shouldAbortPublish: env.shouldAbortPublish,
             recordPublishStep: (detail) =>
-              recordPublishStep(pool, {
+              createPublishContext(pool, {
                 workItemId: item.id,
                 resourceKey: item.resourceKey,
                 reviewLens: DESCRIPTION_PUBLISH_LENS,
                 step: "pr_body",
                 detail,
                 leaseEpoch: env.leaseEpoch,
-              }),
+              }).record(),
             operationIntent: {
               client: pool,
               workItemId: item.id,
               resourceKey: item.resourceKey,
               leaseEpoch: env.leaseEpoch,
             },
-            durability: {
-              pool,
-              workItemId: item.id,
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-            },
+            sessionContext: env.durability,
             signal: env.signal,
           });
           if (!result.published && !result.publishSuperseded) {
@@ -97,35 +62,29 @@ export async function executeDescriptionJob(
               pr: item.prNumber,
               ...classifiedFailureLogFields(failure),
             });
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "degraded",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              degradedReason: "durable_degradation",
-              extras: { source: payload.source, durableDegradation: "publish_not_completed" },
-            });
-            return { kind: "completed", degradation: ["publish_not_completed"] };
+            return {
+              kind: "completed",
+              degradation: [
+                "publish_not_completed",
+              ] satisfies readonly DescriptionDegradationReason[],
+              completion: {
+                kind: "description",
+                outcome: "degraded",
+                source: payload.source,
+                durableDegradation: "publish_not_completed",
+              },
+            };
           }
           if (result.published) {
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "published",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { source: payload.source },
-            });
+            return {
+              kind: "completed",
+              completion: { kind: "description", outcome: "published", source: payload.source },
+            };
           } else if (result.publishSuperseded) {
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "superseded",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { source: payload.source },
-            });
+            return {
+              kind: "completed",
+              completion: { kind: "description", outcome: "superseded", source: payload.source },
+            };
           }
           return { kind: "completed" };
         },
@@ -135,13 +94,13 @@ export async function executeDescriptionJob(
       if (!prSurface) return;
       const payload = item.payload;
       if (payload.source !== "slash") {
-        const body = await prSurface.getPullRequestBody();
-        if (prBodyHasAgentDescriptionBlock(body)) return;
+        const { pullRequest } = await prSurface.getHead();
+        if (prBodyHasAgentDescriptionBlock(pullRequest.body)) return;
       }
       await prSurface.replyAt(
         { kind: "prConversation", prNumber: item.prNumber },
         DESCRIPTION_FAILURE_MESSAGE,
       );
     },
-  });
+  };
 }

@@ -77,7 +77,9 @@ Expired or already-open PRs can recover through `/review`. The additive migratio
 and optional acknowledgement fields preserve queued-job compatibility.
 Deploy web intake first, then acknowledgement workers, and avoid mixed old/new
 intake when relying on one-time approval. Code rollback leaves the table unused.
-Requests already in flight cannot be withdrawn.
+Requests already in flight cannot be withdrawn. Acknowledgement closes cancelled
+review verdicts through `reviewVerdict(...).close`, with the same terminal-only
+rule for null or omitted epochs as projector and sweeper repair.
 
 ## Reversal
 

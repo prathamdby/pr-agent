@@ -13,6 +13,7 @@ import {
   REPO_POLICY_DIRNAME,
   REPO_POLICY_EXTENSION,
 } from "../settings/index.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 const frontmatterSchema = v.looseObject({
   globs: v.optional(v.union([v.string(), v.array(v.string())])),
@@ -235,7 +236,7 @@ export async function loadRepoPolicy(
     if (code === "ENOTDIR") {
       return { kind: "invalid", reason: "not a directory" };
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { kind: "invalid", reason: message };
   }
 
@@ -260,7 +261,7 @@ export async function loadRepoPolicy(
     try {
       raw = await readFile(absolutePath, "utf8");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
       continue;
     }

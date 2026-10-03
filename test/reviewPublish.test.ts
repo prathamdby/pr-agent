@@ -64,12 +64,13 @@ import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
   findIssueCommentBySentinel,
-  findPullRequestReviewByMarker,
   findReviewCheckRunByName,
   listPullRequestLabels,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+import { findPublishedThreadBatch } from "../src/github/prSurfaceHelpers.js";
 
 describe("findIssueCommentBySentinel", () => {
   beforeEach(() => {
@@ -221,38 +222,23 @@ describe("createPullRequestReviewWithComments", () => {
   });
 });
 
-describe("findPullRequestReviewByMarker", () => {
-  beforeEach(() => {
-    listReviews.mockReset();
-    installationOctokit.mockClear();
-  });
-
+describe("findPublishedThreadBatch", () => {
   it("requires the configured app author when recovering a marked review", async () => {
     const marker = "<!-- pr-agent:operation-intent review-marker -->";
-    listReviews.mockResolvedValueOnce({
-      data: [
-        {
-          id: 11,
-          html_url: "https://github.com/o/r/pull/1#pullrequestreview-11",
-          body: marker,
-          commit_id: "sha-1",
-          user: { login: "human-reviewer" },
-        },
-        {
-          id: 12,
-          html_url: "https://github.com/o/r/pull/1#pullrequestreview-12",
-          body: marker,
-          commit_id: "sha-1",
-          user: { login: "pr-agent[bot]" },
-        },
-      ],
+    const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const review = (id: number, authorLogin: string) => ({
+      id,
+      userId: null,
+      authorLogin,
+      body: marker,
+      commitId: "sha-1",
+      htmlUrl: `https://github.com/o/r/pull/1#pullrequestreview-${id}`,
     });
+    controls.setPullRequestReviews([review(11, "human-reviewer"), review(12, "pr-agent[bot]")]);
 
-    await expect(
-      findPullRequestReviewByMarker("tok", "o", "r", 1, marker, "pr-agent[bot]", "sha-1"),
-    ).resolves.toEqual({
-      id: 12,
-      url: "https://github.com/o/r/pull/1#pullrequestreview-12",
+    await expect(findPublishedThreadBatch(surface, marker, "sha-1")).resolves.toEqual({
+      reviewId: 12,
+      reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-12",
     });
   });
 });

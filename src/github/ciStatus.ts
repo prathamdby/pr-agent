@@ -2,14 +2,7 @@ import { isGithubNotFoundError, isMissingActionsPermissionError } from "./action
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
-import type {
-  CiCheckAnnotation,
-  CiCheckRunSnapshot,
-  CiLegacyStatus,
-} from "../review/ci/ciSummaryTypes.js";
-
-const ANNOTATIONS_PAGE_SIZE = 50;
-const ANNOTATIONS_MAX_PAGES = 2;
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
 
 export const isMissingChecksPermissionError = isMissingActionsPermissionError;
 
@@ -61,39 +54,6 @@ export async function listCheckRunsForHead(
         completedAt: run.completed_at ?? null,
       })),
   };
-}
-
-export async function listCheckRunAnnotations(
-  token: string,
-  owner: string,
-  repo: string,
-  checkRunId: number,
-  expiresAtTs?: number,
-): Promise<CiCheckAnnotation[]> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const annotations = await paginateOctokitPages({
-    perPage: ANNOTATIONS_PAGE_SIZE,
-    maxPages: ANNOTATIONS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.checks.listAnnotations({
-        owner,
-        repo,
-        check_run_id: checkRunId,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-
-  return annotations.map((annotation) => ({
-    path: annotation.path,
-    startLine: annotation.start_line ?? null,
-    endLine: annotation.end_line ?? null,
-    title: annotation.title ?? null,
-    message: annotation.message ?? "",
-    annotationLevel: annotation.annotation_level ?? "notice",
-  }));
 }
 
 export async function listPullsForHead(

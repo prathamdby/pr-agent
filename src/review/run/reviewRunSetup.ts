@@ -1,15 +1,14 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Pool } from "pg";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import type { Config } from "../../config.js";
+import { type Config, CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
-import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
+import { buildWorkspaceTools } from "../../agent/tools/workspaceToolset.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
@@ -87,19 +86,23 @@ export function buildReviewRunSetup(params: {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
-    params.workspace.diffIndex ?? createCachedPrDiffIndex();
+    params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
-  const localTools = buildLocalWorkspaceTools(params.workspace, {
+  const localTools = buildWorkspaceTools(params.workspace.reader, {
     pathGate,
     headSha,
     ...(params.workItemId != null
       ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
       : {}),
   });
-  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, { evidenceLedger, headSha });
+  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
+    executorKind: cfg.codeMode.executorKind,
+    evidenceLedger,
+    headSha,
+  });
   const ctx7 = buildContext7Tools({
-    apiKey: cfg.context7ApiKey,
+    apiKey: cfg.context7.apiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
   const codeIndex =

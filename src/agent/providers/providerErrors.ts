@@ -1,4 +1,5 @@
 import { isAppError } from "../../errors/appError.js";
+import type { AppErrorCode } from "../../errors/appErrorCodes.js";
 
 export type ProviderErrorKind =
   | "auth"
@@ -9,7 +10,10 @@ export type ProviderErrorKind =
   | "cancelled"
   | "unknown";
 
-const CANCEL_ABORT_CODES = new Set(["agent.session_aborted", "review.specialist_aborted"]);
+const CANCEL_ABORT_CODES = new Set<AppErrorCode>([
+  "agent.session_aborted",
+  "review.specialist_aborted",
+]);
 
 /** Host-signal or session abort. Not a provider timeout and not retryable. */
 export function isCancelAbortError(error: unknown): boolean {

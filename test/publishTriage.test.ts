@@ -1,3 +1,65 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
@@ -13,8 +75,9 @@ import {
   upsertProgressBody,
 } from "./helpers/publishPrSurface.js";
 
-vi.mock("../src/agentWork/repository.js", () => ({
-  recordPublishStep: vi.fn().mockResolvedValue(undefined),
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  shouldSkipWork: vi.fn(async () => false),
 }));
 
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
@@ -26,13 +89,13 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-import { recordPublishStep } from "../src/agentWork/repository.js";
-import { triagePushOperationKey } from "../src/agentWork/withOperationIntent.js";
+import { triagePushOperationKey } from "../src/agentWork/publishOnce.js";
 import {
   isTriagePushOutcome,
   parseStoredTriagePreviewDetail,
   parseStoredTriagePushDetail,
   publishTriage,
+  recoverTriagePublication,
   publishTriagePreview,
   publishTriageReportOnly,
   type TriagePushOutcome,
@@ -44,7 +107,6 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../src/settings/index.js";
-import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const thread = {
   rootCommentId: 1,
@@ -61,6 +123,7 @@ const secondThread = { ...thread, rootCommentId: 2, titleSnippet: "P2 · Already
 function checkout(push: () => Promise<void>): WritablePrCheckout {
   return {
     dir: "/tmp/checkout",
+    reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
     baseSha: "a".repeat(40),
     commit: vi.fn(),
@@ -75,6 +138,7 @@ function checkout(push: () => Promise<void>): WritablePrCheckout {
 function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
   return {
     dir: "/tmp/checkout",
+    reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
     baseSha: "a".repeat(40),
     commit: vi.fn(),
@@ -217,6 +281,7 @@ describe("publishTriage", () => {
     });
     const raceCheckout: WritablePrCheckout = {
       dir: "/tmp/checkout",
+      reader: createWritableRepositoryReader("/tmp/checkout"),
       headRef: "main",
       baseSha: "a".repeat(40),
       commit,
@@ -229,6 +294,8 @@ describe("publishTriage", () => {
     controls.setPullRequest({
       additions: 1,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 1,
       state: "closed",
       merged: false,
@@ -255,7 +322,7 @@ describe("publishTriage", () => {
     });
 
     expect(commit).toHaveBeenCalledTimes(1);
-    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
     expect(remotePush).not.toHaveBeenCalled();
     expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
     expect(resolveThreadIds(controls)).toHaveLength(0);
@@ -289,6 +356,8 @@ describe("publishTriage", () => {
         controls.setPullRequest({
           additions: 1,
           deletions: 0,
+          title: "",
+          body: null,
           changed_files: 1,
           ...lifecycle,
           head: { sha: "a".repeat(40) },
@@ -296,6 +365,7 @@ describe("publishTriage", () => {
       });
       const raceCheckout: WritablePrCheckout = {
         dir: "/tmp/checkout",
+        reader: createWritableRepositoryReader("/tmp/checkout"),
         headRef: "main",
         baseSha: "a".repeat(40),
         commit: vi.fn(),
@@ -1099,8 +1169,13 @@ describe("publishTriage push outcomes", () => {
   it("resumes a stored push without calling checkout.push", async () => {
     const fake = publishTestPrSurface();
     const push = vi.fn(async () => undefined);
-    const result = await publishTriage({
-      pool: pool(),
+    const result = await recoverTriagePublication({
+      pool: pool({
+        pushOutcome: "pushed",
+        pushedHeadSha: "abcdef123456",
+        payload: { verdicts: [fixedVerdict] },
+        commits: [{ sha: "abcdef123456", subject: "fix: guard user", diff: "+ok\n" }],
+      }),
       workItemId: "wi",
       leaseEpoch: 1,
       resourceKey: "o/r#1",
@@ -1109,13 +1184,11 @@ describe("publishTriage push outcomes", () => {
       owner: "o",
       repo: "r",
       prNumber: 1,
-      headSha: "a".repeat(40),
-      checkout: checkout(push),
+      headSha: "abcdef123456",
+      headRef: "main",
       inventory: [thread],
       resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      payload: { verdicts: [fixedVerdict] },
       previouslyResolvedCount: 0,
-      priorPush: { pushOutcome: "pushed" },
     });
 
     expect(push).not.toHaveBeenCalled();
@@ -1128,8 +1201,13 @@ describe("publishTriage push outcomes", () => {
   it("resumed not-needed does not resolve a fixed thread", async () => {
     const fake = publishTestPrSurface();
     const push = vi.fn(async () => undefined);
-    const result = await publishTriage({
-      pool: pool(),
+    const result = await recoverTriagePublication({
+      pool: pool({
+        pushOutcome: "not-needed",
+        pushedHeadSha: "abcdef123456",
+        payload: { verdicts: [fixedVerdict] },
+        commits: [],
+      }),
       workItemId: "wi",
       leaseEpoch: 1,
       resourceKey: "o/r#1",
@@ -1138,13 +1216,11 @@ describe("publishTriage push outcomes", () => {
       owner: "o",
       repo: "r",
       prNumber: 1,
-      headSha: "a".repeat(40),
-      checkout: emptyCheckout(push),
+      headSha: "abcdef123456",
+      headRef: "main",
       inventory: [thread],
       resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      payload: { verdicts: [fixedVerdict] },
       previouslyResolvedCount: 0,
-      priorPush: { pushOutcome: "not-needed" },
     });
 
     expect(push).not.toHaveBeenCalled();
@@ -1222,18 +1298,24 @@ describe("publishTriage push outcomes", () => {
 
     expect(secondPush).not.toHaveBeenCalled();
     expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
-    expect(memoryOperationIntentStore.get("wi", triagePushOperationKey("o/r#1"))?.status).toBe(
-      "reconciled",
-    );
+    expect(
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool(),
+          "wi",
+          triagePushOperationKey("o/r#1"),
+        )
+      )?.status,
+    ).toBe("reconciled");
   });
 
   it("does not treat an unknown push-intent outcome as a push result", async () => {
-    await memoryOperationIntentStore.persist(pool(), {
+    await publishStoreState.store.persistOperationIntent(pool(), {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
     });
-    await memoryOperationIntentStore.reconcile(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(pool(), {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "outcome_unknown",
@@ -1265,27 +1347,44 @@ describe("publishTriage push outcomes", () => {
   });
 
   it("re-checks PR state after recover reconciles a landed push without calling checkout.push", async () => {
-    await memoryOperationIntentStore.persist(pool(), {
+    await publishStoreState.store.persistOperationIntent(pool(), {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       mutationKind: "github.triage_push",
+      detail: {
+        pushPlan: {
+          pushOutcome: "pushed",
+          baseHeadSha: "a".repeat(40),
+          headRef: "main",
+          pushedHeadSha: "abcdef123456",
+          pushedShas: ["abcdef123456"],
+          commits: [{ sha: "abcdef123456", subject: "fix: guard user", diff: "+ok\n" }],
+          payload: { verdicts: [fixedVerdict] },
+          threadRootCommentIds: [1],
+        },
+      },
     });
-    await memoryOperationIntentStore.reconcile(pool(), {
+    await publishStoreState.store.reconcileOperationIntent(pool(), {
       workItemId: "wi",
       operationKey: triagePushOperationKey("o/r#1"),
       status: "outcome_unknown",
     });
     const push = vi.fn(async () => undefined);
     const fake = publishTestPrSurface();
+    fake.controls.setPullRequestBranchInfo({ headRef: "main", sameRepo: true });
+    fake.controls.setHeadSha("abcdef123456");
     fake.controls.setPushedCommits([{ sha: "abcdef123456", subject: "fix: guard user" }]);
     fake.controls.setPullRequest({
       additions: 1,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 1,
       state: "closed",
       merged: true,
       merged_at: "2026-01-01T00:00:00Z",
-      head: { sha: "a".repeat(40) },
+      head: { sha: "abcdef123456", ref: "main", repo: { full_name: "o/r" } },
+      base: { repo: { full_name: "o/r" } },
     });
 
     const result = await publishTriage({
@@ -1307,9 +1406,15 @@ describe("publishTriage push outcomes", () => {
     });
 
     expect(push).not.toHaveBeenCalled();
-    expect(memoryOperationIntentStore.get("wi", triagePushOperationKey("o/r#1"))?.status).toBe(
-      "reconciled",
-    );
+    expect(
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool(),
+          "wi",
+          triagePushOperationKey("o/r#1"),
+        )
+      )?.status,
+    ).toBe("reconciled");
     expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
     expect(fake.controls.replies).toHaveLength(0);
     expect(resolveThreadIds(fake.controls)).toHaveLength(0);

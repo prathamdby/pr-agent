@@ -40,9 +40,9 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 
 ## Current implementation
 
-- Production routing: [`AgentWorkScheduler.submitSlashCommand`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/ask/askRun.ts) in the worker (thread load in [`askExecutor`](../../src/agentWork/executors/askExecutor.ts)).
-- Mention detection: [`parseBotMention`](../../src/commands/parseBotMention.ts) + webhook handlers.
+- Production routing: [`AgentWorkScheduler.submit`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/ask/askRun.ts) in the worker (thread load in [`askExecutor`](../../src/agentWork/executors/askExecutor.ts)).
+- Mention detection: [`parseBotMention`](../../src/commands/parseBotMention.ts) + [`toIntakeCommand`](../../src/webhook/intakeCommand.ts), with explicitly resolved bot identity.
 
 ## Reversal
 
-Remove mention handling from [`webhookHandlers.ts`](../../src/effect/services/webhookHandlers.ts), drop thread transcript loading from the ask executor, and revert ask prompt/user-content changes.
+Remove mention handling from [`intakeCommand.ts`](../../src/webhook/intakeCommand.ts), drop thread transcript loading from the ask executor, and revert ask prompt/user-content changes.

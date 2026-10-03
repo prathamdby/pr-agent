@@ -8,6 +8,7 @@ import {
   type AgentToolCallContext,
 } from "../providers/interface.js";
 import { toolExecutionMode } from "./toolExecutionMode.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const TERMINAL_SUBMIT_TOOLS: ReadonlySet<string> = new Set([
   "submit_findings_report",
@@ -77,7 +78,8 @@ export function toCoreTool(
           errorMessage: `No executor registered for tool ${tool.name}`,
         });
         throw new AppError({
-          code: "provider.missing_tool_executor",
+          domain: "provider",
+          kind: "missing_tool_executor",
           message: `No executor registered for tool ${tool.name}`,
           context: { toolName: tool.name },
         });
@@ -114,7 +116,7 @@ export function toCoreTool(
           name: tool.name,
           ok: false,
           durationMs: Date.now() - startedAt,
-          errorMessage: error instanceof Error ? error.message : String(error),
+          errorMessage: errorMessage(error),
         });
         throw error;
       }

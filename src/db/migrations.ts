@@ -3,7 +3,11 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { logInfo } from "../evlog.js";
 
-import { MIGRATIONS_DIR_NAME, MIGRATION_ADVISORY_LOCK_KEY } from "../settings/index.js";
+/** Database migrations path (relative to process cwd). */
+const MIGRATIONS_DIR_NAME = "migrations";
+
+/** Stable key for the pg_advisory_lock that serializes runMigrations across processes. */
+const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
 
 const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 

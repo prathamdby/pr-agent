@@ -1,19 +1,17 @@
-import { readFile, stat } from "node:fs/promises";
+import { productionInstallationSurface } from "../agentWork/installationSurface.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
-import { logWarn } from "../evlog.js";
-import { mintInstallationToken } from "../agentWork/durableJob.js";
-import { createPrSurface } from "../github/prSurface.js";
-import { assertWorkspacePath, type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
-import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
-import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
-import { pathAllowedForAsk, type AskPathGate } from "../agent/ask/askSafety.js";
 import {
+  type Config,
   CODE_INDEX_BUILD_QUEUE,
   CODE_INDEX_MAX_CHUNKS_PER_REPO,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
 } from "../settings/index.js";
+import { logWarn } from "../evlog.js";
+import { type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
+import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
+import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
+import { pathAllowedForAsk, type AskPathGate } from "../agent/ask/askSafety.js";
 import { chunkFiles } from "./chunker.js";
 import {
   ensureBuildingSnapshot,
@@ -24,8 +22,7 @@ import {
   type CodeIndexRepoScope,
   waitForReadySnapshot,
 } from "./repository.js";
-
-const BINARY_SAMPLE_BYTES = 8192;
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type CodeIndexBuildJobData = {
   readonly installationId: number;
@@ -49,23 +46,9 @@ function pathAllowedForIndexing(
   pathGate: AskPathGate,
 ): boolean {
   const normalized = path.replace(/\\/g, "/");
-  if (!workspace.isPathInCheckout(normalized)) return false;
+  if (!workspace.reader.isPathInCheckout(normalized)) return false;
   if (!isIndexableSourcePath(normalized)) return false;
   return pathAllowedForAsk(normalized, pathGate);
-}
-
-async function readIndexableWorkspaceFile(
-  workspace: LocalPrWorkspace,
-  path: string,
-): Promise<string | null> {
-  const normalized = path.replace(/\\/g, "/");
-  const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-  const info = await stat(safePath).catch(() => null);
-  if (!info?.isFile() || info.size > LOCAL_WORKSPACE_MAX_FILE_BYTES) return null;
-  const buf = await readFile(safePath).catch(() => null);
-  if (!buf) return null;
-  if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) return null;
-  return buf.toString("utf8");
 }
 
 async function buildCodeIndexFromWorkspace(
@@ -88,9 +71,9 @@ async function buildCodeIndexFromWorkspace(
 
       try {
         const files: Array<{ path: string; content: string }> = [];
-        for (const path of workspace.sortedCheckoutPaths) {
+        for (const path of workspace.reader.sortedCheckoutPaths) {
           if (!pathAllowedForIndexing(path, workspace, pathGate)) continue;
-          const content = await readIndexableWorkspaceFile(workspace, path);
+          const content = await workspace.reader.readSource(path, LOCAL_WORKSPACE_MAX_FILE_BYTES);
           if (content == null) continue;
           files.push({ path, content });
         }
@@ -110,7 +93,7 @@ async function buildCodeIndexFromWorkspace(
         unlockError = error;
         logWarn("code_index_unlock_failed", {
           snapshotId: snapshot.id,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }
@@ -138,7 +121,7 @@ export async function executeCodeIndexBuildJob(
   pool: Pool,
   data: CodeIndexBuildJobData,
 ): Promise<void> {
-  if (cfg.codeIndexMode !== "fts") return;
+  if (cfg.codeIndex.mode !== "fts") return;
 
   const scope: CodeIndexRepoScope = {
     installationId: data.installationId,
@@ -149,8 +132,8 @@ export async function executeCodeIndexBuildJob(
   const existing = await waitForReadySnapshot(pool, scope, 0);
   if (existing) return;
 
-  const installation = await mintInstallationToken(cfg, data.installationId);
-  const prSurface = createPrSurface({
+  const installation = await productionInstallationSurface.token(cfg, data.installationId);
+  const prSurface = await productionInstallationSurface.create({
     cfg,
     installationId: data.installationId,
     owner: data.owner,
@@ -168,7 +151,7 @@ export async function executeCodeIndexBuildJob(
     },
     async (view) => {
       const pathGate = {
-        prChangedPaths: new Set(view.workspace.changedFiles.map((file) => file.path)),
+        prChangedPaths: new Set(view.workspace.reader.changedFiles.map((file) => file.path)),
         addPaths: () => undefined,
       };
       await buildCodeIndexFromWorkspace(pool, scope, view.workspace, pathGate);
@@ -184,7 +167,7 @@ export async function prepareCodeIndexForReview(args: {
   readonly workspace: LocalPrWorkspace;
   readonly pathGate: AskPathGate;
 }): Promise<CodeIndexPrepareResult> {
-  if (args.cfg.codeIndexMode !== "fts") return { available: false };
+  if (args.cfg.codeIndex.mode !== "fts") return { available: false };
 
   const ready = await waitForReadySnapshot(args.pool, args.scope, 0);
   if (ready) return { available: true, snapshotId: ready.id };
@@ -204,7 +187,7 @@ export async function prepareCodeIndexForReview(args: {
       owner: args.scope.owner,
       repo: args.scope.repo,
       headSha: args.scope.headSha,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   });
 
@@ -220,14 +203,14 @@ export async function prepareCodeIndexForReview(args: {
         owner: args.scope.owner,
         repo: args.scope.repo,
         headSha: args.scope.headSha,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     });
   }
 
   await Promise.race([
     buildPromise,
-    new Promise((resolve) => setTimeout(resolve, args.cfg.codeIndexWaitMs)),
+    new Promise((resolve) => setTimeout(resolve, args.cfg.codeIndex.waitMs)),
   ]);
 
   const afterWait = await waitForReadySnapshot(args.pool, args.scope, 0);

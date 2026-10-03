@@ -12,7 +12,7 @@ import {
   transferProgressCommentOwnership,
 } from "./intake/workItemRepository.js";
 import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
-import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
+import { getWorkItem, markQueuedWorkCancelled } from "./workItemStateRepository.js";
 import {
   installationGroupId,
   type ReviewWorkItem,
@@ -22,16 +22,12 @@ import {
   type StaleHeadReplacement,
 } from "./types.js";
 import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.js";
-
-export const STALE_HEAD_PARENT_NOT_RESCHEDULABLE = "agent_work.stale_head_parent_not_reschedulable";
-export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_exhausted";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type StaleReviewRescheduleResult = {
   readonly kind: "rescheduled";
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss) => Promise<void>;
-  /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
-  readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
 };
 
 type ReviewRescheduleWorkItem = {
@@ -40,40 +36,47 @@ type ReviewRescheduleWorkItem = {
 };
 
 export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
-  return isAppError(error) && error.code === STALE_HEAD_PARENT_NOT_RESCHEDULABLE;
+  return isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable";
 }
 
 export function isStaleHeadReplacementExhausted(error: unknown): boolean {
-  return isAppError(error) && error.code === STALE_HEAD_REPLACEMENT_EXHAUSTED;
+  return isAppError(error) && error.code === "review.stale_head_replacement_exhausted";
 }
 
 /** One-shot replacement already consumed; caller should fail with `/review` retry guidance. */
 export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
   return new AppError({
-    code: STALE_HEAD_REPLACEMENT_EXHAUSTED,
+    domain: "review",
+    kind: "stale_head_replacement_exhausted",
     message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
     context: { workItemId: item.id, resourceKey: item.resourceKey },
   });
 }
 
 /**
- * Cancel a pending stale-head replacement, including one that won a concurrent claim.
- * Uses the known replacement id from the reschedule result — no payload re-fetch/re-parse.
- * No-ops when enqueue succeeded in this attempt; queue traffic cannot veto cancellation.
+ * Terminal parent failure: cancel the parent's replacement unless the persisted
+ * marker says its enqueue committed. The attempt that failed may have written the
+ * marker after `parent` was loaded, so the parent is read again. The cancellation
+ * is state-predicated, so a replacement that won a concurrent claim is still
+ * cancelled and queue traffic cannot veto it. Rejects after logging when the
+ * cancellation is unconfirmed.
  */
-export async function cancelUnenqueuedStaleHeadReplacement(
+export async function cancelPendingStaleHeadReplacement(
   pool: Pool,
-  _boss: PgBoss,
   parent: ReviewWorkItem,
-  replacementWorkItemId: string,
   error: unknown,
-  replacementEnqueued: boolean,
 ): Promise<void> {
-  if (replacementEnqueued) return;
+  let replacementWorkItemId: string | undefined;
   try {
+    const current = await getWorkItem(pool, parent.id);
+    const replacement =
+      current?.type === "review" ? current.payload.staleHeadReplacement : undefined;
+    if (!replacement || replacement.state === "enqueued") return;
+    replacementWorkItemId = replacement.replacementWorkItemId;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       throw new AppError({
-        code: "agent_work.replacement_cancel_rejected",
+        domain: "agent_work",
+        kind: "replacement_cancel_rejected",
         message: "Stale-head replacement cancellation was not confirmed.",
         context: { workItemId: parent.id, replacementWorkItemId },
       });
@@ -85,38 +88,12 @@ export async function cancelUnenqueuedStaleHeadReplacement(
         type: "review",
         workItemId: parent.id,
         replacementWorkItemId,
-        message: sanitizeLogMessage(
-          cancelError instanceof Error ? cancelError.message : String(cancelError),
-        ),
+        message: sanitizeLogMessage(errorMessage(cancelError)),
       },
       cancelError,
     );
     throw cancelError;
   }
-}
-
-/**
- * Terminal-failure fallback when no in-attempt `onRescheduleAbort` was registered.
- * An earlier attempt may have stamped a pending-enqueue replacement and inserted a
- * queued row, then crashed before enqueue — the next terminal attempt throws
- * before `execute` returns a reschedule result, so the abort hook never attaches.
- */
-export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-  pool: Pool,
-  boss: PgBoss,
-  parent: ReviewWorkItem,
-  error: unknown,
-): Promise<void> {
-  const replacement = parent.payload.staleHeadReplacement;
-  if (!replacement) return;
-  await cancelUnenqueuedStaleHeadReplacement(
-    pool,
-    boss,
-    parent,
-    replacement.replacementWorkItemId,
-    error,
-    replacement.state === "enqueued",
-  );
 }
 
 export async function buildStaleReviewRescheduleResult(
@@ -125,7 +102,6 @@ export async function buildStaleReviewRescheduleResult(
   leaseEpoch: number,
 ): Promise<StaleReviewRescheduleResult> {
   const replacement = await createReviewRescheduleWorkItem(pool, item, leaseEpoch);
-  let replacementEnqueued = false;
   return {
     kind: "rescheduled",
     replacementWorkItemId: replacement.replacementWorkItemId,
@@ -137,17 +113,6 @@ export async function buildStaleReviewRescheduleResult(
         replacement.replacementWorkItemId,
         replacement.headSha,
         leaseEpoch,
-      );
-      replacementEnqueued = true;
-    },
-    onRescheduleAbort: async (boss, error) => {
-      await cancelUnenqueuedStaleHeadReplacement(
-        pool,
-        boss,
-        item,
-        replacement.replacementWorkItemId,
-        error,
-        replacementEnqueued,
       );
     },
   };
@@ -177,7 +142,8 @@ export async function createReviewRescheduleWorkItem(
     const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
     if (lifecycle?.state === "closed" || lifecycle?.state === "merged") {
       throw new AppError({
-        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        domain: "agent_work",
+        kind: "stale_head_parent_not_reschedulable",
         message: `Pull request is ${lifecycle.state}; stale-head replacement is not permitted`,
         context: { workItemId: item.id, resourceKey: item.resourceKey },
       });
@@ -193,7 +159,8 @@ export async function createReviewRescheduleWorkItem(
     );
     if ((parentLive.rowCount ?? 0) === 0) {
       throw new AppError({
-        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        domain: "agent_work",
+        kind: "stale_head_parent_not_reschedulable",
         message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
         context: { workItemId: item.id },
       });
@@ -231,7 +198,8 @@ export async function createReviewRescheduleWorkItem(
             : undefined;
         if (!persistedId) {
           throw new AppError({
-            code: "agent_work.stale_head_marker_persist_failed",
+            domain: "agent_work",
+            kind: "stale_head_marker_persist_failed",
             message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
             context: { workItemId: item.id },
           });
@@ -323,7 +291,8 @@ async function ensureDeterministicJob(
   if (jobId != null) return;
 
   throw new AppError({
-    code: "agent_work.reschedule_enqueue_failed",
+    domain: "agent_work",
+    kind: "reschedule_enqueue_failed",
     message: `pg-boss did not enqueue missing ${queue} job for stale-head replacement ${workItemId}`,
     context: { queue, workItemId },
   });

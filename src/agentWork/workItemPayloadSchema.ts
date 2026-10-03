@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
-import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
+import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import type {
   AgentWorkItem,
@@ -188,7 +188,8 @@ export class WorkItemPayloadValidationError extends AppError {
 
   constructor(workType: WorkType, message: string) {
     super({
-      code: "agent_work.invalid_payload",
+      domain: "agent_work",
+      kind: "invalid_payload",
       message,
       context: { workType },
     });

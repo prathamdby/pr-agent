@@ -1,31 +1,32 @@
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import {
+  runDelivery,
+  DeliveryTx,
+  type AutomatedPullRequestIntakeOpts,
+  type ReviewApprovalSignal,
+} from "../../src/agentWork/intake/delivery.js";
+import type { Config } from "../../src/settings/index.js";
+import type { RequestLogger } from "../../src/evlog.js";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
-import { WebhookHandlersCore } from "../../src/effect/services/webhookHandlers.js";
 import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import {
-  applyAutomatedPullRequestIntake,
-  applyReviewApprovedIntake,
-} from "../../src/agentWork/intake/applier.js";
-import {
-  applySlashCommandIntake,
+  applySlashCommandIntake as applySlash,
   type SlashCommandInput,
 } from "../../src/agentWork/intake/slashIntake.js";
 import { promoteAskFromWebhookEvent } from "../../src/agentWork/intake/askIntake.js";
-import { insertWebhookEvent } from "../../src/agentWork/intake/webhookEvents.js";
 import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository.js";
 import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
-import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/repository.js";
-import {
-  createReviewRescheduleWorkItem,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-} from "../../src/agentWork/reviewReschedule.js";
+import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import type {
   AckJobData,
@@ -39,12 +40,10 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger, initEvlog } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
-import { executeAskJob } from "../../src/agentWork/executors/askExecutor.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
-import * as prWorkspace from "../../src/prWorkspace/index.js";
-import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 
 vi.mock("../../src/agent/ask/askRun.js", () => ({
@@ -73,7 +72,6 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   REVIEW_SUMMARY_SENTINEL,
 } from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -85,17 +83,19 @@ const ASK_INSTALLATION_ID = 6589001;
 const DATABASE_URL = process.env.DATABASE_URL!;
 const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 function headers(action: string, delivery: string): WebhookHeaders {
   return {
@@ -190,7 +190,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       `${OWNER}-approval-%`,
     ]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss);
   });
@@ -223,6 +225,540 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     ]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     initEvlog("error", { silent: true, suppressDrainWarning: true });
+  });
+
+  it("HTTP timeout waits for actual delivery rollback and publishes no transactional events", async () => {
+    const ref = makePrRef();
+    const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: "auto" } });
+    initEvlog("info", { silent: true, suppressDrainWarning: true });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    let responded = false;
+    vi.spyOn(boss, "send").mockImplementationOnce(async () => {
+      entered = true;
+      await gate;
+      throw new Error("injected pending intake failure");
+    });
+    const delivery = `${OWNER}-approval-${randomUUID()}`;
+    const rawBody = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: ref.installationId },
+        repository: { owner: { login: ref.owner }, name: ref.repo },
+        pull_request: { number: ref.prNumber, head: { sha: ref.headSha } },
+      }),
+    );
+    const log = intakeLog();
+    const result = Effect.runPromise(
+      processWebhookPostRequestEffect(
+        { ...cfg, webhook: { ...cfg.webhook, timeoutMs: 1 } },
+        {
+          rawBody,
+          headers: {
+            "x-github-event": "pull_request",
+            "x-github-delivery": delivery,
+            "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
+          },
+        },
+        log,
+      ).pipe(
+        Effect.provide(Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg))),
+      ),
+    ).then((value) => {
+      responded = true;
+      return value;
+    });
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(responded).toBe(false);
+    } finally {
+      release();
+    }
+    expect(await result).toEqual({ status: 503, body: "service unavailable" });
+    expect(
+      (await pool.query("SELECT id FROM webhook_events WHERE delivery_id = $1", [delivery])).rows,
+    ).toEqual([]);
+    await expect(countReplayRows(rawBody)).resolves.toBe(0);
+    expect(
+      (
+        await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows,
+    ).toEqual([]);
+    expect(log.getContext().events).not.toContainEqual(
+      expect.objectContaining({ event: "agent_work_enqueued" }),
+    );
+  });
+
+  it.each([
+    ["Bot", 7, "MEMBER", "approval", "ignored_bot_slash_command", false],
+    [undefined, 999, "MEMBER", "approval", "ignored_bot_slash_command", true],
+    [undefined, 7, "NONE", "approval", "ignored_unauthorized_slash", true],
+    [undefined, 7, "MEMBER", "auto", "ignored_review_approval_not_enabled", false],
+    [undefined, 7, "MEMBER", "approval", "review_approved", true],
+  ] as const)(
+    "signed PR approval keeps authorization order: %s/%s/%s/%s",
+    async (userType, id, association, mode, decision, authenticates) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: mode } });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        { features: { ...cfg.features, review: "approval" } },
+        { authorTrust: "awaiting_approval" },
+      );
+      const bot = vi
+        .spyOn(appAuth, "getAppBotIdentity")
+        .mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
+      const delivery = `${OWNER}-approval-${randomUUID()}`;
+      const rawBody = Buffer.from(
+        JSON.stringify({
+          action: "submitted",
+          installation: { id: ref.installationId },
+          repository: { owner: { login: ref.owner }, name: ref.repo },
+          pull_request: { number: ref.prNumber, head: { sha: ref.headSha } },
+          review: {
+            id: 99,
+            state: "approved",
+            author_association: association,
+            user: { id, type: userType },
+          },
+        }),
+      );
+      const response = await Effect.runPromise(
+        processWebhookPostRequestEffect(
+          cfg,
+          {
+            rawBody,
+            headers: {
+              "x-github-event": "pull_request_review",
+              "x-github-delivery": delivery,
+              "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
+            },
+          },
+          intakeLog(),
+        ).pipe(
+          Effect.provide(
+            Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg)),
+          ),
+        ),
+      );
+      expect(response).toEqual({ status: 200, body: "ok" });
+      expect(bot).toHaveBeenCalledTimes(authenticates ? 1 : 0);
+      expect(
+        (
+          await pool.query(
+            "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+            [delivery],
+          )
+        ).rows,
+      ).toEqual([{ processing_decision: decision }]);
+      expect(
+        (
+          await pool.query("SELECT state FROM pr_review_approvals WHERE resource_key = $1", [
+            prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          ])
+        ).rows,
+      ).toEqual([{ state: decision === "review_approved" ? "approved" : "awaiting" }]);
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(
+        decision === "review_approved" ? 1 : 0,
+      );
+    },
+  );
+
+  it.each(["check_suite", "check_run", "status"] as const)(
+    "signed CI %s excludes only own provider identity",
+    async (name) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig();
+      for (const own of [false, true]) {
+        const delivery = `${OWNER}-approval-${randomUUID()}`;
+        const common = {
+          installation: { id: ref.installationId },
+          repository: { owner: { login: ref.owner }, name: ref.repo },
+        };
+        const payload =
+          name === "status"
+            ? {
+                ...common,
+                sha: ref.headSha,
+                state: "failure",
+                context: own ? "pr-agent/review" : "Vercel",
+              }
+            : {
+                ...common,
+                action: "completed",
+                [name]: {
+                  id: 77,
+                  head_sha: ref.headSha,
+                  status: "completed",
+                  conclusion: "failure",
+                  name: "PR Agent Review",
+                  app: { id: own ? Number(cfg.github.appId) : Number(cfg.github.appId) + 1 },
+                  pull_requests: [{ number: ref.prNumber, head: { sha: ref.headSha } }],
+                },
+              };
+        const rawBody = Buffer.from(JSON.stringify(payload));
+        const response = await Effect.runPromise(
+          processWebhookPostRequestEffect(
+            cfg,
+            {
+              rawBody,
+              headers: {
+                "x-github-event": name,
+                "x-github-delivery": delivery,
+                "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
+              },
+            },
+            intakeLog(),
+          ).pipe(
+            Effect.provide(
+              Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg)),
+            ),
+          ),
+        );
+        expect(response).toEqual({ status: 200, body: "ok" });
+        expect(
+          (
+            await pool.query(
+              "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+              [delivery],
+            )
+          ).rows,
+        ).toEqual([
+          {
+            processing_decision: own
+              ? name === "status"
+                ? "ignored_own_commit_status"
+                : `ignored_own_${name}`
+              : name === "check_suite"
+                ? "ci_projection_enqueued"
+                : "ci_state_applied",
+          },
+        ]);
+      }
+    },
+  );
+
+  it.each(["closed", "merged"] as const)(
+    "close %s commits mixed review/triage cancellation and running-primary acknowledgement",
+    async (state) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "auto", triage: "manual" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+      );
+      const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      const runningId = (
+        await pool.query(
+          "SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'review'",
+          [key],
+        )
+      ).rows[0].id;
+      await pool.query("UPDATE agent_work_items SET status = 'running' WHERE id = $1", [runningId]);
+      await runDelivery(
+        pool,
+        boss,
+        cfg,
+        {
+          kind: "slash",
+          input: {
+            ...ref,
+            headers: headers("review", randomUUID()),
+            command: "review",
+            body: "/review",
+            commentId: 100,
+            commenterId: 7,
+            replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+          },
+        },
+        intakeLog(),
+      );
+      await runDelivery(
+        pool,
+        boss,
+        cfg,
+        {
+          kind: "slash",
+          input: {
+            ...ref,
+            headers: headers("triage", randomUUID()),
+            command: "triage",
+            body: "/triage",
+            commentId: 101,
+            commenterId: 7,
+            replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+          },
+        },
+        intakeLog(),
+      );
+      const triageId = (
+        await pool.query(
+          "SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'triage'",
+          [key],
+        )
+      ).rows[0].id;
+      const h = headers("closed", randomUUID());
+      await applyAutomatedPullRequestIntake(boss, pool, h, ref, "closed", intakeLog(), cfg, {
+        lifecycle: { state, observedAt: "2026-10-01T00:00:01Z" },
+      });
+      const acks = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+        (job) => job.data.delivery === h.delivery,
+      );
+      expect(acks).toHaveLength(1);
+      expect(acks[0].data.cancelProgress).toMatchObject({
+        workItemId: runningId,
+        attribution: { kind: state },
+      });
+      expect(acks[0].data.cancelProgress?.cancelledWorkItemIds).toHaveLength(2);
+      expect(acks[0].data.cancelTriage).toMatchObject({
+        workItemId: triageId,
+        attribution: { kind: state },
+        targets: [
+          { kind: "pr", prNumber: ref.prNumber },
+          { kind: "issueComment", commentId: 101 },
+        ],
+        replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+      });
+      expect(
+        (await pool.query("SELECT status FROM agent_work_items WHERE resource_key = $1", [key]))
+          .rows,
+      ).toEqual([{ status: "cancelled" }, { status: "cancelled" }, { status: "cancelled" }]);
+      await applyAutomatedPullRequestIntake(boss, pool, h, ref, "closed", intakeLog(), cfg, {
+        lifecycle: { state, observedAt: "2026-10-01T00:00:01Z" },
+      });
+      expect(
+        (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+          (job) => job.data.delivery === h.delivery,
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["/cc looks good", "cc", "Unknown command `/cc`. Run `/help` for available commands."],
+    [
+      "/review-security",
+      "review-security",
+      "Unknown command `/review-security`. Run `/help` for available commands.",
+    ],
+    ["/cancel", "cancel", "No review is queued or in progress for this pull request."],
+    ["/triage nonsense", "triage", "unknown"],
+    ["/triage all exclude nope", "triage", "exclude"],
+  ])("publishes durable slash acknowledgement: %s", async (body, command, expected) => {
+    const ref = makePrRef();
+    const h = headers(command, randomUUID());
+    await runDelivery(
+      pool,
+      boss,
+      intakeCfg,
+      {
+        kind: "slash",
+        input: {
+          ...ref,
+          headers: h,
+          command,
+          body,
+          commentId: 99,
+          commenterId: 7,
+          replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+        },
+      },
+      intakeLog(),
+    );
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === h.delivery,
+    )!.data;
+    const settings = await import("../../src/settings/index.js");
+    const expectedBody =
+      expected === "unknown"
+        ? settings.TRIAGE_UNKNOWN_SUBCOMMAND
+        : expected === "exclude"
+          ? settings.TRIAGE_INVALID_EXCLUDE
+          : command === "cancel"
+            ? "No review is queued or in progress for this pull request."
+            : expected;
+    expect(ack.reply).toEqual({
+      target: { kind: "prConversation", prNumber: ref.prNumber },
+      body: expectedBody,
+    });
+    expect(
+      (
+        await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("keeps the complete durable help response", async () => {
+    const ref = makePrRef();
+    const h = headers("help", randomUUID());
+    await runDelivery(
+      pool,
+      boss,
+      intakeCfg,
+      {
+        kind: "slash",
+        input: {
+          ...ref,
+          headers: h,
+          command: "help",
+          body: "/help",
+          commentId: 99,
+          commenterId: 7,
+          replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+        },
+      },
+      intakeLog(),
+    );
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === h.delivery,
+    )!;
+    expect(ack.priority).toBe(100);
+    expect(ack.data.reply?.body).toBe(
+      [
+        "### PR Agent help",
+        "",
+        "Commands (first line of a **new** comment):",
+        "- `/help` - show this message",
+        "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+        "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+        "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+        "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+        "- `/cancel` - cancel a queued or in-progress review on this PR",
+        "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+        "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+        "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+        "- `/verify` - verify open findings against the current pull request head",
+        "",
+        "Notes:",
+        "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
+        "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+        "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
+        "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+        "- Edited comments are ignored for slash parsing in v1.",
+      ].join("\n"),
+    );
+  });
+
+  it.each(["/triage", "/triage preview", "/triage all exclude 55 66"])(
+    "persists triage mode, scope, exclusions and matching queue: %s",
+    async (body) => {
+      const ref = makePrRef();
+      const h = headers("triage", randomUUID());
+      await runDelivery(
+        pool,
+        boss,
+        intakeCfg,
+        {
+          kind: "slash",
+          input: {
+            ...ref,
+            headers: h,
+            command: "triage",
+            body,
+            commentId: 99,
+            commenterId: 7,
+            triageScope: "thread",
+            threadAnchorCommentId: 98,
+            needsThreadRootResolution: true,
+            replyTarget: {
+              kind: "inlineReviewThread",
+              prNumber: ref.prNumber,
+              inReplyToCommentId: 98,
+            },
+          },
+        },
+        intakeLog(),
+      );
+      const row = (
+        await pool.query("SELECT id, payload FROM agent_work_items WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows[0];
+      expect(row.payload).toMatchObject({
+        scope: body.includes("all") ? "all" : "thread",
+
+        threadAnchorCommentId: 98,
+        needsThreadRootResolution: true,
+      });
+      expect(row.payload.mode ?? "apply").toBe(
+        body.includes("all") ? "bulk" : body.includes("preview") ? "preview" : "apply",
+      );
+      if (body.includes("all")) expect(row.payload.excludeThreadRootCommentIds).toEqual([55, 66]);
+      expect(
+        (
+          await boss.findJobs<import("../../src/agentWork/types.js").TriageJobData>(
+            (await import("../../src/settings/index.js")).TRIAGE_QUEUE,
+            {},
+          )
+        ).filter((job) => job.data.workItemId === row.id),
+      ).toHaveLength(1);
+      const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+        (job) => job.data.delivery === h.delivery,
+      )!;
+      expect(ack.data.workItemId).toBe(row.id);
+    },
+  );
+
+  it("selects the final automated decision at insertion after retained close", async () => {
+    const ref = makePrRef();
+    const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: "auto" } });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("closed", randomUUID()),
+      ref,
+      "closed",
+      intakeLog(),
+      cfg,
+      { lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:01Z" } },
+    );
+    await pool.query(`CREATE FUNCTION m11_no_decision_patch() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF OLD.event_name = 'intake-tx-it' THEN RAISE EXCEPTION 'decision must be final at insertion'; END IF; RETURN NEW; END $$`);
+    await pool.query(
+      "CREATE TRIGGER m11_no_decision_patch BEFORE UPDATE ON webhook_events FOR EACH ROW EXECUTE FUNCTION m11_no_decision_patch()",
+    );
+    const incoming = headers("opened", randomUUID());
+    try {
+      await applyAutomatedPullRequestIntake(boss, pool, incoming, ref, "opened", intakeLog(), cfg);
+      expect(
+        (
+          await pool.query(
+            "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+            [incoming.delivery],
+          )
+        ).rows,
+      ).toEqual([{ processing_decision: "ignored_review_pr_closed" }]);
+      expect(
+        (
+          await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+            prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          ])
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await pool.query("DROP TRIGGER m11_no_decision_patch ON webhook_events");
+      await pool.query("DROP FUNCTION m11_no_decision_patch()");
+    }
   });
 
   it.each([
@@ -348,7 +884,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         "SELECT work_item_id FROM ask_quota_reservations WHERE work_item_id = ANY($1::uuid[])",
         [[...ids]],
       );
-      clearDurableAuthCachesForTest();
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "synthetic-ask-token",
         expiresAtTs: Date.now() + 60_000,
@@ -379,7 +914,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         return replyAt(replyTarget, body);
       });
       const executions = jobs.map((job) =>
-        executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal }),
+        createWorkDefinitions({
+          cfg: intakeCfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).ask.dispatch({ ...job, signal: new AbortController().signal }),
       );
       for (const execution of executions) void execution.catch(() => undefined);
       try {
@@ -409,7 +949,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         [items.rows[0].id],
       );
       expect(intents.rows).toEqual([{ status: "reconciled" }]);
-      await executeAskJob(intakeCfg, pool, boss, {
+      await createWorkDefinitions({
+        cfg: intakeCfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).ask.dispatch({
         ...jobs[0],
         signal: new AbortController().signal,
       });
@@ -454,7 +999,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ids.has(job.data.workItemId),
     );
     expect(jobs).toHaveLength(2);
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "synthetic-ask-token",
       expiresAtTs: Date.now() + 60_000,
@@ -474,7 +1018,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       }),
     );
     for (const job of jobs) {
-      await executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal });
+      await createWorkDefinitions({
+        cfg: intakeCfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).ask.dispatch({ ...job, signal: new AbortController().signal });
     }
     expect(fake.controls.replies).toHaveLength(2);
     expect(fake.controls.replies.every((reply) => reply.target.kind === "inlineReviewThread")).toBe(
@@ -522,9 +1071,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const base = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
     const quota = {
       ...defaultAskQuotaConfig(),
-      askActorMaxOutstanding: 8,
-      askRepositoryMaxOutstanding: 8,
-      askInstallationMaxOutstanding: 8,
+      actorMaxOutstanding: 8,
+      repositoryMaxOutstanding: 8,
+      installationMaxOutstanding: 8,
     };
     const variants = [
       base,
@@ -699,7 +1248,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ids.has(job.data.workItemId),
     );
     expect(jobs).toHaveLength(1);
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "synthetic-ask-token",
       expiresAtTs: Date.now() + 60_000,
@@ -729,7 +1277,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       await publishGate;
       return replyAt(replyTarget, body);
     });
-    const execution = executeAskJob(intakeCfg, pool, boss, {
+    const execution = createWorkDefinitions({
+      cfg: intakeCfg,
+      pool: pool,
+      boss: boss,
+      installationSurface: openInstallationSurface(),
+    }).ask.dispatch({
       ...jobs[0],
       signal: new AbortController().signal,
     });
@@ -1291,7 +1844,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         if (order === "replacement-first") await insertion;
         else {
           await expect(insertion).rejects.toMatchObject({
-            code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+            code: "agent_work.stale_head_parent_not_reschedulable",
           });
           const persisted = await getWorkItem(pool, parent.id);
           if (persisted?.type !== "review") throw new Error("expected review parent");
@@ -2003,7 +2556,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       expect(ack.progress).toMatchObject({ lens: "review", source: "slash" });
       if (order === "auto-first") {
         expect(ack.cancelProgress?.cancelledWorkItemIds).toEqual([auto.id]);
-        expect(ack.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
+        expect(ack.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
+        );
       } else {
         expect(ack.cancelProgress).toBeUndefined();
         expect(ack.reply).toBeUndefined();
@@ -2543,7 +3098,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         { authorTrust: "awaiting_approval" },
       );
       const scheduler = Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg));
-      const runtime = Layer.mergeAll(scheduler, WebhookHandlersCore.pipe(Layer.provide(scheduler)));
+      const runtime = scheduler;
       for (const [action, event] of [
         ["completed", "pull_request"],
         ["in_progress", "push"],
@@ -2566,7 +3121,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           }),
         );
         const delivery = `${OWNER}-approval-${randomUUID()}`;
-        const signature = `sha256=${createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
+        const signature = `sha256=${createHmac("sha256", cfg.webhook.secret).update(body).digest("hex")}`;
         const response = await Effect.runPromise(
           processWebhookPostRequestEffect(
             cfg,
@@ -2736,7 +3291,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const notice = noticeJobs.find((job) => job.data.awaitingApproval)!.data;
     expect(notice.targets).toEqual([]);
     expect(notice.workItemId).toBeUndefined();
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "test-token",
       expiresAtTs: Date.now() + 3_600_000,
@@ -2998,7 +3552,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         intakeLog(),
       );
       await expect(countWorkItems()).resolves.toBe(0);
-      clearDurableAuthCachesForTest();
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "test-token",
         expiresAtTs: Date.now() + 3_600_000,
@@ -3055,3 +3608,52 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   );
 });
+
+function applyAutomatedPullRequestIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  ref: PrRef,
+  action: string,
+  log: RequestLogger,
+  cfg: Pick<Config, "features">,
+  opts?: AutomatedPullRequestIntakeOpts,
+) {
+  return runDelivery(pool, boss, cfg, { kind: "pull_request", headers, ref, action, opts }, log);
+}
+function applyReviewApprovedIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  signal: ReviewApprovalSignal,
+  log: RequestLogger,
+) {
+  return runDelivery(
+    pool,
+    boss,
+    { features: makeTestConfig().features },
+    { kind: "review_approved", headers, signal },
+    log,
+  );
+}
+function insertWebhookEvent(
+  client: import("pg").PoolClient,
+  headers: WebhookHeaders,
+  decision: string,
+) {
+  return new DeliveryTx(client, headers).insert(decision);
+}
+
+function applySlashCommandIntake(
+  boss: PgBoss,
+  client: import("pg").PoolClient,
+  input: SlashCommandInput,
+  features: import("../../src/settings/index.js").Features,
+  askQuota?: import("../../src/agentWork/askQuota.js").AskQuotaConfig,
+) {
+  const tx = new DeliveryTx(client, input.headers);
+  return applySlash(boss, tx, input, features, askQuota).then((events) => [
+    ...tx.events,
+    ...events,
+  ]);
+}

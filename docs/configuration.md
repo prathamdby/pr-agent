@@ -2,22 +2,22 @@
 
 Deployment wiring (infra) and operator tuning (ops) for **pr-agent**. The
 user-facing settings are the eight `FEATURE_*` vars — see
-[features.md](features.md); they are not repeated here. Code defaults live in
+[features.md](features.md); they are not repeated here. Shared code defaults live in
 [`src/settings/`](../src/settings/); env vars are loaded in
-[`src/config.ts`](../src/config.ts).
+[`src/settings/config.ts`](../src/settings/config.ts), which composes the slice readers under `src/settings/slices/`.
 
 For behaviour, deployment, and developer scripts see [operations.md](operations.md). Agent index: [AGENTS.md](../AGENTS.md).
 
 ## How to change something
 
-| Kind         | Where to edit                                                                                                                                                                                      |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md)                                                                                                                     |
-| **env**      | `.env` / deployment env → keys below. Defaults live in `src/settings/defaults.ts`, plus ask-quota and code-index defaults there, and `LOG_PRETTY` in `src/config.ts` (`NODE_ENV !== "production"`) |
-| **code**     | `src/settings/constants.ts`                                                                                                                                                                        |
-| **external** | Provider env; loaded into config but never logged                                                                                                                                                  |
+| Kind         | Where to edit                                                                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md)                                                                                                                                      |
+| **env**      | `.env` / deployment env → keys below. Defaults live in `src/settings/defaults.ts`, plus ask-quota and code-index defaults there, and `LOG_PRETTY` in `src/settings/slices/service.ts` (`NODE_ENV !== "production"`) |
+| **code**     | `src/settings/constants.ts`                                                                                                                                                                                         |
+| **external** | Provider env; loaded into config but never logged                                                                                                                                                                   |
 
-Import convention: `import { … } from "../settings/index.js"` for constants; `Config` from `config.ts` at runtime.
+Import convention: `import { … } from "../settings/index.js"` for shared constants; `Config` from `config.ts` at runtime. Single-owner slash replies are private to `src/agentWork/intake/slashIntake.ts`; migration constants are private to `src/db/migrations.ts`.
 
 ### When you change a knob
 
@@ -28,7 +28,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
 | Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
 
-Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
+Do not add magic numbers or duplicate env defaults in feature modules. Shared settings come from `src/settings/`; named constants with one production owner stay private to that module.
 
 CI enforces env alignment via `test/settingsInventory.test.ts` (including that every `FEATURE_*` key appears in `docs/features.md`). Loadable env names are `ENV` plus `EXTERNAL_ENV` in [`src/settings/envKeys.ts`](../src/settings/envKeys.ts), plus provider secrets Pi reads from `process.env` (`DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and others documented in [README.md](../README.md)). `docs/configuration.md` code-constant rows are maintained on the honor system. A backtick `SCREAMING_NAME` in a code-constant row is not an env var unless its Kind column says **env**.
 
@@ -53,8 +53,6 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Thinking ceiling                  | `PI_THINKING_CEILING`                    | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                                                                                                                                                                                                                    |
 | Provider transport retries        | `PI_PROVIDER_RETRY_MAX`                  | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not Core turn retry after a retryable assistant error (`SESSION_TURN_RETRY_MAX`)                                                                                                                         |
 | Provider retry delay cap          | `PI_PROVIDER_MAX_RETRY_DELAY_MS`         | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                                                                                                         |
-| Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots. `loadConfig` only trims. Format is checked at first persist or load (`decodeMasterKey`). A bad string throws `runtime.resume_snapshot_key_invalid` then, not at boot. Empty or whitespace disables snapshots.                                                               |
-| Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                                                                                                                                                                                                            |
 | Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                               |
 | Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `2592000`                | TTL delete for `agent_events` by `recorded_at` (30d, same as work retention). `0` keeps rows forever. Work-item deletion still sets `work_item_id` null.                                                                                                                                                                             |
 | Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                   |
@@ -129,7 +127,7 @@ Inspection and rollout:
 
 ### Project `models.json` (optional Pi catalog)
 
-`loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
+`loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/agent/runtime/modelsJsonCatalog.ts`](../src/agent/runtime/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 
@@ -164,7 +162,7 @@ Pi reference (upstream `earendil-works/pi`):
 - Built-in provider catalog code: [packages/ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
 - Provider extensions (`registerProvider`, OAuth flows): [packages/coding-agent/docs/custom-provider.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/custom-provider.md). Those are code extensions, not catalog entries, so they do not apply to the `models.json` below.
 
-Base provider fields (parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)):
+Base provider fields (parsed in [`src/agent/runtime/modelsJsonCatalog.ts`](../src/agent/runtime/modelsJsonCatalog.ts)):
 
 | Field        | Required | Notes                                                                                                                              |
 | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -353,7 +351,7 @@ and defaults are unchanged. There is no separate unknown-resolution knob.
 
 Concurrent attempts to finish a review keep the first verdict, including acknowledgement and recovery. No new setting is required. A disabled commit status or an empty/deferred head needs no status write.
 
-Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. When `FEATURE_COMMIT_STATUS` is on, the same start posts `pr-agent/review` as `pending`. A remote run belongs to `(owner, repo, head SHA, name, external ID)`, where the external ID is the requesting work-item ID. Duplicate recovery adopts a run only when the provider returns exactly one run with that full identity. Every terminal path closes both surfaces through `closeOwnVerdict`. Full-coverage runs complete the check with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes the check as `neutral` and the commit status as `error`. Cancel, supersede, and stale-head reschedule complete the check as `cancelled` and the commit status as `error`. Crash and unpublished runs complete the check as `action_required` and the commit status as `error`. Commit status keys are per state (`review:commit_status:<resource>:<head>:<state>`). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
+Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. When `FEATURE_COMMIT_STATUS` is on, the same start posts `pr-agent/review` as `pending`. A remote run belongs to `(owner, repo, head SHA, name, external ID)`, where the external ID is the requesting work-item ID. Duplicate recovery adopts a run only when the provider returns exactly one run with that full identity. Every terminal path closes both surfaces through `reviewVerdict(...).close`. Full-coverage runs complete the check with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes the check as `neutral` and the commit status as `error`. Cancel, supersede, and stale-head reschedule complete the check as `cancelled` and the commit status as `error`. Crash and unpublished runs complete the check as `action_required` and the commit status as `error`. Commit status keys are per state (`review:commit_status:<resource>:<head>:<state>`). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
 
 Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
 
@@ -615,35 +613,35 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5          |
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6        |
 
-Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-grep stdout and the tool `maxResults` after parse. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
+Pinned and writable triage searches share `repositoryReader.ts`. Both apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-grep stdout at the process buffer and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
 
 ### Code Mode
 
-| Symbol                                 | Default                                                                                                  |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `CODE_MODE_INTERRUPT_CHECKS`           | 50000                                                                                                    |
-| `CODE_MODE_CPU_BUDGET_MS`              | 80                                                                                                       |
-| `CODE_MODE_MAX_TOOL_CALLS`             | 25                                                                                                       |
-| `CODE_MODE_HOST_IN_FLIGHT`             | 4                                                                                                        |
-| `CODE_MODE_TIMEOUT_MS`                 | 15000                                                                                                    |
-| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8                                                                                                        |
-| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100                                                                                                      |
-| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768                                                                                                    |
-| `CODE_MODE_MAX_STRING_REPEAT`          | 65536                                                                                                    |
-| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536                                                                                                    |
-| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536                                                                                                    |
-| `CODE_MODE_STATE_MAX_BYTES`            | 65536                                                                                                    |
-| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144                                                                                                   |
-| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144                                                                                                   |
-| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608                                                                                                  |
-| `CODE_MODE_GUEST_STACK_BYTES`          | 524288                                                                                                   |
-| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64                                                                                                       |
-| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2                                                                                                        |
-| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8                                                                                                        |
-| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000                                                                                                    |
-| `CODE_MODE_EXECUTOR_KINDS`             | `worker_threads` \| `in_process`. `resolveCodeModeExecutorKind()` in `src/settings/codeModeConstants.ts` |
+| Symbol                                 | Default                                                                                             |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `CODE_MODE_INTERRUPT_CHECKS`           | 50000                                                                                               |
+| `CODE_MODE_CPU_BUDGET_MS`              | 80                                                                                                  |
+| `CODE_MODE_MAX_TOOL_CALLS`             | 25                                                                                                  |
+| `CODE_MODE_HOST_IN_FLIGHT`             | 4                                                                                                   |
+| `CODE_MODE_TIMEOUT_MS`                 | 15000                                                                                               |
+| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8                                                                                                   |
+| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100                                                                                                 |
+| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768                                                                                               |
+| `CODE_MODE_MAX_STRING_REPEAT`          | 65536                                                                                               |
+| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536                                                                                               |
+| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536                                                                                               |
+| `CODE_MODE_STATE_MAX_BYTES`            | 65536                                                                                               |
+| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144                                                                                              |
+| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144                                                                                              |
+| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608                                                                                             |
+| `CODE_MODE_GUEST_STACK_BYTES`          | 524288                                                                                              |
+| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64                                                                                                  |
+| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2                                                                                                   |
+| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8                                                                                                   |
+| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000                                                                                               |
+| `CODE_MODE_EXECUTOR_KINDS`             | `worker_threads` \| `in_process`. `Config.codeMode.executorKind` (`src/settings/slices/service.ts`) |
 
-Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `resolveCodeModeExecutorKind()` is `worker_threads` for compiled production and `in_process` for Vitest and TypeScript sources. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `Config.codeMode.executorKind` is `worker_threads` for compiled production and `in_process` for TypeScript sources (Vitest, dev); callers pass it down as a parameter. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 
 ### Code index (optional FTS hints)
 
@@ -686,6 +684,10 @@ limits do not change the pool defaults below or add an environment setting.
 
 ### Other
 
+The `SLASH_*` rows below live in `src/agentWork/intake/slashIntake.ts`.
+The `MIGRATIONS_DIR_NAME` and `MIGRATION_ADVISORY_LOCK_KEY` rows live in
+`src/db/migrations.ts`. Both are private owner settings, not barrel exports.
+
 | Symbol                                              | Role                                                          |
 | --------------------------------------------------- | ------------------------------------------------------------- |
 | `CONTEXT7_BASE_URL`                                 | Context7 API                                                  |
@@ -712,3 +714,10 @@ limits do not change the pool defaults below or add an environment setting.
 Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
 
 Private specialist orchestration constants (not exported from `src/settings/`): `INITIAL_JITTER_MAX_MS` (`3000`) and `RETRY_BACKOFF_BASE_MS` (`500`) live in `src/review/orchestrator/specialistRun.ts`.
+
+### Removed session snapshot settings
+
+`AGENT_RESUME_SNAPSHOT_KEY` and `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` are ignored.
+Sessions run in memory. Durable work, operation intents, and publish records
+still own retries and publication recovery. Migration 036 drops only the unread
+agent checkpoint and session snapshot tables.

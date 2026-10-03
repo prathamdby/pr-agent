@@ -16,7 +16,7 @@ import {
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
 import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
 
@@ -97,7 +97,8 @@ export function prepareReviewPayloadForPublish(params: {
     const redactedFinding = payload.findings[index];
     if (!redactedFinding) {
       throw new AppError({
-        code: "review.payload_redaction",
+        domain: "review",
+        kind: "payload_redaction",
         message: "Review payload redaction lost finding identity",
       });
     }
@@ -107,7 +108,8 @@ export function prepareReviewPayloadForPublish(params: {
     const finding = redactedFindingsByOriginal.get(placement.finding);
     if (!finding) {
       throw new AppError({
-        code: "review.payload_redaction",
+        domain: "review",
+        kind: "payload_redaction",
         message: "Review payload redaction lost finding identity",
       });
     }

@@ -1,27 +1,18 @@
+import { productionInstallationSurface } from "./installationSurface.js";
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
-import { logWarn } from "../evlog.js";
-import { createPrSurface } from "../github/prSurface.js";
-import { mintInstallationToken } from "../github/installationToken.js";
 import {
+  type Config,
   DEFERRED_HEAD_SHA,
   STALE_QUEUED_WORK_BATCH_SIZE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
+  isAnyReviewLens,
 } from "../settings/index.js";
-import { isAnyReviewLens } from "../settings/legacyReviewLenses.js";
-import { closeOwnVerdict } from "./closeOwnVerdict.js";
-import {
-  asTerminalOwnCheckStatus,
-  isOwnCheckOpen,
-  resolveOwnVerdictForTerminalReview,
-  type TerminalOwnCheckStatus,
-} from "./ownCheckReconcile.js";
-import {
-  getCompletedPublishStepDetail,
-  getWorkItemCore,
-  markLostRunningWorkFailed,
-} from "./repository.js";
+import { logWarn } from "../evlog.js";
+import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.js";
+import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
   pool: Pool,
@@ -62,24 +53,21 @@ async function closeOpenOwnVerdict(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly workItemId: string;
-  readonly status: TerminalOwnCheckStatus;
 }): Promise<void> {
   const core = await getWorkItemCore(params.pool, params.workItemId);
-  if (core == null) return;
+  if (core == null || asTerminalOwnCheckStatus(core.status) == null) return;
   if (core.type !== "review" || core.reviewLens == null || !isAnyReviewLens(core.reviewLens)) {
     return;
   }
   if (core.headSha === DEFERRED_HEAD_SHA) return;
-  const checkDetail = await getCompletedPublishStepDetail(
-    params.pool,
-    core.id,
-    core.resourceKey,
-    core.reviewLens,
-    "check_run",
-  );
+  const checkDetail = await createPublishContext(params.pool, {
+    workItemId: core.id,
+    resourceKey: core.resourceKey,
+    reviewLens: core.reviewLens,
+  }).completed("check_run");
   if (!isOwnCheckOpen(checkDetail)) return;
-  const installation = await mintInstallationToken(params.cfg, core.installationId);
-  const prSurface = createPrSurface({
+  const installation = await productionInstallationSurface.token(params.cfg, core.installationId);
+  const prSurface = await productionInstallationSurface.create({
     cfg: params.cfg,
     installationId: core.installationId,
     owner: core.owner,
@@ -87,7 +75,7 @@ async function closeOpenOwnVerdict(params: {
     prNumber: core.prNumber,
     installation,
   });
-  await closeOwnVerdict({
+  await reviewVerdict({
     pool: params.pool,
     prSurface,
     owner: core.owner,
@@ -99,14 +87,8 @@ async function closeOpenOwnVerdict(params: {
     headSha: core.headSha,
     leaseEpoch: null,
     commitStatusEnabled: params.cfg.features.commitStatus,
-    outcome: await resolveOwnVerdictForTerminalReview({
-      pool: params.pool,
-      workItemId: core.id,
-      resourceKey: core.resourceKey,
-      reviewLens: core.reviewLens,
-      status: params.status,
-    }),
-  });
+    summaryCommentId: null,
+  }).repairIfOpen();
 }
 
 /** Mark lost running items failed, then close any review whose check is still open. */
@@ -124,7 +106,7 @@ export async function reconcileLostRunningWork(params: {
       const marked = await markLostRunningWorkFailed(
         params.pool,
         item.workItemId,
-        params.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+        params.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
       );
       if (!marked) continue;
       if (core.type !== "review") continue;
@@ -132,14 +114,13 @@ export async function reconcileLostRunningWork(params: {
         cfg: params.cfg,
         pool: params.pool,
         workItemId: item.workItemId,
-        status: "failed",
       });
     } catch (error) {
       logWarn("lost_running_work_reconcile_failed", {
         workItemId: item.workItemId,
         resourceKey: item.resourceKey,
         workType: item.workType,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -149,7 +130,7 @@ export async function reconcileLostRunningWork(params: {
     extra = await listTerminalReviewsWithOpenOwnChecks(params.pool);
   } catch (error) {
     logWarn("lost_running_work_open_check_list_failed", {
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return;
   }
@@ -157,21 +138,17 @@ export async function reconcileLostRunningWork(params: {
   for (const item of extra) {
     if (seen.has(item.workItemId)) continue;
     try {
-      const core = await getWorkItemCore(params.pool, item.workItemId);
-      const status = core == null ? null : asTerminalOwnCheckStatus(core.status);
-      if (status == null) continue;
       await closeOpenOwnVerdict({
         cfg: params.cfg,
         pool: params.pool,
         workItemId: item.workItemId,
-        status,
       });
     } catch (error) {
       logWarn("lost_running_work_reconcile_failed", {
         workItemId: item.workItemId,
         resourceKey: item.resourceKey,
         workType: item.workType,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

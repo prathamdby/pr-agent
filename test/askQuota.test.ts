@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
-  admitAsk,
+  admitAsk as admitCanonicalAsk,
   createAskExecutionId,
   defaultAskQuotaConfig,
   recordAskProviderUsage,
-  releaseAskQuotaReservation,
   type AskQuotaConfig,
 } from "../src/agentWork/askQuota.js";
 import { AppError } from "../src/errors/appError.js";
@@ -51,6 +50,10 @@ class FakeQuotaClient {
 
   async query(sql: string, values: unknown[] = []): Promise<{ rows: unknown[]; rowCount: number }> {
     const text = sql.replaceAll(/\s+/g, " ");
+    if (text.includes("pg_advisory_xact_lock") || text.includes("payload->'replyTarget'"))
+      return { rows: [], rowCount: 0 };
+    if (text.includes("INSERT INTO agent_work_items"))
+      return { rows: [{ id: String(values[0]), created: true }], rowCount: 1 };
     if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) return { rows: [], rowCount: 0 };
 
     if (text.includes("INSERT INTO ask_quota_buckets")) {
@@ -217,15 +220,15 @@ class FakeQuotaClient {
 function config(overrides: Partial<AskQuotaConfig> = {}): AskQuotaConfig {
   return {
     ...defaultAskQuotaConfig(),
-    askActorMaxOutstanding: 2,
-    askRepositoryMaxOutstanding: 10,
-    askInstallationMaxOutstanding: 20,
-    askActorBurst: 100,
-    askRepositoryBurst: 100,
-    askInstallationBurst: 100,
-    askActorRefillSeconds: 100_000,
-    askRepositoryRefillSeconds: 100_000,
-    askInstallationRefillSeconds: 100_000,
+    actorMaxOutstanding: 2,
+    repositoryMaxOutstanding: 10,
+    installationMaxOutstanding: 20,
+    actorBurst: 100,
+    repositoryBurst: 100,
+    installationBurst: 100,
+    actorRefillSeconds: 100_000,
+    repositoryRefillSeconds: 100_000,
+    installationRefillSeconds: 100_000,
     ...overrides,
   };
 }
@@ -251,7 +254,7 @@ function admission(
 }
 
 describe("ask admission quotas", () => {
-  it("bounds repeated asks and releases outstanding capacity", async () => {
+  it("bounds repeated asks before atomic work creation", async () => {
     const client = new FakeQuotaClient();
 
     await expect(admission(client, "ask-1")).resolves.toMatchObject({ kind: "admitted" });
@@ -261,17 +264,15 @@ describe("ask admission quotas", () => {
       reason: "actor_outstanding",
     });
 
-    await releaseAskQuotaReservation(client as never, "ask-1");
-    await expect(admission(client, "ask-4")).resolves.toMatchObject({ kind: "admitted" });
     expect(client.buckets.get("actor:actor:9:7")?.outstanding_count).toBe(2);
   });
 
   it("keeps actor, repository, and installation limits isolated and ordered", async () => {
     const client = new FakeQuotaClient();
     const limited = config({
-      askActorMaxOutstanding: 1,
-      askRepositoryMaxOutstanding: 2,
-      askInstallationMaxOutstanding: 3,
+      actorMaxOutstanding: 1,
+      repositoryMaxOutstanding: 2,
+      installationMaxOutstanding: 3,
     });
     const admit = (id: string, commenterId: number, repo: string) =>
       admitAsk(
@@ -302,12 +303,12 @@ describe("ask admission quotas", () => {
     vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
     try {
       const limited = config({
-        askActorBurst: 3,
-        askRepositoryBurst: 3,
-        askInstallationBurst: 3,
-        askActorRefillSeconds: 60,
-        askRepositoryRefillSeconds: 60,
-        askInstallationRefillSeconds: 60,
+        actorBurst: 3,
+        repositoryBurst: 3,
+        installationBurst: 3,
+        actorRefillSeconds: 60,
+        repositoryRefillSeconds: 60,
+        installationRefillSeconds: 60,
       });
       const client = new FakeQuotaClient();
       const emptyBucket = (scope: string, scopeKey: string): Bucket => ({
@@ -401,8 +402,8 @@ describe("ask admission quotas", () => {
     try {
       const client = new FakeQuotaClient();
       const budget = config({
-        askProviderBudgetTokens: 10,
-        askProviderReservationTokens: 4,
+        providerBudgetTokens: 10,
+        providerReservationTokens: 4,
       });
       const straddlerId = "ask-provider-straddler";
       const windowStartedAt = new Date(Date.now());
@@ -429,11 +430,11 @@ describe("ask admission quotas", () => {
         released_at: null,
       });
 
-      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+      vi.advanceTimersByTime(budget.providerBudgetWindowSeconds * 1000);
 
       await expect(
         admission(client, "ask-provider-next-window", 8, "app", budget),
-      ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 4 });
+      ).resolves.toMatchObject({ kind: "admitted", providerReservationTokens: 4 });
       expect(client.buckets.get("installation:installation:9")).toMatchObject({
         provider_tokens_used: 0,
         provider_tokens_reserved: 8,
@@ -466,8 +467,8 @@ describe("ask admission quotas", () => {
     try {
       const client = new FakeQuotaClient();
       const budget = config({
-        askProviderBudgetTokens: 10,
-        askProviderReservationTokens: 6,
+        providerBudgetTokens: 10,
+        providerReservationTokens: 6,
       });
       client.buckets.set("installation:installation:9", {
         scope: "installation",
@@ -480,9 +481,11 @@ describe("ask admission quotas", () => {
         provider_window_started_at: new Date(Date.now()),
       });
 
-      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+      vi.advanceTimersByTime(budget.providerBudgetWindowSeconds * 1000);
 
-      await expect(admission(client, "ask-provider-edge-1", 8, "app", budget)).resolves.toEqual({
+      await expect(
+        admission(client, "ask-provider-edge-1", 8, "app", budget),
+      ).resolves.toMatchObject({
         kind: "admitted",
         providerReservationTokens: 6,
       });
@@ -503,8 +506,8 @@ describe("ask admission quotas", () => {
   it("reserves provider budget and reconciles exact usage", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
 
     const first = await admitAsk(
@@ -518,7 +521,7 @@ describe("ask admission quotas", () => {
       },
       budget,
     );
-    expect(first).toEqual({ kind: "admitted", providerReservationTokens: 6 });
+    expect(first).toMatchObject({ kind: "admitted", providerReservationTokens: 6 });
 
     await expect(
       admitAsk(
@@ -556,14 +559,14 @@ describe("ask admission quotas", () => {
         },
         budget,
       ),
-    ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 6 });
+    ).resolves.toMatchObject({ kind: "admitted", providerReservationTokens: 6 });
   });
 
   it("floors exact provider usage and ignores unknown usage", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const exactId = "ask-provider-floor";
     const executionId = createAskExecutionId();
@@ -645,8 +648,8 @@ describe("ask admission quotas", () => {
   it("adds distinct execution usage and rejects a later reservation", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-two-executions";
 
@@ -718,8 +721,8 @@ describe("ask admission quotas", () => {
   it("reconciles a delayed receipt after conservative terminal release", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-delayed";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
@@ -769,8 +772,8 @@ describe("ask admission quotas", () => {
   it("leaves expired-window conservative charges off later delayed receipts", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-expired-window";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
@@ -813,8 +816,8 @@ describe("ask admission quotas", () => {
   it("adds a later execution after a legacy known charge without a receipt", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 20,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 20,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-legacy";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
@@ -844,3 +847,35 @@ describe("ask admission quotas", () => {
     expect(client.receipts.size).toBe(1);
   });
 });
+
+function admitAsk(
+  client: import("pg").PoolClient,
+  input: {
+    workItemId: string;
+    installationId: number;
+    owner: string;
+    repo: string;
+    commenterId: number;
+  },
+  quota: AskQuotaConfig,
+) {
+  return admitCanonicalAsk(
+    client,
+    {
+      workItemId: input.workItemId,
+      webhookEventId: "event-1",
+      ref: {
+        owner: input.owner,
+        repo: input.repo,
+        installationId: input.installationId,
+        prNumber: 7,
+        headSha: "deferred-to-worker",
+      },
+      question: "why?",
+      replyTarget: { kind: "prConversation", prNumber: 7 },
+      commentId: input.workItemId.length,
+      commenterId: input.commenterId,
+    },
+    quota,
+  );
+}

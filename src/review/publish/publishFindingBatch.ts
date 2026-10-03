@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   type FingerprintedInlinePlacement,
   reviewFindingPlacementKey,
@@ -10,40 +9,35 @@ import {
   renderReviewPointerLensMarker,
   renderSpecialistReviewBody,
 } from "../run/reviewRender.js";
-import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import { fingerprintCandidates } from "../findings/reviewFindingFingerprint.js";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
-import type { ReviewFinding, ReviewPublishContext } from "../reviewSchema.js";
+import type { ReviewFinding } from "../reviewSchema.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
-import type { RecordPublishStepWithCoordination } from "./summaryCommentUpsert.js";
+import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
 import {
   deterministicInlineBatchId,
   operationIntentMarker,
   reviewInlineBatchOperationKey,
-  withOperationIntent,
-  type OperationIntentContext,
-} from "../../agentWork/withOperationIntent.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
 import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
-import type { Config } from "../../config.js";
-import type { PrSurface } from "../../github/prSurface.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
   FindingLedgerDelta,
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
-import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import type { Pool } from "pg";
 import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.js";
+import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -72,22 +66,11 @@ export type FindingBatchResult =
   | { readonly kind: "published"; readonly delta: FindingLedgerDelta; readonly reviewId: number }
   | { readonly kind: "empty"; readonly delta: FindingLedgerDelta }
   | { readonly kind: "budget_exhausted"; readonly delta: FindingLedgerDelta }
-  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" };
+  | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
-export type FindingBatchContext = {
-  readonly ctx: ReviewPublishContext;
+/** Per-call inputs; shared run identity and the abort policy live on the session. */
+export type FindingBatchInput = {
   readonly source: FindingSource;
-  readonly workItemId?: string;
-  /** Resolves the current review progress comment (progress stub / final summary). */
-  readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
-  readonly prSurface: PrSurface;
-  readonly cachedDiffIndex: CachedPrDiffIndex;
-  readonly recordPublishStep?: RecordPublishStepWithCoordination;
-  readonly operationIntent?: OperationIntentContext;
-  readonly shouldAbortPublish?: () => Promise<boolean>;
-  readonly publishAbortState?: { readonly staleHead?: boolean };
-  readonly agentEvents?: AgentEventsContext;
-  readonly cfg?: Pick<Config, "agentEventsEnabled">;
   readonly ledger: FindingLedger;
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
@@ -96,9 +79,6 @@ export type FindingBatchContext = {
   readonly sameRepo?: boolean;
   readonly boundPolicyJudge?: BoundPolicyJudge;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
-  readonly pool?: Pool;
-  readonly installationId?: number;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
   readonly crossPrSuppressionFingerprints?: readonly string[];
 };
 
@@ -171,7 +151,8 @@ function storedPlacement(
 ): StoredInlineBatch["placements"][number] {
   if (placement.inlineLine == null) {
     throw new AppError({
-      code: "review.posted_placement_missing_line",
+      domain: "review",
+      kind: "posted_placement_missing_line",
       message: "Posted inline placement is missing its resolved line",
     });
   }
@@ -184,46 +165,48 @@ function storedPlacement(
 
 export async function publishFindingBatch(
   batch: readonly ReviewFinding[],
-  context: FindingBatchContext,
+  session: ReviewPublishSession,
+  input: FindingBatchInput,
 ): Promise<FindingBatchResult> {
   const prepared = prepareReviewPayloadForPublish({
     payload: reviewPayloadFromFindings(batch),
-    cachedDiffIndex: context.cachedDiffIndex,
+    cachedDiffIndex: session.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
-    evidenceLedger: context.evidenceLedger,
-    headSha: context.ctx.headSha,
-    checkoutCoverage: context.checkoutCoverage,
-    isPathInCheckout: context.isPathInCheckout,
+    evidenceLedger: input.evidenceLedger,
+    headSha: session.ctx.headSha,
+    checkoutCoverage: input.checkoutCoverage,
+    isPathInCheckout: input.isPathInCheckout,
   });
   if (!prepared.ok) {
     throw new AppError({
-      code: "review.finding_batch_invalid",
+      domain: "review",
+      kind: "finding_batch_invalid",
       message: prepared.error,
     });
   }
 
   const remainingInline = Math.max(
     0,
-    MAX_INLINE_REVIEW_COMMENTS - context.ledger.postedInlineCount,
+    session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
   const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
-    cachedDiffIndex: context.cachedDiffIndex,
+    cachedDiffIndex: session.cachedDiffIndex,
     inlinePlacements: prepared.prepared.placements,
-    storedInlineFingerprints: [...context.ledger.suppressionFingerprints],
-    crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
+    storedInlineFingerprints: [...input.ledger.suppressionFingerprints],
+    crossPrSuppressionFingerprints: input.crossPrSuppressionFingerprints,
     maxInlineComments: remainingInline,
   });
 
   if (
-    context.ledger.threadBudgetExhausted ||
-    context.ledger.threadCallCount >= MAX_THREAD_PUBLISH_CALLS
+    input.ledger.threadBudgetExhausted ||
+    input.ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls
   ) {
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,
       planned: targets.planned,
-      source: context.source,
-      ledger: context.ledger,
+      source: input.source,
+      ledger: input.ledger,
       budgetExhausted: true,
     });
     return {
@@ -239,8 +222,8 @@ export async function publishFindingBatch(
   const acceptedBeforePublish = acceptedSummaryPlacements({
     targets: targets.placements,
     planned: targets.planned,
-    source: context.source,
-    ledger: context.ledger,
+    source: input.source,
+    ledger: input.ledger,
   });
   if (targets.inline.length === 0) {
     return {
@@ -252,37 +235,34 @@ export async function publishFindingBatch(
     };
   }
 
-  if (context.recordPublishStep && context.workItemId == null) {
+  if (session.recordPublishStep && session.workItemId == null) {
     throw new AppError({
-      code: "review.work_item_id_required",
+      domain: "review",
+      kind: "work_item_id_required",
       message: "workItemId is required when recording an inline review batch",
     });
   }
 
-  const shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
-  if (shouldAbort) {
-    return {
-      kind: "stopped",
-      reason: context.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
-    };
-  }
+  const stopReason = await session.stopReason();
+  if (stopReason != null) return { kind: "stopped", reason: stopReason };
 
-  const progressCommentUrl = (await context.resolveProgressCommentUrl())?.trim();
+  const progressCommentUrl = (await session.resolveProgressCommentUrl())?.trim();
   if (!progressCommentUrl) {
     throw new AppError({
-      code: "review.progress_comment_url_required",
+      domain: "review",
+      kind: "progress_comment_url_required",
       message:
         "Progress comment URL is required before publishing a specialist review batch; the progress stub must exist first",
     });
   }
 
   const findingFingerprints = targets.inline.map((placement) => placement.inlineFingerprint);
-  const intentWorkItemId = context.operationIntent?.workItemId ?? context.workItemId;
+  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const batchId =
     intentWorkItemId != null
       ? deterministicInlineBatchId({
           workItemId: intentWorkItemId,
-          specialist: context.source,
+          specialist: input.source,
           findingFingerprints,
         })
       : crypto.randomUUID();
@@ -290,56 +270,57 @@ export async function publishFindingBatch(
   const operationMarker =
     intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
   const boundByKey = await resolveBoundPolicyFooters({
-    policy: context.repoPolicy ?? { kind: "absent" },
-    sameRepo: context.sameRepo,
+    policy: input.repoPolicy ?? { kind: "absent" },
+    sameRepo: input.sameRepo,
     findings: targets.inline.map((placement) => placement.finding),
-    judge: context.boundPolicyJudge,
-    evidenceLedger: context.evidenceLedger,
-    isPathInCheckout: context.isPathInCheckout,
-    readCheckoutFile: context.readCheckoutFile,
+    judge: input.boundPolicyJudge,
+    evidenceLedger: input.evidenceLedger,
+    isPathInCheckout: input.isPathInCheckout,
+    readCheckoutFile: input.readCheckoutFile,
   });
   const publishInline = () =>
     publishInlineReviewComments({
-      prSurface: context.prSurface,
+      prSurface: session.prSurface,
       renderReviewBody: () =>
         `${renderSpecialistReviewBody({
-          specialist: context.source,
+          specialist: input.source,
           progressCommentUrl,
           lensMarker: renderReviewPointerLensMarker("review"),
         })}${operationMarker == null ? "" : `\n${operationMarker}`}`,
       event: "COMMENT",
-      commitId: context.ctx.headSha,
+      commitId: session.ctx.headSha,
       inlinePlacements: targets.inline,
       renderCommentBody: (finding) =>
         renderInlineThreadBody(
           finding,
-          context.ctx,
+          session.ctx,
           boundByKey.get(reviewFindingPlacementKey(finding)) ?? [],
         ),
     });
   const publishStartedAt = Date.now();
-  const inlineResult = await (context.operationIntent == null
+  const inlineResult = await (session.operationIntent == null
     ? publishInline()
-    : withOperationIntent<
+    : publishOnce<
         Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
       >({
-        client: context.operationIntent.client,
-        workItemId: context.operationIntent.workItemId,
+        client: session.operationIntent.client,
+        workItemId: session.operationIntent.workItemId,
         operationKey,
         mutationKind: "github.inline_review",
-        leaseEpoch: context.operationIntent.leaseEpoch,
+        leaseEpoch: session.operationIntent.leaseEpoch,
         detail: {
           step: "inline_review",
-          resourceKey: context.operationIntent.resourceKey,
-          reviewLens: context.source,
+          resourceKey: session.operationIntent.resourceKey,
+          reviewLens: input.source,
           batchId,
           operationMarker,
         },
         recover: async () => {
           if (operationMarker == null) return { kind: "absent" as const };
-          const found = await context.prSurface.findPublishedThreadBatch?.(
+          const found = await findPublishedThreadBatch(
+            session.prSurface,
             operationMarker,
-            context.ctx.headSha,
+            session.ctx.headSha,
           );
           return found == null
             ? { kind: "absent" as const }
@@ -360,7 +341,7 @@ export async function publishFindingBatch(
 
   const posted = inlineResult.postedPlacements;
   const anchorDropped = inlineResult.anchorDroppedPlacements.map((placement) =>
-    summaryOnlyPlacement(placement, context.source, "anchor"),
+    summaryOnlyPlacement(placement, input.source, "anchor"),
   );
   const acceptedWithoutPosted = [...acceptedBeforePublish, ...anchorDropped];
   const review = inlineResult.review;
@@ -376,19 +357,19 @@ export async function publishFindingBatch(
 
   const postedAccepted: AcceptedPlacement[] = posted.map((placement) => ({
     kind: "posted",
-    source: context.source,
+    source: input.source,
     placement,
     canonicalFingerprint: placement.inlineFingerprint,
     reviewId: review.id,
   }));
   const accepted = [...acceptedWithoutPosted, ...postedAccepted];
-  const batchRecord: StoredInlineBatch | undefined = context.workItemId
+  const batchRecord: StoredInlineBatch | undefined = session.workItemId
     ? {
         version: 2,
         batchId,
-        workItemId: context.workItemId,
-        specialist: context.source,
-        headSha: context.ctx.headSha,
+        workItemId: session.workItemId,
+        specialist: input.source,
+        headSha: session.ctx.headSha,
         reviewId: review.id,
         reviewUrl: review.url,
         event: "COMMENT",
@@ -402,16 +383,16 @@ export async function publishFindingBatch(
         },
       }
     : undefined;
-  if (context.recordPublishStep && batchRecord) {
-    await context.recordPublishStep("inline_review", {
+  if (session.recordPublishStep && batchRecord) {
+    await session.recordPublishStep("inline_review", {
       githubId: review.id,
       meta: batchRecord,
     });
   }
 
-  if (context.agentEvents && context.cfg) {
-    safeEmitPublishEvent(context.agentEvents, context.cfg, {
-      specialist: context.source,
+  if (session.agentEvents) {
+    safeEmitPublishEvent(session.agentEvents, session.cfg, {
+      specialist: input.source,
       batchId,
       postedCount: posted.length,
       suppressedCount: targets.dropped.suppressedInlineCount,
@@ -421,18 +402,18 @@ export async function publishFindingBatch(
     });
   }
 
-  if (context.pool && context.findingHistoryCfg && context.installationId != null) {
+  if (session.pool && session.installationId != null) {
     const postedFingerprints = posted.map((placement) => placement.inlineFingerprint);
     safeUpsertFindingHistoryOpen(
-      context.pool,
-      context.findingHistoryCfg,
+      session.pool,
+      session.cfg,
       {
-        installationId: context.installationId,
-        owner: context.ctx.owner,
-        repo: context.ctx.repo,
-        prNumber: context.ctx.prNumber,
-        workItemId: context.workItemId ?? null,
-        headSha: context.ctx.headSha,
+        installationId: session.installationId,
+        owner: session.ctx.owner,
+        repo: session.ctx.repo,
+        prNumber: session.ctx.prNumber,
+        workItemId: session.workItemId ?? null,
+        headSha: session.ctx.headSha,
       },
       postedFingerprints,
     );

@@ -13,11 +13,11 @@ import { contentText, normalizeContext, type Api, type Model } from "@earendil-w
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Preserve the user's task, current phase, accepted findings, pending questions, and artifact references.";
 
-const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
+export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`;
 
-const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+export const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
 Use this EXACT format:
 
@@ -182,4 +182,12 @@ export async function compactIfNeeded(params: {
     return undefined;
   }
   return compactAgentMessages(params);
+}
+
+/** Error assistants must not become provider input on retry or overflow recovery. */
+export function dropTrailingErrorAssistant(messages: AgentMessage[]): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "assistant" && "stopReason" in last && last.stopReason === "error") {
+    messages.pop();
+  }
 }

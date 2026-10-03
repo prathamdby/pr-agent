@@ -1,3 +1,4 @@
+import { appErrorCode, type AppErrorCode, type AppErrorShape } from "./appErrorCodes.js";
 import {
   sanitizeTelemetryString,
   sanitizeTelemetryValue,
@@ -5,8 +6,7 @@ import {
 
 export type AppErrorContext = Record<string, unknown>;
 
-export type AppErrorInit = {
-  readonly code: string;
+export type AppErrorInit = AppErrorShape & {
   readonly message: string;
   readonly context?: AppErrorContext;
   readonly cause?: unknown;
@@ -22,7 +22,7 @@ type SerializedCause =
     };
 
 export type SerializedAppError = {
-  readonly errorCode: string;
+  readonly errorCode: AppErrorCode;
   readonly errorMessage: string;
   readonly errorContext: AppErrorContext;
   readonly errorCause?: SerializedCause;
@@ -30,13 +30,17 @@ export type SerializedAppError = {
 
 /** Internal structured failure. Never use `.message` on PR-facing surfaces. */
 export class AppError extends Error {
-  readonly code: string;
+  readonly domain: AppErrorShape["domain"];
+  readonly kind: AppErrorShape["kind"];
+  readonly code: AppErrorCode;
   readonly context: AppErrorContext;
 
   constructor(init: AppErrorInit) {
     super(init.message, init.cause !== undefined ? { cause: init.cause } : undefined);
     this.name = "AppError";
-    this.code = init.code;
+    this.domain = init.domain;
+    this.kind = init.kind;
+    this.code = appErrorCode(init);
     this.context = init.context ?? {};
   }
 }
@@ -86,19 +90,18 @@ function safeCauseMessage(value: unknown): string {
 
 export function toAppError(
   error: unknown,
-  fallback: { readonly code: string; readonly context?: AppErrorContext },
+  fallback: AppErrorShape & { readonly context?: AppErrorContext },
 ): AppError {
   if (isAppError(error)) return error;
   if (error instanceof Error) {
     return new AppError({
-      code: fallback.code,
+      ...fallback,
       message: error.message,
-      context: fallback.context,
       cause: error,
     });
   }
   return new AppError({
-    code: fallback.code,
+    ...fallback,
     message: causeMessage(error),
     context: { ...fallback.context, rawValue: jsonSafeRawValue(error) },
   });

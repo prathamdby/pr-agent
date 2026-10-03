@@ -1,3 +1,4 @@
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,14 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
-  isTriageSearchPathAllowed,
 } from "../src/agent/triage/triageWorkspaceTools.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import {
-  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-  MAX_TRIAGE_FIXES_PER_RUN,
-} from "../src/settings/index.js";
+import { MAX_TRIAGE_FIXES_PER_RUN } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const exec = promisify(execFile);
@@ -36,6 +33,7 @@ function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThr
 function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]): WritablePrCheckout {
   return {
     dir,
+    reader: createWritableRepositoryReader(dir),
     headRef: "feature",
     baseSha: "a".repeat(40),
     commit:
@@ -93,148 +91,6 @@ describe("buildTriageWorkspaceTools", () => {
     });
     return { root, executors, state, inventory };
   }
-
-  it("blocks read of control-plane paths", async () => {
-    const { executors } = await setup();
-    await expect(executors.readWorkspaceFile({ path: "package.json" })).rejects.toMatchObject({
-      code: "triage.sensitive_path_blocked",
-    });
-  });
-
-  it("caps oversized reads at the shared response budget with a resume offset", async () => {
-    // Lines stay under the per-line clamp so the byte budget is what fires.
-    const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
-    const { executors } = await setup({ files: { "src/app.ts": bigFile } });
-
-    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
-      truncated?: boolean;
-      truncationReason?: string;
-      resumeStartLine?: number;
-      endLine?: number;
-      returnedBytes?: number;
-    };
-
-    expect(out.truncated).toBe(true);
-    expect(out.truncationReason).toBe("response byte budget exceeded");
-    expect(out.returnedBytes).toBeLessThanOrEqual(LOCAL_WORKSPACE_READ_RESPONSE_BYTES);
-    // A byte-cap cut lands mid-line, so the next read resumes on that line.
-    expect(out.endLine).toBeGreaterThan(1);
-    expect(out.resumeStartLine).toBe(out.endLine);
-  });
-
-  it("supports line-window reads like every other feature", async () => {
-    const { executors } = await setup({ files: { "src/app.ts": "a\nb\nc\nd\n" } });
-
-    const out = (await executors.readWorkspaceFile({
-      path: "src/app.ts",
-      startLine: 2,
-      maxLines: 2,
-    })) as {
-      content?: string;
-      startLine?: number;
-      endLine?: number;
-      truncated?: boolean;
-      resumeStartLine?: number;
-      note?: string;
-    };
-
-    expect(out.content).toBe("b\nc");
-    expect(out.startLine).toBe(2);
-    expect(out.endLine).toBe(3);
-    expect(out.truncated).toBe(true);
-    expect(out.resumeStartLine).toBe(4);
-    expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
-  });
-
-  it("blocks read through absolute symlink escapes", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "triage-ws-outside-"));
-    roots.push(outside);
-    await writeFile(join(outside, "secret.env"), "TOKEN=leak\n");
-    const root = await initCheckout({ "src/app.ts": "export {};\n" });
-    roots.push(root);
-    await mkdir(join(root, "docs"), { recursive: true });
-    await symlink(join(outside, "secret.env"), join(root, "docs/notes.md"));
-
-    const { executors } = buildTriageWorkspaceTools({
-      cfg: makeTestConfig(),
-      checkout: mockCheckout(root),
-      inventory: [findingThread()],
-      state: createTriageWorkspaceToolState(),
-    });
-
-    await expect(executors.readWorkspaceFile({ path: "docs/notes.md" })).rejects.toMatchObject({
-      code: "pr_workspace.symlink_escape",
-    });
-  });
-
-  it("returns empty matches when searchWorkspace finds nothing", async () => {
-    const { executors } = await setup();
-    const out = await executors.searchWorkspace({ query: "no-such-token-xyz" });
-    expect(out).toEqual({ matches: [], truncated: false });
-  });
-
-  it("filters blocked paths before applying the result cap", async () => {
-    const blockedText = "triage-private-value-475";
-    const { executors } = await setup({
-      files: {
-        ".env": `TOKEN=${blockedText} needle\n`,
-        ".npmrc": `//registry.example/:_authToken=${blockedText} needle\n`,
-        ".aws/credentials": `[default]\naws_secret_access_key=${blockedText} needle\n`,
-        "certs/signing.pem": `-----BEGIN PRIVATE KEY----- ${blockedText} needle\n`,
-        ".github/workflows/ci.yml": `name: ${blockedText} needle\n`,
-        "src/safe-a.ts": "export const safeA = needle;\n",
-        "src/safe-b.ts": "export const safeB = needle;\n",
-        "src/safe-c.ts": "export const safeC = needle;\n",
-      },
-    });
-
-    const out = (await executors.searchWorkspace({ query: "needle", maxResults: 2 })) as {
-      matches: Array<{ path: string; line: number; text: string }>;
-      truncated: boolean;
-      filtered?: boolean;
-    };
-
-    expect(out).toEqual({
-      matches: [
-        { path: "src/safe-a.ts", line: 1, text: "export const safeA = needle;" },
-        { path: "src/safe-b.ts", line: 1, text: "export const safeB = needle;" },
-      ],
-      truncated: true,
-      filtered: true,
-    });
-    expect(JSON.stringify(out)).not.toContain(blockedText);
-    expect(JSON.stringify(out)).not.toContain(".env");
-    expect(JSON.stringify(out)).not.toContain(".npmrc");
-  });
-
-  it("filters a symlink alias to a blocked target without exposing its text", async () => {
-    const { root, executors } = await setup({
-      files: {
-        ".env": "TOKEN=triage-private-value-475\n",
-        "src/safe.ts": "export const safe = true;\n",
-      },
-    });
-    await mkdir(join(root, "docs"), { recursive: true });
-    await symlink("../.env", join(root, "docs", "config.ts"));
-    await exec("git", ["add", "docs/config.ts"], { cwd: root });
-    await symlink("../.env.dangling", join(root, "docs", "broken.ts"));
-    await exec("git", ["add", "docs/broken.ts"], { cwd: root });
-    await exec("git", ["commit", "-m", "add symlink fixture"], { cwd: root });
-
-    await expect(isTriageSearchPathAllowed(root, "docs/config.ts")).resolves.toBe(false);
-    await expect(isTriageSearchPathAllowed(root, "././.env")).resolves.toBe(false);
-    await expect(isTriageSearchPathAllowed(root, "src/safe.ts")).resolves.toBe(true);
-    await expect(isTriageSearchPathAllowed(root, "././src/safe.ts")).resolves.toBe(true);
-    await expect(isTriageSearchPathAllowed(root, "docs/broken.ts")).resolves.toBe(false);
-    await expect(executors.searchWorkspace({ query: "../.env" })).resolves.toEqual({
-      matches: [],
-      truncated: false,
-    });
-    await expect(executors.searchWorkspace({ query: "../.env.dangling" })).resolves.toEqual({
-      matches: [],
-      truncated: false,
-    });
-  });
 
   it("returns a unified diff for an edited workspace path", async () => {
     const { executors } = await setup();

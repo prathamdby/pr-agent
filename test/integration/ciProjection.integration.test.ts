@@ -1,39 +1,32 @@
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import type { PrRef } from "../../src/agentWork/types.js";
+import {
+  runDelivery,
+  type AutomatedPullRequestIntakeOpts,
+  type CiStateFactInput,
+} from "../../src/agentWork/intake/delivery.js";
+import type { Config } from "../../src/settings/index.js";
+import type { RequestLogger } from "../../src/evlog.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import {
-  applyAutomatedPullRequestIntake,
-  applyCompletedRunCiIntake,
-  applyCiStateIntake,
-} from "../../src/agentWork/intake/applier.js";
-import {
-  enqueueCiProjectionDebounced,
-  enqueueCiProjectionDebouncedStandalone,
-} from "../../src/agentWork/intake/queueing.js";
-import {
-  enqueueCiProjectionIfDue,
-  loadRenderableHeadCi,
-} from "../../src/agentWork/ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../src/agentWork/ciProjection.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
 import { loadPrHeadCiState, storePrNumbersForHead } from "../../src/agentWork/prHeadCiState.js";
-import {
-  getLatestCompletedPublishStepDetail,
-  getWorkItem,
-  recordPublishStep,
-  recordReviewCheckRun,
-} from "../../src/agentWork/repository.js";
-import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
-import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
+import { getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
 import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
 import * as evlog from "../../src/evlog.js";
-import * as prWorkspace from "../../src/prWorkspace/index.js";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
 import * as verificationRun from "../../src/agent/verification/verificationRun.js";
 import type {
   CiProjectionJobData,
@@ -41,18 +34,24 @@ import type {
   QueueConfig,
   WebhookHeaders,
 } from "../../src/agentWork/types.js";
-import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
-import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
-import { observedAtFromGithub, type CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
-import type { CiCheckRunSnapshot } from "../../src/review/ci/ciSummaryTypes.js";
-import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
-import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.js";
-import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
+import type { CiSummaryAuthor } from "../../src/review/ci/ciAuthor.js";
+import {
+  hashCiFacts,
+  parseCiAuthoredCache,
+  observedAtFromGithub,
+  type CiCheckFact,
+  type CiCheckRunSnapshot,
+} from "../../src/review/ci/ciFacts.js";
+import {
+  renderCiRollupMarker,
+  parseCiSummaryMarkerVersion,
+  renderCiSummaryCell,
+} from "../../src/review/ci/ciSummaryCell.js";
 import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
-import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
+import { publishSummaryForTest } from "../helpers/reviewPublishTestHelpers.js";
 import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { pgBossDb } from "../../src/db/postgres.js";
@@ -78,7 +77,10 @@ import {
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
-import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
+import {
+  makeDurableJobMetadata,
+  seedBotFindingThreads,
+} from "../helpers/executorDurableHarness.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "ci-projection-it";
@@ -87,17 +89,19 @@ const PR_NUMBER = 7;
 const DATABASE_URL = process.env.DATABASE_URL!;
 const cfg = makeTestConfig();
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 function headers(event: string, delivery: string): WebhookHeaders {
   return {
@@ -204,7 +208,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
@@ -548,15 +554,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
   it("enqueues a projection after a claim-time write when the head is unseeded", async () => {
     const headSha = "33".repeat(20);
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 0,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 0 },
+    );
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
@@ -576,15 +578,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 0,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 0 },
+    );
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
@@ -604,15 +602,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 2,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 2 },
+    );
 
     await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
   });
@@ -711,7 +705,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       await observer.query(
         "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
       );
-      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      await requestHeadCiProjection(boss, data, { kind: "debounced" });
       const setup = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
       expect(setup).toHaveLength(1);
       const setupJob = setup[0];
@@ -879,7 +873,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       await observer.query(
         "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
       );
-      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      await requestHeadCiProjection(boss, data, { kind: "debounced" });
       await applyCompletedRunCiIntake(
         boss,
         pool,
@@ -1106,7 +1100,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         const correlation = { webhookEventId: event.id, delivery };
         await client.query("BEGIN");
         await expect(
-          enqueueCiProjectionDebounced(boss, client, { ...data, ...correlation }),
+          requestHeadCiProjection(boss, { ...data, ...correlation }, { kind: "intake", client }),
         ).resolves.toBe("already_present");
         await client.query("COMMIT");
         await applyCompletedRunCiIntake(
@@ -1121,9 +1115,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
           const sameDelivery = { webhookEventId: randomUUID(), delivery };
           const forwarded = { ...data, ...correlation, correlations: [sameDelivery, {}, prior] };
           await client.query("BEGIN");
-          await expect(enqueueCiProjectionDebounced(boss, client, forwarded)).resolves.toBe(
-            "already_present",
-          );
+          await expect(
+            requestHeadCiProjection(boss, forwarded, { kind: "intake", client }),
+          ).resolves.toBe("already_present");
           await client.query("COMMIT");
           expected.push(sameDelivery);
         }
@@ -1220,7 +1214,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         await client.query(
           "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
         );
-        await enqueueCiProjectionDebouncedStandalone(boss, data);
+        await requestHeadCiProjection(boss, data, { kind: "debounced" });
         await applyCiStateIntake(
           boss,
           pool,
@@ -1647,14 +1641,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         progressRevision: 0,
         progressWorkItemId: workItemId,
       });
-      await upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId,
-        resourceKey,
-        reviewLens: "review",
+      await createReviewSummaryComment({
         prSurface: fake.surface,
+        reviewLens: "review",
+        coordination: { pool, resourceKey, workItemId },
+      }).tick({
         body,
-        sentinel: REVIEW_SUMMARY_SENTINEL,
         progressRevision: 0,
         ciHeadSha: headSha,
         ciVersion: rendered.version,
@@ -1688,7 +1680,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       });
     };
     const publishReview = async (workItemId: string, headSha: string) => {
-      const result = await publishReviewSummaryOnly({
+      const result = await publishSummaryForTest({
         cfg,
         ctx: {
           owner: OWNER,
@@ -2092,7 +2084,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       githubId: 22,
       detail: { status: "in_progress", headSha, name: "PR Agent Review" },
     });
-    await recordPublishStep(pool, {
+    await createPublishContext(pool, {
       workItemId,
       resourceKey,
       reviewLens: "review",
@@ -2100,7 +2092,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       githubId: 99,
       leaseEpoch: null,
       detail: { ownVerdictKind: "published", ownCheckFailing: true },
-    });
+    }).record();
     const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
     fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
 
@@ -2394,18 +2386,21 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       { headSha: scenario === "stale" || scenario === "resolved-stale" ? latestHeadSha : headSha },
     );
     if (scenario.startsWith("resolved-")) {
-      fake.controls.setBotFindingThreads([
-        {
-          rootCommentId: 71,
-          lens: "review",
-          path: "src/app.ts",
-          line: 1,
-          severity: "P1",
-          titleSnippet: "P1 · Bug",
-          humanReplies: [],
-          threadUrl: "https://github.test/thread/71",
-        },
-      ]);
+      seedBotFindingThreads(
+        [
+          {
+            rootCommentId: 71,
+            lens: "review",
+            path: "src/app.ts",
+            line: 1,
+            severity: "P1",
+            titleSnippet: "P1 · Bug",
+            humanReplies: [],
+            threadUrl: "https://github.test/thread/71",
+          },
+        ],
+        fake.controls,
+      );
       fake.controls.setThreads(new Map([[71, { threadNodeId: "thread-71", isResolved: true }]]));
     }
     await publishVerificationFailure({
@@ -2420,13 +2415,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     });
     const priorLedger = await loadVerificationThreadLedger(pool, item);
     const priorCi = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    const priorSignal = await getLatestCompletedPublishStepDetail(
-      pool,
-      item.resourceKey,
-      VERIFICATION_PUBLISH_LENS,
-      "verification_failure",
-    );
-    clearDurableAuthCachesForTest();
+    const priorSignal = await createPublishContext(pool, {
+      resourceKey: item.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+    }).latest("verification_failure");
     try {
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "test-installation-token",
@@ -2450,9 +2442,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         .mockRejectedValue(new Error("Unexpected empty verification agent"));
       const log = vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
       if (scenario === "race" || scenario === "cancel") {
-        const fetchThreads = fake.surface.fetchBotFindingThreads.bind(fake.surface);
-        vi.spyOn(fake.surface, "fetchBotFindingThreads").mockImplementationOnce(async (...args) => {
-          const threads = await fetchThreads(...args);
+        const listReviews = fake.surface.listPullRequestReviews.bind(fake.surface);
+        vi.spyOn(fake.surface, "listPullRequestReviews").mockImplementationOnce(async () => {
+          const threads = await listReviews();
           fake.controls.setHeadSha(latestHeadSha);
           if (scenario === "cancel") {
             await pool.query(
@@ -2470,7 +2462,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         ...makeDurableJobMetadata(item.id),
         data: { kind: "verification" as const, workItemId: item.id },
       };
-      const run = executeVerificationJob(cfg, pool, boss, job);
+      const run = createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).verification.dispatch(job);
       if (scenario === "head-error") {
         await expect(run).rejects.toThrow("test_head_unavailable");
       } else {
@@ -2498,12 +2495,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       }
       const ledger = await loadVerificationThreadLedger(pool, item);
       const ci = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-      const signal = await getLatestCompletedPublishStepDetail(
-        pool,
-        item.resourceKey,
-        VERIFICATION_PUBLISH_LENS,
-        "verification_failure",
-      );
+      const signal = await createPublishContext(pool, {
+        resourceKey: item.resourceKey,
+        reviewLens: VERIFICATION_PUBLISH_LENS,
+      }).latest("verification_failure");
       if (fresh) {
         expect(ledger.failureSignal).toBeUndefined();
         expect(signal).toMatchObject({ active: false, headSha });
@@ -2524,7 +2519,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       ).toEqual([]);
     } finally {
       vi.restoreAllMocks();
-      clearDurableAuthCachesForTest();
     }
   });
 
@@ -2916,7 +2910,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         checkRunSnapshot({
           id: 99,
           name: "PR Agent Review",
-          appId: Number(cfg.githubAppId),
+          appId: Number(cfg.github.appId),
           startedAt: "2026-09-13T00:00:01.000Z",
           completedAt: "2026-09-13T00:00:10.000Z",
         }),
@@ -3251,3 +3245,49 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterSecond?.checks.late).toBeUndefined();
   });
 });
+
+function applyAutomatedPullRequestIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  ref: PrRef,
+  action: string,
+  log: RequestLogger,
+  cfg: Pick<Config, "features">,
+  opts?: AutomatedPullRequestIntakeOpts,
+) {
+  return runDelivery(pool, boss, cfg, { kind: "pull_request", headers, ref, action, opts }, log);
+}
+function applyCompletedRunCiIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: Extract<
+    import("../../src/agentWork/intake/delivery.js").IntakeCommand,
+    { kind: "ci_refresh" }
+  >["data"],
+  log: RequestLogger,
+) {
+  return runDelivery(
+    pool,
+    boss,
+    { features: makeTestConfig().features },
+    { kind: "ci_refresh", headers, data },
+    log,
+  );
+}
+function applyCiStateIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: CiStateFactInput,
+  log: RequestLogger,
+) {
+  return runDelivery(
+    pool,
+    boss,
+    { features: makeTestConfig().features },
+    { kind: "ci_state", headers, data },
+    log,
+  );
+}

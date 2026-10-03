@@ -1,3 +1,4 @@
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -5,14 +6,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  applySlashCommandIntake,
+  applySlashCommandIntake as applySlash,
   type SlashCommandInput,
 } from "../../src/agentWork/intake/slashIntake.js";
 import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurface from "../../src/github/prSurface.js";
-import { parseProgressRevisionState } from "../../src/review/run/progressComment.js";
+import { parseProgressRevisionState } from "../../src/review/run/commentMarkers.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import {
   acquirePrActorLease,
@@ -21,7 +22,7 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import {
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
 } from "../../src/agentWork/reviewReschedule.js";
@@ -29,7 +30,7 @@ import {
   claimWorkForExecution,
   getReviewQueuePosition,
   getWorkItem,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import { makeTestConfig } from "../helpers/config.js";
@@ -51,10 +52,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
-  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   DESCRIPTION_ALREADY_IN_PROGRESS,
-  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_QUEUE,
@@ -80,17 +78,19 @@ const CLEANUP_QUEUES = [
   CI_PROJECTION_QUEUE,
 ] as const;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 async function deleteQueueJobs(boss: PgBoss): Promise<void> {
   for (const queue of CLEANUP_QUEUES) {
@@ -124,7 +124,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss);
   });
@@ -394,10 +396,10 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(acks).toHaveLength(2);
     const losingAck = acks.find((job) => job.data.delivery === inputs[1].headers.delivery)!.data;
     const expectedBody = {
-      review: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+      review: "A `/review` run is already queued or in progress for this pull request.",
       description: DESCRIPTION_ALREADY_IN_PROGRESS,
       triage: TRIAGE_ALREADY_IN_PROGRESS,
-      verification: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+      verification: "A `/verify` run is already queued or in progress for this pull request.",
     }[type];
     expect(losingAck.reply?.body).toBe(expectedBody);
     expect(losingAck.workItemId).toBeUndefined();
@@ -1209,17 +1211,25 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         expect(survivorId).not.toBe(firstId);
         expect(secondAck.workItemId).toBe(survivorId);
         expect(secondAck.cancelProgress?.cancelledWorkItemIds).toContain(firstId);
-        expect(secondAck.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
-        expect(acks.some((ack) => ack.reply?.body === SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY)).toBe(
-          false,
+        expect(secondAck.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
         );
+        expect(
+          acks.some(
+            (ack) =>
+              ack.reply?.body ===
+              "A `/review` run is already queued or in progress for this pull request.",
+          ),
+        ).toBe(false);
         expect(
           reviewJobs.filter((job) => [firstId, survivorId].includes(job.data.workItemId)),
         ).toHaveLength(2);
       } else {
         expect(survivorId).toBe(firstId);
         expect(secondAck.workItemId).toBeUndefined();
-        expect(secondAck.reply?.body).toBe(SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY);
+        expect(secondAck.reply?.body).toBe(
+          "A `/review` run is already queued or in progress for this pull request.",
+        );
         expect(reviewJobs.filter((job) => job.data.workItemId === firstId)).toHaveLength(1);
       }
       const { rows: progress } = await pool.query<{ work_item_id: string }>(
@@ -1231,7 +1241,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       if (prior !== "empty") {
         expect(rows.find((row) => row.id === priorId)?.status).toBe("cancelled");
         expect(firstAck.cancelProgress?.cancelledWorkItemIds).toContain(priorId);
-        expect(firstAck.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
+        expect(firstAck.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
+        );
       }
       if (prior === "queued") {
         const fake = prSurface.createFakePrSurface({ owner: OWNER, repo, prNumber: 44 });
@@ -1248,8 +1260,14 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
           await executeAckJob(makeTestConfig(), pool, firstAck, boss);
           await executeAckJob(makeTestConfig(), pool, secondAck, boss);
           expect(fake.controls.replies).toEqual([
-            { target: firstAck.reply!.target, body: SLASH_REVIEW_FORCE_RESTARTED_BODY },
-            { target: secondAck.reply!.target, body: SLASH_REVIEW_FORCE_RESTARTED_BODY },
+            {
+              target: firstAck.reply!.target,
+              body: "Cancelled the previous review and started a new one on the latest commit.",
+            },
+            {
+              target: secondAck.reply!.target,
+              body: "Cancelled the previous review and started a new one on the latest commit.",
+            },
           ]);
           const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
           expect(comment?.body).toContain("Review queued on the latest commit.");
@@ -1942,9 +1960,8 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
     expect(replacements).toEqual([{ id: first.replacementWorkItemId, status: "queued" }]);
 
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+    await cancelPendingStaleHeadReplacement(
       pool,
-      boss,
       persisted,
       new Error("parent terminal before enqueue"),
     );
@@ -2055,3 +2072,17 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
   });
 });
+
+function applySlashCommandIntake(
+  boss: PgBoss,
+  client: import("pg").PoolClient,
+  input: SlashCommandInput,
+  features: import("../../src/settings/index.js").Features,
+  askQuota?: import("../../src/agentWork/askQuota.js").AskQuotaConfig,
+) {
+  const tx = new DeliveryTx(client, input.headers);
+  return applySlash(boss, tx, input, features, askQuota).then((events) => [
+    ...tx.events,
+    ...events,
+  ]);
+}

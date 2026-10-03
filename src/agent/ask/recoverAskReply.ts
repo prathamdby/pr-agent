@@ -1,7 +1,7 @@
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
-import { operationIntentMarker } from "../../agentWork/withOperationIntent.js";
+import { operationIntentMarker } from "../../agentWork/publishOnce.js";
 import { isRecord } from "../../util/typeGuards.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 
@@ -58,7 +58,7 @@ export async function findExistingAskReplyComment(params: {
 
   const comments =
     replyTarget.kind === "inlineReviewThread"
-      ? await prSurface.listInlineReviewComments()
+      ? (await prSurface.listReviewComments()).comments
       : await prSurface.listConversationComments();
 
   const marker =

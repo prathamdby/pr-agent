@@ -1,3 +1,16 @@
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import {
+  operationIntentMarker,
+  runInOperationIntentFrame,
+} from "../../src/agentWork/publishOnce.js";
+import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
+import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
+import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
+
+import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
@@ -8,18 +21,16 @@ import * as postgres from "../../src/db/postgres.js";
 import * as bossModule from "../../src/agentWork/boss.js";
 import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
 import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
-import { executeDescriptionJob } from "../../src/agentWork/executors/descriptionExecutor.js";
-import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
-import { assistantFromText } from "../../src/agentRun/sessionHelpers.js";
+import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
 import * as retentionModule from "../../src/agentWork/retention.js";
 import * as lostRunningModule from "../../src/agentWork/lostRunningWork.js";
 import * as projectionRepairModule from "../../src/agentWork/projectionRepair.js";
 import * as workerHealthModule from "../../src/agentWork/workerHealth.js";
-import * as prWorkspaceModule from "../../src/prWorkspace/index.js";
+import * as prWorkspaceModule from "../../src/prWorkspace/prRepositoryView.js";
 import { agentWorkWorkerLive } from "../../src/agentWork/worker.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -34,16 +45,13 @@ import { inTransaction } from "../../src/db/postgres.js";
 import * as evlog from "../../src/evlog.js";
 import * as leaseRepository from "../../src/agentWork/prActorLease.js";
 import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
-import * as workRepository from "../../src/agentWork/repository.js";
+import * as workRepository from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurfaceModule from "../../src/github/prSurface.js";
-import {
-  clearDurableAuthCachesForTest,
-  acquireAndClaimWorkItem,
-  runDurableWorkItem,
-  type DurableJobSpec,
-} from "../../src/agentWork/durableJob.js";
-import { recordPublishStep } from "../../src/agentWork/publishRecordRepository.js";
+import { runDurableWorkItem, type DurableJobSpec } from "../../src/agentWork/durableJob.js";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
+
 import { makeTestConfig } from "../helpers/config.js";
 import {
   acquirePrActorLease,
@@ -55,10 +63,9 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
-import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
+import { publishOnce } from "../../src/agentWork/publishOnce.js";
 import {
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-  cancelUnenqueuedStaleHeadReplacement,
+  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
 } from "../../src/agentWork/reviewReschedule.js";
 import { installationGroupId, type ReviewWorkItem } from "../../src/agentWork/types.js";
@@ -77,10 +84,10 @@ import {
   markWorkFailed,
   markWorkPublishDegraded,
   updateRunningWorkHeadSha,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { hasDatabase, integrationPool } from "./db.js";
-import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
-import * as ownVerdictModule from "../../src/agentWork/closeOwnVerdict.js";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
+import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;
@@ -149,21 +156,464 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
   }
 
+  const surfaceParams = { owner: "o", repo: "r", prNumber: 1 };
+
+  describe("PrSurface lease mutation boundary", () => {
+    it("blocks every mutating method before the fake external call when ownership is lost", async () => {
+      const resourceKey = `${OWNER}/surface-fence-${randomUUID()}#1`;
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      const initial = await acquire(resourceKey, workItemId);
+      if (!initial.acquired) throw new Error("expected initial lease");
+      await releasePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: initial.leaseEpoch,
+      });
+      let epoch = initial.leaseEpoch;
+      const runCalls: PrSurfaceMutation[] = [];
+      const run: PrSurfaceMutationBoundary["run"] = async <T>(
+        mutation: PrSurfaceMutation,
+        mutate: () => Promise<T>,
+      ): Promise<T> => {
+        runCalls.push(mutation);
+        await assertPrActorLeaseHeld(pool, workItemId, epoch);
+        return mutate();
+      };
+      const { surface, controls } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: { signal: new AbortController().signal, run },
+      });
+
+      const attempts: Array<readonly [string, () => Promise<unknown>]> = [
+        [
+          "setAcknowledgementReaction",
+          () => surface.setAcknowledgementReaction([{ kind: "pr", prNumber: 1 }], "eyes"),
+        ],
+        ["replyAt", () => surface.replyAt({ kind: "prConversation", prNumber: 1 }, "reply")],
+        ["upsertProgressComment", () => surface.upsertProgressComment("body", "sentinel")],
+        ["editComment", () => surface.editComment(10, "body")],
+        [
+          "setReviewCommitStatus",
+          () => surface.setReviewCommitStatus("head", { state: "success", description: "done" }),
+        ],
+        [
+          "publishThreadBatch",
+          () => surface.publishThreadBatch({ body: "review", event: "COMMENT" }),
+        ],
+        ["resolveInlineReviewThread", () => surface.resolveInlineReviewThread("thread")],
+        ["setLabels", () => surface.setLabels(["pr-agent-size-small"])],
+        ["startReviewCheck", () => surface.startReviewCheck("head", "work-item")],
+        [
+          "finishReviewCheck",
+          () =>
+            surface.finishReviewCheck({
+              checkRunId: 1,
+              conclusion: "cancelled",
+              summary: "cancelled",
+            }),
+        ],
+        ["editReviewComment", () => surface.editReviewComment(10, "body")],
+        ["updatePullRequest", () => surface.updatePullRequest({ title: "title", body: "body" })],
+      ];
+
+      for (const [, attempt] of attempts) {
+        await expect(attempt()).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+      }
+
+      expect(runCalls).toHaveLength(attempts.length);
+      expect(
+        controls.events.filter((event) =>
+          [
+            "setAcknowledgementReaction",
+            "replyAt",
+            "upsertProgressComment",
+            "editComment",
+            "setReviewCommitStatus",
+            "publishThreadBatch",
+            "resolveInlineReviewThread",
+            "setLabels",
+            "startReviewCheck",
+            "finishReviewCheck",
+            "editReviewComment",
+            "updatePullRequest",
+          ].includes(event.kind),
+        ),
+      ).toHaveLength(0);
+
+      const current = await acquire(resourceKey, workItemId);
+      if (!current.acquired) throw new Error("expected current lease");
+      epoch = current.leaseEpoch;
+      await surface.setLabels(["pr-agent-size-small"]);
+      expect(controls.events).toContainEqual({
+        kind: "setLabels",
+        labels: ["pr-agent-size-small"],
+      });
+    });
+
+    it("does not invoke the boundary after cancellation and leaves every read available", async () => {
+      const controller = new AbortController();
+      let runCalled = false;
+      const run: PrSurfaceMutationBoundary["run"] = async <T>(
+        _mutation: PrSurfaceMutation,
+        _mutate: () => Promise<T>,
+      ): Promise<T> => {
+        runCalled = true;
+        return undefined as T;
+      };
+      const { surface, controls } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: { signal: controller.signal, run },
+      });
+
+      const resourceKey = `${OWNER}/surface-cancel-${randomUUID()}#1`;
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      const lease = await acquire(resourceKey, workItemId);
+      if (!lease.acquired) throw new Error("expected lease");
+      await workRepository.markWorkCancelled(pool, workItemId, lease.leaseEpoch);
+      expect(await workRepository.shouldSkipWork(pool, { id: workItemId })).toBe(true);
+      controller.abort(new Error("renewal lost"));
+      await expect(
+        surface.replyAt({ kind: "prConversation", prNumber: 1 }, "reply"),
+      ).rejects.toThrow("renewal lost");
+      expect(runCalled).toBe(false);
+
+      const reads: Array<readonly [string, () => Promise<unknown>]> = [
+        ["getHead", () => surface.getHead()],
+        ["getHeadSha", () => surface.getHeadSha()],
+        ["findProgressComment", () => surface.findProgressComment("sentinel")],
+        ["resolveProgressComment", () => surface.resolveProgressComment("sentinel")],
+        ["listReviewComments", () => surface.listReviewComments()],
+        ["listPullRequestReviews", () => surface.listPullRequestReviews()],
+        ["listInlineReviewThreads", () => surface.listInlineReviewThreads()],
+        [
+          "listChangedFiles",
+          () =>
+            surface.listChangedFiles({
+              maxPrFilesListed: 10,
+              maxPrFilesPatchBytes: 100,
+            }),
+        ],
+        ["listCommitCompareFiles", () => surface.listCommitCompareFiles("base", "head")],
+        ["getLabels", () => surface.getLabels()],
+        ["getCiStatus", () => surface.getCiStatus("head")],
+        ["listPullsForHead", () => surface.listPullsForHead("head")],
+        ["listFailingActionsJobs", () => surface.listFailingActionsJobs("head")],
+        ["downloadActionsJobLogs", () => surface.downloadActionsJobLogs(1)],
+        ["gitCredentialAuth", () => surface.gitCredentialAuth()],
+        ["listConversationComments", () => surface.listConversationComments()],
+        ["listPushedCommits", () => surface.listPushedCommits()],
+        ["lookupGitHubUser", () => surface.lookupGitHubUser(1)],
+      ];
+
+      for (const [, read] of reads) await expect(read()).resolves.not.toBeUndefined();
+      expect(runCalled).toBe(false);
+      expect(controls.events.map((event) => event.kind)).toEqual(
+        expect.arrayContaining(reads.map(([kind]) => kind)),
+      );
+    });
+
+    it("records stable mutation metadata and preserves unleased ask semantics", async () => {
+      const resourceKey = `${OWNER}/surface-identity-${randomUUID()}#1`;
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      const lease = await acquire(resourceKey, workItemId);
+      if (!lease.acquired) throw new Error("expected lease");
+      const mutations: PrSurfaceMutation[] = [];
+      const { surface } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: {
+          signal: new AbortController().signal,
+          run: async (mutation, mutate) => {
+            await assertPrActorLeaseHeld(pool, workItemId, lease.leaseEpoch);
+            mutations.push(mutation);
+            return mutate();
+          },
+        },
+      });
+
+      await surface.setLabels(["pr-agent-size-small"]);
+      expect(mutations[0]).toMatchObject({
+        operationKey: expect.stringMatching(/^pr-surface:setLabels:/),
+        mutationKind: "github.pr_surface.setLabels",
+        detail: { surfaceMethod: "setLabels" },
+      });
+      await surface.publishThreadBatch({ body: "review", event: "COMMENT", commitId: "head" });
+      await surface.publishThreadBatch({ commitId: "head", event: "COMMENT", body: "review" });
+      expect(mutations[1]?.operationKey).toBe(mutations[2]?.operationKey);
+      expect(mutations[1]?.detail?.inputHash).toHaveLength(64);
+
+      const unleased = createFakePrSurface(surfaceParams);
+      await unleased.surface.replyAt({ kind: "prConversation", prNumber: 1 }, "ask reply");
+      expect(unleased.controls.replies).toEqual([
+        { target: { kind: "prConversation", prNumber: 1 }, body: "ask reply" },
+      ]);
+    });
+
+    it("scopes nested surface mutation keys by input under a stable parent", async () => {
+      const mutations: PrSurfaceMutation[] = [];
+      const { surface } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: {
+          signal: new AbortController().signal,
+          run: async (mutation, mutate) => {
+            mutations.push(mutation);
+            return mutate();
+          },
+        },
+      });
+
+      await runInOperationIntentFrame("ask:reply:1:o/r#1", async () => {
+        await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "first body");
+        await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "second body");
+        await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "first body");
+      });
+
+      expect(mutations).toHaveLength(3);
+      expect(mutations[0]?.operationKey).toMatch(/^ask:reply:1:o\/r#1:surface:replyAt:/);
+      expect(mutations[1]?.operationKey).not.toBe(mutations[0]?.operationKey);
+      expect(mutations[2]?.operationKey).toBe(mutations[0]?.operationKey);
+      expect(mutations[0]?.detail).toMatchObject({
+        surfaceMethod: "replyAt",
+        parentOperationKey: "ask:reply:1:o/r#1",
+      });
+      expect(mutations[0]?.detail?.inputHash).not.toBe(mutations[1]?.detail?.inputHash);
+    });
+
+    it("returns the cached wrapped surface instead of the raw surface", async () => {
+      const raw = createFakePrSurface(surfaceParams).surface;
+      const boundary: PrSurfaceMutationBoundary = {
+        signal: new AbortController().signal,
+        run: async (_mutation, mutate) => mutate(),
+      };
+
+      const first = withPrSurfaceMutationBoundary(raw, boundary);
+      expect(withPrSurfaceMutationBoundary(raw, boundary)).toBe(first);
+      expect(withPrSurfaceMutationBoundary(first, boundary)).toBe(first);
+    });
+
+    it("recovers a marked replyAt without remutating and fails closed for labels", async () => {
+      const mutations: PrSurfaceMutation[] = [];
+      const { surface } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: {
+          signal: new AbortController().signal,
+          run: async (mutation, mutate) => {
+            mutations.push(mutation);
+            return mutate();
+          },
+        },
+      });
+      const marker = operationIntentMarker("verification:thread:9", "wi-1");
+
+      const posted = await surface.replyAt(
+        { kind: "prConversation", prNumber: 1 },
+        `${marker}\nverification note`,
+      );
+      const replyMutation = mutations[0];
+      expect(replyMutation?.detail).toMatchObject({
+        surfaceMethod: "replyAt",
+        operationMarker: marker,
+        replyTargetKind: "prConversation",
+      });
+      expect(replyMutation?.recover).toEqual(expect.any(Function));
+
+      const recovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: replyMutation?.operationKey ?? "pr-surface:replyAt",
+        mutationKind: "github.pr_surface.replyAt",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...replyMutation?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(recovered).toEqual({ kind: "reconciled", value: { commentId: posted.commentId } });
+
+      await surface.setLabels(["pr-agent-size-small"]);
+      const labelMutation = mutations[1];
+      const labelsRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-2",
+        workItemId: "wi-1",
+        operationKey: labelMutation?.operationKey ?? "pr-surface:setLabels",
+        mutationKind: "github.pr_surface.setLabels",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...labelMutation?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(labelsRecovered).toEqual({ kind: "absent" });
+    });
+
+    it("recovers marked review-comment edits, thread resolution, and check runs", async () => {
+      const mutations: PrSurfaceMutation[] = [];
+      const { surface, controls } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: {
+          signal: new AbortController().signal,
+          run: async (mutation, mutate) => {
+            mutations.push(mutation);
+            return mutate();
+          },
+        },
+      });
+      const marker = operationIntentMarker("verification:thread:3", "wi-1");
+      controls.setReviewCommentBody(8, "prior");
+      controls.setReviewComments([
+        {
+          id: 8,
+          inReplyToId: 3,
+          pullRequestReviewId: null,
+          userId: null,
+          authorLogin: "pr-agent[bot]",
+          body: `${marker}\n**Verification**: Still open`,
+          path: null,
+          line: null,
+          originalLine: null,
+          htmlUrl: "",
+        },
+      ]);
+      controls.setThreads(new Map([[3, { threadNodeId: "thread-node", isResolved: true }]]));
+
+      await surface.editReviewComment(8, `${marker}\n**Verification**: Still open`);
+      const editRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: "verification:thread:3:surface:editReviewComment",
+        mutationKind: "github.pr_surface.editReviewComment",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...mutations[0]?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(editRecovered).toEqual({ kind: "reconciled", value: true });
+
+      await surface.resolveInlineReviewThread("thread-node");
+      const resolveRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-2",
+        workItemId: "wi-1",
+        operationKey: "verification:thread:3:surface:resolveInlineReviewThread",
+        mutationKind: "github.pr_surface.resolveInlineReviewThread",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...mutations[1]?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(resolveRecovered).toEqual({ kind: "reconciled", value: undefined });
+
+      const check = await surface.startReviewCheck("abc123", "wi-1");
+      const checkRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-3",
+        workItemId: "wi-1",
+        operationKey: "review:check_run:wi-1:surface:startReviewCheck",
+        mutationKind: "github.pr_surface.startReviewCheck",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...mutations[2]?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(checkRecovered).toEqual({ kind: "reconciled", value: check });
+    });
+
+    it("derives progress updated from knownExistingId and fails closed without a marker", async () => {
+      const mutations: PrSurfaceMutation[] = [];
+      const { surface, controls } = createFakePrSurface(surfaceParams, {
+        mutationBoundary: {
+          signal: new AbortController().signal,
+          run: async (mutation, mutate) => {
+            mutations.push(mutation);
+            return mutate();
+          },
+        },
+      });
+      const marker = operationIntentMarker("review:summary:review:o/r#1", "wi-1");
+      const created = await surface.upsertProgressComment(
+        `${marker}\n## PR Agent Review`,
+        "## PR Agent Review",
+      );
+      expect(created.updated).toBe(false);
+      expect(mutations[0]?.detail).toMatchObject({
+        surfaceMethod: "upsertProgressComment",
+        operationMarker: marker,
+        sentinel: "## PR Agent Review",
+      });
+
+      const createdRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: mutations[0]?.operationKey ?? "pr-surface:upsertProgressComment",
+        mutationKind: "github.pr_surface.upsertProgressComment",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...mutations[0]?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(createdRecovered).toEqual({
+        kind: "reconciled",
+        value: { id: created.id, updated: false },
+      });
+
+      const updated = await surface.upsertProgressComment(
+        `${marker}\n## PR Agent Review\ndone`,
+        "## PR Agent Review",
+        { id: created.id, url: "https://example.test/1" },
+      );
+      expect(updated.updated).toBe(true);
+      const updateRecovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-2",
+        workItemId: "wi-1",
+        operationKey: mutations[1]?.operationKey ?? "pr-surface:upsertProgressComment",
+        mutationKind: "github.pr_surface.upsertProgressComment",
+        status: "pending",
+        publishRecordId: null,
+        detail: { ...mutations[1]?.detail, __mutating: true },
+      } satisfies OperationIntentRow);
+      expect(mutations[1]?.detail).toMatchObject({ knownExistingId: created.id });
+      expect(updateRecovered).toEqual({
+        kind: "reconciled",
+        value: { id: created.id, updated: true },
+      });
+
+      controls.setConversationComments([
+        {
+          id: 99,
+          inReplyToId: null,
+          authorLogin: "attacker",
+          body: "## PR Agent Review\nspoofed",
+        },
+      ]);
+      const sentinelOnly = await recoverPrSurfaceMutation(surface, {
+        id: "intent-3",
+        workItemId: "wi-1",
+        operationKey: "pr-surface:upsertProgressComment",
+        mutationKind: "github.pr_surface.upsertProgressComment",
+        status: "pending",
+        publishRecordId: null,
+        detail: { surfaceMethod: "upsertProgressComment", sentinel: "## PR Agent Review" },
+      } satisfies OperationIntentRow);
+      expect(sentinelOnly).toEqual({ kind: "absent" });
+    });
+
+    it("recovers a marked description body without synthesizing titleUpdated", async () => {
+      const marker = operationIntentMarker("description:pr_body:o/r#1", "wi-1");
+      const { surface, controls } = createFakePrSurface(surfaceParams);
+      controls.setPullRequestBody(`agent block\n${marker}`);
+      const recovered = await recoverPrSurfaceMutation(surface, {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: "description:pr_body:o/r#1:surface:publishDescription",
+        mutationKind: "github.pr_surface.publishDescription",
+        status: "pending",
+        publishRecordId: null,
+        detail: { surfaceMethod: "publishDescription", operationMarker: marker },
+      } satisfies OperationIntentRow);
+      expect(recovered).toEqual({
+        kind: "reconciled",
+        value: { prNumber: 1, bodyUpdated: true },
+      });
+    });
+  });
+
   it.each(["lightweight", "ordinary_summary", "foreign_lightweight"] as const)(
     "#657 recovers interrupted lightweight publication at the cap (%s)",
     async (mode) => {
       const resourceKey = `${OWNER}/lightweight-recovery-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const cfg = makeTestConfig({ queueRetryLimit: 0 });
+      const cfg = makeTestConfig({ queue: { retryLimit: 0 } });
       const job = {
         ...makeDurableJobMetadata(workItemId, 0, 0),
         data: { kind: "review" as const, workItemId },
       };
-      const boss = new PgBoss(cfg.databaseUrl);
+      const boss = new PgBoss(cfg.runtime.databaseUrl);
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "sendDebounced").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -200,28 +650,36 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );
       const workspace = vi.spyOn(prWorkspaceModule, "withPrRepositoryView");
-      const close = ownVerdictModule.closeOwnVerdict;
+      const createVerdict = ownVerdictModule.reviewVerdict;
       let interrupted = false;
-      vi.spyOn(ownVerdictModule, "closeOwnVerdict").mockImplementation(async (params) => {
-        if (
-          !interrupted &&
-          params.workItemId === workItemId &&
-          params.outcome.kind === "published"
-        ) {
-          interrupted = true;
-          await pool.query(
-            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
-            [resourceKey],
-          );
-          expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
-          throw new AppError({
-            code: "agent_work.pr_actor_lease_lost",
-            message: "Synthetic interruption before verdict close",
-          });
-        }
-        return close(params);
+      vi.spyOn(ownVerdictModule, "reviewVerdict").mockImplementation((params) => {
+        const verdict = createVerdict(params);
+        return {
+          ...verdict,
+          close: async (outcome) => {
+            if (!interrupted && params.workItemId === workItemId && outcome.kind === "published") {
+              interrupted = true;
+              await pool.query(
+                "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+                [resourceKey],
+              );
+              expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
+              throw new AppError({
+                domain: "agent_work",
+                kind: "pr_actor_lease_lost",
+                message: "Synthetic interruption before verdict close",
+              });
+            }
+            return verdict.close(outcome);
+          },
+        };
       });
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, job);
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch(job);
       expect(interrupted).toBe(true);
       expect(await getWorkItem(pool, workItemId)).toMatchObject({
         status: "running",
@@ -232,13 +690,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         (event) => event.kind === "upsertProgressComment",
       );
       expect(published).toHaveLength(1);
-      const stored = await workRepository.getCompletedPublishStepDetail(
-        pool,
+      const stored = await createPublishContext(pool, {
         workItemId,
         resourceKey,
-        "review",
-        "summary_comment",
-      );
+        reviewLens: "review",
+      }).completed("summary_comment");
       expect(stored?.lightweightCompletion).toBe(true);
       if (mode === "ordinary_summary") {
         await pool.query(
@@ -259,7 +715,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
         [resourceKey],
       );
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch({ ...job, id: randomUUID() });
       const expectedStatus = mode === "lightweight" ? "completed" : "failed";
       expect(await getWorkItem(pool, workItemId)).toMatchObject({
         status: expectedStatus,
@@ -282,7 +743,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         expect(fake.controls.reactions.map((reaction) => reaction.kind)).toEqual(["-1"]);
       }
       const eventCount = fake.controls.events.length;
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch({ ...job, id: randomUUID() });
       expect(fake.controls.events).toHaveLength(eventCount);
       console.info(
         "lightweight-recovery-evidence",
@@ -315,13 +781,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     async (outcome) => {
       const resourceKey = `${OWNER}/budget-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "description");
-      const cfg = makeTestConfig({ queueRetryLimit: 2 });
+      const cfg = makeTestConfig({ queue: { retryLimit: 2 } });
       const jobs = Array.from({ length: 5 }, () => ({
         ...makeDurableJobMetadata(workItemId, 0, 2),
         id: randomUUID(),
         data: { kind: "description" as const, workItemId },
       }));
-      const boss = new PgBoss(cfg.databaseUrl);
+      const boss = new PgBoss(cfg.runtime.databaseUrl);
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
       const core = await workRepository.getWorkItemCore(pool, workItemId);
@@ -347,7 +813,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           [resourceKey],
         );
       }
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -376,7 +841,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
       const failure =
         outcome === "deterministic"
-          ? new AppError({ code: "triage.missing_submit", message: "synthetic missing submit" })
+          ? new AppError({
+              domain: "triage",
+              kind: "missing_submit",
+              message: "synthetic missing submit",
+            })
           : new Error("synthetic transient feature failure");
       const run = vi.spyOn(descriptionRun, "runFullPrDescription").mockRejectedValue(failure);
       if (outcome === "recovery_at_cap") {
@@ -392,7 +861,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await pool.query("UPDATE agent_work_items SET attempt_count = 3 WHERE id = $1", [
           verificationId,
         ]);
-        await executeVerificationJob(cfg, pool, boss, {
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).verification.dispatch({
           ...jobs[0],
           data: { kind: "verification", workItemId: verificationId },
         });
@@ -478,7 +952,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
           [resourceKey],
         );
-        await executeDescriptionJob(cfg, pool, boss, jobs[1]);
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[1]);
         expect(run).toHaveBeenCalledOnce();
         expect((await getWorkItem(pool, workItemId))?.status).toBe("failed");
         expect(fake.controls.replies).toHaveLength(1);
@@ -507,7 +986,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             throw failure;
           });
         if (outcome === "admission_ack_lost") {
-          await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+          await expect(
+            createWorkDefinitions({
+              cfg: cfg,
+              pool: pool,
+              boss: boss,
+              installationSurface: openInstallationSurface(),
+            }).description.dispatch(jobs[0]),
+          ).rejects.toBe(failure);
           expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
           expect(run).not.toHaveBeenCalled();
           expect(await getWorkItem(pool, workItemId)).toMatchObject({
@@ -527,7 +1013,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               throw failure;
             }),
           );
-        await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+        await expect(
+          createWorkDefinitions({
+            cfg: cfg,
+            pool: pool,
+            boss: boss,
+            installationSurface: openInstallationSurface(),
+          }).description.dispatch(jobs[0]),
+        ).rejects.toBe(failure);
         expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
         expect(run).not.toHaveBeenCalled();
       }
@@ -543,6 +1036,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           release = resolve;
         });
         const held = runDurableWorkItem({
+          contextPolicy: createWorkDefinitions({ cfg, pool, boss }).description.contextPolicy,
+          runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
           cfg,
           pool,
           boss,
@@ -633,7 +1128,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }
         try {
           for (let attempt = 0; attempt < blocked; attempt++) {
-            pending.push(executeDescriptionJob(cfg, pool, boss, jobs[attempt]));
+            pending.push(
+              createWorkDefinitions({
+                cfg: cfg,
+                pool: pool,
+                boss: boss,
+                installationSurface: openInstallationSurface(),
+              }).description.dispatch(jobs[attempt]),
+            );
             await expect.poll(() => releases.length).toBe(attempt + 1);
             await pool.query(
               `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
@@ -650,9 +1152,21 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
                   preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
                 }),
             );
-            await expect(executeDescriptionJob(cfg, pool, boss, jobs[1])).rejects.toBe(failure);
+            await expect(
+              createWorkDefinitions({
+                cfg: cfg,
+                pool: pool,
+                boss: boss,
+                installationSurface: openInstallationSurface(),
+              }).description.dispatch(jobs[1]),
+            ).rejects.toBe(failure);
           }
-          const terminal = executeDescriptionJob(cfg, pool, boss, jobs[3]);
+          const terminal = createWorkDefinitions({
+            cfg: cfg,
+            pool: pool,
+            boss: boss,
+            installationSurface: openInstallationSurface(),
+          }).description.dispatch(jobs[3]);
           pending.push(terminal);
           await expect
             .poll(async () => (await getWorkItem(pool, workItemId))?.status)
@@ -664,7 +1178,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           for (const release of releases) release();
           await Promise.allSettled(pending);
         }
-        await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[4]);
         expect(run).toHaveBeenCalledTimes(outcome === "running_resume" ? 3 : 2);
         expect(fake.controls.replies).toHaveLength(1);
         expect((await getWorkItem(pool, workItemId))?.attemptCount).toBe(3);
@@ -685,23 +1204,27 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           .mockRejectedValueOnce(failure)
           .mockRejectedValueOnce(failure)
           .mockImplementationOnce(async (params) => {
-            await params.prSurface.publishDescription(cfg, {
+            await params.prSurface.updatePullRequest({
               title: "Synthetic retry success",
-              type: ["Bug fix"],
-              description: "Synthetic acceptance output",
+              body: "Synthetic acceptance output",
             });
             await params.recordPublishStep?.({ syntheticAcceptance: true });
             return {
               published: true,
               publishSuperseded: false,
-              lastAssistant: assistantFromText(cfg, "", cfg.piProvider),
+              lastAssistant: assistantFromText(cfg, "", cfg.models.provider),
             };
           });
       }
       const attempts = outcome === "deterministic" ? 2 : 3;
       const invocations = outcome === "admission_ack_lost" ? 2 : attempts;
       for (let attempt = firstLaterJob; attempt < attempts; attempt++) {
-        const dispatch = executeDescriptionJob(cfg, pool, boss, jobs[attempt]);
+        const dispatch = createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[attempt]);
         const result = await dispatch.then(
           () => undefined,
           (error: unknown) => error,
@@ -738,7 +1261,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
       expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
       const publications = fake.controls.events.filter(
-        (event) => event.kind === "publishDescription",
+        (event) => event.kind === "updatePullRequest",
       ).length;
       expect(publications).toBe(outcome === "published" ? 1 : 0);
       console.info(
@@ -752,7 +1275,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           takeoverWon: outcome === "takeover_before_start",
         }),
       );
-      await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).description.dispatch(jobs[4]);
       expect(run).toHaveBeenCalledTimes(invocations);
       expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
     },
@@ -764,11 +1292,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const scopedPool = new Pool({ ...pool.options, max: 2, connectionTimeoutMillis: 1500 });
       const resourceKey = `${OWNER}/own-verdict-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const boss = new PgBoss(makeTestConfig().databaseUrl);
+      const boss = new PgBoss(makeTestConfig().runtime.databaseUrl);
       const fake = prSurfaceModule.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       const finish = vi.spyOn(fake.surface, "finishReviewCheck");
       if (mode === "unknown") finish.mockRejectedValueOnce(new Error("synthetic unknown response"));
-      clearDurableAuthCachesForTest();
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
@@ -855,7 +1382,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         sourceRootId: null,
       };
       try {
-        await workRepository.recordReviewCheckRun(scopedPool, {
+        await recordReviewCheckRun(scopedPool, {
           workItemId,
           resourceKey,
           reviewLens: "review",
@@ -863,6 +1390,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           detail: { status: "in_progress" },
         });
         await runDurableWorkItem({
+          contextPolicy: createWorkDefinitions({ cfg: makeTestConfig(), pool: scopedPool, boss })
+            .review.contextPolicy,
+          runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
           cfg: makeTestConfig(),
           pool: scopedPool,
           boss,
@@ -871,7 +1401,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           job,
           resolveHeadSha: async () => ({ headSha: "h" }),
           execute: async (_item, env) => {
-            await closeOwnVerdict({
+            await reviewVerdict({
               pool: scopedPool,
               prSurface: env.prSurface,
               owner: OWNER,
@@ -883,14 +1413,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               headSha: "h",
               leaseEpoch: env.leaseEpoch,
               commitStatusEnabled: false,
-              outcome: { kind: "published", findings: [{ severity: "P1" }], summary: "winner" },
-            });
+            }).close({ kind: "published", findings: [{ severity: "P1" }], summary: "winner" });
             return { kind: "completed" };
           },
         });
         if (mode === "local_gate") expect(finish).not.toHaveBeenCalled();
         else expect(finish).toHaveBeenCalledOnce();
-        await closeOwnVerdict({
+        await reviewVerdict({
           pool: scopedPool,
           prSurface: fake.surface,
           owner: OWNER,
@@ -902,8 +1431,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           headSha: "h",
           leaseEpoch: null,
           commitStatusEnabled: false,
-          outcome: { kind: "cancelled" },
-        });
+        }).close({ kind: "cancelled" });
         expect(finish).toHaveBeenCalledOnce();
         expect(finish).toHaveBeenCalledWith(
           expect.objectContaining({ conclusion: "failure", summary: "winner" }),
@@ -963,8 +1491,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const controller = new AbortController();
     const cfg = makeTestConfig();
     const boss = realQueue
-      ? await createStartedBoss({ databaseUrl: process.env.DATABASE_URL!, role: "web" })
-      : new PgBoss(cfg.databaseUrl);
+      ? await createStartedBoss(
+          makeTestConfig({ runtime: { databaseUrl: process.env.DATABASE_URL!, role: "web" } }),
+        )
+      : new PgBoss(cfg.runtime.databaseUrl);
     if (realQueue) await ensureAgentQueues(boss, cfg);
     const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
     let executing = false;
@@ -1027,7 +1557,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
 
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    clearDurableAuthCachesForTest();
     vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
     vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     vi.spyOn(evlog, "logError").mockImplementation(() => {});
@@ -1136,6 +1665,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
     const now = new Date();
     let spec: DurableJobSpec<"review"> = {
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
+      runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
       cfg,
       pool,
       boss,
@@ -1187,12 +1718,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         if (mode === "replacement_claim_cancel") await cancellation;
         if (mode === "replacement_running_cancel") {
           if (!replacementParent) throw new Error("expected replacement parent");
-          await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-            pool,
-            boss,
-            replacementParent,
-            replacementError,
-          );
+          await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         }
         if (mode === "legacy_cancel" || mode === "request_cancel") {
           await pool.query("UPDATE agent_work_items SET execution_epoch = 0 WHERE id = $1", [
@@ -1204,7 +1730,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           event: "COMMENT",
           commitId: "h",
         });
-        await recordPublishStep(pool, {
+        await createPublishContext(pool, {
           workItemId,
           resourceKey: item.resourceKey,
           reviewLens: "review",
@@ -1219,7 +1745,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             fingerprints: [],
             placements: [],
           },
-        });
+        }).record();
         return { kind: "completed" };
       },
       onCancelled: async (_item, surface) => {
@@ -1238,14 +1764,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
           await committedSend;
         }
-        await cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          replacementParent,
-          workItemId,
-          replacementError,
-          false,
-        );
+        await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         if (lateHop) {
           await armLeaseWatchdogHop(boss, {
             queue: REVIEW_QUEUE,
@@ -1275,14 +1794,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         if (!replacementParent) throw new Error("expected replacement parent");
         pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
         await committedSend;
-        await cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          replacementParent,
-          workItemId,
-          replacementError,
-          false,
-        );
+        await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         releaseSend();
         await pendingSend;
         releasePublication();
@@ -1291,13 +1803,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await claimReady;
         if (!replacementParent || claimantPid == null)
           throw new Error("expected claimed replacement");
-        cancellation = cancelUnenqueuedStaleHeadReplacement(
+        cancellation = cancelPendingStaleHeadReplacement(
           pool,
-          boss,
           replacementParent,
-          workItemId,
           replacementError,
-          false,
         ).then(
           () => null,
           (error: unknown) => error,
@@ -1457,7 +1966,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       await pendingSend;
       await settled;
       vi.restoreAllMocks();
-      clearDurableAuthCachesForTest();
       vi.useRealTimers();
       if (realQueue) {
         const jobs = await boss.findJobs(REVIEW_QUEUE, { data: { workItemId } });
@@ -1466,7 +1974,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             REVIEW_QUEUE,
             jobs.map(({ id }) => id),
           );
-        await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+        await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000);
       }
     }
   });
@@ -1486,18 +1994,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           status,
         ]);
       }
-      const boss = new PgBoss(makeTestConfig().databaseUrl);
-      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      await pool.query("UPDATE agent_work_items SET payload = payload || $2::jsonb WHERE id = $1", [
+        parentId,
+        JSON.stringify({
+          staleHeadReplacement: { replacementWorkItemId: targetId, state: "pending-enqueue" },
+        }),
+      ]);
       const signal = vi.spyOn(evlog, "logError").mockImplementation(() => {});
       await expect(
-        cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          parent,
-          targetId,
-          new Error("parent terminal"),
-          false,
-        ),
+        cancelPendingStaleHeadReplacement(pool, parent, new Error("parent terminal")),
       ).rejects.toMatchObject({ code: "agent_work.replacement_cancel_rejected" });
       expect(signal).toHaveBeenCalledWith(
         "agent_work_replacement_cancel_failed",
@@ -1527,7 +2032,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       databaseUrl = url;
       // pg-boss schema/queues are not app migrations: a real started boss must
       // install them before the lost-running diagnostics can read pgboss.job.
-      diagnosticsBoss = await bossModule.createStartedBoss({ databaseUrl, role: "web" });
+      diagnosticsBoss = await bossModule.createStartedBoss(
+        makeTestConfig({ runtime: { databaseUrl, role: "web" } }),
+      );
       await bossModule.ensureAgentQueues(diagnosticsBoss, makeTestConfig());
     });
 
@@ -1551,7 +2058,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     }): Promise<ShutdownScenario> {
       const resourceKey = `${OWNER}/shutdown-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const cfg = makeTestConfig({ role: "worker", databaseUrl });
+      const cfg = makeTestConfig({ runtime: { role: "worker", databaseUrl } });
 
       const handlers = new Map<string, (jobs: readonly unknown[]) => Promise<void>>();
       const controlledBoss = {
@@ -1648,9 +2155,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         skippedNoInstallation: 0,
       });
       vi.spyOn(retentionModule, "ensureRetentionSchedule").mockResolvedValue(undefined);
-      vi.spyOn(prWorkspaceModule, "cleanupStaleLocalPrWorkspaces").mockResolvedValue(undefined);
+      vi.spyOn(localPrWorkspaceModule, "cleanupStaleLocalPrWorkspaces").mockResolvedValue(
+        undefined,
+      );
 
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -1699,20 +2207,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }
       });
 
-      vi.spyOn(reviewExecutorModule, "executeReviewJob").mockImplementation(
-        async (execCfg, execPool, execBoss, job) => {
-          await runDurableWorkItem({
-            cfg: execCfg,
-            pool: execPool,
-            boss: execBoss,
-            type: "review",
-            prActorLease: { queue: REVIEW_QUEUE },
-            job,
-            resolveHeadSha: async () => ({ headSha: "h" }),
-            execute: async () => ({ kind: "completed" }),
-          });
-        },
-      );
+      vi.spyOn(reviewExecutorModule, "createReviewWorkExecution").mockReturnValue({
+        execute: async () => ({ kind: "completed" }),
+      });
 
       const controller = new AbortController();
       const fiber = Effect.runFork(
@@ -1866,7 +2363,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       // Make only this scenario's data recovery-eligible: age the item, lapse
       // its lease, and keep every matching delivery/watchdog terminal (the
       // controlled boss wrote no pg-boss rows).
-      const minAgeSeconds = scenario.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds =
+        scenario.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       await pool.query(
         `UPDATE agent_work_items
             SET started_at = now() - (($2 + 60) * interval '1 second')
@@ -2433,7 +2931,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       let beforeCatch: IntentSnapshot | undefined;
 
       await expect(
-        withOperationIntent({
+        publishOnce({
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -2471,7 +2969,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const recover = vi.fn(async (_intent: OperationIntentRow) => ({ kind: "absent" as const }));
 
       await expect(
-        withOperationIntent({
+        publishOnce({
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -2551,7 +3049,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         );
       }
       const mutate = vi.fn(async () => undefined);
-      const error = await withOperationIntent({
+      const error = await publishOnce({
         client: pool,
         workItemId,
         operationKey,

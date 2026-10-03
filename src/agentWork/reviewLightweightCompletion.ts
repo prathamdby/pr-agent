@@ -1,8 +1,9 @@
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
-import { upsertSummaryCommentWithCreationClaim } from "../review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
@@ -10,15 +11,12 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema
 import type { PrSurface } from "../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "./ciProjection.js";
-import { summaryCommentVerdictMeta } from "./ownCheckReconcile.js";
-import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.js";
+import { summaryCommentVerdictMeta } from "./reviewVerdict.js";
+import { getSummaryCommentGithubId } from "./publishRecordRepository.js";
+import { shouldSkipWork } from "./workItemStateRepository.js";
 import type { AgentWorkItem } from "./types.js";
-import {
-  operationIntentMarker,
-  reviewSummaryOperationKey,
-  withOperationIntent,
-} from "./withOperationIntent.js";
+import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -86,7 +84,7 @@ export async function tryLightweightAutoReviewCompletion(
     params.reviewLens,
   );
   const knownExisting = await params.prSurface.resolveProgressComment(sentinel, storedId);
-  const summary = await withOperationIntent<{
+  const summary = await publishOnce<{
     readonly id: number;
     readonly updated: boolean;
   }>({
@@ -110,31 +108,33 @@ export async function tryLightweightAutoReviewCompletion(
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     // Terminal revision 7 fences a late ack stub (revision 0) from overwriting this body.
     mutate: () =>
-      upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId: params.item.id,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.item.resourceKey,
-        reviewLens: params.reviewLens,
+      createReviewSummaryComment({
         prSurface: params.prSurface,
+        reviewLens: params.reviewLens,
+        coordination: {
+          pool,
+          resourceKey: params.item.resourceKey,
+          workItemId: params.item.id,
+          leaseEpoch: params.leaseEpoch,
+        },
+      }).conclude({
         body: bodyWithMarker,
-        sentinel,
         hintCommentId: knownExisting?.id ?? storedId,
-        progressRevision: 7,
         ciHeadSha: params.item.headSha,
         ciVersion: renderedCi.version,
       }),
   });
-  await enqueueCiProjectionIfDue({
-    boss: params.boss,
-    pool,
-    installationId: params.item.installationId,
-    owner: params.item.owner,
-    repo: params.item.repo,
-    headSha: params.item.headSha,
-    renderedVersion: renderedCi.version,
-  });
-  await recordPublishStep(pool, {
+  await requestHeadCiProjection(
+    params.boss,
+    {
+      installationId: params.item.installationId,
+      owner: params.item.owner,
+      repo: params.item.repo,
+      headSha: params.item.headSha,
+    },
+    { kind: "when_due", pool, renderedVersion: renderedCi.version },
+  );
+  await createPublishContext(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     reviewLens: params.reviewLens,
@@ -146,6 +146,6 @@ export async function tryLightweightAutoReviewCompletion(
       ...summaryCommentVerdictMeta({ kind: "published", findings: [] }),
     },
     leaseEpoch: params.leaseEpoch,
-  });
+  }).record();
   return { handled: true, published: true, summaryId: summary.id };
 }

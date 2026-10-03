@@ -1,9 +1,7 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import { type Config, RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
-import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
-import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
@@ -15,7 +13,6 @@ export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
   readonly webhookDuplicatesDeleted: number;
-  readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
   readonly codeIndexSnapshotsDeleted: number;
   readonly askQuotaBucketsDeleted: number;
@@ -29,19 +26,12 @@ export type RetentionResult = {
  */
 export async function runRetention(
   pool: Pool,
-  cfg: Pick<
-    Config,
-    | "agentWorkRetentionSeconds"
-    | "webhookEventsRetentionSeconds"
-    | "agentEventsRetentionSeconds"
-    | "codeIndexRetentionSeconds"
-  >,
+  cfg: Pick<Config, "retention" | "agentEvents" | "codeIndex">,
 ): Promise<RetentionResult> {
   const [
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
-    resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
@@ -59,7 +49,7 @@ export async function runRetention(
                  AND COALESCE(completed_at, updated_at) < now() - ($2::bigint * interval '1 second')
                LIMIT $3::int
             )`,
-          [TERMINAL_STATUSES, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          [TERMINAL_STATUSES, cfg.retention.agentWorkSeconds, RETENTION_DELETE_BATCH_SIZE],
         );
         const batch = result.rowCount ?? 0;
         deleted += batch;
@@ -77,7 +67,7 @@ export async function runRetention(
                WHERE received_at < now() - ($1::bigint * interval '1 second')
                LIMIT $2::int
             )`,
-          [cfg.webhookEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          [cfg.retention.webhookEventsSeconds, RETENTION_DELETE_BATCH_SIZE],
         );
         const batch = result.rowCount ?? 0;
         deleted += batch;
@@ -95,7 +85,7 @@ export async function runRetention(
                WHERE received_at < now() - ($1::bigint * interval '1 second')
                LIMIT $2::int
             )`,
-          [cfg.webhookEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          [cfg.retention.webhookEventsSeconds, RETENTION_DELETE_BATCH_SIZE],
         );
         const batch = result.rowCount ?? 0;
         deleted += batch;
@@ -103,9 +93,8 @@ export async function runRetention(
       }
       return deleted;
     })(),
-    deleteExpiredResumeSnapshots(pool),
     (async () => {
-      if (cfg.agentEventsRetentionSeconds <= 0) return 0;
+      if (cfg.agentEvents.retentionSeconds <= 0) return 0;
       let deleted = 0;
       for (;;) {
         const result = await pool.query(
@@ -115,7 +104,7 @@ export async function runRetention(
                WHERE recorded_at < now() - ($1::bigint * interval '1 second')
                LIMIT $2::int
             )`,
-          [cfg.agentEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          [cfg.agentEvents.retentionSeconds, RETENTION_DELETE_BATCH_SIZE],
         );
         const batch = result.rowCount ?? 0;
         deleted += batch;
@@ -125,18 +114,17 @@ export async function runRetention(
     })(),
     safeDeleteExpiredCodeIndexSnapshots(
       pool,
-      cfg.codeIndexRetentionSeconds,
+      cfg.codeIndex.retentionSeconds,
       RETENTION_DELETE_BATCH_SIZE,
     ),
-    deleteExpiredAskQuotaState(pool, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE),
-    deleteExpiredPrHeadCiState(pool, cfg.agentWorkRetentionSeconds),
-    deleteExpiredReviewApprovals(pool, cfg.agentWorkRetentionSeconds),
+    deleteExpiredAskQuotaState(pool, cfg.retention.agentWorkSeconds, RETENTION_DELETE_BATCH_SIZE),
+    deleteExpiredPrHeadCiState(pool, cfg.retention.agentWorkSeconds),
+    deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
   ]);
   return {
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
-    resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
@@ -149,22 +137,19 @@ let warnedAgentEventsRetentionDisabled = false;
 
 export async function ensureRetentionSchedule(
   boss: PgBoss,
-  cfg: Pick<
-    Config,
-    "retentionEnabled" | "retentionCron" | "agentEventsEnabled" | "agentEventsRetentionSeconds"
-  >,
+  cfg: Pick<Config, "retention" | "agentEvents">,
 ): Promise<void> {
   if (
-    cfg.agentEventsEnabled &&
-    cfg.agentEventsRetentionSeconds <= 0 &&
+    cfg.agentEvents.enabled &&
+    cfg.agentEvents.retentionSeconds <= 0 &&
     !warnedAgentEventsRetentionDisabled
   ) {
     warnedAgentEventsRetentionDisabled = true;
     logWarn("agent_events_retention_disabled");
   }
   await boss.createQueue(RETENTION_QUEUE, { policy: "standard" });
-  if (cfg.retentionEnabled) {
-    await boss.schedule(RETENTION_QUEUE, cfg.retentionCron);
+  if (cfg.retention.enabled) {
+    await boss.schedule(RETENTION_QUEUE, cfg.retention.cron);
   } else {
     await boss.unschedule(RETENTION_QUEUE);
   }

@@ -1,6 +1,26 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
 import {
@@ -15,7 +35,8 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 
 let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 
-vi.mock("../src/agentWork/durableJob.js", () => ({
+vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/github/installationToken.js")>()),
   mintInstallationToken: vi.fn(async () => ({
     token: "tok",
     expiresAtTs: Date.now() + 3_600_000,
@@ -23,60 +44,88 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
   })),
 }));
 
+vi.mock("../src/github/appAuth.js", () => ({
+  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
+}));
+
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
   getProgressCommentOwner: vi.fn(async () => null),
+  claimSummaryCommentCreation: vi.fn(async () => true),
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getReviewQueuePosition: vi.fn(async () => null),
   getWorkItemCore: vi.fn(async () => ({
     id: "wi-1",
     status: "running",
     type: "review",
   })),
-  recordPublishStep: vi.fn(),
-  claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
-vi.mock("../src/review/publish/summaryCommentUpsert.js", async (importOriginal) => {
+const summaryWrite = vi.hoisted(() =>
+  vi.fn(async (_params: { readonly body: string; readonly [key: string]: unknown }) => ({
+    id: 42,
+    updated: false,
+  })),
+);
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/review/publish/summaryCommentUpsert.js")>();
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
   return {
     ...actual,
-    upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({ id: 42, updated: false })),
+    createReviewSummaryComment: (
+      deps: Parameters<typeof actual.createReviewSummaryComment>[0],
+    ) => ({
+      tick: (write: { readonly body: string; readonly progressRevision: number }) =>
+        summaryWrite({
+          prSurface: deps.prSurface,
+          reviewLens: deps.reviewLens,
+          ...deps.coordination,
+          ...write,
+        }),
+      conclude: (write: { readonly body: string }) =>
+        summaryWrite({
+          prSurface: deps.prSurface,
+          reviewLens: deps.reviewLens,
+          ...deps.coordination,
+          ...write,
+          progressRevision: 7,
+        }),
+    }),
   };
 });
 
-vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
-  ensureReviewCheckRunStarted: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/closeOwnVerdict.js", () => ({
-  closeOwnVerdictsForWorkItems: vi.fn(async () => undefined),
-  postOwnVerdictPending: vi.fn(async () => undefined),
-  closeOwnVerdict: vi.fn(async () => undefined),
+vi.mock("../src/agentWork/reviewVerdict.js", () => ({
+  closeReviewVerdictsForWorkItems: vi.fn(async () => undefined),
+  reviewVerdict: vi.fn(() => ({
+    pending: vi.fn(async () => 123),
+    close: vi.fn(async () => undefined),
+    repairIfOpen: vi.fn(async () => undefined),
+  })),
 }));
 
 vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
 import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
+import { getProgressCommentOwner } from "../src/agentWork/publishRecordRepository.js";
 import {
-  getProgressCommentOwner,
   getReviewQueuePosition,
   getWorkItemCore,
-  recordPublishStep,
-} from "../src/agentWork/repository.js";
-import { closeOwnVerdictsForWorkItems } from "../src/agentWork/closeOwnVerdict.js";
-import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
+} from "../src/agentWork/workItemStateRepository.js";
+import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../src/agentWork/reviewVerdict.js";
+
 import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
@@ -89,7 +138,7 @@ import {
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
-const cfg = { features: { commitStatus: false } } as Config;
+const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
 
 function ackData(): AckJobData {
@@ -152,7 +201,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
@@ -163,15 +212,14 @@ describe("executeAckJob", () => {
         prSurface: surfaceBundle.surface,
       }),
     );
-    const queuedBody = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const queuedBody = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(queuedBody).not.toMatch(/Recon/);
     expect(queuedBody).not.toMatch(/Correctness/);
     expect(queuedBody).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(recordPublishStep).not.toHaveBeenCalled();
-    expect(ensureReviewCheckRunStarted).toHaveBeenCalledWith(
-      pool,
+    expect(reviewVerdict).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-1",
         owner: "o",
@@ -191,8 +239,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
-    expect(ensureReviewCheckRunStarted).not.toHaveBeenCalled();
+    expect(summaryWrite).toHaveBeenCalled();
+    expect(reviewVerdict).not.toHaveBeenCalled();
   });
 
   it("includes queue position on the queued progress stub when lookup succeeds", async () => {
@@ -205,7 +253,7 @@ describe("executeAckJob", () => {
     });
 
     expect(getReviewQueuePosition).toHaveBeenCalledWith(pool, "wi-1");
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
     expect(body).toContain("#2 of 10");
   });
@@ -219,8 +267,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(summaryWrite).toHaveBeenCalled();
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain("Review queued");
     expect(body).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
   });
@@ -231,7 +279,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: undefined,
@@ -256,8 +304,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
-    expect(ensureReviewCheckRunStarted).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
+    expect(reviewVerdict).not.toHaveBeenCalled();
   });
 
   it("executes acknowledgements in reverse order without letting A overwrite B", async () => {
@@ -286,8 +334,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-b",
         progressRevision: 0,
@@ -312,7 +360,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
   });
 
   it("replaces an owned progress stub on cancelProgress without upserting", async () => {
@@ -339,8 +387,8 @@ describe("executeAckJob", () => {
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(body).not.toContain("<strong>Recon</strong>");
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(summaryWrite).not.toHaveBeenCalled();
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -428,7 +476,7 @@ describe("executeAckJob", () => {
     });
 
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-cancel",
         body: expect.stringContaining(
@@ -444,8 +492,8 @@ describe("executeAckJob", () => {
       renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),
       101,
     );
-    vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
-    vi.mocked(closeOwnVerdictsForWorkItems).mockClear();
+    vi.mocked(summaryWrite).mockClear();
+    vi.mocked(closeReviewVerdictsForWorkItems).mockClear();
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -460,8 +508,8 @@ describe("executeAckJob", () => {
     expect(edit).toMatchObject({ kind: "editComment", commentId: 101 });
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "merged" }));
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(summaryWrite).not.toHaveBeenCalled();
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel", "wi-other"],
@@ -487,7 +535,7 @@ describe("executeAckJob", () => {
       },
     });
 
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -516,7 +564,7 @@ describe("executeAckJob", () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: [],
@@ -533,7 +581,7 @@ describe("executeAckJob", () => {
       progressWorkItemId: "wi-cancel",
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
-    vi.mocked(closeOwnVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+    vi.mocked(closeReviewVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
 
     await expect(
       executeAckJob(cfg, pool, {
@@ -586,7 +634,7 @@ describe("executeAckJob", () => {
         message: "edit 403",
       }),
     );
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -625,20 +673,19 @@ describe("executeAckJob", () => {
     expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
     const editBody = edit?.kind === "editComment" ? edit.body : "";
     expect(editBody).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
       }),
     );
-    const cancelOrder = vi.mocked(closeOwnVerdictsForWorkItems).mock.invocationCallOrder[0];
-    const progressOrder = vi.mocked(upsertSummaryCommentWithCreationClaim).mock
-      .invocationCallOrder[0];
+    const cancelOrder = vi.mocked(closeReviewVerdictsForWorkItems).mock.invocationCallOrder[0];
+    const progressOrder = vi.mocked(summaryWrite).mock.invocationCallOrder[0];
     expect(cancelOrder).toBeLessThan(progressOrder);
   });
 
@@ -677,12 +724,12 @@ describe("executeAckJob", () => {
       expect.objectContaining({ workItemId: "wi-old", message: "edit 403" }),
     );
     // Comment I/O failure must not block check cancellation or the new stub.
-    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -700,7 +747,7 @@ describe("executeAckJob", () => {
       progressWorkItemId: "wi-old",
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
-    vi.mocked(closeOwnVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+    vi.mocked(closeReviewVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
     vi.mocked(getWorkItemCore).mockResolvedValueOnce({
       id: "wi-new",
       status: "queued",
@@ -723,8 +770,8 @@ describe("executeAckJob", () => {
       "ack_cancel_progress_failed",
       expect.objectContaining({ workItemId: "wi-old", message: "cancel boom" }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -760,9 +807,9 @@ describe("executeAckJob", () => {
       expect.objectContaining({ workItemId: "wi-old", message: "lookup boom" }),
     );
     // The throw happens before check cancellation; only the new stub and reply land.
-    expect(closeOwnVerdictsForWorkItems).not.toHaveBeenCalled();
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(closeReviewVerdictsForWorkItems).not.toHaveBeenCalled();
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -788,7 +835,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "slash" },
     });
 
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body ?? "";
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body ?? "";
     expect(body).toContain("<strong>CI</strong>");
     expect(body).toContain("Waiting for CI");
     expect(body).toContain("head=sha");

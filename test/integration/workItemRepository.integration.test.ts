@@ -1,3 +1,4 @@
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
@@ -8,12 +9,12 @@ import {
   assertPrActorLeaseHeld,
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
-import * as repository from "../../src/agentWork/repository.js";
+import * as repository from "../../src/agentWork/publishRecordRepository.js";
 import * as evlog from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
-import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
+import { publishOnce } from "../../src/agentWork/publishOnce.js";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
 import {
@@ -25,15 +26,14 @@ import {
   recordReviewLifecycleObservation,
 } from "../../src/agentWork/intake/workItemRepository.js";
 import { acquireAutoWorkIntakeLock } from "../../src/agentWork/autoWorkEnqueue.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import {
-  createReviewRescheduleWorkItem,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-} from "../../src/agentWork/reviewReschedule.js";
-import { getReviewQueuePosition, getWorkItem } from "../../src/agentWork/repository.js";
+  getReviewQueuePosition,
+  getWorkItem,
+} from "../../src/agentWork/workItemStateRepository.js";
 import {
   getProgressCommentOwner,
   getProgressCommentRevision,
-  recordPublishStep,
 } from "../../src/agentWork/publishRecordRepository.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -282,14 +282,12 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       const pending = ([2, 3, 4, 5] as const).map((revision, index) => {
         const context = contexts[distinct ? index : 0];
         if (!context) throw new Error("missing pressure context");
-        return upsertSummaryCommentWithCreationClaim({
-          pool,
-          workItemId: context.work.id,
-          resourceKey: context.resourceKey,
-          reviewLens: "review",
+        return createReviewSummaryComment({
           prSurface: context.fake.surface,
+          reviewLens: "review",
+          coordination: { pool, resourceKey: context.resourceKey, workItemId: context.work.id },
+        }).tick({
           body: `${REVIEW_SUMMARY_SENTINEL}\npressure-${index}`,
-          sentinel: REVIEW_SUMMARY_SENTINEL,
           progressRevision: distinct ? 2 : revision,
         });
       });
@@ -342,17 +340,15 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       await resume;
       return upsert(...args);
     });
-    const params = {
-      pool,
-      workItemId: work.id,
-      resourceKey,
-      reviewLens: "review" as const,
+    const summary = createReviewSummaryComment({
       prSurface: fake.surface,
+      reviewLens: "review",
+      coordination: { pool, resourceKey, workItemId: work.id },
+    });
+    const holder = summary.tick({
       body: `${REVIEW_SUMMARY_SENTINEL}\nholder`,
-      sentinel: REVIEW_SUMMARY_SENTINEL,
-      progressRevision: 2 as const,
-    };
-    const holder = upsertSummaryCommentWithCreationClaim(params);
+      progressRevision: 2,
+    });
     const operationKey = `review:summary:review:${resourceKey}`;
     const intent = {
       client: pool,
@@ -360,16 +356,11 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       operationKey,
       mutationKind: "github.summary_comment",
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-      mutate: () =>
-        upsertSummaryCommentWithCreationClaim({
-          ...params,
-          body: `${REVIEW_SUMMARY_SENTINEL}\nwinner`,
-          progressRevision: 7,
-        }),
+      mutate: () => summary.conclude({ body: `${REVIEW_SUMMARY_SENTINEL}\nwinner` }),
     };
     try {
       await paused;
-      await expect(withOperationIntent(intent)).rejects.toMatchObject({
+      await expect(publishOnce(intent)).rejects.toMatchObject({
         code: "review.progress_lock_timeout",
         mutationAccepted: false,
       });
@@ -381,7 +372,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       expect(failed.rows).toEqual([{ status: "failed" }]);
       continueWrite();
       await holder;
-      await withOperationIntent(intent);
+      await publishOnce(intent);
       const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
       expect(comment?.body).toContain("winner");
       expect(comment?.body).toContain(`workItemId=${work.id} value=7`);
@@ -765,7 +756,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
           }
         } else replacement = createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
         await expect(replacement).rejects.toMatchObject({
-          code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+          code: "agent_work.stale_head_parent_not_reschedulable",
         });
         expect((await getWorkItem(pool, parentId))?.payload).toEqual(originalPayload);
         expect(await getProgressCommentOwner(pool, resourceKey, "review")).toEqual({
@@ -809,26 +800,26 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });
       expect(await getProgressCommentRevision(pool, resourceKey, "review")).toBeNull();
 
-      await recordPublishStep(pool, {
+      await createPublishContext(pool, {
         workItemId: replacement.replacementWorkItemId,
         leaseEpoch: null,
         resourceKey,
         reviewLens: "review",
         step: "progress_comment",
         detail: { progressRevision: 0 },
-      });
+      }).record();
       const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
       await assertPrActorLeaseHeld(pool, parentId, leaseEpoch);
       for (const epoch of [leaseEpoch, null]) {
         await expect(
-          recordPublishStep(pool, {
+          createPublishContext(pool, {
             workItemId: parentId,
             leaseEpoch: epoch,
             resourceKey,
             reviewLens: "review",
             step: "progress_comment",
             detail: { progressRevision: 6 },
-          }),
+          }).record(),
         ).rejects.toMatchObject({ code: "agent_work.progress_comment_ownership_conflict" });
       }
       expect(logWarn).toHaveBeenCalledWith(
@@ -845,14 +836,14 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       });
       await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch });
       await expect(
-        recordPublishStep(pool, {
+        createPublishContext(pool, {
           workItemId: parentId,
           leaseEpoch,
           resourceKey,
           reviewLens: "review",
           step: "progress_comment",
           detail: { progressRevision: 6 },
-        }),
+        }).record(),
       ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
     },
   );

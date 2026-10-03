@@ -13,7 +13,7 @@ async function load(extra: Record<string, string>) {
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
   };
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("../src/settings/index.js");
   return loadConfig();
 }
 

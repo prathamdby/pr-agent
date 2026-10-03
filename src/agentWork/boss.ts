@@ -1,7 +1,6 @@
 import { PgBoss, type ConstructorOptions, type QueueOptions } from "pg-boss";
-import type { Config } from "../config.js";
-import { logDebug, logWarn, logError } from "../evlog.js";
 import {
+  type Config,
   ACK_DEAD_LETTER_QUEUE,
   PG_BOSS_EVENT_LOG_WINDOW_MS,
   ACK_QUEUE,
@@ -22,9 +21,11 @@ import {
   VERIFICATION_DEAD_LETTER_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
+import { logDebug, logWarn, logError } from "../evlog.js";
 import type { QueueConfig } from "./types.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
-type BossConfig = Pick<Config, "databaseUrl" | "role">;
+type BossConfig = Pick<Config, "runtime">;
 
 /** Dead-letter queues created at boot. Diagnostics import this list. */
 export const AGENT_DEAD_LETTER_QUEUES = [
@@ -43,21 +44,21 @@ const RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
-    retryLimit: cfg.queueRetryLimit,
-    retryDelay: cfg.queueRetryDelaySeconds,
+    retryLimit: cfg.queue.retryLimit,
+    retryDelay: cfg.queue.retryDelaySeconds,
     retryBackoff: true,
-    retryDelayMax: cfg.queueRetryDelayMaxSeconds,
-    expireInSeconds: cfg.queueExpireInSeconds,
-    heartbeatSeconds: cfg.queueHeartbeatSeconds,
-    retentionSeconds: cfg.queueRetentionSeconds,
-    deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
+    retryDelayMax: cfg.queue.retryDelayMaxSeconds,
+    expireInSeconds: cfg.queue.expireInSeconds,
+    heartbeatSeconds: cfg.queue.heartbeatSeconds,
+    retentionSeconds: cfg.queue.retentionSeconds,
+    deleteAfterSeconds: cfg.queue.deleteAfterSeconds,
   };
 }
 
 export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
-  const workerOwnsMaintenance = cfg.role === "worker";
+  const workerOwnsMaintenance = cfg.runtime.role === "worker";
   return {
-    connectionString: cfg.databaseUrl,
+    connectionString: cfg.runtime.databaseUrl,
     application_name: "pr-agent",
     max: workerOwnsMaintenance ? PG_BOSS_POOL_MAX_WORKER : PG_BOSS_POOL_MAX_WEB,
     schedule: workerOwnsMaintenance,
@@ -115,8 +116,8 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     retryLimit: 0,
     retryDelay: 0,
     retryBackoff: false,
-    deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
-    retentionSeconds: cfg.queueRetentionSeconds,
+    deleteAfterSeconds: cfg.queue.deleteAfterSeconds,
+    retentionSeconds: cfg.queue.retentionSeconds,
   };
   // DLQ rows are archival only; no workers subscribe to these queue names.
   await Promise.all(AGENT_DEAD_LETTER_QUEUES.map((name) => boss.createQueue(name, dlq)));
@@ -193,7 +194,7 @@ export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Pro
     } catch (error) {
       logWarn("retired_queue_delete_failed", {
         queue: name,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

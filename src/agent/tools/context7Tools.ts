@@ -94,7 +94,8 @@ export function fitContext7Json(
   }
   if (!isContext7ResultsBody(value)) {
     throw new AppError({
-      code: "context7.response_too_large",
+      domain: "context7",
+      kind: "response_too_large",
       message: "Context7 JSON response exceeds the byte budget and has no results array to drop",
     });
   }
@@ -130,7 +131,8 @@ export function fitContext7Json(
   };
   if (fits(0) === undefined) {
     throw new AppError({
-      code: "context7.response_too_large",
+      domain: "context7",
+      kind: "response_too_large",
       message: "Context7 JSON response exceeds the byte budget even with no results",
     });
   }
@@ -144,7 +146,8 @@ export function fitContext7Json(
   const content = fits(low);
   if (content === undefined) {
     throw new AppError({
-      code: "context7.response_too_large",
+      domain: "context7",
+      kind: "response_too_large",
       message: "Context7 JSON response exceeds the byte budget even with no results",
     });
   }
@@ -213,7 +216,8 @@ async function context7Get(
     }
     detail = redactContext7Response(detail, apiKey);
     throw new AppError({
-      code: "context7.request_failed",
+      domain: "context7",
+      kind: "request_failed",
       message: `Context7 ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`,
       context: { status: res.status, statusText: res.statusText, url },
     });

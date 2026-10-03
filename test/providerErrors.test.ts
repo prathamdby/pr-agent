@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "../src/errors/appError.js";
 import { classifyProviderError } from "../src/agent/providers/providerErrors.js";
-import { CodeModeHostHalt } from "../src/agent/codemode/hostHalt.js";
+import { CodeModeHostHalt } from "../src/agent/execution/hostHalt.js";
 
 describe("classifyProviderError", () => {
   it("classifies auth failures", () => {
@@ -41,13 +41,14 @@ describe("classifyProviderError", () => {
   it("classifies host-signal abort as cancelled, not timeout", () => {
     expect(
       classifyProviderError(
-        new AppError({ code: "agent.session_aborted", message: "Session aborted" }),
+        new AppError({ domain: "agent", kind: "session_aborted", message: "Session aborted" }),
       ),
     ).toBe("cancelled");
     expect(
       classifyProviderError(
         new AppError({
-          code: "review.specialist_aborted",
+          domain: "review",
+          kind: "specialist_aborted",
           message: "Specialist run aborted by external signal",
         }),
       ),

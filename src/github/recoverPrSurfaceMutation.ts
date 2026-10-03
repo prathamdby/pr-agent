@@ -1,35 +1,50 @@
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
-import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
+import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import { isRecord } from "../util/typeGuards.js";
-import { findCommentIdByMarker } from "./prSurfaceHelpers.js";
+import { findCommentIdByMarker, findPublishedThreadBatch } from "./prSurfaceHelpers.js";
 import type {
   PrSurface,
   PrSurfaceMutationMethods,
   ProgressCommentUpsert,
-  PublishDescriptionSurfaceResult,
 } from "./prSurfaceTypes.js";
 
-export const PR_SURFACE_MUTATION_METHODS = {
-  setAcknowledgementReaction: true,
-  replyAt: true,
-  upsertProgressComment: true,
-  editComment: true,
-  setReviewCommitStatus: true,
-  publishThreadBatch: true,
-  resolveInlineReviewThread: true,
-  setLabels: true,
-  startReviewCheck: true,
-  finishReviewCheck: true,
-  editReviewComment: true,
-  publishDescription: true,
-} satisfies Record<keyof PrSurfaceMutationMethods, true>;
+/**
+ * Names persisted in operation intents. `updatePullRequest` keeps the retired
+ * `publishDescription` wire name so retained intents still resolve their key,
+ * recovery lookup, and description identity.
+ */
+const PR_SURFACE_WIRE_NAMES = {
+  setAcknowledgementReaction: "setAcknowledgementReaction",
+  replyAt: "replyAt",
+  upsertProgressComment: "upsertProgressComment",
+  editComment: "editComment",
+  setReviewCommitStatus: "setReviewCommitStatus",
+  publishThreadBatch: "publishThreadBatch",
+  resolveInlineReviewThread: "resolveInlineReviewThread",
+  setLabels: "setLabels",
+  startReviewCheck: "startReviewCheck",
+  finishReviewCheck: "finishReviewCheck",
+  editReviewComment: "editReviewComment",
+  updatePullRequest: "publishDescription",
+} satisfies Record<keyof PrSurfaceMutationMethods, string>;
+
+export function prSurfaceWireName(method: keyof PrSurfaceMutationMethods): string {
+  return PR_SURFACE_WIRE_NAMES[method];
+}
+
+function methodFromWireName(wireName: unknown): keyof PrSurfaceMutationMethods | undefined {
+  for (const [method, name] of Object.entries(PR_SURFACE_WIRE_NAMES)) {
+    if (name === wireName && isPrSurfaceMutationMethod(method)) return method;
+  }
+  return undefined;
+}
 
 const OPERATION_INTENT_MARKER_RE = /<!-- pr-agent:operation-intent [a-f0-9]{24} -->/;
 
 export function isPrSurfaceMutationMethod(
   property: unknown,
 ): property is keyof PrSurfaceMutationMethods {
-  return typeof property === "string" && property in PR_SURFACE_MUTATION_METHODS;
+  return typeof property === "string" && property in PR_SURFACE_WIRE_NAMES;
 }
 
 function firstOperationIntentMarker(text: string): string | undefined {
@@ -111,8 +126,8 @@ export function extractPrSurfaceRecoverDetail(
         ...(marker != null ? { operationMarker: marker } : {}),
       };
     }
-    case "publishDescription": {
-      const marker = typeof args[2] === "string" ? args[2] : undefined;
+    case "updatePullRequest": {
+      const marker = typeof args[1] === "string" ? args[1] : undefined;
       return marker != null ? { operationMarker: marker } : {};
     }
     case "startReviewCheck": {
@@ -145,12 +160,11 @@ async function recoverReplyAt(
 ): Promise<OperationIntentRecovery<{ readonly commentId: number }>> {
   const marker = detailString(detail, "operationMarker");
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
 
   const kind = detailString(detail, "replyTargetKind");
   if (kind === "inlineReviewThread") {
-    const comments = await surface.listInlineReviewComments();
+    const comments = (await surface.listReviewComments()).comments;
     const inReplyToId = detailNumber(detail, "inReplyToId");
     const commentId = findCommentIdByMarker(comments, marker, (comment) => {
       if (comment.authorLogin !== botLogin) return false;
@@ -183,8 +197,7 @@ export async function recoverMarkedProgressComment(
 ): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
   const marker = params.operationMarker;
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
   const comments = await surface.listConversationComments();
   const commentId = findCommentIdByMarker(comments, marker, (comment) => {
     if (comment.authorLogin !== botLogin) return false;
@@ -207,11 +220,10 @@ async function recoverMarkedComment(
 ): Promise<OperationIntentRecovery<unknown>> {
   const marker = detailString(detail, "operationMarker");
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
   const comments =
     source === "inline"
-      ? await surface.listInlineReviewComments()
+      ? (await surface.listReviewComments()).comments
       : await surface.listConversationComments();
   const commentId = detailNumber(detail, "commentId");
   const foundId = findCommentIdByMarker(comments, marker, (comment) => {
@@ -234,8 +246,8 @@ export async function recoverPrSurfaceMutation<T>(
   surface: PrSurface,
   intent: OperationIntentRow,
 ): Promise<OperationIntentRecovery<T>> {
-  const method = intent.detail.surfaceMethod;
-  if (!isPrSurfaceMutationMethod(method)) return { kind: "absent" };
+  const method = methodFromWireName(intent.detail.surfaceMethod);
+  if (method == null) return { kind: "absent" };
 
   let recovery: OperationIntentRecovery<unknown>;
   switch (method) {
@@ -261,29 +273,24 @@ export async function recoverPrSurfaceMutation<T>(
         recovery = { kind: "absent" };
         break;
       }
-      const found = await surface.findPublishedThreadBatch?.(
+      const found = await findPublishedThreadBatch(
+        surface,
         marker,
         detailString(intent.detail, "commitId"),
       );
       recovery = found == null ? { kind: "absent" } : { kind: "reconciled", value: found };
       break;
     }
-    case "publishDescription": {
+    case "updatePullRequest": {
       const marker = detailString(intent.detail, "operationMarker");
       if (marker == null) {
         recovery = { kind: "absent" };
         break;
       }
-      const body = await surface.getPullRequestBody();
+      const { pullRequest } = await surface.getHead();
       recovery =
-        body != null && body.includes(marker)
-          ? {
-              kind: "reconciled",
-              value: {
-                prNumber: surface.prNumber,
-                bodyUpdated: true,
-              } satisfies PublishDescriptionSurfaceResult,
-            }
+        pullRequest.body != null && pullRequest.body.includes(marker)
+          ? { kind: "reconciled", value: { prNumber: surface.prNumber, bodyUpdated: true } }
           : { kind: "absent" };
       break;
     }
@@ -294,7 +301,7 @@ export async function recoverPrSurfaceMutation<T>(
         recovery = { kind: "absent" };
         break;
       }
-      const found = await surface.findReviewCheck?.(headSha, externalId);
+      const found = await surface.findReviewCheck(headSha, externalId);
       recovery = found == null ? { kind: "absent" } : { kind: "reconciled", value: found };
       break;
     }

@@ -1,5 +1,13 @@
 import type { DurableExecutionResult } from "./durableJob.js";
 
+/** Reasons a verification run completed with reduced output. */
+export type VerificationDegradationReason =
+  | "thread_resolution_degraded"
+  | "compare_files_truncated"
+  | "verdict_mapping_incomplete"
+  | "inventory_narrowed"
+  | "stale_head";
+
 export type VerificationHeadFreshness =
   | { readonly kind: "fresh" }
   | {
@@ -19,5 +27,5 @@ export function verificationHeadFreshness(
 /** Terminal for a run that never examined the live head. */
 export const STALE_VERIFICATION_RESULT = {
   kind: "completed",
-  degradation: ["stale_head"],
+  degradation: ["stale_head"] satisfies readonly VerificationDegradationReason[],
 } as const satisfies DurableExecutionResult;

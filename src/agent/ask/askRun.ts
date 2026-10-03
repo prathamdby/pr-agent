@@ -1,4 +1,4 @@
-import { logInfo, logWarn } from "../../evlog.js";
+import { logInfo } from "../../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
@@ -19,14 +19,10 @@ import { mergeExactUsage } from "../providers/usageMetadata.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
 import { buildAskRunSetup } from "./askRunSetup.js";
 import {
-  createRateLimitCircuit,
   runWithRateLimitCircuit,
   wrapExecutorsWithRateLimitCircuit,
 } from "../../github/rateLimitCircuit.js";
-import {
-  getSharedRateLimitCircuit,
-  openSharedRateLimitCircuitBestEffort,
-} from "../../github/sharedRateLimitCircuit.js";
+import { openRunRateLimitCircuit } from "../runtime/rateLimitCircuit.js";
 
 async function loadAskCiState(
   pool: AskRunParams["pool"],
@@ -71,45 +67,17 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     };
   }
 
-  const installationId = params.durability?.installationId ?? 0;
-  const durabilityPool = params.durability?.pool;
-  const circuit = createRateLimitCircuit({
-    installationId,
-    onOpened: (kind) => {
-      openSharedRateLimitCircuitBestEffort(durabilityPool, {
-        installationId,
-        lastErrorKind: kind,
-      });
-    },
+  const circuit = await openRunRateLimitCircuit({
+    pool: params.sessionContext?.pool,
+    installationId: params.sessionContext?.installationId ?? 0,
+    type: "ask",
   });
-  if (durabilityPool != null && installationId > 0) {
-    try {
-      const sharedCircuit = await getSharedRateLimitCircuit(durabilityPool, installationId);
-      if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
-        circuit.hydrateOpenFromShared(
-          sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
-          sharedCircuit.openUntil,
-        );
-        logInfo("github_shared_rate_limit_circuit_honored", {
-          installationId,
-          type: "ask",
-        });
-      }
-    } catch (error) {
-      // Best-effort shared read: DB blips must not abort the ask run.
-      logWarn("github_shared_rate_limit_circuit_read_failed", {
-        installationId,
-        type: "ask",
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
   return runWithRateLimitCircuit(circuit, async () => {
     const { bundle } = buildAskRunSetup(params);
 
     const ctx7 = buildContext7Tools({
-      apiKey: cfg.context7ApiKey,
+      apiKey: cfg.context7.apiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
     const tools = [...bundle.piTools, ...ctx7.piTools];
@@ -125,7 +93,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       systemPrompt: buildAskSystemPrompt(),
       tools,
       executors,
-      durability: params.durability,
+      sessionContext: params.sessionContext,
       hostSignal: params.signal,
     });
 
@@ -168,7 +136,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       });
 
       logInfo("ask_run_completed", {
-        provider: cfg.piProvider,
+        provider: cfg.models.provider,
         hasAnswer: answer.text.length > 0,
         answerEnd: answer.end,
         metaRefusal: false,

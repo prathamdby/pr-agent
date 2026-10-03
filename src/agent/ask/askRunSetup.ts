@@ -1,7 +1,7 @@
 import { createAskPathGate } from "./askSafety.js";
 import { buildCodeIndexTools, buildUnavailableCodeIndexTools } from "../tools/codeIndexTools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
-import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
 import type { AskRunParams } from "./askRunTypes.js";
 
 export function buildAskRunSetup(params: AskRunParams) {
@@ -9,10 +9,11 @@ export function buildAskRunSetup(params: AskRunParams) {
   const extraAllowedPaths = params.codeAnchor?.path ? [params.codeAnchor.path] : undefined;
 
   const bundle = hideWorkspaceToolsBehindCodeMode(
-    buildLocalWorkspaceTools(params.workspace, {
+    buildWorkspaceTools(params.workspace.reader, {
       pathGate,
       extraAllowedPaths,
     }),
+    { executorKind: params.cfg.codeMode.executorKind },
   );
   const codeIndex =
     params.pool && params.codeIndexSnapshotId

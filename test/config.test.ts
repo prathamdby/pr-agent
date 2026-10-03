@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeGithubAppPrivateKey } from "../src/config.js";
+import { normalizeGithubAppPrivateKey } from "../src/settings/index.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 describe("normalizeGithubAppPrivateKey", () => {

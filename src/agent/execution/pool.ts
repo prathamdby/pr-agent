@@ -3,12 +3,13 @@ import {
   CODE_MODE_EXECUTOR_POOL_SIZE,
   CODE_MODE_EXECUTOR_QUEUE_LENGTH,
   CODE_MODE_EXECUTOR_QUEUE_WAIT_MS,
-  resolveCodeModeExecutorKind,
+  type CodeModeExecutorKind,
 } from "../../settings/index.js";
-import { CodeModeHostHalt, encodeHostCallFailure, hostCancelHalt } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt, encodeHostCallFailure, hostCancelHalt } from "./hostHalt.js";
 import { runQuickJsCell, type QuickJsCellParams, type QuickJsCellResult } from "./quickjsCell.js";
 
 type Waiter = {
+  readonly kind: CodeModeExecutorKind;
   resolve: (lease: ExecutorLease) => void;
   readonly reject: (error: unknown) => void;
 };
@@ -21,8 +22,7 @@ export type ExecutorLease = {
 const waiters: Waiter[] = [];
 let active = 0;
 
-function useWorkerThreads(): boolean {
-  const kind = resolveCodeModeExecutorKind();
+function useWorkerThreads(kind: CodeModeExecutorKind): boolean {
   switch (kind) {
     case "worker_threads":
       return true;
@@ -38,16 +38,16 @@ function useWorkerThreads(): boolean {
 function releaseSlot(): void {
   const next = waiters.shift();
   if (next) {
-    next.resolve(createLease());
+    next.resolve(createLease(next.kind));
     return;
   }
   active = Math.max(0, active - 1);
 }
 
-function createLease(): ExecutorLease {
+function createLease(kind: CodeModeExecutorKind): ExecutorLease {
   return {
     async run(params) {
-      if (useWorkerThreads()) {
+      if (useWorkerThreads(kind)) {
         return runInWorker(params);
       }
       return runQuickJsCell(params);
@@ -160,19 +160,22 @@ type WorkerMessage =
     }
   | { readonly type: "done"; readonly result: QuickJsCellResult };
 
-export async function acquireExecutor(signal: AbortSignal): Promise<ExecutorLease> {
+export async function acquireExecutor(
+  signal: AbortSignal,
+  kind: CodeModeExecutorKind,
+): Promise<ExecutorLease> {
   if (signal.aborted) {
     throw hostCancelHalt();
   }
   if (active < CODE_MODE_EXECUTOR_POOL_SIZE) {
     active += 1;
-    return createLease();
+    return createLease(kind);
   }
   if (waiters.length >= CODE_MODE_EXECUTOR_QUEUE_LENGTH) {
     throw new CodeModeHostHalt("LIMIT_EXCEEDED", "Executor pool queue is full");
   }
   return await new Promise<ExecutorLease>((resolve, reject) => {
-    const waiter: Waiter = { resolve, reject };
+    const waiter: Waiter = { kind, resolve, reject };
     waiters.push(waiter);
     const timer = setTimeout(() => {
       const index = waiters.indexOf(waiter);

@@ -1,6 +1,59 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  const { createFakePublishRecords } = await import("../src/agentWork/fakePublishStore.js");
+  const records = createFakePublishRecords(actual.publishStepSpecs);
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) => actual.createPublishContext(client, identity, records),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
@@ -8,23 +61,24 @@ import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function configuredSummarySurface() {
   const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-  vi.spyOn(bundle.surface, "listPullRequestReviewComments").mockResolvedValue({
-    comments: [
-      {
-        path: "src/a.ts",
-        line: 10,
-        id: 41,
-        url: "https://github.com/o/r/pull/1#discussion_r41",
-      },
-      {
-        path: "src/a.ts",
-        line: 20,
-        id: 42,
-        url: "https://github.com/o/r/pull/1#discussion_r42",
-      },
-    ],
-    truncated: false,
-  });
+  bundle.controls.setReviewComments(
+    [
+      [10, 41],
+      [20, 42],
+    ].map(([line, id]) => ({
+      id,
+      inReplyToId: null,
+      pullRequestReviewId: null,
+      userId: null,
+      body: "",
+      path: "src/a.ts",
+      line,
+      originalLine: line,
+      htmlUrl: `https://github.com/o/r/pull/1#discussion_r${id}`,
+      authorLogin: "pr-agent[bot]",
+    })),
+  );
+  vi.spyOn(bundle.surface, "finishReviewCheck");
   const upsertProgressComment = vi
     .spyOn(bundle.surface, "upsertProgressComment")
     .mockResolvedValue({ id: 2, updated: false });
@@ -38,23 +92,6 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
   return {
     ...actual,
-    listPullRequestReviewComments: vi.fn(async () => ({
-      comments: [
-        {
-          path: "src/a.ts",
-          line: 10,
-          id: 41,
-          url: "https://github.com/o/r/pull/1#discussion_r41",
-        },
-        {
-          path: "src/a.ts",
-          line: 20,
-          id: 42,
-          url: "https://github.com/o/r/pull/1#discussion_r42",
-        },
-      ],
-      truncated: false,
-    })),
     findIssueCommentBySentinel: vi.fn(async () => null),
     resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
@@ -64,25 +101,19 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return {
-    ...createAgentWorkRepositoryMock(),
-    getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
-  };
-});
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
+}));
 
 vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
-  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.js");
+  const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
+    await import("./helpers/publishReviewTestSetup.js");
   return {
     ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
 });
 
 vi.mock("../src/agentWork/ciProjection.js", () => ({
@@ -90,12 +121,11 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
-import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.js";
 import type { Pool, PoolClient } from "pg";
 
 function finding(line: number): ReviewFinding {
@@ -112,6 +142,7 @@ function finding(line: number): ReviewFinding {
 
 describe("publishReviewSummaryOnly", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -143,9 +174,17 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     const { surface, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict");
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      close.mockImplementation((outcome) => verdict.close(outcome));
+      return { ...verdict, close };
+    });
 
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -166,6 +205,7 @@ describe("publishReviewSummaryOnly", () => {
 
     expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
     expect(close).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
     expect(upsertProgressComment).toHaveBeenCalledTimes(1);
     const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r41");
@@ -181,7 +221,7 @@ describe("publishReviewSummaryOnly", () => {
   it("stops before the summary write when the reviewed head is stale", async () => {
     const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -201,6 +241,33 @@ describe("publishReviewSummaryOnly", () => {
     expect(upsertProgressComment).not.toHaveBeenCalled();
   });
 
+  it("propagates abort-check failures so the durable job can retry", async () => {
+    const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
+    const abortCheckError = new Error("temporary head lookup failure");
+
+    await expect(
+      publishSummaryForTest({
+        cfg: makeTestConfig(),
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionReviewMap: false,
+        },
+        prSurface: bundle.surface,
+        payload: makeReviewPayload({ size: "XS" }),
+        ledger: createFindingLedger(),
+        shouldAbortPublish: async () => {
+          throw abortCheckError;
+        },
+      }),
+    ).rejects.toBe(abortCheckError);
+
+    expect(upsertProgressComment).not.toHaveBeenCalled();
+  });
+
   it("forces a neutral check and error commit status for partial coverage", async () => {
     const client = {
       query: vi.fn(async () => ({ rows: [{ locked: true }] })),
@@ -216,8 +283,16 @@ describe("publishReviewSummaryOnly", () => {
       resourceKey: "o/r#1",
     });
     const { surface, setReviewCommitStatus, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict");
-    const result = await publishReviewSummaryOnly({
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      close.mockImplementation((outcome) => verdict.close(outcome));
+      return { ...verdict, close };
+    });
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
       }),
@@ -240,23 +315,17 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      recordPublishStep.summaryCommentCoordination?.pool,
+    expect(surface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        prSurface: surface,
         conclusion: "neutral",
         summary: "Coverage partial: security specialist failed.",
       }),
     );
-    expect(close).toHaveBeenCalledWith(
-      expect.objectContaining({
-        commitStatusEnabled: true,
-        outcome: {
-          kind: "partial",
-          note: "Coverage partial: security specialist failed.",
-        },
-      }),
-    );
+    expect(close).toHaveBeenCalledWith({
+      kind: "partial",
+      note: "Coverage partial: security specialist failed.",
+    });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: true }));
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
       "sha",
       expect.objectContaining({ state: "error" }),
@@ -267,8 +336,16 @@ describe("publishReviewSummaryOnly", () => {
   it("closes the own verdict from pool identity when summary coordination is absent", async () => {
     const pool = { connect: vi.fn() } as unknown as Pool;
     const { surface } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
-    const result = await publishReviewSummaryOnly({
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+
+      return { ...verdict, close };
+    });
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
       }),
@@ -288,13 +365,13 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(close).toHaveBeenCalledWith(
+    expect(close).toHaveBeenCalledWith({ kind: "published", findings: [finding(10)] });
+    expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
         resourceKey: "o/r#1",
         commitStatusEnabled: true,
-        outcome: { kind: "published", findings: [finding(10)] },
       }),
     );
   });
@@ -303,7 +380,7 @@ describe("publishReviewSummaryOnly", () => {
     const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
     await expect(
-      publishReviewSummaryOnly({
+      publishSummaryForTest({
         cfg: makeTestConfig(),
         ctx: {
           owner: "o",

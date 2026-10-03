@@ -24,6 +24,11 @@ export type SourceRule = {
 
 const IMPORT_RULES: ImportRule[] = [
   {
+    id: "pi-sdk-under-runtime-only",
+    forbiddenImports: ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core"],
+    allowedImporters: ["src/agent/runtime/**"],
+  },
+  {
     id: "octokit-under-github-only",
     forbiddenImports: ["@octokit"],
     allowedImporters: ["src/github/**"],
@@ -37,18 +42,23 @@ const IMPORT_RULES: ImportRule[] = [
 
 const SOURCE_RULES: SourceRule[] = [
   {
+    id: "review-summary-comment-single-writer",
+    pattern: /\.upsertProgressComment\(/,
+    allowedPaths: [
+      "src/review/publish/reviewSummaryComment.ts",
+      "src/agent/triage/publishTriage.ts",
+    ],
+  },
+  {
     id: "process-env-allowlist",
     pattern: /\bprocess\.env\b/,
     allowedPaths: [
-      "src/config.ts",
+      "src/settings/envReaders.ts",
       "src/evlog.ts",
-      "src/settings/modelsJsonCatalog.ts",
-      "src/settings/codeModeConstants.ts",
+      "src/agent/runtime/modelsJsonCatalog.ts",
       "src/github/appAuth.ts",
       "src/github/installationToken.ts",
-      "src/prWorkspace/localPrWorkspace.ts",
-      "src/prWorkspace/writablePrCheckout.ts",
-      "src/agent/triage/triageWorkspaceTools.ts",
+      "src/prWorkspace/repositoryReader.ts",
       "src/agentWork/durableJob.ts",
     ],
   },
@@ -83,7 +93,13 @@ function checkImportRule(rule: ImportRule): string[] {
     for (const forbidden of rule.forbiddenImports) {
       if (forbidden === "@octokit") {
         if (hasForbiddenImportReference(text, "@octokit")) violations.push(`${rule.id}: ${rel}`);
-      } else if (hasValueImportReference(text, forbidden)) {
+      } else if (
+        forbidden.startsWith("@earendil-works/")
+          ? /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(
+              text.replace(/^import\s+type\b[^;]*;/gm, ""),
+            )
+          : hasValueImportReference(text, forbidden)
+      ) {
         violations.push(`${rule.id}: ${rel}`);
       }
     }
@@ -103,7 +119,7 @@ function checkSourceRule(rule: SourceRule): string[] {
   return violations;
 }
 
-function runtimeImportGraph(entry: string): Set<string> {
+function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {}): Set<string> {
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length > 0) {
@@ -120,6 +136,7 @@ function runtimeImportGraph(entry: string): Set<string> {
     for (const match of stripped.matchAll(
       /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
     )) {
+      if (options.staticOnly && match[1] == null) continue;
       let spec = match[1] ?? match[2];
       if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
       else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
@@ -175,10 +192,16 @@ describe("architecture rules", () => {
     const graph = runtimeImportGraph("src/effect/server.ts");
     expect(graph.size).toBeLessThan(120);
     expect(graph.has("src/agentWork/runtime.ts")).toBe(true);
+    expect(graph.has("src/agentWork/intake/delivery.ts")).toBe(true);
+    expect(graph.has("src/webhook/intakeCommand.ts")).toBe(true);
+    expect(graph.has("src/effect/services/webhookHandlers.ts")).toBe(false);
     expect(graph.has("src/agentWork/worker.ts")).toBe(false);
     expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
     expect(graph.has("src/agent/runtime/piSession.ts")).toBe(false);
-    expect(graph.has("src/settings/modelsJson.ts")).toBe(false);
+    // loadConfig reaches the Pi catalog through a worker-only dynamic import.
+    expect(runtimeImportGraph("src/effect/server.ts", { staticOnly: true })).not.toContain(
+      "src/agent/runtime/modelsJson.ts",
+    );
   });
 });

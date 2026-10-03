@@ -1,12 +1,12 @@
+import { DeliveryTx } from "../src/agentWork/intake/delivery.js";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  applySlashCommandIntake,
+  applySlashCommandIntake as applySlash,
   type SlashCommandInput,
 } from "../src/agentWork/intake/slashIntake.js";
 import type { AckJobData } from "../src/agentWork/types.js";
-import { slashDisabledBody } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const features = makeTestConfig().features;
@@ -82,7 +82,9 @@ describe("slash command feature gating", () => {
 
       expect(events.map((event) => event.name)).toContain("ignored_disabled_slash_command");
       const ack = sent[0]?.data as AckJobData;
-      expect(ack.reply?.body).toBe(slashDisabledBody(command));
+      expect(ack.reply?.body).toBe(
+        `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`,
+      );
     },
   );
 
@@ -127,3 +129,12 @@ describe("slash command feature gating", () => {
     },
   );
 });
+
+function applySlashCommandIntake(
+  boss: PgBoss,
+  client: PoolClient,
+  input: SlashCommandInput,
+  features: import("../src/settings/index.js").Features,
+) {
+  return applySlash(boss, new DeliveryTx(client, input.headers), input, features);
+}

@@ -1,10 +1,73 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        completed: async (...args: Parameters<typeof actual.postgresPublishRecords.completed>) =>
+          args[4] === "triage_push"
+            ? mocks.completed(...args)
+            : (await mocks.done(...args))
+              ? {}
+              : null,
+        latest: mocks.latest,
+        withoutNewer: mocks.withoutNewer,
+        write: mocks.write,
+      }),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { PgBoss } from "pg-boss";
 import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -20,11 +83,13 @@ import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   resetDurablePrSurface,
+  seedBotFindingThreads,
+  seedReviewCommentGraph,
 } from "./helpers/executorDurableHarness.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
+import * as prActorLease from "../src/agentWork/prActorLease.js";
 
 const mocks = vi.hoisted(() => ({
-  runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
@@ -34,19 +99,14 @@ const mocks = vi.hoisted(() => ({
   publishTriage: vi.fn(),
   publishTriagePreview: vi.fn(),
   publishTriageReportOnly: vi.fn(),
-  recordPublishStep: vi.fn(),
-  getCompletedPublishStepDetail: vi.fn(),
-  getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
-  getLatestCompletedPublishStepDetail: vi.fn(),
-  hasCompletedPublishStep: vi.fn(),
+  write: vi.fn(),
+  completed: vi.fn(),
+  withoutNewer: vi.fn(),
+  latest: vi.fn(),
+  done: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
 }));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return { ...actual, runDurableWorkItem: mocks.runDurableWorkItem };
-});
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
@@ -56,8 +116,8 @@ vi.mock("../src/github/reviewThreadResolution.js", () => ({
   warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
-vi.mock("../src/prWorkspace/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/index.js")>();
+vi.mock("../src/prWorkspace/writablePrCheckout.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/writablePrCheckout.js")>();
   return {
     ...actual,
     withWritablePrCheckout: mocks.withWritablePrCheckout,
@@ -73,32 +133,45 @@ vi.mock("../src/agent/triage/previewApproval.js", async (importOriginal) => {
   return { ...actual, replayPreviewHunks: mocks.replayPreviewHunks };
 });
 
-vi.mock("../src/agent/triage/publishTriage.js", () => ({
-  parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
+vi.mock("../src/agent/triage/publishTriage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agent/triage/publishTriage.js")>()),
   parseStoredTriagePreviewDetail: mocks.parseStoredTriagePreviewDetail,
   publishTriage: mocks.publishTriage,
   publishTriagePreview: mocks.publishTriagePreview,
   publishTriageReportOnly: mocks.publishTriageReportOnly,
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
-  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
-  getCompletedPublishStepDetailWithoutNewerStep:
-    mocks.getCompletedPublishStepDetailWithoutNewerStep,
-  getLatestCompletedPublishStepDetail: mocks.getLatestCompletedPublishStepDetail,
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
-  recordPublishStep: mocks.recordPublishStep,
-  shouldSkipWork: mocks.shouldSkipWork,
 }));
 
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
-  return { ...actual, assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined) };
+  return {
+    ...actual,
+    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
+    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
+  };
 });
 
-import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import { makeTriageWorkItem } from "./helpers/agentWorkItems.js";
+
+let runExecution: (executionPool?: Pool) => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["triage"]) => Promise<unknown>,
+): void {
+  runExecution = (executionPool = pool) =>
+    run(
+      createWorkDefinitions({
+        cfg,
+        pool: executionPool,
+        boss,
+        installationSurface: openInstallationSurface(),
+      }).triage,
+    );
+}
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
@@ -108,25 +181,26 @@ function item(overrides: Parameters<typeof makeTriageWorkItem>[0] = {}) {
   return makeTriageWorkItem({ headSha: "head", ...overrides });
 }
 
-function job(): JobWithMetadata<TriageJobData> {
-  return {
-    data: { kind: "triage", workItemId: "wi-1" },
-  } as JobWithMetadata<TriageJobData>;
-}
-
 function mockDurableExecution(
   workItem = item(),
   executionEnv: { escalation?: EscalationPlan } = {},
 ): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
-    spec.execute(workItem, {
-      prSurface: fakeDurablePrSurface(),
-      headSha: "a".repeat(40),
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-      ...executionEnv,
-    }),
+  configureExecution(async (spec) =>
+    spec.execute(
+      workItem,
+      createDurableExecutionContext({
+        pool,
+        item: workItem,
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getEscalation: () => executionEnv.escalation,
+        getClaim: () => undefined,
+      }),
+    ),
   );
 }
 
@@ -169,7 +243,7 @@ function configureDefaultThreads(
   durablePrSurfaceControls().setThreads(new Map(entries));
 }
 
-describe("executeTriageJob", () => {
+describe("triage work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDurablePrSurface();
@@ -177,7 +251,7 @@ describe("executeTriageJob", () => {
     mockDurableExecution();
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -238,7 +312,7 @@ describe("executeTriageJob", () => {
           TRIAGE_PREVIEW_SENTINEL,
           TRIAGE_PREVIEW_SENTINEL,
         );
-        await mocks.recordPublishStep(pool, {
+        await mocks.write(pool, {
           step: "triage_preview",
           detail: {
             headSha: params.headSha,
@@ -250,14 +324,14 @@ describe("executeTriageJob", () => {
       },
     );
     mocks.parseStoredTriagePreviewDetail.mockImplementation((detail) => detail);
-    mocks.recordPublishStep.mockResolvedValue(undefined);
-    mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    mocks.write.mockResolvedValue(undefined);
+    mocks.completed.mockResolvedValue(null);
+    mocks.withoutNewer.mockResolvedValue(null);
+    mocks.latest.mockResolvedValue(null);
+    mocks.done.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
-    durablePrSurfaceControls().setReviewCommentParentGraph([]);
+    seedReviewCommentGraph([]);
     durablePrSurfaceControls().setGithubUser(42, {
       id: 42,
       login: "alice",
@@ -271,7 +345,7 @@ describe("executeTriageJob", () => {
     const escalation = { attempt: 2, kinds: ["tool_rounds"] } as const;
     mockDurableExecution(item(), { escalation });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(expect.objectContaining({ escalation }));
@@ -297,14 +371,22 @@ describe("executeTriageJob", () => {
       ],
     };
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.withWritablePrCheckout.mockImplementation(async (params, run) => {
       const checkout = {
@@ -316,6 +398,8 @@ describe("executeTriageJob", () => {
           durablePrSurfaceControls().setPullRequest({
             additions: 1,
             deletions: 0,
+            title: "",
+            body: null,
             changed_files: 1,
             state: "closed",
             merged: false,
@@ -344,13 +428,13 @@ describe("executeTriageJob", () => {
       query: vi.fn(async () => ({ rows: [] })),
     } as unknown as Pool;
 
-    await executeTriageJob(cfg, publishPool, boss, job());
+    await runExecution(publishPool);
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).not.toHaveBeenCalled();
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain("Triage was cancelled because the pull request is closed");
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       publishPool,
       expect.objectContaining({
         step: "triage_push",
@@ -373,6 +457,8 @@ describe("executeTriageJob", () => {
       durablePrSurfaceControls().setPullRequest({
         additions: 1,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 1,
         state: "closed",
         merged: true,
@@ -391,14 +477,22 @@ describe("executeTriageJob", () => {
       ],
     };
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.withWritablePrCheckout.mockImplementation(async (params, run) => {
       const checkout = {
@@ -429,9 +523,9 @@ describe("executeTriageJob", () => {
       query: vi.fn(async () => ({ rows: [] })),
     } as unknown as Pool;
 
-    await executeTriageJob(cfg, publishPool, boss, job());
+    await runExecution(publishPool);
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(
@@ -440,7 +534,7 @@ describe("executeTriageJob", () => {
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain(TRIAGE_CLOSED_PR_NOTICE);
     expect(progress?.body).not.toContain("Pushed commits:");
-    const pushRecords = mocks.recordPublishStep.mock.calls.flatMap(([, params]) =>
+    const pushRecords = mocks.write.mock.calls.flatMap(([, params]) =>
       params.step === "triage_push" ? [params.detail] : [],
     );
     expect(pushRecords).toEqual([
@@ -452,26 +546,37 @@ describe("executeTriageJob", () => {
   it("stops before fetching branch information when cancellation is observed", async () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
-    expect(
-      durablePrSurfaceControls().events.some((event) => event.kind === "getPullRequestBranchInfo"),
-    ).toBe(false);
+    expect(durablePrSurfaceControls().events.some((event) => event.kind === "getHead")).toBe(false);
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriageReportOnly).not.toHaveBeenCalled();
   });
 
+  it("blocks tool writes and commit/push after the lease is stolen", async () => {
+    await runExecution();
+    const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0];
+    const triageParams = mocks.runFullPrTriage.mock.calls[0]?.[0];
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+    await expect(checkoutParams.beforeCommit()).rejects.toMatchObject({ code: "triage.cancelled" });
+    await expect(checkoutParams.beforePush()).rejects.toMatchObject({ code: "triage.cancelled" });
+    await expect(triageParams.refreshBeforeTool("commitFix")).rejects.toMatchObject({
+      code: "triage.cancelled",
+    });
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(true);
+  });
+
   it("stops before publishing an empty-inventory report when cancellation arrives", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([]);
+    seedBotFindingThreads([]);
     configureDefaultThreads([]);
     mocks.shouldSkipWork
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
@@ -486,18 +591,18 @@ describe("executeTriageJob", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
-    expect(mocks.getCompletedPublishStepDetail).not.toHaveBeenCalled();
-    expect(mocks.getCompletedPublishStepDetailWithoutNewerStep).not.toHaveBeenCalled();
+    expect(mocks.completed).not.toHaveBeenCalled();
+    expect(mocks.withoutNewer).not.toHaveBeenCalled();
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriage).not.toHaveBeenCalled();
   });
 
   it("passes durable cancellation and final PR-state guards through the seams", async () => {
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
       beforeCommit: () => Promise<void>;
@@ -513,6 +618,8 @@ describe("executeTriageJob", () => {
     durablePrSurfaceControls().setPullRequest({
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       state: "closed",
       merged: false,
@@ -536,7 +643,7 @@ describe("executeTriageJob", () => {
     ["closed", false, null],
     ["merged", true, "2026-01-01T00:00:00Z"],
   ] as const)("blocks both write guards for a %s PR", async (_label, merged, mergedAt) => {
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
     const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
       beforeCommit: () => Promise<void>;
       beforePush: () => Promise<void>;
@@ -544,6 +651,8 @@ describe("executeTriageJob", () => {
     durablePrSurfaceControls().setPullRequest({
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       state: "closed",
       merged,
@@ -572,7 +681,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some(
@@ -612,7 +721,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "lookupGitHubUser"),
@@ -642,7 +751,7 @@ describe("executeTriageJob", () => {
     );
     durablePrSurfaceControls().setGithubUser(42, null);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -658,7 +767,7 @@ describe("executeTriageJob", () => {
   it("fork PRs publish report only and never create checkout", async () => {
     durablePrSurfaceControls().setPullRequestBranchInfo({ headRef: "branch", sameRepo: false });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalled();
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
@@ -667,7 +776,7 @@ describe("executeTriageJob", () => {
   it("reports already-resolved threads without implying no review ran", async () => {
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -683,31 +792,34 @@ describe("executeTriageJob", () => {
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
-  it("resumes publish from stored push detail without rerunning agent", async () => {
-    const payload = {
-      verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
-    };
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
-      pushedShas: ["abc1234"],
-      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
-      pushedHeadSha: "a".repeat(40),
-      payload,
-    });
-
-    await executeTriageJob(cfg, pool, boss, job());
-
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
+  it.each([false, true])(
+    "resumes stored push after thread resolution=%s without rerunning agent",
+    async (resolved) => {
+      const payload = {
+        verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+      };
+      mocks.completed.mockResolvedValue({
+        pushedShas: ["a".repeat(40)],
+        commits: [{ sha: "a".repeat(40), subject: "fix: guard user", diff: "+ok\n" }],
+        pushedHeadSha: "a".repeat(40),
         payload,
-        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
-      }),
-    );
-  });
+      });
+      durablePrSurfaceControls().setThreads(
+        new Map([[1, { threadNodeId: "node", isResolved: resolved }]]),
+      );
+
+      await runExecution();
+
+      expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+      expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+      expect(
+        durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body,
+      ).toContain("Pushed commits:");
+    },
+  );
 
   it("runs a fresh agent pass when same-work-item push detail is stale", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       staleHead: true,
       attemptedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -716,14 +828,14 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("does not resume a terminal closed push detail", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushOutcome: "closed",
       attemptedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -733,14 +845,14 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when same-work-item push detail has stale head", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "b".repeat(40),
@@ -749,7 +861,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -759,27 +871,24 @@ describe("executeTriageJob", () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
-      pushedShas: ["abc1234"],
-      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+    mocks.withoutNewer.mockResolvedValue({
+      pushedShas: ["a".repeat(40)],
+      commits: [{ sha: "a".repeat(40), subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
       payload,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload,
-        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
-      }),
+    expect(durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body).toContain(
+      "Pushed commits:",
     );
   });
 
   it("runs a fresh agent pass when cross-work-item push detail misses current inventory", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -805,7 +914,7 @@ describe("executeTriageJob", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    mocks.withoutNewer.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -814,14 +923,14 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when cross-work-item push detail has extra verdicts", async () => {
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    mocks.withoutNewer.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -833,14 +942,14 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("filters inventory to one thread when scope is thread", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -866,7 +975,7 @@ describe("executeTriageJob", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([
+    seedReviewCommentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -887,7 +996,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -896,12 +1005,12 @@ describe("executeTriageJob", () => {
       }),
     );
     expect(
-      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
-    ).toBe(true);
+      durablePrSurfaceControls().events.filter((e) => e.kind === "listReviewComments"),
+    ).toHaveLength(2);
   });
 
   it("falls back to the original inline parent when thread-root resolution fails", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 9,
         lens: "review",
@@ -914,7 +1023,14 @@ describe("executeTriageJob", () => {
       },
     ]);
     configureDefaultThreads([[9, { threadNodeId: "node-9", isResolved: false }]]);
-    vi.spyOn(durablePrSurfaceControls(), "setReviewCommentParentGraph");
+    const surface = fakeDurablePrSurface();
+    const listReviewComments = surface.listReviewComments.bind(surface);
+    let listings = 0;
+    vi.spyOn(surface, "listReviewComments").mockImplementation(async () => {
+      listings += 1;
+      if (listings === 2) throw new Error("listing unavailable");
+      return listReviewComments();
+    });
     mockDurableExecution(
       item({
         payload: {
@@ -932,7 +1048,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -943,7 +1059,7 @@ describe("executeTriageJob", () => {
   });
 
   it("reports ineligible thread scope without running the agent", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -955,7 +1071,7 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/1",
       },
     ]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([{ id: 99, inReplyToId: null }]);
+    seedReviewCommentGraph([{ id: 99, inReplyToId: null }]);
     mockDurableExecution(
       item({
         payload: {
@@ -972,7 +1088,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -983,7 +1099,7 @@ describe("executeTriageJob", () => {
   });
 
   it("reports already-resolved scoped thread without calling it ineligible", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -996,7 +1112,7 @@ describe("executeTriageJob", () => {
       },
     ]);
     configureDefaultThreads([[1, { threadNodeId: "node-1", isResolved: true }]]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([
+    seedReviewCommentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -1017,7 +1133,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1031,7 +1147,7 @@ describe("executeTriageJob", () => {
   });
 
   it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -1058,11 +1174,11 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
-      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
-    ).toBe(false);
+      durablePrSurfaceControls().events.filter((e) => e.kind === "listReviewComments"),
+    ).toHaveLength(1);
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
@@ -1075,7 +1191,7 @@ describe("executeTriageJob", () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushOutcome: "not-needed",
       pushedShas: [],
       commits: [],
@@ -1083,59 +1199,75 @@ describe("executeTriageJob", () => {
       payload,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload,
-        priorPush: expect.objectContaining({ pushOutcome: "not-needed" }),
-      }),
-    );
+    const report = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body;
+    expect(report).toContain("later");
+    expect(report).not.toContain("Pushed commits:");
   });
 
   it("maps stale pushOutcome to durable degraded without a missing mapping", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "stale",
       missingThreadAction: false,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_stale"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_stale"] });
     expect(mocks.publishTriage).toHaveBeenCalled();
   });
 
   it("maps missing thread actions to durable degraded without rewriting pushOutcome", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "pushed",
       missingThreadAction: true,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["thread_action_missing"] });
+    expect(executeResult).toMatchObject({
+      kind: "completed",
+      degradation: ["thread_action_missing"],
+    });
     await expect(mocks.publishTriage.mock.results[0]?.value).resolves.toEqual({
       pushOutcome: "pushed",
       missingThreadAction: true,
@@ -1144,31 +1276,39 @@ describe("executeTriageJob", () => {
 
   it("keeps a successful not-needed publish as completed without degraded", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "not-needed",
       missingThreadAction: false,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed" });
+    expect(executeResult).toMatchObject({ kind: "completed" });
   });
 
   it("posts terminal failure comment when no report exists", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(item(), fakeDurablePrSurface(), new Error("boom"));
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toBe(TRIAGE_FAILURE_MESSAGE);
@@ -1216,12 +1356,12 @@ describe("executeTriageJob", () => {
       (event) => event.kind === "resolveInlineReviewThread",
     ).length;
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriage).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     expect(mocks.publishTriagePreview).toHaveBeenCalled();
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         step: "triage_preview",
@@ -1250,10 +1390,10 @@ describe("executeTriageJob", () => {
 
   it("bulk without a preview refuses report-only and never checks out", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
+    mocks.latest.mockResolvedValue(null);
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(null);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1266,14 +1406,12 @@ describe("executeTriageJob", () => {
 
   it("bulk with a preview for another headSha refuses", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
-      storedPreview({ headSha: "b".repeat(40) }),
-    );
+    mocks.latest.mockResolvedValue(storedPreview({ headSha: "b".repeat(40) }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(
       storedPreview({ headSha: "b".repeat(40) }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1284,7 +1422,7 @@ describe("executeTriageJob", () => {
   });
 
   it("bulk with exclude replays only the remaining preview hunks", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -1318,11 +1456,9 @@ describe("executeTriageJob", () => {
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(
       storedPreview({ threadRootCommentIds: [1, 2] }),
     );
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
-      storedPreview({ threadRootCommentIds: [1, 2] }),
-    );
+    mocks.latest.mockResolvedValue(storedPreview({ threadRootCommentIds: [1, 2] }));
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
     expect(mocks.replayPreviewHunks).toHaveBeenCalledWith(
@@ -1336,9 +1472,9 @@ describe("executeTriageJob", () => {
   it("bulk happy path calls publishTriage", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+    mocks.latest.mockResolvedValue(storedPreview());
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
@@ -1348,14 +1484,22 @@ describe("executeTriageJob", () => {
   });
 
   it("skips a second apply or bulk run when triage_report already completed", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mocks.done.mockResolvedValue(true);
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+    mocks.latest.mockResolvedValue(storedPreview());
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriage).not.toHaveBeenCalled();
   });
 });
+
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  shouldSkipWork: mocks.shouldSkipWork,
+}));
+vi.mock("../src/agentWork/prHeadCiState.js", () => ({
+  loadPrHeadCiState: vi.fn(async () => null),
+}));

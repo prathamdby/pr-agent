@@ -4,15 +4,13 @@ import {
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
-} from "../../settings/index.js";
-import { escapeTablePlainCell } from "../../github/markdownFormat.js";
-import {
   LEGACY_REVIEW_LENSES,
   LEGACY_REVIEW_POINTER_BODIES,
   isAnyReviewLens,
   type AnyReviewLens,
-} from "../../settings/legacyReviewLenses.js";
-import { isAuthorizedMaintainerDecision } from "../maintainerAuthorization.js";
+} from "../../settings/index.js";
+import { escapeTablePlainCell } from "../../github/markdownFormat.js";
+import type { PrSurface } from "../../github/prSurfaceTypes.js";
 
 export type PriorInlineFeedbackThread = {
   readonly path: string;
@@ -360,6 +358,76 @@ export function mapAssembledThreadsToBotFindings(
     .toSorted((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
 }
 
+async function assembleBotThreadsForPullRequest(
+  prSurface: PrSurface,
+  params: {
+    readonly botUserId: number;
+    readonly allowedLenses: ReadonlySet<AnyReviewLens>;
+    readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
+    readonly maintainerDecisionAssociations: ReadonlySet<string>;
+  },
+): Promise<AssembledBotReviewThread[]> {
+  const [reviews, listed] = await Promise.all([
+    prSurface.listPullRequestReviews(),
+    prSurface.listReviewComments(),
+  ]);
+  const reviewLenses = new Map<number, AnyReviewLens>();
+  for (const review of reviews) {
+    if (review.userId !== params.botUserId) continue;
+    const lens = resolveReviewLensFromPointerOrRecords(
+      review.body ?? "",
+      review.id,
+      params.publishRecordLenses,
+    );
+    if (lens && isAnyReviewLens(lens)) reviewLenses.set(review.id, lens);
+  }
+  if (reviewLenses.size === 0) return [];
+  return assembleBotReviewThreads(listed.comments, {
+    botUserId: params.botUserId,
+    reviewLenses,
+    allowedLenses: params.allowedLenses,
+    maintainerDecisionAssociations: params.maintainerDecisionAssociations,
+  });
+}
+
+export async function fetchPriorInlineFeedback(
+  prSurface: PrSurface,
+  params: {
+    readonly botUserId: number;
+    readonly currentLens: AnyReviewLens;
+    readonly maintainerDecisionAssociations?: ReadonlySet<string>;
+  },
+): Promise<PriorInlineFeedbackThread[]> {
+  return mapAssembledThreadsToPriorInlineFeedback(
+    await assembleBotThreadsForPullRequest(prSurface, {
+      botUserId: params.botUserId,
+      allowedLenses: priorFeedbackLensesForSelection(params.currentLens),
+      maintainerDecisionAssociations:
+        params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+    }),
+  );
+}
+
+export async function fetchBotFindingThreads(
+  prSurface: PrSurface,
+  params: {
+    readonly botUserId: number;
+    readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
+    readonly maintainerDecisionAssociations?: ReadonlySet<string>;
+  },
+): Promise<BotFindingThread[]> {
+  return mapAssembledThreadsToBotFindings(
+    await assembleBotThreadsForPullRequest(prSurface, {
+      botUserId: params.botUserId,
+      allowedLenses: priorFeedbackLensesForSelection("review"),
+      publishRecordLenses: params.publishRecordLenses,
+      maintainerDecisionAssociations:
+        params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+    }),
+    params.botUserId,
+  );
+}
+
 export function hasAuthorizedMaintainerDecision(
   thread: Pick<BotFindingThread, "authorizedReplies">,
 ): boolean {
@@ -396,4 +464,20 @@ export function formatPriorInlineFeedbackBlock(
   }
 
   return lines.join("\n");
+}
+
+/**
+ * A dismissal decision needs both a known commenter and verified association
+ * metadata. Reply text, display names, and the ability to reply are not authz.
+ */
+function isAuthorizedMaintainerDecision(params: {
+  readonly userId: number | null | undefined;
+  readonly botUserId: number;
+  readonly authorAssociation: string | null | undefined;
+  readonly allowedAssociations: ReadonlySet<string>;
+}): boolean {
+  if (params.userId == null || params.userId === params.botUserId) return false;
+  const association = params.authorAssociation?.trim().toUpperCase();
+  if (!association || association === "*") return false;
+  return params.allowedAssociations.has(association);
 }

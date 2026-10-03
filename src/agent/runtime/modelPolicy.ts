@@ -1,4 +1,4 @@
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentSessionRole, ModelAssignment } from "./types.js";
 
@@ -10,15 +10,15 @@ export type ResolvedModelPolicy = {
 
 export function resolveModelPolicy(cfg: Config): ResolvedModelPolicy {
   const generalPrimary: ModelAssignment = {
-    provider: cfg.piProvider,
-    model: cfg.piModel,
+    provider: cfg.models.provider,
+    model: cfg.models.model,
   };
   const orchestratorPrimary: ModelAssignment = {
-    provider: cfg.piOrchestratorProvider || cfg.piProvider,
-    model: cfg.piOrchestratorModel || cfg.piModel,
+    provider: cfg.models.orchestratorProvider || cfg.models.provider,
+    model: cfg.models.orchestratorModel || cfg.models.model,
   };
-  const fallbackProvider = cfg.piFallbackProvider.trim();
-  const fallbackModel = cfg.piFallbackModel.trim();
+  const fallbackProvider = cfg.models.fallbackProvider.trim();
+  const fallbackModel = cfg.models.fallbackModel.trim();
   const fallback =
     fallbackProvider && fallbackModel
       ? { provider: fallbackProvider, model: fallbackModel }
@@ -56,7 +56,8 @@ export function assertSameModelAssignment(
 ): void {
   if (current.provider === next.provider && current.model === next.model) return;
   throw new AppError({
-    code: "runtime.mid_session_model_switch",
+    domain: "runtime",
+    kind: "mid_session_model_switch",
     message: "Healthy Pi sessions keep one model; mid-session model switches are forbidden",
     context: {
       role: context.role,

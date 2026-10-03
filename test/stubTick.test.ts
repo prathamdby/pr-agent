@@ -7,14 +7,38 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
-  upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({
+const summaryWrite = vi.hoisted(() =>
+  vi.fn(async (_params: { readonly body: string; readonly [key: string]: unknown }) => ({
     id: 42,
     updated: true,
   })),
+);
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
+  createReviewSummaryComment: (deps: {
+    readonly prSurface: unknown;
+    readonly reviewLens: string;
+    readonly coordination?: object;
+  }) => ({
+    tick: (write: { readonly body: string }) =>
+      summaryWrite({
+        prSurface: deps.prSurface,
+        reviewLens: deps.reviewLens,
+        ...deps.coordination,
+        ...write,
+      }),
+    conclude: (write: { readonly body: string }) =>
+      summaryWrite({
+        prSurface: deps.prSurface,
+        reviewLens: deps.reviewLens,
+        ...deps.coordination,
+        ...write,
+        progressRevision: 7,
+      }),
+  }),
 }));
 
 vi.mock("../src/evlog.js", () => ({
@@ -23,7 +47,6 @@ vi.mock("../src/evlog.js", () => ({
 
 import { logWarn } from "../src/evlog.js";
 import { tickProgressComment } from "../src/review/orchestrator/stubTick.js";
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
 
 const pool = {} as Pool;
 
@@ -65,7 +88,7 @@ describe("tickProgressComment", () => {
 
     await expect(tickProgressComment(specialistTickArgs(prSurface))).resolves.toBeUndefined();
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
@@ -79,9 +102,7 @@ describe("tickProgressComment", () => {
   });
 
   it("logs and swallows progress write failures", async () => {
-    vi.mocked(upsertSummaryCommentWithCreationClaim).mockRejectedValueOnce(
-      new Error("GitHub unavailable"),
-    );
+    vi.mocked(summaryWrite).mockRejectedValueOnce(new Error("GitHub unavailable"));
 
     await expect(tickProgressComment(specialistTickArgs())).resolves.toBeUndefined();
 

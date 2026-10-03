@@ -1,3 +1,4 @@
+import type { PrResource } from "../agentWork/types.js";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
@@ -19,6 +20,7 @@ import {
   selectLocalPrWorkspaceCheckoutMode,
   type LocalPrWorkspace,
 } from "./localPrWorkspace.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
@@ -26,10 +28,7 @@ export type PrRepositoryView = {
   readonly agentCwd: string;
 };
 
-export type PreparePrRepositoryViewParams = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
+export type PreparePrRepositoryViewParams = PrResource & {
   readonly headSha: string;
   readonly gitCredentialAuth: () => Promise<{
     readonly token: string;
@@ -192,7 +191,7 @@ async function releasePrRepositoryView(
         repo: params.repo,
         pr: params.prNumber,
         headSha: params.headSha,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     });
   }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);

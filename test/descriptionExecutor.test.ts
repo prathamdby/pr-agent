@@ -1,35 +1,51 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { PgBoss } from "pg-boss";
 import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { DescriptionJobData } from "../src/agentWork/types.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import * as repo from "../src/agentWork/repository.js";
+import * as repo from "../src/agentWork/workItemStateRepository.js";
 import {
   fakeDurablePrSurface,
   mockWorkClaim,
-  makeDurableJobMetadata,
-  mockFetchedWorkItem,
   resetDurablePrSurface,
   durablePrSurfaceControls,
-  setupDefaultDurableAuthMocks,
   setupDefaultDurableRepositoryMocks,
 } from "./helpers/executorDurableHarness.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 
 const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
-  runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
-  captureEvent: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
   return {
     ...actual,
     shouldSkipWork: vi.fn().mockResolvedValue(false),
@@ -46,7 +62,6 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     markWorkCancelled: vi.fn().mockResolvedValue(undefined),
     markWorkPublishDegraded: vi.fn().mockResolvedValue(undefined),
     updateRunningWorkHeadSha: vi.fn().mockResolvedValue(true),
-    recordPublishStep: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -63,15 +78,7 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return {
-    ...actual,
-    runDurableWorkItem: mocks.runDurableWorkItem,
-  };
-});
-
-vi.mock("../src/prWorkspace/index.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
@@ -80,17 +87,23 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
 }));
 
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
-  captureException: vi.fn(),
-}));
-
-import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
-import { executeDescriptionJob } from "../src/agentWork/executors/descriptionExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import * as prActorLease from "../src/agentWork/prActorLease.js";
 import { AppError } from "../src/errors/appError.js";
 
-const cfg = makeTestConfig({ piModel: "test" });
+let runExecution: () => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["description"]) => Promise<unknown>,
+): void {
+  runExecution = () =>
+    run(
+      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
+        .description,
+    );
+}
+
+const cfg = makeTestConfig({ models: { model: "test" } });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
@@ -98,61 +111,27 @@ function descriptionItem(source: "slash" | "auto" = "slash") {
   return makeDescriptionWorkItem({ source, headSha: "head" });
 }
 
-function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<DescriptionJobData> {
-  const now = new Date();
-  return {
-    id: "job-1",
-    name: "agent-work-description",
-    data: { kind: "description", workItemId: "wi-1" },
-    expireInSeconds: 3600,
-    heartbeatSeconds: null,
-    signal: new AbortController().signal,
-    priority: 0,
-    state: "active",
-    retryLimit,
-    retryCount,
-    retryDelay: 0,
-    retryBackoff: false,
-    startAfter: now,
-    startedOn: now,
-    singletonKey: null,
-    singletonOn: null,
-    deleteAfterSeconds: 0,
-    createdOn: now,
-    completedOn: null,
-    keepUntil: now,
-    policy: "standard",
-    heartbeatOn: null,
-    blocked: false,
-    blocking: false,
-    pendingDependencies: 0,
-    deadLetter: "",
-    output: {},
-    sourceName: null,
-    sourceId: null,
-    sourceCreatedOn: null,
-    sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
-  };
-}
-
 function mockDurableExecution(
   item = descriptionItem(),
   executionEnv: { escalation?: EscalationPlan } = {},
 ): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
-    const result = await spec.execute(item, {
-      prSurface: fakeDurablePrSurface(),
-      headSha: "head",
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-      ...executionEnv,
-    });
-    if (result.kind === "completed" && result.degradation != null) {
-      await repo.markWorkPublishDegraded(pool, item.id, 1);
-    }
+  configureExecution(async (spec) => {
+    const result = await spec.execute(
+      item,
+      createDurableExecutionContext({
+        pool,
+        item: item,
+        prSurface: fakeDurablePrSurface(),
+        headSha: "head",
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getEscalation: () => executionEnv.escalation,
+        getClaim: () => undefined,
+      }),
+    );
+    return result;
   });
 }
 
@@ -162,13 +141,13 @@ async function runTerminalFailure(
 ): Promise<void> {
   durablePrSurfaceControls().setPullRequestBody(prBody);
   const item = descriptionItem(source);
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
+  configureExecution(async (spec) => {
     await spec.onTerminalFailure?.(item, fakeDurablePrSurface(), new Error("dead"));
   });
-  await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
+  await runExecution();
 }
 
-describe("executeDescriptionJob", () => {
+describe("description work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDurablePrSurface();
@@ -212,16 +191,17 @@ describe("executeDescriptionJob", () => {
       publishSuperseded: false,
     });
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
-
-    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1", 1);
+    expect(await runExecution()).toMatchObject({
+      kind: "completed",
+      degradation: ["publish_not_completed"],
+    });
   });
 
   it("does not mark publish degraded when description publishes successfully", async () => {
     const escalation = { attempt: 2, kinds: ["tool_rounds"] } as const;
     mockDurableExecution(descriptionItem(), { escalation });
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+    await runExecution();
 
     expect(mocks.runDescriptionRun).toHaveBeenCalledWith(expect.objectContaining({ escalation }));
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
@@ -233,46 +213,9 @@ describe("executeDescriptionJob", () => {
       publishSuperseded: true,
     });
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+    await runExecution();
 
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "superseded",
-          work_item_id: "wi-1",
-        }),
-      }),
-    );
-  });
-
-  it("marks publish degraded through real durable scaffolding", async () => {
-    setupDefaultDurableAuthMocks();
-    mockFetchedWorkItem(descriptionItem());
-    mocks.runDescriptionRun.mockResolvedValue({
-      published: false,
-      publishSuperseded: false,
-    });
-
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeDurableJobMetadata(),
-      type: "description",
-      resolveHeadSha: async () => ({ headSha: "head" }),
-      execute: async (_item, _env) => {
-        const result = await mocks.runDescriptionRun({});
-        if (!result.published && !result.publishSuperseded) {
-          return { kind: "completed", degradation: ["publish_not_completed"] };
-        }
-        return { kind: "completed" };
-      },
-    });
-
-    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("treats a lost PR actor lease as publish superseded", async () => {
@@ -285,21 +228,22 @@ describe("executeDescriptionJob", () => {
     );
     mockDurableExecution();
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+    await runExecution();
 
     expect(mocks.runDescriptionRun).toHaveBeenCalled();
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
   it("rejects description publish when the PR actor lease is lost", async () => {
-    vi.mocked(repo.recordPublishStep).mockImplementation(async (_pool, params) => {
+    vi.mocked(recordPublishStep).mockImplementation(async (_pool, params) => {
       if (params.leaseEpoch != null) {
         await prActorLease.assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
       }
     });
     vi.mocked(prActorLease.assertPrActorLeaseHeld).mockRejectedValue(
       new AppError({
-        code: "agent_work.pr_actor_lease_lost",
+        domain: "agent_work",
+        kind: "pr_actor_lease_lost",
         message: "PR actor lease is no longer held by this execution",
       }),
     );
@@ -313,7 +257,7 @@ describe("executeDescriptionJob", () => {
     );
     mockDurableExecution();
 
-    await expect(executeDescriptionJob(cfg, pool, boss, descriptionJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "agent_work.pr_actor_lease_lost",
     });
   });

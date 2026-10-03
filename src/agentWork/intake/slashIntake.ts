@@ -5,23 +5,15 @@ import {
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   MAX_STORED_COMMENT_TEXT_LEN,
-  SLASH_CANCEL_DONE_BODY,
-  SLASH_CANCEL_NONE_BODY,
-  SLASH_HELP_BODY,
-  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
-  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
   TRIAGE_INVALID_EXCLUDE,
   TRIAGE_UNKNOWN_SUBCOMMAND,
   sanitizeGithubLogin,
-  slashDisabledBody,
   type Features,
 } from "../../settings/index.js";
-import type { DeferredIntakeEvent } from "./deferredEvents.js";
-import { acquireAutoWorkIntakeLock } from "../autoWorkEnqueue.js";
+import type { DeliveryTx, DeferredIntakeEvent } from "./delivery.js";
 import { approveAwaiting } from "./reviewApprovals.js";
 import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import {
@@ -35,8 +27,7 @@ import {
 } from "../types.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
-import { insertWebhookEvent } from "./webhookEvents.js";
+import type { ReplyTarget } from "../types.js";
 import {
   enqueueAck,
   enqueueDescription,
@@ -54,7 +45,6 @@ import {
   createVerificationWorkItem,
   fetchActiveTriageWorkItem,
   fetchActiveVerificationWorkItem,
-  loadReviewLifecycle,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -97,6 +87,7 @@ type SlashIntakeContext = {
   };
   readonly events: DeferredIntakeEvent[];
   readonly askQuota: AskQuotaConfig;
+  readonly reviewRefused?: "closed" | "merged";
 };
 
 async function enqueueSlashAck(
@@ -271,7 +262,8 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey, insert.id);
     if (!winner) {
       throw new AppError({
-        code: "agent_work.slash_triage_conflict_no_winner",
+        domain: "agent_work",
+        kind: "slash_triage_conflict_no_winner",
         message: `slash triage uniqueness conflict without winner for ${resourceKey}`,
         context: { resourceKey },
       });
@@ -296,26 +288,19 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  await acquireAutoWorkIntakeLock(ctx.client, { kind: "review", resourceKey });
-  const lifecycle = await loadReviewLifecycle(ctx.client, resourceKey);
-  if (lifecycle != null && lifecycle.state !== "open") {
-    const decision = `ignored_slash_review_pr_${lifecycle.state}`;
-    await ctx.client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
-      ctx.eventId,
-      decision,
-    ]);
+  if (ctx.reviewRefused != null) {
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
         body:
-          lifecycle.state === "closed"
+          ctx.reviewRefused === "closed"
             ? "This pull request is closed. Reopen it before running `/review`."
             : "This pull request is merged. Run `/review` on an open pull request.",
       },
     });
     ctx.events.push({
       name: "review_intake_refused",
-      fields: { resourceKey, source: "slash", reason: lifecycle.state, ...ctx.correlation },
+      fields: { resourceKey, source: "slash", reason: ctx.reviewRefused, ...ctx.correlation },
     });
     return;
   }
@@ -503,24 +488,26 @@ const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
 
 export async function applySlashCommandIntake(
   boss: PgBoss,
-  client: PoolClient,
+  tx: DeliveryTx,
   input: SlashCommandInput,
   features: Features,
   askQuota: AskQuotaConfig = defaultAskQuotaConfig(),
 ): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
   const events: DeferredIntakeEvent[] = [];
   const command = input.command;
-  const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
-  if (event.duplicate) {
-    events.push({
-      name: "deduped_delivery",
-      fields: {
-        dedupeKey: event.dedupeKey,
-        event: input.headers.event,
+  let reviewRefused: "closed" | "merged" | undefined;
+  if (command === "review")
+    await tx.withReviewIntake(
+      prResourceKey(input.owner, input.repo, input.prNumber),
+      async (lifecycle) => {
+        if (lifecycle != null && lifecycle.state !== "open") reviewRefused = lifecycle.state;
       },
-    });
-    return events;
-  }
+    );
+  const event = await tx.insert(
+    reviewRefused == null ? `slash_${command}` : `ignored_slash_review_pr_${reviewRefused}`,
+  );
+  if (event.duplicate) return events;
 
   const correlation = jobCorrelation(event.id, input.headers);
   const ref: PrRef = {
@@ -555,6 +542,7 @@ export async function applySlashCommandIntake(
     },
     events,
     askQuota,
+    reviewRefused,
   };
 
   const handler = SLASH_INTAKE_HANDLERS[command];
@@ -577,4 +565,50 @@ export async function applySlashCommandIntake(
   }
   await handleSlashUnknown(ctx, command);
   return events;
+}
+
+/** Slash command help (scheduler ack replies). */
+const SLASH_HELP_BODY = [
+  "### PR Agent help",
+  "",
+  "Commands (first line of a **new** comment):",
+  "- `/help` - show this message",
+  "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+  "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+  "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+  "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+  "- `/cancel` - cancel a queued or in-progress review on this PR",
+  "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+  "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+  "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+  "- `/verify` - verify open findings against the current pull request head",
+  "",
+  "Notes:",
+  "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
+  "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+  "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
+  "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+  "- Edited comments are ignored for slash parsing in v1.",
+].join("\n");
+
+/** Ack reply when `/review` finds an active review (and no `force` restart was requested). */
+const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
+  "A `/review` run is already queued or in progress for this pull request.";
+
+/** Ack reply when `/review force` cancelled an active review and queued a replacement. */
+const SLASH_REVIEW_FORCE_RESTARTED_BODY =
+  "Cancelled the previous review and started a new one on the latest commit.";
+
+/** Ack reply when `/cancel` finds no queued/running review. */
+const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for this pull request.";
+
+/** Ack reply when `/cancel` cancels an active review. */
+const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";
+
+/** Ack reply when `/verify` finds an active verification. */
+const SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY =
+  "A `/verify` run is already queued or in progress for this pull request.";
+
+function slashDisabledBody(command: string): string {
+  return `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`;
 }

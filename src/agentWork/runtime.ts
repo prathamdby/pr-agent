@@ -1,15 +1,15 @@
 import { Context, Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
 import { shutdownAnalytics } from "../analytics/index.js";
 import { logWarn } from "../evlog.js";
-import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
+import { toError } from "../errors/errorMessage.js";
 
 export class AgentWorkPool extends Context.Service<AgentWorkPool, Pool>()("AgentWorkPool") {}
 export class AgentWorkBoss extends Context.Service<AgentWorkBoss, PgBoss>()("AgentWorkBoss") {}
@@ -61,12 +61,12 @@ export const AgentWorkPoolLive = (cfg: Config) =>
           await runMigrations(pool);
           return pool;
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (e) => toError(e),
       }),
       (pool) =>
         Effect.tryPromise({
           try: () => pool.end(),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (e) => toError(e),
         }).pipe(Effect.orDie),
     ),
   );
@@ -84,22 +84,23 @@ export const AgentWorkBossLive = (
           await ensureAgentQueues(boss, cfg);
           return boss;
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (e) => toError(e),
       }),
       (boss) =>
         Effect.tryPromise({
           try: async () => {
-            await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+            await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000);
             // The worker flushes analytics from its executions finalizer instead,
             // so the flush runs concurrently with the durable-dispatch reserve.
             if (options?.shutdownAnalytics !== false) await shutdownAnalytics();
           },
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (e) => toError(e),
         }).pipe(Effect.orDie),
     ),
   );
 
-const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
+/** Web role: scheduler seam only (webhook intake enqueues agent work). */
+export const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
   Layer.effect(
     AgentWorkScheduler,
     Effect.gen(function* () {
@@ -108,6 +109,3 @@ const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
       return makeAgentWorkScheduler(pool, boss, cfg);
     }),
   ).pipe(Layer.provide(AgentWorkPoolLive(cfg)), Layer.provide(AgentWorkBossLive(cfg)));
-
-/** Web role: scheduler seam only (webhook intake enqueues agent work). */
-export const agentWorkWebLive = (cfg: Config) => AgentWorkSchedulerRuntimeLive(cfg);

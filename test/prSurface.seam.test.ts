@@ -61,6 +61,8 @@ describe("PrSurface seam", () => {
         head: { sha: "abc123" },
         additions: 1,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 1,
       },
     }));
@@ -154,6 +156,8 @@ describe("PrSurface seam", () => {
         head: { sha: "abc123" },
         additions: 1,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 1,
       },
     }));

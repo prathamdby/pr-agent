@@ -35,6 +35,8 @@ vi.mock("../src/github/appAuth.js", () => ({
               head: { sha: HEAD_SHA },
               additions: state.additions,
               deletions: state.deletions,
+              title: "",
+              body: null,
               changed_files: state.changedFilesCount,
             },
           };
@@ -78,22 +80,24 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
     return {
       agentCwd: "/tmp/x",
       cleanup: state.cleanup,
-      changedFiles,
-      stats: {
-        truncated: prepParams.prFiles.truncated,
-        fileCount: changedFiles.length,
-        totalChanges: prepParams.prFiles.totalChanges,
-        warning: prepParams.prFiles.warning,
+      reader: {
+        changedFiles,
+        stats: {
+          truncated: prepParams.prFiles.truncated,
+          fileCount: changedFiles.length,
+          totalChanges: prepParams.prFiles.totalChanges,
+          warning: prepParams.prFiles.warning,
+        },
+        checkoutMode,
+        checkoutPaths,
+        getCoverage: () => ({
+          mode: checkoutMode,
+          pathsInCheckout: checkoutPaths.size,
+          changedFileCount: changedFiles.length,
+          changeSetTruncated: prepParams.prFiles.truncated,
+          ...(prepParams.prFiles.warning ? { warning: prepParams.prFiles.warning } : {}),
+        }),
       },
-      checkoutMode,
-      checkoutPaths,
-      getCoverage: () => ({
-        mode: checkoutMode,
-        pathsInCheckout: checkoutPaths.size,
-        changedFileCount: changedFiles.length,
-        changeSetTruncated: prepParams.prFiles.truncated,
-        ...(prepParams.prFiles.warning ? { warning: prepParams.prFiles.warning } : {}),
-      }),
     };
   },
 }));
@@ -161,17 +165,19 @@ const completePrFiles = fileListResult(completePaths);
 function expectCompleteCoverage(view: {
   preflight: { files: readonly { filename: string }[]; truncated: boolean; fileCount: number };
   workspace: {
-    getCoverage: () => {
-      changeSetTruncated: boolean;
-      changedFileCount: number;
-      pathsInCheckout: number;
+    reader: {
+      getCoverage: () => {
+        changeSetTruncated: boolean;
+        changedFileCount: number;
+        pathsInCheckout: number;
+      };
     };
   };
 }): void {
   expect(view.preflight.truncated).toBe(false);
   expect(view.preflight.fileCount).toBe(2);
   expect(view.preflight.files.map((file) => file.filename)).toEqual([...completePaths]);
-  const coverage = view.workspace.getCoverage();
+  const coverage = view.workspace.reader.getCoverage();
   expect(coverage.changeSetTruncated).toBe(false);
   expect(coverage.changedFileCount).toBe(2);
   expect(coverage.pathsInCheckout).toBe(2);
@@ -255,6 +261,8 @@ describe("prRepositoryView cache", () => {
     const pullRequest = {
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       head: { sha: HEAD_SHA },
     };
@@ -343,13 +351,13 @@ describe("prRepositoryView cache", () => {
 
   it("does not share a full checkout with a sparse checkout of the same PR", async () => {
     await withPrRepositoryView(params, async (view) => {
-      expect(view.workspace.checkoutMode).toBe("full");
+      expect(view.workspace.reader.checkoutMode).toBe("full");
       expectCompleteCoverage(view);
     });
     await withPrRepositoryView(
       { ...params, repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1 },
       async (view) => {
-        expect(view.workspace.checkoutMode).toBe("sparse");
+        expect(view.workspace.reader.checkoutMode).toBe("sparse");
         expectCompleteCoverage(view);
       },
     );

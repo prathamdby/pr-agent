@@ -20,25 +20,19 @@ type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
 >;
 
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return {
-    ...createAgentWorkRepositoryMock(),
-    getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
-  };
-});
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
+}));
 
 vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
-  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.js");
+  const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
+    await import("./helpers/publishReviewTestSetup.js");
   return {
     ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
 });
 
 const payload = publishReviewTestPayload;
@@ -80,7 +74,7 @@ describe("publishReview core", () => {
     const reviewBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.body;
     expect(reviewBody).toContain("Here's what the review found.");
     expect(reviewBody).not.toContain(REVIEW_POINTER_BODY);
-    expect(harness.listPullRequestReviewComments).toHaveBeenCalled();
+    expect(harness.listReviewComments).toHaveBeenCalled();
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r99");
@@ -305,7 +299,7 @@ describe("publishReview core", () => {
     });
 
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(harness.listPullRequestReviewComments).toHaveBeenCalledTimes(1);
+    expect(harness.listReviewComments).toHaveBeenCalledTimes(1);
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
     const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0] ?? "";
     expect(summaryBody.match(/Bug/g)).toHaveLength(1);

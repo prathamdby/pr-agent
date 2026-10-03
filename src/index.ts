@@ -1,4 +1,4 @@
-import { loadConfig, type Config } from "./config.js";
+import { loadConfig, type Config } from "./settings/index.js";
 import { initAnalytics } from "./analytics/index.js";
 import { initEvlog, logInfo } from "./evlog.js";
 import { sanitizeErrorForTelemetry } from "./errors/appError.js";
@@ -14,19 +14,19 @@ async function main() {
     return;
   }
 
-  initEvlog(cfg.logLevel, {
+  initEvlog(cfg.logging.level, {
     maxWideEvents: LOG_MAX_WIDE_EVENTS,
-    pretty: cfg.logPretty,
-    redact: cfg.logRedact,
+    pretty: cfg.logging.pretty,
+    redact: cfg.logging.redact,
   });
-  await initAnalytics({ projectToken: cfg.posthogProjectToken, host: cfg.posthogHost });
+  await initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host });
   logInfo("boot", {
-    role: cfg.role,
-    provider: cfg.piProvider,
-    model: cfg.piModel,
-    context7_enabled: cfg.context7ApiKey.length > 0,
+    role: cfg.runtime.role,
+    provider: cfg.models.provider,
+    model: cfg.models.model,
+    context7_enabled: cfg.context7.apiKey.length > 0,
   });
-  if (cfg.role === "worker") {
+  if (cfg.runtime.role === "worker") {
     const { startAgentWorker } = await import("./worker.js");
     startAgentWorker(cfg);
     return;

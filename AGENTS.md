@@ -44,7 +44,7 @@ Baseline counts only shrink after landing.
 
 New external service onboarding: a folder of its own (`src/<service>/`)
 with a seam of its own, shaped like `PrSurface`; one import-rule row so
-the service SDK loads only there; credentials via `src/config.ts`, never
+the service SDK loads only there; credentials via `src/settings/`, never
 a new `process.env` reader; a durable work type lands with its executor
 and publish record in the same PR, and `docs/feature-map.md` absorbs it
 (`nub run gen:feature-map`); docs pointers update in the same PR; the
@@ -119,13 +119,13 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), worker (`7225`), and a Cloudflare quick tunnel to the web process. `dev/mock.env` has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App. Print the public webhook URL with `node dev/print-public-webhook-url.cjs` and paste it on the GitHub App. For live deliveries, fill `.env` and pass `PR_AGENT_ENV_FILE=.env`.
 
-`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once. `docker compose up -d postgres` from the base file still does not open host port `5432`.
+`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once.
 
 Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` when you install it globally. Use `nub watch` only when you want host hot reload instead of an image rebuild.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
-Proof integration and E2E first. `DATABASE_URL=... nub run test:integration` is the durable-path suite for webhook, lease, and database work until a dedicated E2E suite exists; inventory-only runs use `nub run test:integration:inventory`. `nub run test` runs the remaining small unit suite: security guards, architecture and import-graph locks, and isolation tests written from an explicit failure-mode list before the code.
+Proof integration and E2E first. `DATABASE_URL=... nub run test:integration` is the durable-path suite for webhook, lease, and database work until a dedicated E2E suite exists; inventory-only runs use `nub run test:integration:inventory`. `nub run test` runs the small unit suite.
 
 ## Test data and external systems
 
@@ -148,7 +148,7 @@ When test changes are already in scope, keep them proportional to the changed co
 - Keep one concern per PR. Split unrelated cleanup.
 - Before filing, fetch `origin`, check whether the branch already has an open PR, inspect the complete diff against `origin/main`, and exclude unrelated worktree changes.
 - Write the title and body from the final diff. Open with the user-visible problem and solution, then name affected contracts and checks that actually ran.
-- Preserve the repository vocabulary. A change to one documented concept must update every pointer whose branch matched the change.
+- Preserve the repository vocabulary.
 
 ## How it works
 
@@ -157,7 +157,7 @@ fresh work through the runner's memoized `beginAttempt`, backed by a short
 lease-first transaction in `workItemStateRepository.ts`. Actual resumed work
 still charges; recovery-only completion remains possible at the cap.
 
-GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
+GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Pure `toIntakeCommand` requires resolved bot identity or returns an explicit authentication request. The thin scheduler submits one command to `runDelivery`, which owns commit/rollback and post-commit events. `DeliveryTx.withReviewIntake` owns the review lock and separate retained lifecycle read; event decisions are final at insertion. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
 Close and reopen also hold the review intake lock. Accepted lifecycle observations
 write `pr_review_lifecycle` in the same transaction as cancellation or admission.
@@ -195,7 +195,7 @@ payload in the conflict statement. Stored values win collisions, including acros
 lease epochs, so retry cannot erase another writer's changes. A new replacement
 still receives the complete original source and slash-command context.
 
-Terminal parent failure cancels a pending stale-head replacement even when its
+Review's terminal hook cancels a pending stale-head replacement even when its
 claim wins concurrently or a delivery races the abort. Queue existence cannot veto
 the state-predicated cancellation write. Successful in-attempt enqueue and the
 terminal fallback's persisted enqueued marker remain exempt. Leftover deliveries
@@ -218,7 +218,7 @@ flowchart LR
   Surface --> GitHub
 ```
 
-The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Canonical ask intake resolves the triggering mention — installation, PR resource, comment surface, and comment ID — under a transaction-scoped advisory lock before quota admission, so repeated accepted deliveries of one mention quietly join its retained work item in any status instead of creating a sibling; the agreement ends when retention deletes the item. Triage may push a branch and uses separate publish records for thread actions.
+The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `reviewVerdict(...).close` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. Every enqueue goes through `requestHeadCiProjection`. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Canonical ask intake resolves the triggering mention — installation, PR resource, comment surface, and comment ID — under a transaction-scoped advisory lock before quota admission, so repeated accepted deliveries of one mention quietly join its retained work item in any status instead of creating a sibling; the agreement ends when retention deletes the item. Triage may push a branch and uses separate publish records for thread actions.
 
 A slash `/review`, `/describe`, `/triage`, or `/verify` that reaches insertion
 resolves active work in one value-preserving UPSERT. Its conflict row stays
@@ -271,6 +271,13 @@ A zero-row progress write rechecks the lease, then warns and raises
 the writer is unleased. Preflight foreign-owner ticks above revision zero warn
 and skip. Neither path reassigns the replacement's progress record.
 
+`src/db/sessionLock.ts` owns shared progress/verdict half-pool admission,
+typed `SessionLockKey` encoding, session try-locks, bounded progress waits,
+and safe unlock/release precedence. Callers cannot supply admission capacity.
+`src/agentWork/fencedWrite.ts` owns numeric-epoch precheck/write/zero-row
+recheck sequencing; each repository retains its exact SQL predicates and
+its existing choice of checks.
+
 Revisioned progress and summary upserts serialize the fresh comment read,
 claim, GitHub write, and result record under one resource/lens advisory lock.
 Claims stay autocommitted. Contenders release clients before bounded backoff;
@@ -281,17 +288,21 @@ client. CI projection and direct comment edits do not share this lock.
 ## Where code lives
 
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
-- `src/webhook/` verifies and parses GitHub deliveries.
-- `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention.
-- `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
-- `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
+- `src/webhook/` verifies and parses GitHub deliveries; `intakeCommand.ts` maps validated events without provider I/O.
+- `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention. `intake/delivery.ts` owns delivery transactions and review intake ordering; `askQuota.ts` owns atomic canonical ask admission. `reviewVerdict.ts` owns pending checks, first-output verdict selection, check/status application, summary details links, and open-check repair.
+- `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
+- `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
+- `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
+- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
+- `src/github/` owns Octokit, installation tokens, and the narrow `PrSurface` seam; features assemble raw reads.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - `src/security/` owns outbound, log, and analytics redaction.
-- `src/errors/` owns `AppError` and external-failure classification.
-- `src/prWorkspace/` owns local checkout and diff access for agent work.
-- `src/settings/` owns configuration constants, feature flags, and queue settings.
+- `src/errors/` owns closed `AppError` codes and classification.
+- `src/prWorkspace/` owns checkout lifecycle. `repositoryReader.ts` owns pinned and writable repository readers, path policy, and hardened Git execution. `src/agent/tools/workspaceToolset.ts` owns the ordered read-tool profiles; triage retains its write tools and final mutation guards.
+- `src/settings/` owns the `Config` slices, shared constants, feature flags, and queue settings. Single-owner constants stay private to their owner: slash replies in `src/agentWork/intake/slashIntake.ts`, migration settings in `src/db/migrations.ts`.
+- `src/agentWork/types.ts` owns `PrResource`, the durable `PrRef`, and `ReplyTarget`. Import interfaces from concrete modules, not deleted barrels. Execution halt codes live in `src/agent/execution/hostHalt.ts`; review status copy lives in `src/review/statusCopy.ts`.
 - `migrations/` owns ordered Postgres schema changes.
 - `site/` is the separate landing and agent-readable documentation workspace.
 - `docs/adr/` records significant architecture decisions. Read the relevant ADR before changing its invariant.

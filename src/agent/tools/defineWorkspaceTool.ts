@@ -37,7 +37,8 @@ export function toExecutor(name: string, t: LocalTool): AgentRunnerToolExecutor 
     });
     if (!parsed.ok) {
       throw new AppError({
-        code: "tool.input_validation_failed",
+        domain: "tool",
+        kind: "input_validation_failed",
         message: parsed.error,
         context: { toolName: name },
       });

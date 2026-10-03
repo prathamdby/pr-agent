@@ -1,9 +1,12 @@
+import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
+import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
-import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
+import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
@@ -136,24 +139,35 @@ describe("runSpecialist", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns a valid findings report", async () => {
-    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+  it.each([
+    ["correctness", buildAutomatedSystemPrompt()],
+    ["security", automatedSecuritySystemPrompt],
+    ["quality", automatedQualitySystemPrompt],
+    ["tests", automatedReviewTestsSystemPrompt],
+  ] as const)(
+    "returns a valid %s findings report with its prompt",
+    async (specialist, systemPrompt) => {
+      runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
 
-    const outcome = await runSpecialist(specialistArgs());
+      const outcome = await runSpecialist(specialistArgs({ specialist }));
+      expect(runnerMocks.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ systemPrompt }),
+      );
 
-    expect(outcome).toMatchObject({
-      kind: "report",
-      specialist: "correctness",
-      report: findingsReport,
-      durationMs: expect.any(Number),
-    });
-    expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
-      maxToolRounds: 24,
-      phase: "specialist",
-      checkpointId: "specialist:specialist",
-    });
-    expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
-  });
+      expect(outcome).toMatchObject({
+        kind: "report",
+        specialist,
+        report: findingsReport,
+        durationMs: expect.any(Number),
+      });
+      expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
+        maxToolRounds: 24,
+        phase: "specialist",
+        checkpointId: "specialist:specialist",
+      });
+      expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("creates a correctness session with the investigation prompt and rendered brief", async () => {
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
@@ -164,7 +178,7 @@ describe("runSpecialist", () => {
     expect(outcome.kind).toBe("report");
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        systemPrompt: specialistSystemPrompt("correctness"),
+        systemPrompt: buildAutomatedSystemPrompt(),
       }),
     );
     const capturedPrompt = runnerMocks.createSession.mock.calls[0]?.[0]?.systemPrompt;
@@ -182,8 +196,7 @@ describe("runSpecialist", () => {
 
   it("raises the tool-round budget and attempts the fallback model on an escalated run", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
 
@@ -221,8 +234,7 @@ describe("runSpecialist", () => {
 
   it("grants an escalated attempt the same tools, prompt, and trust inputs", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
     await runSpecialist(specialistArgs({ cfg }));
@@ -247,8 +259,7 @@ describe("runSpecialist", () => {
 
   it("keeps the evidence gate authoritative on an escalated attempt", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
     const evidenceLedger = createTestEvidenceLedger();

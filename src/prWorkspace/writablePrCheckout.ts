@@ -1,8 +1,19 @@
-import { execFile } from "node:child_process";
+import {
+  botGitPerson,
+  buildTriageCommitAttribution,
+  formatCoAuthoredByTrailer,
+  type GitPerson,
+  type TriageCommitAttribution,
+} from "../agent/triage/commitAttribution.js";
+import {
+  createWritableRepositoryReader,
+  runWorkspaceGit,
+  assertWorkspacePath,
+  type RepositoryReader,
+} from "./repositoryReader.js";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type { BotIdentity } from "../github/appAuth.js";
 import { AppError } from "../errors/appError.js";
 import {
@@ -18,11 +29,7 @@ import {
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.js";
 import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
-import {
-  assertWorkspacePath,
-  cleanupStaleLocalPrWorkspaces,
-  stripWorkspaceSymlinks,
-} from "./localPrWorkspace.js";
+import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.js";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -31,14 +38,6 @@ import {
   ensureWorkspaceFreeSpaceAfterSweep,
   gitCountObjectsStoreBytes,
 } from "./workspaceResource.js";
-
-const exec = promisify(execFile);
-
-/** Git author/committer or Co-authored-by person. */
-export type GitPerson = {
-  readonly name: string;
-  readonly email: string;
-};
 
 export type CommitArgs = {
   readonly files: readonly string[];
@@ -50,15 +49,9 @@ export type CommitArgs = {
   readonly coAuthoredBy?: readonly GitPerson[];
 };
 
-/** Per-run triage commit identity: human triggerer path or App fallback. */
-export type TriageCommitAttribution = {
-  readonly person: GitPerson;
-  readonly coAuthoredBy: readonly GitPerson[];
-  readonly source: "human" | "app";
-};
-
 export type WritablePrCheckout = {
   readonly dir: string;
+  readonly reader: RepositoryReader;
   readonly headRef: string;
   readonly baseSha: string;
   readonly commit: (args: CommitArgs) => Promise<{ sha: string; diff: string }>;
@@ -73,7 +66,7 @@ export type WritablePrCheckout = {
 
 export class StaleHeadPushError extends AppError {
   constructor(message = "Pull request head moved before triage push") {
-    super({ code: "triage.stale_head_push", message });
+    super({ domain: "triage", kind: "stale_head_push", message });
     this.name = "StaleHeadPushError";
   }
 }
@@ -98,69 +91,6 @@ type WritablePrCheckoutParams = {
   readonly remoteUrlOverride?: string;
 };
 
-export function githubNoreplyEmail(userId: number, login: string): string {
-  return `${userId}+${login}@users.noreply.github.com`;
-}
-
-export function botGitPerson(bot: BotIdentity): GitPerson {
-  return {
-    name: bot.login,
-    email: githubNoreplyEmail(bot.userId, bot.login),
-  };
-}
-
-/**
- * Build commit attribution for a triage run.
- * Human path when `triggerer` is set; otherwise App author+committer with no App co-author trailer.
- */
-export function buildTriageCommitAttribution(params: {
-  readonly botIdentity: BotIdentity;
-  readonly triggerer: GitPerson | null;
-}): TriageCommitAttribution {
-  const bot = botGitPerson(params.botIdentity);
-  if (params.triggerer == null) {
-    return { person: bot, coAuthoredBy: [], source: "app" };
-  }
-  return {
-    person: params.triggerer,
-    coAuthoredBy: [bot],
-    source: "human",
-  };
-}
-
-/**
- * Map a GitHub user profile to a git person.
- * Bot accounts and missing login/id return null (caller falls back to App).
- * Private/missing profile email uses id-based noreply (still human path).
- */
-export function gitPersonFromGithubUser(user: {
-  readonly id: number;
-  readonly login: string;
-  readonly name?: string | null;
-  readonly email?: string | null;
-  readonly type?: string;
-}): GitPerson | null {
-  if (!Number.isFinite(user.id) || user.id <= 0) return null;
-  const login = user.login?.trim();
-  if (!login) return null;
-  if (user.type === "Bot" || login.endsWith("[bot]")) return null;
-  const rawName = user.name?.trim() || login;
-  const name =
-    rawName
-      .replace(/[\r\n]+/g, " ")
-      .split("\0")
-      .join(" ")
-      .trim() || login;
-  if (!name) return null;
-  const email = (user.email?.trim() || githubNoreplyEmail(user.id, login)).trim();
-  if (!email.includes("@")) return null;
-  return { name, email };
-}
-
-export function formatCoAuthoredByTrailer(person: GitPerson): string {
-  return `Co-authored-by: ${person.name} <${person.email}>`;
-}
-
 function gitPersonHasForbiddenChars(value: string): boolean {
   return value.includes("\r") || value.includes("\n") || value.includes("\0");
 }
@@ -170,7 +100,8 @@ function validateGitPerson(person: GitPerson, field: string): void {
   const email = person.email.trim();
   if (!name || name.includes("<") || name.includes(">") || gitPersonHasForbiddenChars(name)) {
     throw new AppError({
-      code: "pr_workspace.commit_identity_invalid",
+      domain: "pr_workspace",
+      kind: "commit_identity_invalid",
       message: `${field} name is invalid`,
       context: { field },
     });
@@ -182,7 +113,8 @@ function validateGitPerson(person: GitPerson, field: string): void {
     gitPersonHasForbiddenChars(email)
   ) {
     throw new AppError({
-      code: "pr_workspace.commit_identity_invalid",
+      domain: "pr_workspace",
+      kind: "commit_identity_invalid",
       message: `${field} email is invalid`,
       context: { field },
     });
@@ -203,7 +135,8 @@ function assertHeadRef(value: string): void {
     value.split("/").some((part) => part.length === 0 || part.endsWith(".lock"))
   ) {
     throw new AppError({
-      code: "pr_workspace.unsafe_head_ref",
+      domain: "pr_workspace",
+      kind: "unsafe_head_ref",
       message: "headRef is not git-safe",
       context: { headRef: value },
     });
@@ -213,14 +146,16 @@ function assertHeadRef(value: string): void {
 function validateSubject(subject: string): void {
   if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_too_long",
+      domain: "pr_workspace",
+      kind: "commit_subject_too_long",
       message: `Commit subject exceeds ${TRIAGE_COMMIT_SUBJECT_MAX_CHARS} characters`,
       context: { maxChars: TRIAGE_COMMIT_SUBJECT_MAX_CHARS },
     });
   }
   if (subject.endsWith(".")) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_trailing_period",
+      domain: "pr_workspace",
+      kind: "commit_subject_trailing_period",
       message: "Commit subject must not end with a period",
     });
   }
@@ -228,7 +163,8 @@ function validateSubject(subject: string): void {
   const match = new RegExp(`^(${types}): ([^A-Z].*)$`).exec(subject);
   if (!match) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_invalid",
+      domain: "pr_workspace",
+      kind: "commit_subject_invalid",
       message: "Commit subject does not match the triage commit contract",
     });
   }
@@ -238,7 +174,8 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
   if (!body || body.length === 0) return undefined;
   if (body.length > TRIAGE_COMMIT_BODY_MAX_BULLETS) {
     throw new AppError({
-      code: "pr_workspace.commit_body_too_many_bullets",
+      domain: "pr_workspace",
+      kind: "commit_body_too_many_bullets",
       message: `Commit body accepts at most ${TRIAGE_COMMIT_BODY_MAX_BULLETS} bullets`,
       context: { maxBullets: TRIAGE_COMMIT_BODY_MAX_BULLETS },
     });
@@ -246,20 +183,23 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
   for (const line of body) {
     if (!line.startsWith("- ")) {
       throw new AppError({
-        code: "pr_workspace.commit_body_invalid_prefix",
+        domain: "pr_workspace",
+        kind: "commit_body_invalid_prefix",
         message: "Commit body lines must start with '- '",
       });
     }
     if (line.endsWith(".")) {
       throw new AppError({
-        code: "pr_workspace.commit_body_trailing_period",
+        domain: "pr_workspace",
+        kind: "commit_body_trailing_period",
         message: "Commit body bullets must not end with a period",
       });
     }
     const firstWord = line.slice(2).trim().split(/\s+/, 1)[0] ?? "";
     if (!/^[A-Z]/.test(firstWord)) {
       throw new AppError({
-        code: "pr_workspace.commit_body_capitalization",
+        domain: "pr_workspace",
+        kind: "commit_body_capitalization",
         message: "Commit body bullet first word must be capitalized",
       });
     }
@@ -306,13 +246,15 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
   const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
   if (normalized.length === 0) {
     throw new AppError({
-      code: "pr_workspace.commit_fix_no_files",
+      domain: "pr_workspace",
+      kind: "commit_fix_no_files",
       message: "commitFix requires at least one file",
     });
   }
   if (normalized.length > TRIAGE_COMMIT_MAX_FILES) {
     throw new AppError({
-      code: "pr_workspace.commit_fix_too_many_files",
+      domain: "pr_workspace",
+      kind: "commit_fix_too_many_files",
       message: `commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`,
       context: { maxFiles: TRIAGE_COMMIT_MAX_FILES },
     });
@@ -324,7 +266,8 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
       isTriageControlPath(file)
     ) {
       throw new AppError({
-        code: "pr_workspace.sensitive_path",
+        domain: "pr_workspace",
+        kind: "sensitive_path",
         message: `commitFix blocked sensitive path "${file}"`,
         context: { path: file },
       });
@@ -364,7 +307,7 @@ export async function withWritablePrCheckout<T>(
     tmpdir(),
     LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
     "Insufficient free space for writable checkout",
-    cleanupStaleLocalPrWorkspaces,
+    () => cleanupStaleLocalPrWorkspaces(),
   );
 
   const resource = await allocateWorkspaceResource({
@@ -381,25 +324,17 @@ export async function withWritablePrCheckout<T>(
       params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
     const botPerson = botGitPerson(botIdentity);
 
-    const baseGitEnv = {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_LFS_SKIP_SMUDGE: "1",
-      GIT_ASKPASS: credentials.askpass,
-      GIT_TOKEN_FILE: credentials.tokenFile,
-    };
-
     const git = (
       args: readonly string[],
       timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       extraEnv?: Record<string, string>,
     ) =>
-      exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      runWorkspaceGit(args, {
         cwd: dir,
-        env: extraEnv ? { ...baseGitEnv, ...extraEnv } : baseGitEnv,
-        timeout: timeoutMs,
-        maxBuffer: 20 * 1024 * 1024,
+        timeoutMs,
+        askpass: credentials.askpass,
+        tokenFile: credentials.tokenFile,
+        extraEnv,
       });
 
     await mkdir(dir, { recursive: true });
@@ -422,7 +357,8 @@ export async function withWritablePrCheckout<T>(
     );
     if (gitCountObjectsStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
       throw new AppError({
-        code: "pr_workspace.fetch_too_large",
+        domain: "pr_workspace",
+        kind: "fetch_too_large",
         message: `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
         context: { maxFetchBytes: LOCAL_WORKSPACE_MAX_FETCH_BYTES },
       });
@@ -431,7 +367,8 @@ export async function withWritablePrCheckout<T>(
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new AppError({
-        code: "pr_workspace.head_sha_mismatch",
+        domain: "pr_workspace",
+        kind: "head_sha_mismatch",
         message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
         context: { fetchedHead: fetchedHead.trim(), headSha },
       });
@@ -442,6 +379,7 @@ export async function withWritablePrCheckout<T>(
     await git(["config", "user.email", botPerson.email], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const checkout: WritablePrCheckout = {
       dir,
+      reader: createWritableRepositoryReader(dir),
       headRef,
       baseSha: headSha,
       commit: async (args) => {
@@ -463,7 +401,8 @@ export async function withWritablePrCheckout<T>(
         if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
           await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
           throw new AppError({
-            code: "pr_workspace.commit_diff_not_minimal",
+            domain: "pr_workspace",
+            kind: "commit_diff_not_minimal",
             message: "commitFix rejected: staged diff is not minimal",
           });
         }

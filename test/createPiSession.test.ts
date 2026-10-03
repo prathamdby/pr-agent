@@ -103,18 +103,16 @@ import {
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
-  EMPTY_STRUCTURED_STATE,
   sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
 import { toCoreTool } from "../src/agent/runtime/coreTools.js";
 import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.js";
 import { normalizeContext } from "@earendil-works/pi-ai";
-import type { Config } from "../src/config.js";
+import type { Config } from "../src/settings/index.js";
 
 const cfg = makeTestConfig({
-  modelProviderKeys: { openai: "test-key" },
-  reviewConcurrency: 1,
-  askConcurrency: 3,
+  models: { providerKeys: { openai: "test-key" } },
+  concurrency: { review: 1, ask: 3 },
 });
 
 const ASK_SEND_OPTS = { phase: "ask" as const, checkpointId: "test" };
@@ -132,12 +130,11 @@ async function createPiRunnerSession(params: {
   return createPiSession({
     role: params.role ?? "ask",
     ...(params.specialistId ? { specialistId: params.specialistId } : {}),
-    primary: { provider: params.cfg.piProvider, model: params.cfg.piModel },
+    primary: { provider: params.cfg.models.provider, model: params.cfg.models.model },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
     compactionPolicy: compactionPolicyForRole(params.role ?? "ask"),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
-    structuredState: EMPTY_STRUCTURED_STATE,
     systemPrompt: params.systemPrompt,
     cwd: params.cwd,
     eventSink: params.eventSink ?? (() => undefined),
@@ -231,11 +228,13 @@ describe("createPiSession models.json", () => {
     );
     const session = await createPiRunnerSession({
       cfg: makeTestConfig({
-        modelsJsonPath: path,
-        piProvider: "ollama",
-        piModel: "llama3.1:8b",
-        piApi: "openai-completions",
-        modelProviderKeys: { openai: "test-key" },
+        models: {
+          jsonPath: path,
+          provider: "ollama",
+          model: "llama3.1:8b",
+          api: "openai-completions",
+          providerKeys: { openai: "test-key" },
+        },
       }),
       systemPrompt: "test",
       tools: [],
@@ -270,10 +269,12 @@ describe("createPiSession models.json", () => {
     await expect(
       createPiRunnerSession({
         cfg: makeTestConfig({
-          modelsJsonPath: path,
-          piProvider: "ollama",
-          piModel: "llama3.1:8b",
-          modelProviderKeys: { openai: "test-key" },
+          models: {
+            jsonPath: path,
+            provider: "ollama",
+            model: "llama3.1:8b",
+            providerKeys: { openai: "test-key" },
+          },
         }),
         systemPrompt: "test",
         tools: [],
@@ -459,7 +460,7 @@ describe("createPiSession.send", () => {
         }),
     );
     const runnerSession = await createPiRunnerSession({
-      cfg: { ...cfg, providerPromptTimeoutMs: 20 },
+      cfg: { ...cfg, provider: { ...cfg.provider, promptTimeoutMs: 20 } },
       systemPrompt: "test",
       tools: [],
       executors: {},
@@ -477,7 +478,7 @@ describe("createPiSession.send", () => {
       });
     });
     const runnerSession = await createPiRunnerSession({
-      cfg: { ...cfg, providerPromptTimeoutMs: 100 },
+      cfg: { ...cfg, provider: { ...cfg.provider, promptTimeoutMs: 100 } },
       systemPrompt: "test",
       tools: [],
       executors: {},
@@ -594,10 +595,16 @@ describe("createPiSession terminal provider outcomes", () => {
       tools: [],
       executors: {},
     });
-    await expect(runnerSession.send("question", ASK_SEND_OPTS)).resolves.toMatchObject({
-      text: "recovered answer",
-    });
-    expect(runAgentLoopContinue).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    try {
+      const send = runnerSession.send("question", ASK_SEND_OPTS);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(send).resolves.toMatchObject({ text: "recovered answer" });
+      expect(runAgentLoopContinue).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects after exhausted retry error turns", async () => {
@@ -886,8 +893,8 @@ describe("createPiSession prompt cache identity", () => {
     await session.send("question", ASK_SEND_OPTS);
     const expectedId = sessionCacheIdFromIdentity({
       role: "ask",
-      provider: cfg.piProvider,
-      model: cfg.piModel,
+      provider: cfg.models.provider,
+      model: cfg.models.model,
     });
     expect(lastLoopConfig().sessionId).toBe(expectedId);
     const second = await createPiRunnerSession({
@@ -905,12 +912,11 @@ describe("createPiSession prompt cache identity", () => {
     const session = await createPiSession({
       role: "specialist",
       specialistId: "correctness",
-      primary: { provider: cfg.piProvider, model: cfg.piModel },
+      primary: { provider: cfg.models.provider, model: cfg.models.model },
       thinkingPolicy: DEFAULT_THINKING_POLICY,
       compactionPolicy: compactionPolicyForRole("specialist"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "specialist",
       cwd: "/tmp/pr-agent-specialist-cache",
       eventSink: () => undefined,
@@ -923,8 +929,8 @@ describe("createPiSession prompt cache identity", () => {
       sessionCacheIdFromIdentity({
         role: "specialist",
         specialistId: "correctness",
-        provider: cfg.piProvider,
-        model: cfg.piModel,
+        provider: cfg.models.provider,
+        model: cfg.models.model,
       }),
     );
   });
@@ -939,7 +945,7 @@ describe("createPiSession prompt cache identity", () => {
     await session.send("question", ASK_SEND_OPTS);
     expect(lastLoopConfig()).toMatchObject({
       cacheRetention: "short",
-      timeoutMs: cfg.providerPromptTimeoutMs,
+      timeoutMs: cfg.provider.promptTimeoutMs,
     });
   });
 
@@ -947,8 +953,7 @@ describe("createPiSession prompt cache identity", () => {
     const session = await createPiRunnerSession({
       cfg: {
         ...cfg,
-        piProviderRetryMax: 4,
-        piProviderMaxRetryDelayMs: 45_000,
+        provider: { ...cfg.provider, retryMax: 4, maxRetryDelayMs: 45_000 },
       },
       systemPrompt: "test",
       tools: [],
@@ -963,7 +968,7 @@ describe("createPiSession prompt cache identity", () => {
 
   it("disables provider transport retry when the retry count is zero", async () => {
     const session = await createPiRunnerSession({
-      cfg: { ...cfg, piProviderRetryMax: 0 },
+      cfg: { ...cfg, provider: { ...cfg.provider, retryMax: 0 } },
       systemPrompt: "test",
       tools: [],
       executors: {},

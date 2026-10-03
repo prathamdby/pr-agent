@@ -3,27 +3,16 @@ import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-const settingsOverrides: { webhookMaxBodyBytes?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get WEBHOOK_MAX_BODY_BYTES() {
-      return settingsOverrides.webhookMaxBodyBytes ?? actual.WEBHOOK_MAX_BODY_BYTES;
-    },
-  };
-});
-
 import { Effect, Fiber, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import type { WebhookHeaders } from "../src/agentWork/types.js";
-import type { Config } from "../src/config.js";
+import type { Config } from "../src/settings/index.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const testCfg = makeTestConfig({
-  webhookSecret: "secret",
+  webhook: { secret: "secret" },
 });
 
 function get(
@@ -213,12 +202,8 @@ function startEffectServer({
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
-        recordIgnored,
-        submitAutomatedReview: () => Effect.void,
-        submitReviewApproved: () => Effect.void,
-        submitSlashCommand: () => Effect.void,
-        submitCiRefresh: () => Effect.void,
-        submitCiState: () => Effect.void,
+        submit: (command) =>
+          recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
         ping: () => Effect.succeed(pingResult),
       }),
     );
@@ -253,7 +238,6 @@ describe("effect webhook server (end-to-end)", () => {
   let handle: Handle | undefined;
 
   afterEach(async () => {
-    delete settingsOverrides.webhookMaxBodyBytes;
     if (!handle) return;
     await stopEffectServer(handle);
     handle = undefined;
@@ -330,7 +314,7 @@ describe("effect webhook server (end-to-end)", () => {
 
       const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
       const res = await postSigned(addr.port, path, body, {
-        "x-hub-signature-256": signBody(testCfg.webhookSecret, body),
+        "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
         "x-github-event": "ping",
         "x-github-delivery": "e2e-ping-1",
       });
@@ -341,9 +325,11 @@ describe("effect webhook server (end-to-end)", () => {
 
   it.each([false, true])("accepts the exact UTF-8 byte cap with chunked=%s", async (chunked) => {
     const body = Buffer.from(JSON.stringify({ zen: "é", installation: { id: 1 } }));
-    settingsOverrides.webhookMaxBodyBytes = body.length;
     const intake: WebhookHeaders[] = [];
     handle = await startEffectServer({
+      cfg: makeTestConfig({
+        webhook: { secret: testCfg.webhook.secret, maxBodyBytes: body.length },
+      }),
       recordIgnored: (headers) =>
         Effect.sync(() => {
           intake.push(headers);
@@ -352,7 +338,7 @@ describe("effect webhook server (end-to-end)", () => {
     const addr = handle.server.address();
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
     const headers = {
-      "x-hub-signature-256": signBody(testCfg.webhookSecret, body),
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
       "x-github-event": "ping",
       "x-github-delivery": "exact-byte-cap",
     };
@@ -382,10 +368,9 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("rejects bodies over the configured Content-Length before signature checks", async () => {
-    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     handle = await startEffectServer({
-      cfg: makeTestConfig(),
+      cfg: makeTestConfig({ webhook: { maxBodyBytes: 8 } }),
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;
@@ -406,11 +391,10 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("closes chunked bodies over the configured limit while reading", async () => {
-    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
-      cfg: makeTestConfig(),
+      cfg: makeTestConfig({ webhook: { maxBodyBytes: 8 } }),
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;
@@ -443,7 +427,7 @@ describe("effect webhook server (end-to-end)", () => {
     // Real sig under the correct secret + a second junk sig. Node's headers
     // coalesces duplicates with `, ` so the verifier sees a garbage value and returns 401
     // without throwing on `.startsWith()`.
-    const realSig = signBody(testCfg.webhookSecret, body);
+    const realSig = signBody(testCfg.webhook.secret, body);
     const res = await postRaw(addr.port, "/webhooks", body, [
       "x-hub-signature-256",
       realSig,

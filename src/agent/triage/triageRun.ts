@@ -1,24 +1,19 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TriageScope } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
-import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import {
-  runStructuredAgentLoop,
-  runValidationRepairLoop,
-} from "../../agentRun/structuredAgentLoop.js";
-import { logInfo } from "../../evlog.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { TriagePayload } from "../../review/triageSchema.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
-import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
-import {
+  type Config,
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
   TRIAGE_VALIDATION_REPAIR_ROUNDS,
   MAX_TOOL_ROUNDS_TRIAGE,
 } from "../../settings/index.js";
+import { logInfo } from "../../evlog.js";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import type { TriagePayload } from "../../review/triageSchema.js";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
+import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
+import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
 
 export type TriageRunResult = {
   readonly lastAssistant: AssistantMessage;
@@ -50,107 +45,59 @@ export async function runFullPrTriage(params: {
   readonly cwd?: string;
   readonly scope?: TriageScope;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  readonly durability?: FeatureSessionDurability;
+  readonly sessionContext?: FeatureSessionContext;
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.piProvider;
+  const providerName = cfg.models.provider;
   const setup = buildTriageRunSetup(params);
-  const session = await createFeaturePiSession({
-    role: "triage",
-    cfg,
-    cwd: params.cwd,
-    systemPrompt: setup.systemPrompt,
-    tools: setup.piTools,
-    executors: setup.executors,
-    refreshBeforeTool: params.refreshBeforeTool,
-    durability: params.durability,
-    attemptModel: params.escalation?.model,
-    hostSignal: params.signal,
-  });
-  let lastText = "";
-  // Finalize rounds may still call commitFix, so they keep the full triage budget.
-  const sendFinalizeRound = async (prompt: string): Promise<string> =>
-    (
-      await session.send(prompt, {
+  const { lastText } = await runFeatureAgent(
+    {
+      state: setup.submitState,
+      shouldContinue: () => shouldContinueTriageRun(setup),
+      userContent: setup.userContent,
+      investigation: {
         maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
         phase: "triage",
         checkpointId: "triage:triage",
-      })
-    ).text;
-
-  const runValidationRepair = async () => {
-    await runValidationRepairLoop({
-      rounds: TRIAGE_VALIDATION_REPAIR_ROUNDS,
-      shouldContinue: () => shouldContinueTriageRun(setup),
-      getValidationError: () => setup.submitState.lastValidationError,
-      clearValidationError: () => {
-        setup.submitState.lastValidationError = null;
       },
-      repair: async (validationError) => {
-        lastText = await sendFinalizeRound(
-          [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
-        );
-        // Cap-aborted repair rounds clear lastValidationError before send; restore so
-        // remaining repair budget is not forfeited when submit never ran.
-        if (!setup.submitState.submitted && setup.submitState.lastValidationError == null) {
-          setup.submitState.lastValidationError = validationError;
-        }
+      finalize: {
+        maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
+        phase: "triage",
+        checkpointId: "triage:triage",
       },
-    });
-  };
+      nudge: TRIAGE_SUBMIT_ONLY_NUDGE,
+      nudgeRounds: TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
+      repairRounds: TRIAGE_VALIDATION_REPAIR_ROUNDS,
+      repairPrompt: (validationError) =>
+        [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
+    },
+    {
+      session: {
+        role: "triage",
+        cfg,
+        cwd: params.cwd,
+        systemPrompt: setup.systemPrompt,
+        tools: setup.piTools,
+        executors: setup.executors,
+        refreshBeforeTool: params.refreshBeforeTool,
+        sessionContext: params.sessionContext,
+        attemptModel: params.escalation?.model,
+        hostSignal: params.signal,
+      },
+    },
+  );
 
-  try {
-    await runStructuredAgentLoop({
-      shouldContinue: () => shouldContinueTriageRun(setup),
-      phases: [
-        {
-          name: "investigation",
-          run: async () => {
-            lastText = (
-              await session.send(setup.userContent, {
-                maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
-                phase: "triage",
-                checkpointId: "triage:triage",
-              })
-            ).text;
-          },
-        },
-        {
-          name: "pre_submit",
-          run: async () => {
-            for (
-              let nudge = 0;
-              nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
-              nudge++
-            ) {
-              lastText = await sendFinalizeRound(TRIAGE_SUBMIT_ONLY_NUDGE);
-              await runValidationRepair();
-            }
-          },
-        },
-        {
-          name: "validation_repair",
-          run: async () => {
-            await runValidationRepair();
-          },
-        },
-      ],
-    });
-
-    if (setup.submitState.submitted) {
-      logInfo("triage_run_completed", { owner, repo, pr: prNumber });
-    }
-
-    return {
-      lastAssistant: assistantFromText(cfg, lastText, providerName),
-      submitted: setup.submitState.submitted,
-      payload: setup.submitState.payload,
-      commitByThreadRootCommentId: setup.workspaceState.commitByThreadRootCommentId,
-      commitErrors: [...setup.workspaceState.commitErrors],
-    };
-  } finally {
-    await session.dispose();
+  if (setup.submitState.submitted) {
+    logInfo("triage_run_completed", { owner, repo, pr: prNumber });
   }
+
+  return {
+    lastAssistant: assistantFromText(cfg, lastText, providerName),
+    submitted: setup.submitState.submitted,
+    payload: setup.submitState.payload,
+    commitByThreadRootCommentId: setup.workspaceState.commitByThreadRootCommentId,
+    commitErrors: [...setup.workspaceState.commitErrors],
+  };
 }

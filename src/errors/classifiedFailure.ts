@@ -12,6 +12,7 @@ import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
 import { isAppError } from "./appError.js";
+import type { AppErrorDomain, AppErrorKind } from "./appErrorCodes.js";
 
 export type FailureDomain = "provider" | "github" | "internal" | "unknown";
 
@@ -84,6 +85,23 @@ function walkErrors(error: unknown): unknown[] {
   return out;
 }
 
+type InternalErrorKind = Extract<ClassifiedErrorKind, "validation" | "publish">;
+
+/** Structured failures that classify beyond `unknown`; every other `{domain, kind}` is `unknown`. */
+const INTERNAL_ERROR_KIND: {
+  readonly [D in AppErrorDomain]?: { readonly [K in AppErrorKind<D>]?: InternalErrorKind };
+} = {
+  review: {
+    deterministic_finding_publish_failed: "publish",
+    publish_summary_failed: "publish",
+    publish_summary_semantic_validation_failed: "validation",
+    publish_summary_validation_failed: "validation",
+    publish_thread_failed: "publish",
+    publish_thread_source_required: "publish",
+    publish_thread_validation_failed: "validation",
+  },
+};
+
 function classifyFromErrorChain(error: unknown): {
   domain: FailureDomain;
   kind: ClassifiedErrorKind;
@@ -100,14 +118,9 @@ function classifyFromErrorChain(error: unknown): {
     if (kind !== "unknown") return { domain: "provider", kind };
   }
   if (isAppError(error)) {
-    const code = error.code;
-    if (code.startsWith("review.") && /validation/.test(code)) {
-      return { domain: "internal", kind: "validation" };
-    }
-    if (code.startsWith("review.") && /publish/.test(code)) {
-      return { domain: "internal", kind: "publish" };
-    }
-    return { domain: "internal", kind: "unknown" };
+    const byKind: Partial<Record<string, InternalErrorKind>> | undefined =
+      INTERNAL_ERROR_KIND[error.domain];
+    return { domain: "internal", kind: byKind?.[error.kind] ?? "unknown" };
   }
   return { domain: "unknown", kind: "unknown" };
 }

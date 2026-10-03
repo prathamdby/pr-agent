@@ -1,11 +1,14 @@
 import crypto from "node:crypto";
-import { REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE } from "../../settings/index.js";
+import {
+  REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE,
+  LEGACY_REVIEW_LENSES,
+  type AnyReviewLens,
+} from "../../settings/index.js";
 import type {
   FingerprintedInlinePlacement,
   InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../reviewSchema.js";
-import { LEGACY_REVIEW_LENSES, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function normalizeFindingSubstance(text: string): string {
   return text

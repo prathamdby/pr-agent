@@ -1,68 +1,54 @@
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { productionInstallationSurface } from "../installationSurface.js";
+
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
+import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
 } from "../../agent/verification/publishVerificationFailure.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
-  VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
-import {
-  resolveWorkItemHead,
-  runDurableWorkItem,
-  type DegradationReason,
-  type DurableExecutionResult,
-} from "../durableJob.js";
+import { throwIfExecutionAborted } from "../publishOnce.js";
+import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
+import { type DurableExecutionResult } from "../durableJob.js";
 import { escalatedVerificationInventory } from "../retryPolicy.js";
-import { type VerificationJobData } from "../types.js";
+
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
+  type VerificationDegradationReason,
 } from "../verificationPublishGate.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
-export async function executeVerificationJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<VerificationJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "verification",
-    prActorLease: { queue: VERIFICATION_QUEUE },
-    resolveHeadSha: resolveWorkItemHead,
+export function createVerificationWorkExecution({
+  cfg,
+  pool,
+  boss,
+  installationSurface = productionInstallationSurface,
+}: WorkExecutionDependencies): WorkExecution<"verification"> {
+  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+  return {
     execute: async (item, env) => {
       const payload = item.payload;
       const { prSurface } = env;
       const headSha = env.headSha;
-      const botIdentity = await getAppBotIdentity(cfg);
+      const botIdentity = await getBotIdentity();
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
       const [threads, resolutionResult] = await Promise.all([
-        prSurface.fetchBotFindingThreads(
-          botIdentity.userId,
-          eligibleReviews,
-          cfg.maintainerDecisionAssociations,
-        ),
+        fetchBotFindingThreads(prSurface, {
+          botUserId: botIdentity.userId,
+          publishRecordLenses: eligibleReviews,
+          maintainerDecisionAssociations: cfg.associations.maintainerDecision,
+        }),
         prSurface.listInlineReviewThreads(),
       ]);
 
@@ -87,7 +73,10 @@ export async function executeVerificationJob(
       );
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
-        if (await shouldSkipWork(pool, item)) {
+        // An aborted job signal with a held lease is not a skip; completing here would
+        // drop the run instead of leaving the row for redelivery or the lost-running sweep.
+        throwIfExecutionAborted(env.signal, { workItemId: item.id });
+        if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
             type: "verification",
             workItemId: item.id,
@@ -166,7 +155,7 @@ export async function executeVerificationJob(
           ? compareFilesTruncated
             ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
             : pushDeltaFiles.files
-          : ([] as readonly string[]);
+          : [];
 
       if (compareFilesTruncated) {
         logWarn("verification_compare_files_truncated", {
@@ -178,17 +167,11 @@ export async function executeVerificationJob(
         });
       }
 
-      const result = await withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          {
-            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-            headSha,
-            pullRequest: env.pullRequest,
-          },
-          payload,
-          { prFiles },
-        ),
+      const result = await env.withAdmittedRepositoryView(
+        {
+          repositorySizeKb: payload.repositorySizeKb,
+          prFiles,
+        },
         async (view) => {
           // Load policy while the checkout still exists; publish runs after the view closes.
           const policyResult = await loadRepoPolicy(view.workspace.agentCwd, MAX_REPO_POLICY_BYTES);
@@ -203,19 +186,13 @@ export async function executeVerificationJob(
             pushedCommits,
             compareFilesTruncated: changedMembershipTruncated,
             escalation: env.escalation,
-            durability: {
-              pool,
-              workItemId: item.id,
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-            },
+            sessionContext: env.durability,
             signal: env.signal,
           });
           if (!runResult.submitted || !runResult.payload) {
             throw new AppError({
-              code: "verification.missing_submit",
+              domain: "verification",
+              kind: "missing_submit",
               message: "Verification run ended without submitVerification",
             });
           }
@@ -256,7 +233,7 @@ export async function executeVerificationJob(
         installationId: item.installationId,
       });
 
-      const degradation = new Set<DegradationReason>(publish.degradation);
+      const degradation = new Set<VerificationDegradationReason>(publish.degradation);
       if (resolutionDegraded) degradation.add("thread_resolution_degraded");
       if (compareFilesTruncated) degradation.add("compare_files_truncated");
       if (inventoryNarrowed) degradation.add("inventory_narrowed");
@@ -269,29 +246,21 @@ export async function executeVerificationJob(
           resolutionStatus: resolutionResult.status,
           degradation: reasons,
         });
-        await captureDurableWorkCompletedWithCi(pool, {
-          item,
-          workType: "verification",
-          outcome: "degraded",
-          durationMs: durationMsFromClaim(env.claim),
-          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-          degradedReason: "durable_degradation",
-          extras: {
+        return {
+          kind: "completed",
+          degradation: reasons,
+          completion: {
+            kind: "verification",
+            outcome: "degraded",
             inventoryNarrowed,
             durableDegradation: reasons[0],
           },
-        });
-        return { kind: "completed", degradation: reasons };
+        };
       }
-      await captureDurableWorkCompletedWithCi(pool, {
-        item,
-        workType: "verification",
-        outcome: "published",
-        durationMs: durationMsFromClaim(env.claim),
-        attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-        extras: { inventoryNarrowed },
-      });
-      return { kind: "completed" };
+      return {
+        kind: "completed",
+        completion: { kind: "verification", outcome: "published", inventoryNarrowed },
+      };
     },
     onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
       if (!prSurface) return;
@@ -306,5 +275,5 @@ export async function executeVerificationJob(
         installationId: item.installationId,
       });
     },
-  });
+  };
 }

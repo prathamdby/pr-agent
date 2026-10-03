@@ -49,6 +49,8 @@ describe("listPullRequestFilesPaginated", () => {
       {
         additions: 50,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 50,
       },
     );
@@ -80,6 +82,8 @@ describe("listPullRequestFilesPaginated", () => {
       {
         additions: 5,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 5,
       },
     );
@@ -121,6 +125,8 @@ describe("listPullRequestFilesPaginated", () => {
       {
         additions: 2,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 2,
       },
     );
@@ -135,6 +141,8 @@ describe("listPullRequestFilesPaginated", () => {
 
 describe("isPullRequestOpenAndUnmerged", () => {
   const base: PullRequestForFileList = {
+    title: "",
+    body: null,
     additions: 0,
     deletions: 0,
     changed_files: 0,

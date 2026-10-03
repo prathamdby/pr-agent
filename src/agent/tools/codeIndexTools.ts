@@ -4,7 +4,8 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Pool } from "pg";
 import * as v from "valibot";
 import { assertPathAllowedForAsk, pathAllowedForAsk, type AskPathGate } from "../ask/askSafety.js";
-import { assertWorkspacePath, type LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import { type LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { CODE_INDEX_MAX_RESULTS } from "../../settings/index.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import {
@@ -27,7 +28,7 @@ async function linesForChunkVerification(
   path: string,
 ): Promise<string[] | null> {
   const normalized = path.replace(/\\/g, "/");
-  if (!workspace.isPathInCheckout(normalized)) return null;
+  if (!workspace.reader.isPathInCheckout(normalized)) return null;
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
   const content = await readFile(safePath, "utf8").catch(() => null);
   if (content == null) return null;
@@ -57,7 +58,7 @@ export function buildCodeIndexTools(params: {
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
   const allowedPaths = new Set<string>();
-  for (const path of params.workspace.sortedCheckoutPaths) {
+  for (const path of params.workspace.reader.sortedCheckoutPaths) {
     const normalized = path.replace(/\\/g, "/");
     if (pathAllowedForAsk(normalized, params.pathGate)) {
       allowedPaths.add(normalized);

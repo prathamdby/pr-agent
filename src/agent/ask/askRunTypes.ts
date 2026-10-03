@@ -1,8 +1,8 @@
 import type { Pool } from "pg";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
-import type { Config } from "../../config.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
+import type { Config } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.js";
 
@@ -39,7 +39,7 @@ export type AskRunParams = {
   threadTranscriptTruncated?: boolean;
   cwd?: string;
   workspace: LocalPrWorkspace;
-  durability?: FeatureSessionDurability;
+  sessionContext?: FeatureSessionContext;
   pool?: Pool;
   /** Durable CI facts for this head. Loaded by the ask run from `pr_head_ci_state`. */
   ciState?: AskCiState;

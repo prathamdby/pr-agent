@@ -1,4 +1,8 @@
-import { CODE_MODE_MAX_OUTPUT_BYTES, CODE_MODE_TIMEOUT_MS } from "../../settings/index.js";
+import {
+  CODE_MODE_MAX_OUTPUT_BYTES,
+  CODE_MODE_TIMEOUT_MS,
+  type CodeModeExecutorKind,
+} from "../../settings/index.js";
 import type {
   AgentLifecycleEvent,
   AgentLifecycleExecutionEvent,
@@ -7,17 +11,18 @@ import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { combineAbortSignals } from "../providers/abortSignals.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
-import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "./hostHalt.js";
+import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.js";
 import type { CodeModeResult } from "./result.js";
 import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.js";
 import { utf8ByteLength } from "../execution/json.js";
+import { acquireExecutor } from "../execution/pool.js";
 import {
-  acquireExecutor,
   createExecutionSessionStore,
   type ExecutionSessionStore,
-} from "../execution/index.js";
+} from "../execution/sessionStore.js";
 import type { CodeModeCapabilityExecutors } from "./types.js";
 import { randomUUID } from "node:crypto";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
 
@@ -107,6 +112,7 @@ function boundExecuteOutput(output: unknown): {
 
 export async function runCodeModeScript(params: {
   readonly code: string;
+  readonly executorKind: CodeModeExecutorKind;
   readonly capabilities: CodeModeCapabilityExecutors;
   readonly signal?: AbortSignal;
   readonly emit?: (event: AgentLifecycleEvent) => void;
@@ -165,7 +171,7 @@ export async function runCodeModeScript(params: {
   const capabilityNames = Object.keys(params.capabilities);
   const executionId = randomUUID();
   try {
-    const lease = await acquireExecutor(signal);
+    const lease = await acquireExecutor(signal, params.executorKind);
     try {
       const cell = await lease.run({
         code: params.code,
@@ -246,7 +252,7 @@ export async function runCodeModeScript(params: {
         toolCalls,
       });
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     const isToolFailure =
       /ACCESS_DENIED|FILE_NOT_FOUND|SEARCH_TRUNCATED|TOOL_INPUT_INVALID|codemode\./.test(message);
     return finish({

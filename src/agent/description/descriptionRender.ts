@@ -1,20 +1,13 @@
 import { escapeTableHtml, renderInlineCodeLink } from "../../github/markdownFormat.js";
-import {
-  githubPullRequestFileDiffUrl,
-  type GitHubPullRequestFileContext,
-} from "../../github/prFileUrls.js";
+import { createHash } from "node:crypto";
+import type { PrResource } from "../../agentWork/types.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.js";
 import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 import { renderDescriptionVisual } from "./descriptionVisualSanitize.js";
 
-export type DescriptionRenderContext = GitHubPullRequestFileContext;
-
-function renderReviewMap(
-  files: readonly DescriptionPrFile[],
-  ctx: DescriptionRenderContext,
-): string {
+function renderReviewMap(files: readonly DescriptionPrFile[], ctx: PrResource): string {
   if (files.length === 0) return "";
   const lines: string[] = [DESCRIPTION_REVIEW_MAP_HEADING, ""];
   files.forEach((file, index) => {
@@ -31,10 +24,7 @@ function renderVisuals(payload: DescriptionPayload): string {
   return visuals.map((visual) => renderDescriptionVisual(visual)).join("\n\n");
 }
 
-export function renderDescriptionAgentBlock(
-  payload: DescriptionPayload,
-  ctx: DescriptionRenderContext,
-): string {
+export function renderDescriptionAgentBlock(payload: DescriptionPayload, ctx: PrResource): string {
   const typeLine = payload.type.join(", ");
   const description = payload.description.trim();
   const visualBlock = renderVisuals(payload);
@@ -66,4 +56,16 @@ export function prBodyHasDescriptionReviewMap(body: string | null | undefined): 
   const agentBlock = extractAgentDescriptionBlock(body);
   if (!agentBlock) return false;
   return agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING);
+}
+
+/** Anchor id for a file row on the PR "Files changed" tab (SHA-256 of the repo path). */
+function githubPullRequestFileDiffAnchor(filePath: string): string {
+  const digest = createHash("sha256").update(filePath).digest("hex");
+  return `diff-${digest}`;
+}
+
+/** Link to a file's diff hunk on the pull request Files changed tab. */
+function githubPullRequestFileDiffUrl(ctx: PrResource, filePath: string): string {
+  const anchor = githubPullRequestFileDiffAnchor(filePath);
+  return `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}/files#${anchor}`;
 }

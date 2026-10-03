@@ -47,7 +47,7 @@ describe("createFeaturePiSession compaction by role", () => {
   async function sendForRole(role: AgentSessionRole) {
     const session = await createFeaturePiSession({
       role,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       systemPrompt: role,
       tools: [],
       executors: {},

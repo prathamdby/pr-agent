@@ -10,7 +10,11 @@ import {
 } from "../../review/repoPolicy.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
-import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+import {
+  VERIFICATION_STUB_MARKER,
+  VERIFICATION_PUBLISH_LENS,
+  type Config,
+} from "../../settings/index.js";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -21,14 +25,13 @@ import {
 import {
   operationIntentMarker,
   verificationThreadOperationKey,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
 import {
   safeRecordThreadFindingHistoryOutcome,
   type FindingHistoryOutcome,
 } from "../../agentWork/findingHistoryRepository.js";
-import type { Config } from "../../config.js";
-import type { DegradationReason } from "../../agentWork/durableJob.js";
+import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -47,7 +50,7 @@ type PublishVerificationParams = {
   /** When true, changedFilePaths is incomplete (GitHub compare 300-file cap). */
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
 };
 
@@ -89,9 +92,8 @@ async function recoverVerificationMutation(params: {
   readonly rootCommentId: number;
   readonly requiresResolved: boolean;
 }): Promise<number | undefined | null> {
-  const botLogin = await params.prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
-  const comments = await params.prSurface.listInlineReviewComments();
+  const botLogin = await params.prSurface.getBotLogin();
+  const { comments } = await params.prSurface.listReviewComments();
   const markedCommentId = findCommentIdByMarker(
     comments,
     params.marker,
@@ -213,7 +215,7 @@ async function withVerificationThreadOperation(
 ): Promise<number | undefined> {
   const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  return withOperationIntent<number | undefined>({
+  return publishOnce<number | undefined>({
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,
@@ -265,8 +267,8 @@ function recordVerificationHistoryOutcome(
 
 export async function publishVerification(
   params: PublishVerificationParams,
-): Promise<{ degradation: readonly DegradationReason[] }> {
-  const degradation = new Set<DegradationReason>();
+): Promise<{ degradation: readonly VerificationDegradationReason[] }> {
+  const degradation = new Set<VerificationDegradationReason>();
   if (params.changedFilePathsTruncated === true) degradation.add("compare_files_truncated");
   let ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,

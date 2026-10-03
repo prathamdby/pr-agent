@@ -43,7 +43,8 @@ export function buildSpecialistSessionTools(
 } {
   if (submit.piTool.name !== SUBMIT_FINDINGS_REPORT_NAME) {
     throw new AppError({
-      code: "review.submit_tool_mismatch",
+      domain: "review",
+      kind: "submit_tool_mismatch",
       message: `expected ${SUBMIT_FINDINGS_REPORT_NAME}, got ${submit.piTool.name}`,
       context: { expected: SUBMIT_FINDINGS_REPORT_NAME, got: submit.piTool.name },
     });

@@ -1,3 +1,68 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+  assertPrActorLeaseHeld: vi.fn(async () => undefined),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
@@ -6,10 +71,12 @@ import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.js";
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   shouldSkipWork: vi.fn(),
-  recordPublishStep: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
@@ -21,40 +88,48 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "CI is pending", failures: [] },
     version: 1,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
-  upsertSummaryCommentWithCreationClaim: vi.fn(async (params) => {
-    const result = await params.prSurface.upsertProgressComment(
-      params.body,
-      params.sentinel,
-      params.hintCommentId != null
-        ? { id: params.hintCommentId, url: "https://example.com/c" }
-        : null,
-    );
-    return result;
+const summaryWrite = vi.hoisted(() =>
+  vi.fn(
+    async (params: {
+      readonly prSurface: import("../src/github/prSurface.js").PrSurface;
+      readonly body: string;
+      readonly hintCommentId?: number | null;
+      readonly [key: string]: unknown;
+    }) =>
+      params.prSurface.upsertProgressComment(
+        params.body,
+        "## PR Agent Review",
+        params.hintCommentId != null
+          ? { id: params.hintCommentId, url: "https://example.com/c" }
+          : null,
+      ),
+  ),
+);
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
+  createReviewSummaryComment: (deps: {
+    readonly prSurface: import("../src/github/prSurface.js").PrSurface;
+    readonly reviewLens: string;
+    readonly coordination?: object;
+  }) => ({
+    conclude: (write: { readonly body: string; readonly hintCommentId?: number | null }) =>
+      summaryWrite({
+        prSurface: deps.prSurface,
+        reviewLens: deps.reviewLens,
+        ...deps.coordination,
+        ...write,
+        progressRevision: 7,
+      }),
   }),
 }));
 
-vi.mock("../src/agentWork/withOperationIntent.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/withOperationIntent.js")>();
-  return {
-    ...actual,
-    withOperationIntent: vi.fn(async (params: { mutate: () => Promise<unknown> }) =>
-      params.mutate(),
-    ),
-  };
-});
-
-import {
-  getSummaryCommentGithubId,
-  recordPublishStep,
-  shouldSkipWork,
-} from "../src/agentWork/repository.js";
+import { getSummaryCommentGithubId } from "../src/agentWork/publishRecordRepository.js";
+import { shouldSkipWork } from "../src/agentWork/workItemStateRepository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
+import { requestHeadCiProjection, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 
 const pool = {} as Pool;
 
@@ -91,16 +166,6 @@ describe("tryLightweightAutoReviewCompletion", () => {
       summary: { status: "pending", headline: "CI is pending", failures: [] },
       version: 1,
     });
-    vi.mocked(upsertSummaryCommentWithCreationClaim).mockImplementation(async (params) => {
-      const result = await params.prSurface.upsertProgressComment(
-        params.body,
-        params.sentinel,
-        params.hintCommentId != null
-          ? { id: params.hintCommentId, url: "https://example.com/c" }
-          : null,
-      );
-      return result;
-    });
   });
 
   it("does not publish summary when shouldSkipWork is true", async () => {
@@ -129,7 +194,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
       0,
     );
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
@@ -150,7 +215,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(result).toMatchObject({ handled: true, published: true });
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         progressRevision: 7,
         workItemId: "wi-1",
@@ -162,7 +227,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       pool,
       expect.objectContaining({ step: "summary_comment" }),
     );
-    expect(enqueueCiProjectionIfDue).toHaveBeenCalled();
+    expect(requestHeadCiProjection).toHaveBeenCalled();
   });
 
   it("writes a terminal lightweight body that replaces the queued stub wording", async () => {
@@ -189,7 +254,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(result).toMatchObject({ handled: true, published: true, summaryId: 99 });
-    const upsertArgs = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0];
+    const upsertArgs = vi.mocked(summaryWrite).mock.calls[0]?.[0];
     expect(upsertArgs?.progressRevision).toBe(7);
     expect(upsertArgs?.hintCommentId).toBe(99);
     expect(upsertArgs?.body).toContain(LIGHTWEIGHT_REVIEW_COMPLETION_LEAD);
@@ -278,8 +343,6 @@ describe("tryLightweightAutoReviewCompletion", () => {
       kind: "resolveProgressComment",
       hintCommentId: 55,
     });
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
-      expect.objectContaining({ hintCommentId: 55 }),
-    );
+    expect(summaryWrite).toHaveBeenCalledWith(expect.objectContaining({ hintCommentId: 55 }));
   });
 });

@@ -1,18 +1,15 @@
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import type { PrSurface } from "../github/prSurface.js";
 import {
   createAgentCiSummaryAuthor,
   factsOnlyFailingSummary,
   mergeCiSummaryWithFacts,
   type CiSummaryAuthor,
-} from "../review/ci/authorCiSummary.js";
-import {
-  hashCiFacts,
-  parseCiAuthoredCache,
-  type CiAuthoredCache,
-} from "../review/ci/ciAuthoredCache.js";
-import { ciAuthorInputFromFacts, fetchCiAuthorContext } from "../review/ci/fetchCiAuthorContext.js";
+  ciAuthorInputFromFacts,
+  fetchCiAuthorContext,
+} from "../review/ci/ciAuthor.js";
+import { hashCiFacts, parseCiAuthoredCache, type CiAuthoredCache } from "../review/ci/ciFacts.js";
 import { storePrHeadCiAuthored, type PrHeadCiStateRow } from "./prHeadCiState.js";
 
 export async function authorHeadCiIfFactsChanged(params: {

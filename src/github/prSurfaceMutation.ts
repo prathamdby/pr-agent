@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
-import { currentOperationIntentKey } from "../agentWork/withOperationIntent.js";
+import { currentOperationIntentKey } from "../agentWork/publishOnce.js";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import {
   extractPrSurfaceRecoverDetail,
   isPrSurfaceMutationMethod,
+  prSurfaceWireName,
   recoverPrSurfaceMutation,
 } from "./recoverPrSurfaceMutation.js";
 import type {
@@ -103,7 +104,7 @@ function voidPrSurfaceMutationMethod(method: keyof PrSurfaceMutationMethods): bo
     case "publishThreadBatch":
     case "startReviewCheck":
     case "editReviewComment":
-    case "publishDescription":
+    case "updatePullRequest":
       return false;
     default: {
       const _exhaustive: never = method;
@@ -117,15 +118,18 @@ function mutation(
   input: unknown,
   surface: PrSurface,
 ): PrSurfaceMutation {
-  const hash = inputHash(input);
-  const parentKey = currentOperationIntentKey();
   const args = Array.isArray(input) ? input : [];
+  const hash = inputHash(input);
+  const wireName = prSurfaceWireName(method);
+  const parentKey = currentOperationIntentKey();
   return {
     operationKey:
-      parentKey != null ? `${parentKey}:surface:${method}:${hash}` : `pr-surface:${method}:${hash}`,
-    mutationKind: `github.pr_surface.${method}`,
+      parentKey != null
+        ? `${parentKey}:surface:${wireName}:${hash}`
+        : `pr-surface:${wireName}:${hash}`,
+    mutationKind: `github.pr_surface.${wireName}`,
     detail: {
-      surfaceMethod: method,
+      surfaceMethod: wireName,
       inputHash: hash,
       ...(parentKey != null ? { parentOperationKey: parentKey } : {}),
       ...extractPrSurfaceRecoverDetail(method, args),
@@ -140,10 +144,11 @@ function throwIfAborted(signal: AbortSignal): void {
   const reason = signal.reason;
   if (isAppError(reason)) throw reason;
   if (reason !== undefined) {
-    throw toAppError(reason, { code: "agent_work.execution_aborted" });
+    throw toAppError(reason, { domain: "agent_work", kind: "execution_aborted" });
   }
   throw new AppError({
-    code: "agent_work.execution_aborted",
+    domain: "agent_work",
+    kind: "execution_aborted",
     message: "PR-surface mutation aborted",
   });
 }

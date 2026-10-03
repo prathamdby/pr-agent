@@ -5,7 +5,7 @@ globs:
   - "src/agent/*/*Prompt.ts"
   - "src/agent/*/*UserMessage.ts"
   - "src/agent/ask/askUserContent.ts"
-  - "src/review/ci/ciGatePrompt.ts"
+  - "src/review/ci/ciAuthor.ts"
   - "src/settings/**"
 ---
 

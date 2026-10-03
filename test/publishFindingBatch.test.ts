@@ -1,18 +1,69 @@
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import type { ThreadBatchReview } from "../src/github/prSurface.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as v from "valibot";
 import type { Pool } from "pg";
 import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
-} from "../src/agentWork/withOperationIntent.js";
+} from "../src/agentWork/publishOnce.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
   type FindingLedger,
 } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
+import {
+  publishFindingBatch,
+  type FindingBatchInput,
+} from "../src/review/publish/publishFindingBatch.js";
 import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
+import {
+  createReviewPublishSession,
+  type ReviewPublishSession,
+  type ReviewPublishSessionInput,
+} from "../src/review/publish/reviewPublishSession.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { reviewFindingSchema, type ReviewFinding } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -20,34 +71,10 @@ import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
 } from "./helpers/evidenceTestHelpers.js";
-import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 import {
   createPublishReviewTestHarness,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-const settingsOverrides = vi.hoisted(
-  (): {
-    maxInlineReviewComments: number | undefined;
-    maxThreadPublishCalls: number | undefined;
-  } => ({
-    maxInlineReviewComments: undefined,
-    maxThreadPublishCalls: undefined,
-  }),
-);
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_INLINE_REVIEW_COMMENTS() {
-      return settingsOverrides.maxInlineReviewComments ?? actual.MAX_INLINE_REVIEW_COMMENTS;
-    },
-    get MAX_THREAD_PUBLISH_CALLS() {
-      return settingsOverrides.maxThreadPublishCalls ?? actual.MAX_THREAD_PUBLISH_CALLS;
-    },
-  };
-});
 
 const finding: ReviewFinding = {
   severity: "P1",
@@ -73,19 +100,35 @@ const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
 
 let harness: PublishReviewTestHarness;
 
+type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx">> &
+  Partial<FindingBatchInput> & {
+    readonly seedFindings?: readonly ReviewFinding[];
+  };
+
 function batchContext(
   ledger: FindingLedger,
   recordPublishStep = vi.fn(async () => undefined),
-  overrides: Partial<Parameters<typeof publishFindingBatch>[1]> & {
-    readonly seedFindings?: readonly ReviewFinding[];
-  } = {},
-): Parameters<typeof publishFindingBatch>[1] {
-  const { seedFindings, ...restOverrides } = overrides;
-  const evidenceLedger = restOverrides.evidenceLedger ?? createTestEvidenceLedger("abc1234");
-  if (restOverrides.evidenceLedger == null) {
+  overrides: BatchOverrides = {},
+): [ReviewPublishSession, FindingBatchInput] {
+  const {
+    seedFindings,
+    source,
+    evidenceLedger: evidenceOverride,
+    checkoutCoverage,
+    isPathInCheckout,
+    repoPolicy,
+    sameRepo,
+    boundPolicyJudge,
+    readCheckoutFile,
+    crossPrSuppressionFingerprints,
+    ...sessionOverrides
+  } = overrides;
+  const evidenceLedger = evidenceOverride ?? createTestEvidenceLedger("abc1234");
+  if (evidenceOverride == null) {
     seedEvidenceForFindings(evidenceLedger, seedFindings ?? [finding]);
   }
-  return {
+  const session = createReviewPublishSession({
+    cfg: makeTestConfig(),
     ctx: {
       owner: "o",
       repo: "r",
@@ -93,31 +136,41 @@ function batchContext(
       headSha: "abc1234",
       hasDescriptionReviewMap: false,
     },
-    source: "correctness",
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,
     prSurface: harness.surface,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
-    ledger,
-    evidenceLedger,
-    ...restOverrides,
-  };
+    ...sessionOverrides,
+  });
+  return [
+    session,
+    {
+      source: source ?? "correctness",
+      ledger,
+      evidenceLedger,
+      checkoutCoverage,
+      isPathInCheckout,
+      repoPolicy,
+      sameRepo,
+      boundPolicyJudge,
+      readCheckoutFile,
+      crossPrSuppressionFingerprints,
+    },
+  ];
 }
 
 describe("publishFindingBatch", () => {
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
-    settingsOverrides.maxInlineReviewComments = undefined;
-    settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("returns empty without GitHub writes when the batch has no findings", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const result = await publishFindingBatch(
       [],
-      batchContext(createFindingLedger(), recordPublishStep, { seedFindings: [] }),
+      ...batchContext(createFindingLedger(), recordPublishStep, { seedFindings: [] }),
     );
 
     expect(result.kind).toBe("empty");
@@ -132,7 +185,7 @@ describe("publishFindingBatch", () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const result = await publishFindingBatch(
       [finding],
-      batchContext(
+      ...batchContext(
         createFindingLedger({
           suppressionFingerprints: [fingerprintFinding(finding, "review")],
         }),
@@ -155,7 +208,7 @@ describe("publishFindingBatch", () => {
     const initialLedger = createFindingLedger();
     const first = await publishFindingBatch(
       [finding],
-      batchContext(initialLedger, recordPublishStep),
+      ...batchContext(initialLedger, recordPublishStep),
     );
     expect(first.kind).toBe("published");
     if (first.kind !== "published") return;
@@ -182,7 +235,7 @@ describe("publishFindingBatch", () => {
     );
     const ledger = applyFindingLedgerDelta(createFindingLedger(), first.delta);
 
-    const second = await publishFindingBatch([finding], batchContext(ledger, recordPublishStep));
+    const second = await publishFindingBatch([finding], ...batchContext(ledger, recordPublishStep));
 
     expect(second.kind).toBe("empty");
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
@@ -195,7 +248,7 @@ describe("publishFindingBatch", () => {
     const evidenceLedger = createTestEvidenceLedger("abc1234");
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, { evidenceLedger }),
+      ...batchContext(createFindingLedger(), undefined, { evidenceLedger }),
     );
 
     expect(result.kind).toBe("empty");
@@ -208,7 +261,7 @@ describe("publishFindingBatch", () => {
     const duplicate = { ...finding, severity: "P2" as const };
     const result = await publishFindingBatch(
       [finding, duplicate],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         seedFindings: [finding, duplicate],
       }),
     );
@@ -229,10 +282,10 @@ describe("publishFindingBatch", () => {
     const query = vi.fn(async () => ({ rowCount: 1 }));
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         pool: { query } as unknown as Pool,
         installationId: 9,
-        findingHistoryCfg: { findingHistoryEnabled: true },
+        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
       }),
     );
 
@@ -254,10 +307,10 @@ describe("publishFindingBatch", () => {
     });
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         pool: { query } as unknown as Pool,
         installationId: 9,
-        findingHistoryCfg: { findingHistoryEnabled: true },
+        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
       }),
     );
 
@@ -277,7 +330,7 @@ describe("publishFindingBatch", () => {
 
     const result = await publishFindingBatch(
       [parsed.output],
-      batchContext(createFindingLedger(), undefined, { seedFindings: [parsed.output] }),
+      ...batchContext(createFindingLedger(), undefined, { seedFindings: [parsed.output] }),
     );
 
     expect(result.kind).toBe("published");
@@ -293,7 +346,7 @@ describe("publishFindingBatch", () => {
     const judge = vi.fn(async (_pairs: readonly BoundPolicyJudgePair[]) => ["p1", "p7"]);
     const result = await publishFindingBatch(
       findings,
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         seedFindings: findings,
         cachedDiffIndex: cachedDiffForLines(
           "src/a.ts",
@@ -344,7 +397,7 @@ describe("publishFindingBatch", () => {
   it("prints no Bound footer when the judge is missing", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         sameRepo: true,
         repoPolicy: {
           kind: "ok",
@@ -376,7 +429,7 @@ describe("publishFindingBatch", () => {
     };
     const result = await publishFindingBatch(
       [secretFinding],
-      batchContext(createFindingLedger(), undefined, { seedFindings: [secretFinding] }),
+      ...batchContext(createFindingLedger(), undefined, { seedFindings: [secretFinding] }),
     );
 
     expect(result.kind).toBe("published");
@@ -389,7 +442,7 @@ describe("publishFindingBatch", () => {
   it("suppresses findings whose fingerprints are in cross-PR history", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         crossPrSuppressionFingerprints: [fingerprintFinding(finding, "review")],
       }),
     );
@@ -406,7 +459,7 @@ describe("publishFindingBatch", () => {
     const unresolved = findingAt(99);
     const result = await publishFindingBatch(
       [unresolved],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
         seedFindings: [unresolved],
       }),
@@ -425,7 +478,6 @@ describe("publishFindingBatch", () => {
   });
 
   it("classifies cap downgrades separately from unresolved anchors", async () => {
-    settingsOverrides.maxInlineReviewComments = 1;
     const anchoredKeep = findingAt(10);
     const anchoredCapped = { ...findingAt(20), severity: "P2" as const };
     const unresolved = {
@@ -436,7 +488,8 @@ describe("publishFindingBatch", () => {
     const findings = [anchoredKeep, anchoredCapped, unresolved];
     const result = await publishFindingBatch(
       findings,
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
+        cfg: makeTestConfig({ review: { maxInlineComments: 1 } }),
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
         seedFindings: findings,
       }),
@@ -488,7 +541,7 @@ describe("publishFindingBatch", () => {
 
     const result = await publishFindingBatch(
       [first, second],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
         seedFindings: [first, second],
       }),
@@ -516,11 +569,11 @@ describe("publishFindingBatch", () => {
   });
 
   it("applies the remaining global inline cap", async () => {
-    settingsOverrides.maxInlineReviewComments = 3;
     const findings = [findingAt(10), findingAt(20), findingAt(30), findingAt(40)];
     const result = await publishFindingBatch(
       findings,
-      batchContext(createFindingLedger({ postedInlineCount: 2 }), undefined, {
+      ...batchContext(createFindingLedger({ postedInlineCount: 2 }), undefined, {
+        cfg: makeTestConfig({ review: { maxInlineComments: 3 } }),
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20, 30, 40]),
         seedFindings: findings,
       }),
@@ -543,7 +596,7 @@ describe("publishFindingBatch", () => {
   it("publishes Note + specialist tagline linked to the progress stub", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, { source: "security" }),
+      ...batchContext(createFindingLedger(), undefined, { source: "security" }),
     );
 
     expect(result.kind).toBe("published");
@@ -560,7 +613,7 @@ describe("publishFindingBatch", () => {
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), undefined, {
+        ...batchContext(createFindingLedger(), undefined, {
           resolveProgressCommentUrl: async () => undefined,
         }),
       ),
@@ -573,7 +626,7 @@ describe("publishFindingBatch", () => {
 
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, { resolveProgressCommentUrl }),
+      ...batchContext(createFindingLedger(), undefined, { resolveProgressCommentUrl }),
     );
 
     expect(result.kind).toBe("published");
@@ -583,7 +636,7 @@ describe("publishFindingBatch", () => {
   it("stops before the GitHub write when the run was superseded", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         shouldAbortPublish: async () => true,
       }),
     );
@@ -598,7 +651,7 @@ describe("publishFindingBatch", () => {
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), undefined, {
+        ...batchContext(createFindingLedger(), undefined, {
           shouldAbortPublish: async () => {
             throw abortCheckError;
           },
@@ -611,7 +664,7 @@ describe("publishFindingBatch", () => {
   it("reports a stale head when the publish gate records one", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         shouldAbortPublish: async () => true,
         publishAbortState: { staleHead: true },
       }),
@@ -626,19 +679,20 @@ describe("publishFindingBatch", () => {
     const recordPublishStep = vi.fn(async () => undefined);
 
     await expect(
-      publishFindingBatch([finding], batchContext(createFindingLedger(), recordPublishStep)),
+      publishFindingBatch([finding], ...batchContext(createFindingLedger(), recordPublishStep)),
     ).rejects.toThrow("GitHub unavailable");
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
   it("downgrades later calls to summary-only after the thread budget", async () => {
-    settingsOverrides.maxThreadPublishCalls = 1;
     const result = await publishFindingBatch(
       [finding],
-      batchContext(
+      ...batchContext(
         createFindingLedger({
           threadCallCount: 1,
         }),
+        undefined,
+        { cfg: makeTestConfig({ review: { maxThreadPublishCalls: 1 } }) },
       ),
     );
 
@@ -655,7 +709,7 @@ describe("publishFindingBatch", () => {
     const ledgerBeforeEighth = createFindingLedger({ threadCallCount: 7 });
     const eighth = await publishFindingBatch(
       [findingAt(10)],
-      batchContext(ledgerBeforeEighth, undefined, {
+      ...batchContext(ledgerBeforeEighth, undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
         seedFindings: [findingAt(10)],
       }),
@@ -668,7 +722,7 @@ describe("publishFindingBatch", () => {
     const ninthFinding = findingAt(20);
     const ninth = await publishFindingBatch(
       [ninthFinding],
-      batchContext(ledgerAfterEighth, undefined, {
+      ...batchContext(ledgerAfterEighth, undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
         seedFindings: [ninthFinding],
       }),
@@ -700,7 +754,7 @@ describe("publishFindingBatch", () => {
 
     const first = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), recordPublishStep, {
+      ...batchContext(createFindingLedger(), recordPublishStep, {
         operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
       }),
     );
@@ -711,24 +765,28 @@ describe("publishFindingBatch", () => {
         meta: expect.objectContaining({ batchId: expectedBatchId }),
       }),
     );
-    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
+    ).toBe("reconciled");
 
     harness.publishThreadBatch.mockClear();
     const second = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), recordPublishStep, {
+      ...batchContext(createFindingLedger(), recordPublishStep, {
         operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
       }),
     );
     expect(second.kind).toBe("published");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
+    ).toBe("reconciled");
   });
 
   it("does not emit a key-only marker without a work-item instance", async () => {
     const result = await publishFindingBatch(
       [finding],
-      batchContext(
+      ...batchContext(
         createFindingLedger(),
         vi.fn(async () => undefined),
         {
@@ -752,20 +810,33 @@ describe("publishFindingBatch", () => {
       reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-77",
     };
     let recoveryCalls = 0;
-    harness.publishThreadBatch.mockImplementation(async () => {
+    let lostReview: ThreadBatchReview | undefined;
+    harness.publishThreadBatch.mockImplementation(async (review) => {
+      lostReview = review;
       throw Object.assign(new Error("response lost after GitHub accepted review"), {
         status: 503,
       });
     });
-    vi.spyOn(harness.surface, "findPublishedThreadBatch").mockImplementation(async () => {
+    vi.spyOn(harness.surface, "listPullRequestReviews").mockImplementation(async () => {
       recoveryCalls += 1;
-      return recoveryCalls === 1 ? null : remoteReview;
+      return recoveryCalls === 1 || lostReview == null
+        ? []
+        : [
+            {
+              id: remoteReview.reviewId,
+              userId: null,
+              authorLogin: "pr-agent[bot]",
+              body: lostReview.body,
+              commitId: lostReview.commitId ?? null,
+              htmlUrl: remoteReview.reviewUrl,
+            },
+          ];
     });
 
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), recordPublishStep, {
+        ...batchContext(createFindingLedger(), recordPublishStep, {
           operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
           workItemId: "wi-review-unknown",
         }),
@@ -774,7 +845,7 @@ describe("publishFindingBatch", () => {
 
     const recovered = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), recordPublishStep, {
+      ...batchContext(createFindingLedger(), recordPublishStep, {
         operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
         workItemId: "wi-review-unknown",
       }),
@@ -789,9 +860,12 @@ describe("publishFindingBatch", () => {
       findingFingerprints: [fingerprintFinding(finding, "review")],
     });
     expect(
-      memoryOperationIntentStore.get(
-        "wi-review-unknown",
-        reviewInlineBatchOperationKey(expectedBatchId),
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool,
+          "wi-review-unknown",
+          reviewInlineBatchOperationKey(expectedBatchId),
+        )
       )?.status,
     ).toBe("reconciled");
     expect(recordPublishStep).toHaveBeenCalledWith(
@@ -818,7 +892,7 @@ describe("publishFindingBatch", () => {
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), undefined, {
+        ...batchContext(createFindingLedger(), undefined, {
           operationIntent: { client: pool, workItemId: "wi-review-retry", resourceKey: "o/r#1" },
           workItemId: "wi-review-retry",
         }),
@@ -827,7 +901,7 @@ describe("publishFindingBatch", () => {
 
     const retried = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), undefined, {
+      ...batchContext(createFindingLedger(), undefined, {
         operationIntent: { client: pool, workItemId: "wi-review-retry", resourceKey: "o/r#1" },
         workItemId: "wi-review-retry",
       }),
@@ -846,12 +920,14 @@ describe("publishFindingBatch", () => {
       findingFingerprints: [fingerprint],
     });
     const operationKey = reviewInlineBatchOperationKey(batchId);
-    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
+    vi.spyOn(publishStoreState.store, "reconcileOperationIntent").mockRejectedValueOnce(
+      new Error("crash before reconcile"),
+    );
 
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(
+        ...batchContext(
           createFindingLedger(),
           vi.fn(async () => undefined),
           {
@@ -863,7 +939,11 @@ describe("publishFindingBatch", () => {
     ).rejects.toThrow("crash before reconcile");
 
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    const pending = memoryOperationIntentStore.get("wi-crash", operationKey);
+    const pending = await publishStoreState.store.getOperationIntent(
+      pool,
+      "wi-crash",
+      operationKey,
+    );
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual(
       expect.objectContaining({
@@ -874,7 +954,7 @@ describe("publishFindingBatch", () => {
     harness.publishThreadBatch.mockClear();
     const recovered = await publishFindingBatch(
       [finding],
-      batchContext(
+      ...batchContext(
         createFindingLedger(),
         vi.fn(async () => undefined),
         {
@@ -886,6 +966,8 @@ describe("publishFindingBatch", () => {
 
     expect(recovered.kind).toBe("published");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(memoryOperationIntentStore.get("wi-crash", operationKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-crash", operationKey))?.status,
+    ).toBe("reconciled");
   });
 });

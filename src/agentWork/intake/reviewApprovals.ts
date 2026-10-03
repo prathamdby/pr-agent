@@ -56,6 +56,21 @@ export async function approveAwaiting(
   return result.rows[0] ?? null;
 }
 
+export async function loadAwaitingApproval(
+  client: PoolClient,
+  resourceKey: string,
+  headSha?: string,
+) {
+  const result = await client.query<ApprovalTarget>(
+    `SELECT resource_key, owner, repo, pr_number, head_sha FROM pr_review_approvals
+     WHERE resource_key = $1 AND state = 'awaiting'
+       AND ($2::text IS NULL OR head_sha = $2)
+     FOR UPDATE`,
+    [resourceKey, headSha ?? null],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function withdrawAwaiting(client: PoolClient, resourceKey: string) {
   const result = await client.query(
     `UPDATE pr_review_approvals SET state = 'withdrawn', updated_at = now()

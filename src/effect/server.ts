@@ -5,13 +5,11 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { agentWorkWebLive } from "../agentWork/runtime.js";
+import { AgentWorkSchedulerRuntimeLive } from "../agentWork/runtime.js";
 import { AgentWorkScheduler } from "../agentWork/scheduler.js";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookHandlersCore } from "./services/webhookHandlers.js";
-import { WEBHOOK_MAX_BODY_BYTES } from "../settings/index.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -118,7 +116,7 @@ function buildEffectWebhookApp(cfg: Config) {
         return HttpServerResponse.text("", { status: 404 });
       }
 
-      const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
+      const body = yield* readRawBody(req, cfg.webhook.maxBodyBytes);
       if (body.kind === "too_large") {
         return HttpServerResponse.text("payload too large", {
           status: 413,
@@ -157,18 +155,14 @@ function buildEffectWebhookApp(cfg: Config) {
 export function buildEffectWebhookLayer(
   cfg: Config,
   serverFactory: () => Server = createServer,
-  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = agentWorkWebLive(cfg),
+  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = AgentWorkSchedulerRuntimeLive(cfg),
 ) {
-  const appLayer = Layer.mergeAll(
-    schedulerLayer,
-    WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
-  );
-  const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
+  const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.runtime.port });
   return Layer.unwrap(
     Effect.map(HttpRouter.toHttpEffect(buildEffectWebhookApp(cfg)), (handler) =>
       HttpServer.serve(handler),
     ),
-  ).pipe(Layer.provide(serverLayer), Layer.provide(appLayer));
+  ).pipe(Layer.provide(serverLayer), Layer.provide(schedulerLayer));
 }
 
 export function startEffectWebhookServer(cfg: Config): void {

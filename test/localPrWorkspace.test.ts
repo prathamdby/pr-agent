@@ -1,22 +1,11 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
 import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.js";
-
-const settingsOverrides: { maxFetchBytes?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get LOCAL_WORKSPACE_MAX_FETCH_BYTES() {
-      return settingsOverrides.maxFetchBytes ?? actual.LOCAL_WORKSPACE_MAX_FETCH_BYTES;
-    },
-  };
-});
 
 const credentialHooks = { failAfterWrite: false };
 const allocatedWorkspaceRoots: string[] = [];
@@ -36,20 +25,11 @@ vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
 });
 
 afterEach(() => {
-  delete settingsOverrides.maxFetchBytes;
   credentialHooks.failAfterWrite = false;
   allocatedWorkspaceRoots.length = 0;
 });
-import {
-  assertWorkspacePath,
-  buildCheckoutCoverage,
-  cleanupStaleLocalPrWorkspaces,
-  prepareLocalPrWorkspace,
-} from "../src/prWorkspace/localPrWorkspace.js";
-import {
-  registerLiveLocalPrWorkspace,
-  unregisterLiveLocalPrWorkspace,
-} from "../src/prWorkspace/workspaceResource.js";
+import { prepareLocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
+import { assertWorkspacePath, buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
 import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.js";
 
 const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;
@@ -206,25 +186,25 @@ describe("local PR workspace", () => {
           remoteUrlOverride: remote,
         });
         try {
-          expect(fullWorkspace.checkoutMode).toBe("full");
-          expect(fullWorkspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
+          expect(fullWorkspace.reader.checkoutMode).toBe("full");
+          expect(fullWorkspace.reader.changedFiles.map((file) => file.path).toSorted()).toEqual([
             "renamed.txt",
             "src.txt",
           ]);
           expect(
-            fullWorkspace.changedFiles.find((file) => file.path === "renamed.txt"),
+            fullWorkspace.reader.changedFiles.find((file) => file.path === "renamed.txt"),
           ).toMatchObject({
             status: "renamed",
             oldPath: "delete.txt",
           });
-          expect(fullWorkspace.changedFileByPath.get("renamed.txt")).toMatchObject({
+          expect(fullWorkspace.reader.changedFileByPath.get("renamed.txt")).toMatchObject({
             status: "renamed",
             oldPath: "delete.txt",
           });
           expect(await readFile(join(fullWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-          expect(fullWorkspace.checkoutPaths.has("support.txt")).toBe(true);
-          expect(fullWorkspace.sortedCheckoutPaths).toEqual(
-            [...fullWorkspace.checkoutPaths].toSorted(),
+          expect(fullWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
+          expect(fullWorkspace.reader.sortedCheckoutPaths).toEqual(
+            [...fullWorkspace.reader.checkoutPaths].toSorted(),
           );
           expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
             "helper",
@@ -235,10 +215,10 @@ describe("local PR workspace", () => {
           await expect(
             writeFile(join(fullWorkspace.agentCwd, "src.txt"), "mutate"),
           ).rejects.toThrow();
-          expect(await fullWorkspace.getBlameForPath("src.txt")).toContain("src.txt");
-          expect(fullWorkspace.diffIndex.listPullRequestFilesIngested).toBe(true);
+          expect(await fullWorkspace.reader.getBlameForPath("src.txt")).toContain("src.txt");
+          expect(fullWorkspace.reader.diffIndex.listPullRequestFilesIngested).toBe(true);
           expect(
-            fullWorkspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
+            fullWorkspace.reader.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
           ).toBeGreaterThan(0);
           const fullPartialCloneFilter = await git(root, [
             "--git-dir",
@@ -251,7 +231,7 @@ describe("local PR workspace", () => {
           expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(
             /traversal/,
           );
-          expect(fullWorkspace.getCoverage()).toMatchObject({
+          expect(fullWorkspace.reader.getCoverage()).toMatchObject({
             mode: "full",
             changeSetTruncated: false,
           });
@@ -269,8 +249,8 @@ describe("local PR workspace", () => {
           remoteUrlOverride: remote,
         });
         try {
-          expect(noSizeWorkspace.checkoutMode).toBe("full");
-          expect(noSizeWorkspace.checkoutPaths.has("support.txt")).toBe(true);
+          expect(noSizeWorkspace.reader.checkoutMode).toBe("full");
+          expect(noSizeWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
         } finally {
           await noSizeWorkspace.cleanup();
         }
@@ -286,7 +266,7 @@ describe("local PR workspace", () => {
           remoteUrlOverride: remote,
         });
         try {
-          expect(sparseWorkspace.checkoutMode).toBe("sparse");
+          expect(sparseWorkspace.reader.checkoutMode).toBe("sparse");
           const sparsePartialCloneFilter = await git(root, [
             "--git-dir",
             sparseWorkspace.privateGitDir,
@@ -301,17 +281,17 @@ describe("local PR workspace", () => {
           expect(await readFile(join(sparseWorkspace.agentCwd, "renamed.txt"), "utf8")).toContain(
             "gone",
           );
-          expect(sparseWorkspace.checkoutPaths.has("support.txt")).toBe(false);
+          expect(sparseWorkspace.reader.checkoutPaths.has("support.txt")).toBe(false);
           await expect(
             readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
           ).rejects.toThrow();
-          expect(await sparseWorkspace.getBlameForPath("support.txt")).toBe("");
-          expect(sparseWorkspace.getCoverage()).toMatchObject({
+          expect(await sparseWorkspace.reader.getBlameForPath("support.txt")).toBe("");
+          expect(sparseWorkspace.reader.getCoverage()).toMatchObject({
             mode: "sparse",
             changeSetTruncated: false,
           });
-          expect(sparseWorkspace.getCoverage().pathsInCheckout).toBe(
-            sparseWorkspace.checkoutPaths.size,
+          expect(sparseWorkspace.reader.getCoverage().pathsInCheckout).toBe(
+            sparseWorkspace.reader.checkoutPaths.size,
           );
         } finally {
           await sparseWorkspace.cleanup();
@@ -348,7 +328,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
 
         await expect(
           prepareLocalPrWorkspace({
@@ -359,6 +338,7 @@ describe("local PR workspace", () => {
             installationToken: "unused",
             prFiles,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
@@ -395,7 +375,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
 
         await expect(
           prepareLocalPrWorkspace({
@@ -407,6 +386,7 @@ describe("local PR workspace", () => {
             prFiles,
             repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
@@ -453,8 +433,8 @@ describe("local PR workspace", () => {
           remoteUrlOverride: remote,
         });
         try {
-          expect(workspace.getSymbolIndexStatus().available).toBe(true);
-          expect(workspace.lookupSymbol("foo")).toEqual([
+          expect(workspace.reader.getSymbolIndexStatus().available).toBe(true);
+          expect(workspace.reader.lookupSymbol("foo")).toEqual([
             { path: "src.ts", line: 1, kind: "function" },
           ]);
         } finally {
@@ -474,8 +454,8 @@ describe("local PR workspace", () => {
           remoteUrlOverride: remote,
         });
         try {
-          expect(failedWorkspace.getSymbolIndexStatus()).toEqual({ available: false });
-          expect(failedWorkspace.lookupSymbol("foo")).toEqual([]);
+          expect(failedWorkspace.reader.getSymbolIndexStatus()).toEqual({ available: false });
+          expect(failedWorkspace.reader.lookupSymbol("foo")).toEqual([]);
         } finally {
           buildSpy.mockRestore();
           await failedWorkspace.cleanup();
@@ -500,39 +480,5 @@ describe("local PR workspace", () => {
       }),
     ).rejects.toThrow(/injected credential setup failure/);
     await expectAllocatedWorkspaceRootsRemoved();
-  });
-});
-
-describe("cleanupStaleLocalPrWorkspaces live registry", () => {
-  it("skips another process's marked live root even when it is not in the in-memory set", async () => {
-    const { writeWorkspaceOwnerMarker } = await import("../src/prWorkspace/workspaceResource.js");
-    const rootDir = await mkdtemp(join(tmpdir(), "pr-agent-workspace-"));
-    const stale = new Date(Date.now() - 4 * 3_600_000);
-    await writeWorkspaceOwnerMarker(rootDir, {
-      pid: process.pid,
-      heartbeatAtMs: Date.now() - 4 * 3_600_000,
-    });
-    await utimes(rootDir, stale, stale);
-    try {
-      await cleanupStaleLocalPrWorkspaces();
-      await expect(readdir(rootDir)).resolves.toContain(".pr-agent-workspace-owner.json");
-    } finally {
-      await rm(rootDir, { recursive: true, force: true });
-    }
-  });
-
-  it("skips live registered workspace roots even when mtime is stale", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "pr-agent-workspace-"));
-    const stale = new Date(Date.now() - 4 * 3_600_000);
-    await utimes(rootDir, stale, stale);
-    registerLiveLocalPrWorkspace(rootDir);
-    try {
-      await cleanupStaleLocalPrWorkspaces();
-      await expect(readdir(rootDir)).resolves.toEqual([]);
-    } finally {
-      unregisterLiveLocalPrWorkspace(rootDir);
-      await cleanupStaleLocalPrWorkspaces();
-      await expect(readdir(rootDir)).rejects.toMatchObject({ code: "ENOENT" });
-    }
   });
 });

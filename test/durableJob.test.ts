@@ -1,12 +1,54 @@
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import { AppError } from "../src/errors/appError.js";
 import {
-  clearDurableAuthCachesForTest,
-  mintInstallationToken,
+  createDurableRuntime,
+  createDurableExecutionContext,
   runDurableWorkItem,
-  type DegradationReason,
   type DurableExecutionResult,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
@@ -17,7 +59,7 @@ import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 import type { PoolClient } from "pg";
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getWorkItem: vi.fn(),
   getWorkItemCore: vi.fn(),
   getWorkItemPayload: vi.fn(),
@@ -42,14 +84,6 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
     isPrActorLeaseHeld: vi.fn(),
     releasePrActorLease: vi.fn(),
     renewPrActorLease: vi.fn(),
-  };
-});
-
-vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
-  return {
-    ...actual,
-    cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
   };
 });
 
@@ -83,13 +117,15 @@ vi.mock("../src/evlog.js", () => ({
   logError: vi.fn(),
 }));
 
-import * as repo from "../src/agentWork/repository.js";
+import * as repo from "../src/agentWork/workItemStateRepository.js";
 import * as prActorLease from "../src/agentWork/prActorLease.js";
-import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
-import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
+import * as repositoryView from "../src/prWorkspace/prRepositoryView.js";
+import { mockWorkClaim, fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
+
+let installationSurface = openInstallationSurface();
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
@@ -131,7 +167,7 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
   } as unknown as JobWithMetadata<{ workItemId: string }>;
 }
 
-function completedResult(degradation?: readonly DegradationReason[]): DurableExecutionResult {
+function completedResult(degradation?: readonly string[]): DurableExecutionResult {
   return degradation ? { kind: "completed", degradation } : { kind: "completed" };
 }
 
@@ -142,7 +178,6 @@ function rescheduledResult(
     kind: "rescheduled",
     replacementWorkItemId: "replacement-wi",
     afterComplete: vi.fn().mockResolvedValue(undefined),
-    onRescheduleAbort: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -151,6 +186,7 @@ function runReviewWorkItem(
   overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
 ): Promise<void> {
   return runDurableWorkItem({
+    contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
     cfg,
     pool,
     boss,
@@ -160,7 +196,10 @@ function runReviewWorkItem(
     resolveHeadSha: async () => ({ headSha: "x" }),
     // Unit pool is a `{}` stub with mocked repositories: run the atomic body
     // without a real transaction (mocked acquire/claim/release ignore it).
-    transactForTest: async (fn) => fn(pool as unknown as PoolClient),
+    runtime: createDurableRuntime({
+      installationSurface,
+      transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+    }),
     ...overrides,
     execute: async (item, env) => {
       await env.beginAttempt();
@@ -183,7 +222,7 @@ function defaultMocks() {
   vi.mocked(repo.beginWorkAttempt).mockImplementation(async () => {
     const claim = await vi.mocked(repo.claimWorkForExecution).mock.results.at(-1)?.value;
     if (!claim) throw new Error("missing mocked lifecycle claim");
-    return claim.attemptCount > cfg.queueRetryLimit + 1
+    return claim.attemptCount > cfg.queue.retryLimit + 1
       ? { kind: "exhausted", attemptCount: claim.attemptCount }
       : { kind: "started", claim };
   });
@@ -211,17 +250,11 @@ function defaultMocks() {
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     installationId: 42,
   } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  clearDurableAuthCachesForTest();
+  installationSurface = openInstallationSurface();
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
   });
-}
-
-async function expectNoFurtherLeaseRenewal(): Promise<void> {
-  const renewals = vi.mocked(prActorLease.renewPrActorLease).mock.calls.length;
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(prActorLease.renewPrActorLease).toHaveBeenCalledTimes(renewals);
 }
 
 describe("runDurableWorkItem", () => {
@@ -229,7 +262,6 @@ describe("runDurableWorkItem", () => {
     vi.clearAllMocks();
     defaultMocks();
   });
-
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
     const item = makeItem();
     mockFetchedItem(item);
@@ -253,586 +285,8 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
-  it("claims through the unified path and acquires the PR actor lease", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
-
-    expect(repo.getWorkItemCore).toHaveBeenCalledWith(pool, "wi-1");
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(prActorLease.acquirePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      workItemId: "wi-1",
-      holderId: expect.stringContaining(String(process.pid)),
-      ttlSeconds: 900,
-    });
-    const acquireOrder = vi.mocked(prActorLease.acquirePrActorLease).mock.invocationCallOrder[0];
-    const claimOrder = vi.mocked(repo.claimWorkForExecution).mock.invocationCallOrder[0];
-    expect(acquireOrder).toBeDefined();
-    expect(claimOrder).toBeDefined();
-    expect(acquireOrder).toBeLessThan(claimOrder ?? 0);
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[1].leaseEpoch).toBe(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-    const completeOrder = vi.mocked(repo.markWorkCompleted).mock.invocationCallOrder[0];
-    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
-    expect(completeOrder).toBeDefined();
-    expect(releaseOrder).toBeDefined();
-    expect(completeOrder).toBeLessThan(releaseOrder ?? 0);
-  });
-
-  it("defers a redelivery without claiming when another work item holds the lease", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(boss.send).toHaveBeenCalledWith(
-      "agent-work-review",
-      { workItemId: "wi-1" },
-      expect.objectContaining({
-        singletonKey: "wi-1",
-        singletonSeconds: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
-        singletonNextSlot: true,
-        startAfter: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
-        group: { id: expect.any(String) },
-      }),
-    );
-    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
-  });
-
-  it("defers a redelivery when its own lease is still held, so a crashed execution is retried", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-1",
-      leaseEpoch: 7,
-    });
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(boss.send).toHaveBeenCalledWith(
-      "agent-work-review",
-      { workItemId: "wi-1" },
-      expect.objectContaining({
-        singletonKey: "wi-1",
-        singletonSeconds: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
-        singletonNextSlot: true,
-      }),
-    );
-    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
-  });
-
-  it("defers deferred-head work while the PR actor lease is held, then resolves head on claim", async () => {
-    const item = makeItem({ headSha: DEFERRED_HEAD_SHA });
-    const resolveHeadSha = vi.fn(async () => ({ headSha: "resolved-head" }));
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValueOnce({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    await runReviewWorkItem({ resolveHeadSha, execute });
-    expect(execute).not.toHaveBeenCalled();
-    expect(resolveHeadSha).not.toHaveBeenCalled();
-
-    mockFetchedItem(item);
-    await runReviewWorkItem({ resolveHeadSha, execute });
-    expect(resolveHeadSha).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[1].headSha).toBe("resolved-head");
-  });
-
-  it("returns when a lease deferral send is swallowed but a queued hop already exists", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    vi.mocked(boss.send).mockResolvedValue(null);
-    vi.mocked(boss.findJobs).mockResolvedValue([{ id: "hop-1", state: "created" }] as never);
-
-    await runReviewWorkItem({ execute: vi.fn() });
-
-    expect(boss.findJobs).toHaveBeenCalledWith(
-      "agent-work-review",
-      expect.objectContaining({ key: "wi-1" }),
-    );
-    expect(boss.findJobs).toHaveBeenCalledWith(
-      "agent-work-review",
-      expect.not.objectContaining({ queued: true }),
-    );
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-  });
-
-  it("throws when a lease deferral send is swallowed and only active deliveries remain", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    vi.mocked(boss.send).mockResolvedValue(null);
-    vi.mocked(boss.findJobs).mockResolvedValue([{ id: "hop-1", state: "active" }] as never);
-
-    await expect(runReviewWorkItem({ execute: vi.fn() })).rejects.toMatchObject({
-      code: "agent_work.lease_watchdog_arm_failed",
-    });
-
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-  });
-
-  it("throws when a lease deferral send is swallowed and no queued hop remains", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    vi.mocked(boss.send).mockResolvedValue(null);
-    const execute = vi.fn();
-
-    await expect(runReviewWorkItem({ execute })).rejects.toMatchObject({
-      code: "agent_work.lease_watchdog_arm_failed",
-    });
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-  });
-
-  it("releases the lease on the retry path so the next attempt re-acquires", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const boom = new Error("transient");
-    const execute = vi.fn().mockRejectedValue(boom);
-
-    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
-
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-    const retryOrder = vi.mocked(repo.markWorkRetrying).mock.invocationCallOrder[0];
-    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
-    expect(retryOrder).toBeDefined();
-    expect(releaseOrder).toBeDefined();
-    expect(retryOrder).toBeLessThan(releaseOrder ?? 0);
-  });
-
-  it("stops at the next checkpoint without terminalising when the lease is lost mid-run", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(evlog.logInfo).toHaveBeenCalledWith(
-      "agent_work_stale_execution_skipped",
-      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
-    );
-  });
-
-  it("gates on acceptItem when provided", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    await runReviewWorkItem({
-      acceptItem: (it) => it.reviewLens != null,
-      execute,
-    });
-
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(execute).toHaveBeenCalledTimes(1);
-  });
-
-  it("terminalizes running work when payload is malformed after claim", async () => {
-    const item = makeItem();
-    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
-    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
-    const execute = vi.fn();
-
-    await expect(
-      runReviewWorkItem({
-        acceptItem: (it) => it.reviewLens != null,
-        execute,
-      }),
-    ).rejects.toThrow(/Invalid review work item payload/);
-
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(
-      pool,
-      "wi-1",
-      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
-      1,
-    );
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-    const failOrder = vi.mocked(repo.markWorkFailed).mock.invocationCallOrder[0];
-    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
-    expect(failOrder).toBeDefined();
-    expect(releaseOrder).toBeDefined();
-    expect(failOrder).toBeLessThan(releaseOrder ?? 0);
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("passes resolved pull payload into execution context", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const pullRequest = {
-      additions: 1,
-      deletions: 0,
-      changed_files: 1,
-      head: { sha: "abc123" },
-    };
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    await runReviewWorkItem({
-      resolveHeadSha: async () => ({ headSha: "abc123", pullRequest }),
-      execute,
-    });
-
-    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalledWith(pool, "wi-1", "abc123", 1);
-    expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
-  });
-
-  it("returns without executing when payload row is missing after claim", async () => {
-    const item = makeItem();
-    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(undefined);
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-  });
-
-  it("terminalizes running work when payload is JSON null after claim", async () => {
-    const item = makeItem();
-    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
-    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
-    const execute = vi.fn();
-
-    await expect(runReviewWorkItem({ execute })).rejects.toThrow(
-      /Invalid review work item payload/,
-    );
-
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(
-      pool,
-      "wi-1",
-      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
-      1,
-    );
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("returns without executing when item is null", async () => {
-    mockFetchedItem(null);
-    const execute = vi.fn();
-    await runReviewWorkItem({ execute });
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-  });
-
-  it("returns without executing when item type mismatches", async () => {
-    mockFetchedItem(makeAskWorkItem({ status: "queued" }));
-    const execute = vi.fn();
-    await runReviewWorkItem({ execute });
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("returns without executing when acceptItem rejects", async () => {
-    mockFetchedItem(makeItem());
-    const execute = vi.fn();
-    await runReviewWorkItem({
-      acceptItem: () => false,
-      execute,
-    });
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("cancels and returns before claim when shouldSkipWork is true", async () => {
-    mockFetchedItem(makeItem());
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", undefined);
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("does not invoke a leased cancellation hook before acquiring an epoch", async () => {
-    mockFetchedItem(makeItem());
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
-    const execute = vi.fn();
-    const onCancelled = vi.fn().mockResolvedValue(undefined);
-
-    await runReviewWorkItem({ execute, onCancelled });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(onCancelled).not.toHaveBeenCalled();
-  });
-
-  it("releases the lease and returns without executing when claim fails", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(null);
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-  });
-
-  it("releases the owned epoch and stops renewal when claim rejects", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const claimError = new Error("claim unavailable");
-    vi.mocked(repo.claimWorkForExecution).mockRejectedValue(claimError);
-    const execute = vi.fn();
-
-    await expect(
-      runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
-        execute,
-      }),
-    ).rejects.toBe(claimError);
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-    await expectNoFurtherLeaseRenewal();
-  });
-
-  it("sends one hop total when the seed already armed a live hop", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    // Seed send succeeds (returns a hop id): failed-acquire skips its send.
-    vi.mocked(boss.send).mockResolvedValue("seed-hop");
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    // Seed (warn-and-proceed) armed the hop; the failed-acquire branch skips
-    // its second send, so one send per cycle.
-    expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
-  });
-
-  it("re-arms strictly when the seed armed no live hop", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
-      acquired: false,
-      heldByWorkItemId: "wi-other",
-      leaseEpoch: 7,
-    });
-    vi.mocked(boss.send).mockResolvedValue(null);
-    vi.mocked(boss.findJobs)
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([{ id: "hop-1", state: "created" }] as never);
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    // Seed found no live hop, failed-acquire re-armed strictly: two sends.
-    expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(2);
-  });
-
-  it("releases the named epoch on the client when claim rejects after acquire", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const claimError = new Error("claim unavailable");
-    vi.mocked(repo.claimWorkForExecution).mockRejectedValue(claimError);
-    const execute = vi.fn();
-
-    await expect(runReviewWorkItem({ execute })).rejects.toBe(claimError);
-
-    expect(execute).not.toHaveBeenCalled();
-    // In-tx release on the client: outer runner state untouched, so a
-    // deadlock retry would still own renewal and release on success.
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-  });
-
-  it("releases the owned epoch and stops renewal when payload read rejects", async () => {
-    const item = makeItem();
-    mockFetchedItem(item);
-    const payloadError = new Error("payload unavailable");
-    vi.mocked(repo.getWorkItemPayload).mockRejectedValue(payloadError);
-    const execute = vi.fn();
-
-    await expect(
-      runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
-        execute,
-      }),
-    ).rejects.toBe(payloadError);
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
-      resourceKey: item.resourceKey,
-      workType: "review",
-      leaseEpoch: 1,
-    });
-    await expectNoFurtherLeaseRenewal();
-  });
-
-  it("cleans up after a malformed payload when the terminal write and release reject", async () => {
-    const item = makeItem();
-    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
-    const markError = new Error("mark failed");
-    const releaseError = new Error("release failed");
-    vi.mocked(repo.markWorkFailed).mockRejectedValue(markError);
-    vi.mocked(prActorLease.releasePrActorLease).mockRejectedValue(releaseError);
-    const execute = vi.fn();
-
-    await expect(
-      runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
-        execute,
-      }),
-    ).rejects.toThrow(/Invalid review work item payload/);
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(
-      pool,
-      "wi-1",
-      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
-      1,
-    );
-    expect(evlog.logWarn).toHaveBeenCalledWith(
-      "agent_work_failed_mark_failed",
-      expect.objectContaining({
-        workItemId: "wi-1",
-        message: expect.stringMatching(/mark failed/),
-      }),
-    );
-    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
-    expect(evlog.logWarn).toHaveBeenCalledWith(
-      "pr_actor_lease_release_failed",
-      expect.objectContaining({
-        workItemId: "wi-1",
-        leaseEpoch: 1,
-        message: expect.stringMatching(/release failed/),
-      }),
-    );
-    await expectNoFurtherLeaseRenewal();
-  });
-
-  it("does not acquire or release a PR actor lease for ask work", async () => {
-    const item = makeAskWorkItem({ status: "queued" });
-    mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue(completedResult());
-
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "ask",
-      resolveHeadSha: async () => ({ headSha: "x" }),
-      execute,
-    });
-
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(execute.mock.calls[0]?.[1].leaseEpoch).toBeNull();
-    expect(prActorLease.acquirePrActorLease).not.toHaveBeenCalled();
-    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
-    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
-  });
-
-  it("cancels when payload.commenterId matches bot identity", async () => {
-    mockFetchedItem(
-      makeItem({
-        payload: { mode: "review", source: "slash", commenterId: 999 },
-      }),
-    );
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
-  });
-
   it("single-flights concurrent installation token mints", async () => {
-    clearDurableAuthCachesForTest();
+    installationSurface = openInstallationSurface();
     let releaseMint!: () => void;
     const mintGate = new Promise<void>((resolve) => {
       releaseMint = resolve;
@@ -852,7 +306,10 @@ describe("runDurableWorkItem", () => {
         }),
     );
 
-    const pending = Promise.all([mintInstallationToken(cfg, 42), mintInstallationToken(cfg, 42)]);
+    const pending = Promise.all([
+      installationSurface.token(cfg, 42),
+      installationSurface.token(cfg, 42),
+    ]);
     await Promise.resolve();
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
     releaseMint();
@@ -881,7 +338,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("refreshes stale installation tokens", async () => {
-    clearDurableAuthCachesForTest();
+    installationSurface = openInstallationSurface();
     vi.mocked(appAuth.mintInstallationAuth)
       .mockResolvedValueOnce({
         type: "token",
@@ -898,43 +355,12 @@ describe("runDurableWorkItem", () => {
         installationId: 42,
       } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
 
-    const first = await mintInstallationToken(cfg, 42);
-    const second = await mintInstallationToken(cfg, 42);
+    const first = await installationSurface.token(cfg, 42);
+    const second = await installationSurface.token(cfg, 42);
 
     expect(first.token).toBe("old-token");
     expect(second.token).toBe("new-token");
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns when updateRunningWorkHeadSha races and rejects the update", async () => {
-    mockFetchedItem(makeItem());
-    vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
-    const execute = vi.fn();
-
-    await runReviewWorkItem({ execute });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
-  });
-
-  it("invokes onCancelled when head update loses to a cancellation", async () => {
-    mockFetchedItem(makeItem());
-    vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
-    const execute = vi.fn();
-    const onCancelled = vi.fn().mockResolvedValue(undefined);
-
-    await runReviewWorkItem({ execute, onCancelled });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(onCancelled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wi-1" }),
-      expect.objectContaining({ owner: "o", repo: "r" }),
-      "head_update_rejected",
-      1,
-    );
   });
 
   it("marks publish degraded when execute reports completed+degraded", async () => {
@@ -1024,7 +450,8 @@ describe("runDurableWorkItem", () => {
 
   it("retries a deterministic failure exactly once and terminalises the second failure", async () => {
     const boom = new AppError({
-      code: "verification.missing_submit",
+      domain: "verification",
+      kind: "missing_submit",
       message: "Verification run ended without submitVerification",
     });
     vi.mocked(repo.claimWorkForExecution)
@@ -1056,7 +483,8 @@ describe("runDurableWorkItem", () => {
   it("terminalises a deterministic failure when the queue has no budget for its one retry", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
-      code: "triage.missing_submit",
+      domain: "triage",
+      kind: "missing_submit",
       message: "Triage run ended without submitTriage",
     });
     const execute = vi.fn().mockRejectedValue(boom);
@@ -1071,8 +499,7 @@ describe("runDurableWorkItem", () => {
     const item = makeItem();
     const escalationCfg = {
       ...cfg,
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { ...cfg.models, fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     };
     vi.mocked(prActorLease.acquirePrActorLease)
       .mockResolvedValueOnce({ acquired: true, leaseEpoch: 1 })
@@ -1122,7 +549,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
-      attemptCount: cfg.queueRetryLimit + 2,
+      attemptCount: cfg.queue.retryLimit + 2,
       resumed: true,
     });
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
@@ -1150,7 +577,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({
         type: "review",
         workItemId: "wi-1",
-        attemptCount: cfg.queueRetryLimit + 2,
+        attemptCount: cfg.queue.retryLimit + 2,
       }),
     );
   });
@@ -1160,7 +587,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
-      attemptCount: cfg.queueRetryLimit + 1,
+      attemptCount: cfg.queue.retryLimit + 1,
       resumed: true,
     });
     const boom = new Error("transient");
@@ -1176,7 +603,8 @@ describe("runDurableWorkItem", () => {
   it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
-      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      domain: "review",
+      kind: "stale_head_replacement_exhausted",
       message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
     });
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
@@ -1198,30 +626,6 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ workItemId: "wi-1", retryDisposition: "terminal" }),
       boom,
     );
-  });
-
-  it("runs cancellation cleanup when a head mismatch becomes skippable after execute", async () => {
-    const item = makeItem({ status: "running" });
-    mockFetchedItem(item);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
-    const mismatch = new AppError({
-      code: "github.head_sha_mismatch",
-      message: "Pull request head SHA new does not match work item headSha old",
-    });
-    const execute = vi.fn().mockRejectedValue(mismatch);
-    const onCancelled = vi.fn().mockResolvedValue(undefined);
-
-    await runReviewWorkItem({ execute, onCancelled });
-
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(onCancelled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wi-1" }),
-      expect.anything(),
-      "skipped_after_error",
-      1,
-    );
-    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
   it("passes the resolved head to onTerminalFailure after a deferred-head resolve", async () => {
@@ -1295,7 +699,9 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
 
     await runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
       cfg,
+      runtime: createDurableRuntime({ installationSurface }),
       pool,
       boss,
       job: makeJob(),
@@ -1407,133 +813,21 @@ describe("runDurableWorkItem", () => {
       }),
     );
     const boom = new Error("enqueue failed");
-    const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue(
-      rescheduledResult({
-        afterComplete: vi.fn().mockRejectedValue(boom),
-        onRescheduleAbort,
-      }),
-    );
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const execute = vi
+      .fn()
+      .mockResolvedValue(rescheduledResult({ afterComplete: vi.fn().mockRejectedValue(boom) }));
 
-    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
+    await expect(
+      runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure }),
+    ).rejects.toBe(boom);
 
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
-    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(onTerminalFailure).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
-  it("invokes onRescheduleAbort on terminal afterComplete failure", async () => {
-    mockFetchedItem(
-      makeItem({
-        status: "running",
-        payload: {
-          mode: "review",
-          source: "slash",
-          staleHeadReplacement: {
-            replacementWorkItemId: "replacement-wi",
-            state: "pending-enqueue",
-          },
-        },
-      }),
-    );
-    const boom = new Error("enqueue failed");
-    const onRescheduleAbort = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn().mockResolvedValue(
-      rescheduledResult({
-        afterComplete: vi.fn().mockRejectedValue(boom),
-        onRescheduleAbort,
-      }),
-    );
-
-    await runReviewWorkItem({ job: makeJob(3, 3), execute });
-
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
-    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
-    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
-    expect(
-      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-    ).not.toHaveBeenCalled();
-  });
-
-  it("does not invoke onRescheduleAbort when execute fails without a reschedule result", async () => {
-    mockFetchedItem(
-      makeItem({
-        status: "running",
-        payload: {
-          mode: "review",
-          source: "slash",
-          staleHeadReplacement: {
-            replacementWorkItemId: "replacement-wi",
-            state: "enqueued",
-          },
-        },
-      }),
-    );
-    const boom = new Error("dead");
-    const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockRejectedValue(boom);
-
-    await runReviewWorkItem({ job: makeJob(3, 3), execute });
-
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
-    expect(onRescheduleAbort).not.toHaveBeenCalled();
-    expect(
-      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-    ).toHaveBeenCalledWith(pool, boss, expect.objectContaining({ id: "wi-1" }), boom);
-  });
-
-  it("cancels orphaned replacement via payload marker on terminal failure without abort hook", async () => {
-    const item = makeItem({
-      status: "running",
-      payload: {
-        mode: "review",
-        source: "slash",
-        staleHeadReplacement: {
-          replacementWorkItemId: "replacement-wi",
-          state: "pending-enqueue",
-        },
-      },
-    });
-    mockFetchedItem(item);
-    const boom = new Error("github head sha failed");
-    const execute = vi.fn().mockRejectedValue(boom);
-
-    await runReviewWorkItem({ job: makeJob(3, 3), execute });
-
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
-    expect(
-      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-    ).toHaveBeenCalledWith(pool, boss, item, boom);
-  });
-
-  it("clears pending onRescheduleAbort after successful afterComplete", async () => {
-    mockFetchedItem(
-      makeItem({
-        status: "running",
-        payload: {
-          mode: "review",
-          source: "slash",
-          staleHeadReplacement: {
-            replacementWorkItemId: "replacement-wi",
-            state: "pending-enqueue",
-          },
-        },
-      }),
-    );
-    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
-    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
-    const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue(rescheduledResult({ onRescheduleAbort }));
-
-    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
-      /Failed to complete rescheduled parent/,
-    );
-
-    expect(onRescheduleAbort).not.toHaveBeenCalled();
-    expect(repo.markWorkRetrying).toHaveBeenCalled();
-  });
-
-  it("continues terminal failure without relogging when onRescheduleAbort throws", async () => {
+  it("hands the terminal afterComplete failure to the feature terminal hook", async () => {
     mockFetchedItem(
       makeItem({
         status: "running",
@@ -1549,204 +843,21 @@ describe("runDurableWorkItem", () => {
     );
     const boom = new Error("enqueue failed");
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
-    const onRescheduleAbort = vi.fn().mockRejectedValue(new Error("cancel blew up"));
-    const execute = vi.fn().mockResolvedValue(
-      rescheduledResult({
-        afterComplete: vi.fn().mockRejectedValue(boom),
-        onRescheduleAbort,
-      }),
-    );
+    const execute = vi
+      .fn()
+      .mockResolvedValue(rescheduledResult({ afterComplete: vi.fn().mockRejectedValue(boom) }));
 
-    await expect(
-      runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
-    ).resolves.toBeUndefined();
+    await runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure });
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
-    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
-    // cancelUnenqueuedStaleHeadReplacement already logged the failure at error level.
-    expect(evlog.logWarn).not.toHaveBeenCalledWith(
-      "agent_work_replacement_cancel_failed",
-      expect.anything(),
-    );
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
-    expect(evlog.logError).toHaveBeenCalledWith(
-      "agent_work_failed",
-      expect.objectContaining({
-        type: "review",
-        workItemId: "wi-1",
-        owner: "o",
-        repo: "r",
-        pr_number: 1,
-      }),
+    expect(onTerminalFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.anything(),
       boom,
+      1,
     );
-  });
-
-  it("swallows lease-lost errors without terminalising", async () => {
-    mockFetchedItem(makeItem());
-    const boom = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
-      message: "PR actor lease is no longer held by this execution",
-    });
-    const execute = vi.fn().mockRejectedValue(boom);
-
-    await runReviewWorkItem({ job: makeJob(3, 3), execute });
-
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(evlog.logInfo).toHaveBeenCalledWith(
-      "agent_work_stale_execution_skipped",
-      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
-    );
-  });
-
-  it("aborts the execution and PR-surface signals when renewal loses the lease", async () => {
-    mockFetchedItem(makeItem({ status: "running" }));
-    vi.mocked(prActorLease.renewPrActorLease).mockImplementation(async () => {
-      vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
-      return false;
-    });
-    const execute = vi.fn(async (_item, env) => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(env.signal.aborted).toBe(true);
-      expect(vi.mocked(prSurface.createPrSurface).mock.calls[0]?.[0].mutationBoundary?.signal).toBe(
-        env.signal,
-      );
-      return completedResult();
-    });
-
-    await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
-      execute,
-    });
-
-    expect(execute).toHaveBeenCalledOnce();
-    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
-    expect(evlog.logInfo).toHaveBeenCalledWith(
-      "agent_work_stale_execution_skipped",
-      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
-    );
-  });
-
-  it("aborts the host signal when cancel is visible during execute", async () => {
-    mockFetchedItem(makeItem({ status: "running" }));
-    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-    const execute = vi.fn(async (_item, env) => {
-      vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
-      await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
-      throw new AppError({
-        code: "agent.session_aborted",
-        message: "Session aborted",
-      });
-    });
-
-    await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
-      execute,
-    });
-
-    expect(execute).toHaveBeenCalledOnce();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
-    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
-  });
-
-  it("aborts the host signal when the lease holder is cleared during execute", async () => {
-    mockFetchedItem(makeItem({ status: "running" }));
-    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(true);
-    const execute = vi.fn(async (_item, env) => {
-      vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
-      await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
-      throw new AppError({
-        code: "agent.session_aborted",
-        message: "Session aborted",
-      });
-    });
-
-    await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
-      execute,
-    });
-
-    expect(execute).toHaveBeenCalledOnce();
-    expect(repo.markWorkFailed).not.toHaveBeenCalled();
-    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
-    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
-    expect(evlog.logInfo).toHaveBeenCalledWith(
-      "agent_work_stale_execution_skipped",
-      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
-    );
-  });
-
-  it("cancels with the lease epoch when the job signal is aborted after claim", async () => {
-    const item = makeItem({ status: "running" });
-    mockFetchedItem(item);
-    const controller = new AbortController();
-    vi.mocked(repo.claimWorkForExecution).mockImplementation(async () => {
-      controller.abort();
-      return {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        startedAt: new Date("2026-01-01T00:00:05.000Z"),
-        attemptCount: 1,
-        resumed: false,
-      };
-    });
-    const execute = vi.fn();
-
-    await runReviewWorkItem({
-      job: { ...makeJob(), signal: controller.signal },
-      execute,
-    });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
-  });
-
-  it("does not cancel a newer execution when abort races a lost lease", async () => {
-    const item = makeItem({ status: "running" });
-    mockFetchedItem(item);
-    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
-    const controller = new AbortController();
-    vi.mocked(repo.claimWorkForExecution).mockImplementation(async () => {
-      controller.abort();
-      return {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        startedAt: new Date("2026-01-01T00:00:05.000Z"),
-        attemptCount: 1,
-        resumed: false,
-      };
-    });
-    const execute = vi.fn();
-
-    await runReviewWorkItem({
-      job: { ...makeJob(), signal: controller.signal },
-      execute,
-    });
-
-    expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(evlog.logInfo).toHaveBeenCalledWith(
-      "agent_work_stale_execution_skipped",
-      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
-    );
-  });
-
-  it("cancels before claim when the job signal is aborted pre-claim", async () => {
-    mockFetchedItem(makeItem());
-    const controller = new AbortController();
-    controller.abort();
-    const execute = vi.fn();
-
-    await runReviewWorkItem({
-      job: { ...makeJob(), signal: controller.signal },
-      execute,
-    });
-
-    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", undefined);
-    expect(execute).not.toHaveBeenCalled();
   });
 
   it("recovers replacement on retry after transient afterComplete failure", async () => {
@@ -1764,20 +875,164 @@ describe("runDurableWorkItem", () => {
     mockFetchedItem(item);
     const boom = new Error("enqueue failed");
     const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
-    const onRescheduleAbort = vi.fn();
-    const execute = vi
-      .fn()
-      .mockResolvedValue(rescheduledResult({ afterComplete, onRescheduleAbort }));
+    const onTerminalFailure = vi.fn();
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
 
-    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
-    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    await expect(
+      runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure }),
+    ).rejects.toBe(boom);
+    expect(onTerminalFailure).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
 
-    await runReviewWorkItem({ job: makeJob(1, 3), execute });
+    await runReviewWorkItem({ job: makeJob(1, 3), execute, onTerminalFailure });
 
     expect(afterComplete).toHaveBeenCalledTimes(2);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
-    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(onTerminalFailure).not.toHaveBeenCalled();
+  });
+});
+
+describe("durable execution context policies", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    defaultMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("admits concurrent repository views once before acquisition and supplies bound metadata", async () => {
+    const item = makeItem();
+    let admit!: () => void;
+    const beginAttempt = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof mockWorkClaim>>((resolve) => {
+          admit = () => resolve(mockWorkClaim());
+        }),
+    );
+    const acquire = vi
+      .spyOn(repositoryView, "withPrRepositoryView")
+      .mockResolvedValue("view-result");
+    const surface = fakeDurablePrSurface();
+    const env = createDurableExecutionContext({
+      pool,
+      item,
+      job: makeJob(),
+      prSurface: surface,
+      headSha: "bound-head",
+      leaseEpoch: 1,
+      signal: new AbortController().signal,
+      beginAttempt,
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    const callback = vi.fn();
+    const first = env.withAdmittedRepositoryView({ repositorySizeKb: 42 }, callback);
+    const second = env.withAdmittedRepositoryView({}, callback);
+    expect(beginAttempt).toHaveBeenCalledOnce();
+    expect(acquire).not.toHaveBeenCalled();
+    admit();
+    await expect(first).resolves.toBe("view-result");
+    await expect(second).resolves.toBe("view-result");
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(acquire.mock.calls[0]?.[0]).toMatchObject({
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      headSha: "bound-head",
+      repositorySizeKb: 42,
+    });
+    await expect(acquire.mock.calls[0]?.[0].gitCredentialAuth()).resolves.toMatchObject({
+      token: "tok",
+    });
+    expect(env.durability).toEqual({
+      pool,
+      workItemId: item.id,
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+    });
+  });
+
+  it("never prepares a view after rejected admission, including later requests", async () => {
+    const failure = new Error("admission rejected");
+    const beginAttempt = vi.fn().mockRejectedValue(failure);
+    const acquire = vi.spyOn(repositoryView, "withPrRepositoryView");
+    const env = createDurableExecutionContext({
+      pool,
+      item: makeItem(),
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: 1,
+      signal: new AbortController().signal,
+      beginAttempt,
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    const callback = vi.fn();
+    await expect(env.withAdmittedRepositoryView({}, callback)).rejects.toBe(failure);
+    await expect(env.withAdmittedRepositoryView({}, callback)).rejects.toBe(failure);
+    expect(beginAttempt).toHaveBeenCalledOnce();
+    expect(acquire).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("checks signal then cancellation then lease, and propagates failed reads", async () => {
+    const controller = new AbortController();
+    const item = makeItem();
+    const env = createDurableExecutionContext({
+      pool,
+      item,
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: 7,
+      signal: controller.signal,
+      beginAttempt: async () => mockWorkClaim(),
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    vi.mocked(repo.shouldSkipWork).mockImplementation(async () => {
+      expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
+      return false;
+    });
+    await expect(env.shouldAbortPublish()).resolves.toBe(false);
+    expect(prActorLease.isPrActorLeaseHeld).toHaveBeenCalledWith(pool, item.id, 7);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockClear().mockResolvedValue(false);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockClear();
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
+    const failure = new Error("cancellation read failed");
+    vi.mocked(repo.shouldSkipWork).mockRejectedValue(failure);
+    await expect(env.shouldAbortPublish()).rejects.toBe(failure);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockRejectedValue(failure);
+    await expect(env.shouldAbortPublish()).rejects.toBe(failure);
+    vi.mocked(repo.shouldSkipWork).mockClear();
+    controller.abort();
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    expect(repo.shouldSkipWork).not.toHaveBeenCalled();
+  });
+
+  it("does not query a lease for unleased work", async () => {
+    const env = createDurableExecutionContext({
+      pool,
+      item: makeAskWorkItem(),
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: null,
+      signal: new AbortController().signal,
+      beginAttempt: async () => mockWorkClaim(),
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    await expect(env.shouldAbortPublish()).resolves.toBe(false);
+    expect(repo.shouldSkipWork).toHaveBeenCalledOnce();
+    expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
   });
 });
 
@@ -1792,22 +1047,16 @@ describe("DurableExecutionResult assignability", () => {
       kind: "rescheduled" as const,
       replacementWorkItemId: "replacement-wi",
       afterComplete: async (_boss: PgBoss) => undefined,
-      onRescheduleAbort: async (_boss: PgBoss, _error: unknown) => undefined,
     }).toMatchTypeOf<DurableExecutionResult>();
   });
 
-  it("rejects incomplete reschedule, unknown reasons, and the old optional-flag shapes", () => {
+  it("rejects incomplete reschedule and the old optional-flag shapes", () => {
     expectTypeOf<{ kind: "rescheduled" }>().not.toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf<{ degraded: true }>().not.toMatchTypeOf<DurableExecutionResult>();
-    expectTypeOf({
-      kind: "completed" as const,
-      degradation: ["not_a_degradation_reason"] as const,
-    }).not.toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf<{
       rescheduled: true;
       replacementWorkItemId: string;
       afterComplete: (boss: PgBoss) => Promise<void>;
-      onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
     }>().not.toMatchTypeOf<DurableExecutionResult>();
   });
 
@@ -1819,7 +1068,6 @@ describe("DurableExecutionResult assignability", () => {
       kind: "rescheduled",
       replacementWorkItemId: "replacement-wi",
       afterComplete: async () => undefined,
-      onRescheduleAbort: async () => undefined,
     });
   });
 });

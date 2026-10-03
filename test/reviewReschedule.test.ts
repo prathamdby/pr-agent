@@ -5,12 +5,9 @@ import { AppError } from "../src/errors/appError.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
   buildStaleReviewRescheduleResult,
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-  cancelUnenqueuedStaleHeadReplacement,
+  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-  STALE_HEAD_REPLACEMENT_EXHAUSTED,
   isStaleHeadReplacementExhausted,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
@@ -24,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   loadReviewLifecycle: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getWorkItem: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
 }));
@@ -53,7 +50,7 @@ vi.mock("../src/evlog.js", () => ({
   logError: vi.fn(),
 }));
 
-import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
+import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/workItemStateRepository.js";
 import * as evlog from "../src/evlog.js";
 
 const LEASE_EPOCH = 7;
@@ -87,12 +84,6 @@ function makeItem(
   });
 }
 
-function bossWithReviewJobs(jobs: unknown[] = []): PgBoss {
-  return {
-    findJobs: vi.fn().mockResolvedValue(jobs),
-  } as unknown as PgBoss;
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.lockPrActorLeaseForUpdate.mockResolvedValue(undefined);
@@ -103,7 +94,8 @@ beforeEach(() => {
 describe("createReviewRescheduleWorkItem", () => {
   it("rejects a stale lease epoch before marker persistence", async () => {
     const leaseLost = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
     mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
@@ -219,7 +211,7 @@ describe("createReviewRescheduleWorkItem", () => {
     await expect(
       createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH),
     ).rejects.toMatchObject({
-      code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+      code: "agent_work.stale_head_parent_not_reschedulable",
     });
     expect(query).toHaveBeenCalledTimes(1);
   });
@@ -341,12 +333,11 @@ describe("stale-head shared helpers", () => {
       replacementWorkItemId: "generated-replacement",
     });
     expect(typeof result?.afterComplete).toBe("function");
-    expect(typeof result?.onRescheduleAbort).toBe("function");
   });
 
   it("staleHeadReplacementExhaustedError uses the shared exhausted code", () => {
     const error = staleHeadReplacementExhaustedError(makeItem());
-    expect(error.code).toBe(STALE_HEAD_REPLACEMENT_EXHAUSTED);
+    expect(error.code).toBe("review.stale_head_replacement_exhausted");
     expect(error.message).toMatch(/\/review/);
     expect(isStaleHeadReplacementExhausted(error)).toBe(true);
     expect(isStaleHeadReplacementExhausted(new Error("other"))).toBe(false);
@@ -356,7 +347,8 @@ describe("stale-head shared helpers", () => {
 describe("enqueueReviewReschedule", () => {
   it("rejects a stale lease epoch before deterministic enqueue", async () => {
     const leaseLost = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
     mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
@@ -565,36 +557,48 @@ describe("enqueueReviewReschedule", () => {
   });
 });
 
-describe("cancelUnenqueuedStaleHeadReplacement", () => {
-  it("cancels a queued replacement when not yet enqueued", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const boom = new Error("enqueue failed");
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
+describe("cancelPendingStaleHeadReplacement", () => {
+  const pool = {} as Pool;
 
-    await cancelUnenqueuedStaleHeadReplacement(
-      pool,
-      boss,
-      makeItem(),
-      "replacement-wi",
-      boom,
-      false,
+  function persistParent(
+    replacement?: ReturnType<typeof pendingReplacement> | ReturnType<typeof enqueuedReplacement>,
+  ) {
+    vi.mocked(getWorkItem).mockResolvedValue(
+      makeItem({ payload: { mode: "review", source: "slash", ...replacement } }),
     );
+  }
 
+  it("cancels a pending-enqueue replacement named by the persisted parent", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const boom = new Error("terminal before enqueue");
+    // The failed attempt wrote the marker after the hook's item snapshot was taken.
+    persistParent(pendingReplacement("replacement-wi"));
+
+    await cancelPendingStaleHeadReplacement(pool, makeItem(), boom);
+
+    expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
     expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
   });
 
-  it("skips cancel when replacement was already enqueued", async () => {
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
+  it("no-ops without a replacement marker or parent row", async () => {
+    persistParent();
+    await cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("dead"));
+    vi.mocked(getWorkItem).mockResolvedValue(null);
+    await cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("dead"));
 
-    await cancelUnenqueuedStaleHeadReplacement(
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a replacement whose enqueue committed, whatever the hook snapshot says", async () => {
+    persistParent(enqueuedReplacement("replacement-wi"));
+
+    await cancelPendingStaleHeadReplacement(
       pool,
-      boss,
-      makeItem(),
-      "replacement-wi",
+      makeItem({
+        payload: { mode: "review", source: "slash", ...pendingReplacement("replacement-wi") },
+      }),
       new Error("dead"),
-      true,
     );
 
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
@@ -602,41 +606,19 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
 
   it("cancels pending replacement work despite a live review delivery (#662)", async () => {
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs([
-      {
-        state: "created",
-        data: { kind: "review", workItemId: "replacement-wi" },
-      },
-    ]);
+    persistParent(pendingReplacement("replacement-wi"));
 
-    await cancelUnenqueuedStaleHeadReplacement(
-      pool,
-      boss,
-      makeItem(),
-      "replacement-wi",
-      new Error("parent failed"),
-      false,
-    );
+    await cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("parent failed"));
 
     expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", expect.any(Error));
-    expect(boss.findJobs).not.toHaveBeenCalled();
   });
 
   it("rejects and signals an error when replacement cancellation misses (#661)", async () => {
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(false);
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
+    persistParent(pendingReplacement("replacement-wi"));
 
     await expect(
-      cancelUnenqueuedStaleHeadReplacement(
-        pool,
-        boss,
-        makeItem(),
-        "replacement-wi",
-        new Error("enqueue failed"),
-        false,
-      ),
+      cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("enqueue failed")),
     ).rejects.toMatchObject({ code: "agent_work.replacement_cancel_rejected" });
 
     expect(evlog.logError).toHaveBeenCalledWith(
@@ -654,18 +636,10 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
   it("signals and propagates a sanitized cancellation error (#661)", async () => {
     const failure = new Error("db down token=synthetic-secret");
     vi.mocked(markQueuedWorkCancelled).mockRejectedValue(failure);
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
+    persistParent(pendingReplacement("replacement-wi"));
 
     await expect(
-      cancelUnenqueuedStaleHeadReplacement(
-        pool,
-        boss,
-        makeItem(),
-        "replacement-wi",
-        new Error("enqueue failed"),
-        false,
-      ),
+      cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("enqueue failed")),
     ).rejects.toBe(failure);
 
     expect(evlog.logError).toHaveBeenCalledWith(
@@ -680,202 +654,20 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
     );
     expect(evlog.logWarn).not.toHaveBeenCalled();
   });
-});
 
-describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
-  it("cancels un-enqueued replacement when afterComplete never ran", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const query = vi.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [{ head_sha: "latest-head" }],
-    });
-    const pool = { query } as unknown as Pool;
-    const boom = new Error("parent failed");
-    const boss = bossWithReviewJobs();
+  it("signals an unreadable parent instead of silently keeping the replacement", async () => {
+    const failure = new Error("db down");
+    vi.mocked(getWorkItem).mockRejectedValue(failure);
 
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      makeItem({
-        payload: {
-          mode: "review",
-          source: "slash",
-          ...pendingReplacement("existing-replacement"),
-        },
-      }),
-      LEASE_EPOCH,
+    await expect(
+      cancelPendingStaleHeadReplacement(pool, makeItem(), new Error("dead")),
+    ).rejects.toBe(failure);
+
+    expect(evlog.logError).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({ workItemId: "parent-wi", replacementWorkItemId: undefined }),
+      failure,
     );
-    await result.onRescheduleAbort(boss, boom);
-
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", boom);
-  });
-
-  it("cancels a persisted replacement when enqueue loses the lease", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const leaseLost = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
-      message: "PR actor lease is no longer held by this execution",
-    });
-    mocks.lockPrActorLeaseForUpdate
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(leaseLost);
-    const query = vi.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [{ head_sha: DEFERRED_HEAD_SHA }],
-    });
-    const pool = { query } as unknown as Pool;
-    const boss = bossWithReviewJobs();
-
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      makeItem({
-        payload: {
-          mode: "review",
-          source: "slash",
-          ...pendingReplacement("existing-replacement"),
-        },
-      }),
-      LEASE_EPOCH,
-    );
-
-    await expect(result.afterComplete(boss)).rejects.toBe(leaseLost);
-    await result.onRescheduleAbort(boss, leaseLost);
-
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", leaseLost);
-  });
-
-  it("does not cancel after afterComplete marks the replacement enqueued", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
-      .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
-    const send = vi.fn().mockResolvedValue("job-id");
-    const findJobs = vi.fn().mockResolvedValue([]);
-    const cancel = vi.fn();
-    const boss = { send, findJobs, cancel } as unknown as PgBoss;
-
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      makeItem({
-        payload: {
-          mode: "review",
-          source: "slash",
-          ...pendingReplacement("existing-replacement"),
-        },
-      }),
-      LEASE_EPOCH,
-    );
-    await result.afterComplete(boss);
-    await result.onRescheduleAbort(boss, new Error("should not cancel"));
-
-    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
-  });
-
-  it("does not trust a persisted enqueue marker before jobs are verified", async () => {
-    const query = vi.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [{ head_sha: "latest-head" }],
-    });
-    const pool = { query } as unknown as Pool;
-    const boss = bossWithReviewJobs();
-
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      makeItem({
-        payload: {
-          mode: "review",
-          source: "slash",
-          ...enqueuedReplacement("existing-replacement"),
-        },
-      }),
-      LEASE_EPOCH,
-    );
-    const error = new Error("parent failed");
-    await result.onRescheduleAbort(boss, error);
-
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", error);
-  });
-});
-
-describe("cancelOrphanedStaleHeadReplacementOnTerminalFailure", () => {
-  it("cancels via the parent payload marker when replacement was never enqueued", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const boom = new Error("terminal before reschedule result");
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
-    const parent = makeItem({
-      payload: {
-        mode: "review",
-        source: "slash",
-        ...pendingReplacement("replacement-wi"),
-      },
-    });
-
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(pool, boss, parent, boom);
-
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
-  });
-
-  it("no-ops when the parent payload has no replacement marker", async () => {
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
-
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-      pool,
-      boss,
-      makeItem({ payload: { mode: "review", source: "slash" } }),
-      new Error("dead"),
-    );
-
-    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
-  });
-
-  it("cancels a pending-enqueue replacement and skips an enqueued one", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
-    const boom = new Error("terminal");
-
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-      pool,
-      boss,
-      makeItem({
-        payload: { mode: "review", source: "slash", ...pendingReplacement("pending-wi") },
-      }),
-      boom,
-    );
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "pending-wi", boom);
-
-    vi.mocked(markQueuedWorkCancelled).mockClear();
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-      pool,
-      boss,
-      makeItem({
-        payload: { mode: "review", source: "slash", ...enqueuedReplacement("enqueued-wi") },
-      }),
-      boom,
-    );
-    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
-  });
-
-  it("no-ops when the payload marks the replacement as already enqueued", async () => {
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
-
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-      pool,
-      boss,
-      makeItem({
-        payload: {
-          mode: "review",
-          source: "slash",
-          ...enqueuedReplacement("replacement-wi"),
-        },
-      }),
-      new Error("dead"),
-    );
-
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 });

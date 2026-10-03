@@ -14,8 +14,6 @@ export * from "./paginationConstants.js";
 export * from "./timeoutConstants.js";
 export * from "./context7Constants.js";
 export * from "./loggingConstants.js";
-export * from "./slashConstants.js";
-export * from "./migrationConstants.js";
 export * from "./verificationConstants.js";
 export * from "./webhookConstants.js";
 export * from "./codeIndexConstants.js";

@@ -1,113 +1,179 @@
-import { describe, expect, it, vi } from "vitest";
+import crypto from "node:crypto";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Effect, Layer } from "effect";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import * as evlog from "../src/evlog.js";
+import * as appAuth from "../src/github/appAuth.js";
 import { makeTestConfig } from "./helpers/config.js";
-const intakeCfg = makeTestConfig();
-import { Effect } from "effect";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import { createOperationLogger } from "../src/evlog.js";
-import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import * as postgres from "../src/db/postgres.js";
 
-function makeHeaders(event = "ping") {
+const cfg = makeTestConfig({ webhook: { secret: "secret" } });
+function request(event: string, body: Buffer, signature = true) {
   return {
-    event,
-    delivery: `d-${event}`,
-    rawBody: Buffer.from("{}"),
+    headers: {
+      "x-github-event": event,
+      "x-github-delivery": "d1",
+      "x-hub-signature-256": signature
+        ? `sha256=${crypto.createHmac("sha256", cfg.webhook.secret).update(body).digest("hex")}`
+        : "sha256=bad",
+    },
+    rawBody: body,
   };
 }
-
-function makePrRef() {
-  return {
-    owner: "acme",
-    repo: "app",
-    prNumber: 7,
-    installationId: 42,
-    headSha: "abc123",
-  };
+function run(
+  req: Parameters<typeof processWebhookPostRequestEffect>[1],
+  submit: AgentWorkScheduler["Service"]["submit"],
+  runCfg = cfg,
+) {
+  return Effect.runPromise(
+    processWebhookPostRequestEffect(
+      runCfg,
+      req,
+      evlog.createOperationLogger({ method: "POST", path: "/webhooks" }),
+    ).pipe(
+      Effect.provide(
+        Layer.succeed(AgentWorkScheduler, { submit, ping: () => Effect.succeed(true) }),
+      ),
+    ),
+  );
 }
-
-function makePool() {
-  const query = vi.fn(async (sql: string) => {
-    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
-      return { rows: [] };
-    }
-    if (sql.includes("INSERT INTO webhook_event_replays")) {
-      return { rows: [{ body_sha256: "hash" }] };
-    }
-    if (sql.includes("INSERT INTO webhook_events")) {
-      return { rows: [{ id: "event-1" }] };
-    }
-    throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
+describe("webhook request admission boundary", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
-  const client = { query };
-  return {
-    pool: {
-      query,
-      connect: vi.fn(async () => ({ query, release: vi.fn() })),
-    } as unknown as Pool,
-    query,
-    client,
-  };
-}
-
-describe("makeAgentWorkScheduler ignored intake", () => {
-  it("records ignored events in a transaction", async () => {
-    const { pool, query } = makePool();
-    const boss = { send: vi.fn() } as unknown as PgBoss;
-    const txSpy = vi.spyOn(postgres, "inTransaction");
-    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
-
+  it.each([
+    ["ping", "{}", false, 401, "invalid signature"],
+    ["ping", "{", false, 401, "invalid signature"],
+    ["ping", "{", true, 400, "invalid json"],
+    [
+      "pull_request",
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 1.5, head: { sha: "a" } },
+      }),
+      true,
+      422,
+      "unprocessable entity",
+    ],
+    [
+      "pull_request",
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 2147483648, head: { sha: "a" } },
+      }),
+      true,
+      422,
+      "unprocessable entity",
+    ],
+    [
+      "pull_request",
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: "bad", head: { sha: "a" } },
+      }),
+      true,
+      422,
+      "unprocessable entity",
+    ],
+  ] as const)(
+    "rejects %s before durable submission: status=%s",
+    async (event, body, signature, status, responseBody) => {
+      const submit = vi.fn(() => Effect.void);
+      expect(await run(request(event, Buffer.from(body), signature), submit)).toEqual({
+        status,
+        body: responseBody,
+      });
+      expect(submit).not.toHaveBeenCalled();
+    },
+  );
+  it("waits for durable submission before 200", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    let responded = false;
+    const result = run(request("ping", Buffer.from("{}")), () =>
+      Effect.promise(() => {
+        entered = true;
+        return gate;
+      }),
+    ).then((value) => {
+      responded = true;
+      return value;
+    });
     try {
-      await Effect.runPromise(
-        scheduler.recordIgnored(makeHeaders(), "ignored_event_ping", intakeLog),
-      );
-
-      expect(txSpy).toHaveBeenCalledOnce();
-      expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO webhook_events"), [
-        expect.any(String),
-        "delivery:d-ping",
-        "d-ping",
-        "ping",
-        expect.any(String),
-        "ignored_event_ping",
-      ]);
-      expect(boss.send).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(entered).toBe(true));
+      expect(responded).toBe(false);
     } finally {
-      txSpy.mockRestore();
+      release();
     }
+    expect(await result).toEqual({ status: 200, body: "ok" });
   });
-
-  it("records ignored pull request actions in a transaction", async () => {
-    const { pool, query } = makePool();
-    const boss = { send: vi.fn() } as unknown as PgBoss;
-    const txSpy = vi.spyOn(postgres, "inTransaction");
-    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
-
+  it("returns 503 and preserves the scheduler error channel", async () => {
+    const record = vi.spyOn(evlog, "recordEvent");
+    expect(
+      await run(request("ping", Buffer.from("{}")), () =>
+        Effect.fail(new Error("scheduler failed")),
+      ),
+    ).toEqual({ status: 503, body: "service unavailable" });
+    expect(
+      record.mock.calls.some(
+        (call) => call[1] === "webhook_handler_error" && call[2]?.message === "scheduler failed",
+      ),
+    ).toBe(true);
+  });
+  it("returns 503 and the existing timeout fields", async () => {
+    const record = vi.spyOn(evlog, "recordEvent");
+    const tightCfg = makeTestConfig({ webhook: { secret: "secret", timeoutMs: 1 } });
+    expect(
+      await run(request("ping", Buffer.from("{}")), () => Effect.sleep("20 millis"), tightCfg),
+    ).toEqual({
+      status: 503,
+      body: "service unavailable",
+    });
+    expect(
+      record.mock.calls.find((call) => call[1] === "webhook_timeout_budget_exceeded")?.[2],
+    ).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
+  });
+  it("keeps bot authentication failure ahead of association rejection", async () => {
+    vi.spyOn(appAuth, "getAppBotIdentity").mockRejectedValue("auth failed");
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "created",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        issue: { number: 3, pull_request: {} },
+        comment: { id: 99, user: { id: 7 }, author_association: "NONE", body: "/review" },
+      }),
+    );
+    const submit = vi.fn(() => Effect.void);
+    expect(await run(request("issue_comment", body), submit)).toEqual({
+      status: 503,
+      body: "service unavailable",
+    });
+    expect(submit).not.toHaveBeenCalled();
+  });
+  it("returns 200 without waiting for successful log emission", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const emit = vi.spyOn(evlog, "emitOperationLogger").mockImplementation(async () => gate);
     try {
-      await Effect.runPromise(
-        scheduler.submitAutomatedReview(
-          makeHeaders("pull_request"),
-          makePrRef(),
-          "labeled",
-          intakeLog,
-        ),
-      );
-
-      expect(txSpy).toHaveBeenCalledOnce();
-      expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO webhook_events"), [
-        expect.any(String),
-        "delivery:d-pull_request",
-        "d-pull_request",
-        "pull_request",
-        expect.any(String),
-        "ignored_pull_request_labeled",
-      ]);
-      expect(query.mock.calls.some(([sql]) => sql.includes("FROM pr_head_ci_state"))).toBe(false);
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(await run(request("ping", Buffer.from("{}")), () => Effect.void)).toEqual({
+        status: 200,
+        body: "ok",
+      });
+      expect(emit).toHaveBeenCalledOnce();
     } finally {
-      txSpy.mockRestore();
+      release();
     }
   });
 });

@@ -9,6 +9,9 @@ Read-only local investigation remains in [ADR 0011](0011-agent-runner-local-pr-w
 Decision 5's in-run fallback-restart clause is superseded by
 [ADR 0034](0034-escalated-retries.md): the fallback model is reached through
 retry escalation, not an in-run session restart.
+Decision 6 is amended by [ADR 0043](0043-deep-module-map.md): unused phase
+checkpoints and encrypted session snapshots are removed; operation intents and
+publish records remain authoritative.
 
 ## Context
 
@@ -27,7 +30,7 @@ and catalog overlay. Owning a second loop on top of Core was rejected.
 Reviewed repositories are untrusted. Pi is not a sandbox. Orchestrated reviews can
 publish incremental thread batches during long model sessions. Session resume,
 compaction, fallback models, and event streaming therefore need server-owned
-policy, durable checkpoints, and strict redaction.
+policy, durable operation intents, and strict redaction.
 
 ## Decision
 
@@ -55,10 +58,12 @@ policy, durable checkpoints, and strict redaction.
    fallback. A healthy session keeps one model. Fallback starts a fresh session
    from a committed Agent phase checkpoint after availability-class retry
    exhaustion only.
-6. Persist durable Agent phase checkpoints and idempotent operation intents before
-   GitHub mutations. `publish_records` remain authoritative. Short-lived encrypted
-   resume snapshots may resume computation but must not replay, advance, or roll
-   back published state. Unread resume-snapshot fields stay in the schema.
+6. Persist idempotent operation intents before GitHub mutations.
+   `publish_records` and operation intents remain authoritative. Agent sessions
+   are in-memory; durable work retries start fresh sessions. Migration 036 drops
+   the unread phase-checkpoint and resume-snapshot tables after the reader audit
+   in ADR 0043. Neither session snapshots nor phase checkpoints participate in
+   publish recovery.
 
 ## Consequences
 
@@ -89,4 +94,4 @@ policy, durable checkpoints, and strict redaction.
   reinterpretation; rejected.
 - **Persist full conversations as audit data** — creates a second content store
   and expands retention risk; rejected in favor of metadata-only audit records
-  and short-lived encrypted snapshots.
+  without retained conversations or encrypted session snapshots.

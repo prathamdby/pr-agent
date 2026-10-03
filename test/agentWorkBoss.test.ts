@@ -36,7 +36,9 @@ import { makeTestConfig } from "./helpers/config.js";
 describe("bossConstructorOptions", () => {
   it("keeps pg-boss maintenance on the worker role", () => {
     expect(
-      bossConstructorOptions({ databaseUrl: "postgres://test", role: "worker" }),
+      bossConstructorOptions(
+        makeTestConfig({ runtime: { databaseUrl: "postgres://test", role: "worker" } }),
+      ),
     ).toMatchObject({
       schedule: true,
       supervise: true,
@@ -45,7 +47,11 @@ describe("bossConstructorOptions", () => {
   });
 
   it("disables pg-boss maintenance on the web role", () => {
-    expect(bossConstructorOptions({ databaseUrl: "postgres://test", role: "web" })).toMatchObject({
+    expect(
+      bossConstructorOptions(
+        makeTestConfig({ runtime: { databaseUrl: "postgres://test", role: "web" } }),
+      ),
+    ).toMatchObject({
       schedule: false,
       supervise: false,
       max: 4,

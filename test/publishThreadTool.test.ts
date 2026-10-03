@@ -5,24 +5,12 @@ import {
   WRONG_PHASE_TOOL_CODE,
 } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
-
-const settingsOverrides = vi.hoisted((): { maxThreadPublishCalls: number | undefined } => ({
-  maxThreadPublishCalls: undefined,
-}));
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_THREAD_PUBLISH_CALLS() {
-      return settingsOverrides.maxThreadPublishCalls ?? actual.MAX_THREAD_PUBLISH_CALLS;
-    },
-  };
-});
 
 let nextReviewId = 100;
 
@@ -38,20 +26,13 @@ function finding(line: number): ReviewFinding {
   };
 }
 
-function buildTool(
+function threadSession(
+  surface: PrSurface,
   shouldAbortPublish?: () => Promise<boolean>,
-  publishImpl?: PrSurface["publishThreadBatch"],
+  cfg = makeTestConfig(),
 ) {
-  const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-  const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch").mockImplementation(
-    publishImpl ??
-      (async () => {
-        nextReviewId += 1;
-        return { reviewId: nextReviewId, reviewUrl: `https://example.com/reviews/${nextReviewId}` };
-      }),
-  );
-  const tool = buildPublishThreadTool({
-    phaseRef: createOrchestratorPhaseRef("judgment"),
+  return createReviewPublishSession({
+    cfg,
     ctx: {
       owner: "o",
       repo: "r",
@@ -65,6 +46,25 @@ function buildTool(
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
+  });
+}
+
+function buildTool(
+  shouldAbortPublish?: () => Promise<boolean>,
+  publishImpl?: PrSurface["publishThreadBatch"],
+  cfg?: ReturnType<typeof makeTestConfig>,
+) {
+  const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+  const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch").mockImplementation(
+    publishImpl ??
+      (async () => {
+        nextReviewId += 1;
+        return { reviewId: nextReviewId, reviewUrl: `https://example.com/reviews/${nextReviewId}` };
+      }),
+  );
+  const tool = buildPublishThreadTool({
+    phaseRef: createOrchestratorPhaseRef("judgment"),
+    session: threadSession(surface, shouldAbortPublish, cfg),
     initialLedger: createFindingLedger(),
   });
   return { tool, publishThreadBatch };
@@ -74,7 +74,6 @@ describe("buildPublishThreadTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     nextReviewId = 100;
-    settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("carries the finding ledger across calls and reports same-file published threads", async () => {
@@ -115,8 +114,11 @@ describe("buildPublishThreadTool", () => {
   });
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
-    settingsOverrides.maxThreadPublishCalls = 1;
-    const { tool } = buildTool();
+    const { tool } = buildTool(
+      undefined,
+      undefined,
+      makeTestConfig({ review: { maxThreadPublishCalls: 1 } }),
+    );
     tool.setSource("security");
 
     await tool.executor({ findings: [finding(10)] });
@@ -165,18 +167,7 @@ describe("buildPublishThreadTool", () => {
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
     const tool = buildPublishThreadTool({
       phaseRef: createOrchestratorPhaseRef("recon"),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "abc1234",
-        hasDescriptionReviewMap: false,
-      },
-      workItemId: "wi-1",
-      resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
-      prSurface: surface,
-      cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
-      recordPublishStep: vi.fn(async () => undefined),
+      session: threadSession(surface),
       initialLedger: createFindingLedger(),
     });
 

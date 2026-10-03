@@ -18,7 +18,6 @@ import {
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
-  EMPTY_STRUCTURED_STATE,
 } from "../src/agent/runtime/piSession.js";
 
 describe("createPiSession seam", () => {
@@ -43,10 +42,9 @@ describe("createPiSession seam", () => {
       compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",
       eventSink: (event) => events.push({ kind: event.kind }),
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -167,10 +165,9 @@ describe("createPiSession seam", () => {
       compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -308,10 +305,9 @@ describe("createPiSession seam", () => {
       compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -426,10 +422,9 @@ describe("createPiSession seam", () => {
       compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -593,10 +588,9 @@ describe("createPiSession seam", () => {
       compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });

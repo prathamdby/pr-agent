@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { PromptCachePolicy } from "./promptCachePolicy.js";
@@ -52,12 +52,6 @@ export type ToolPolicy = {
   readonly allowBuiltin: false;
 };
 
-/** Server-owned structured state re-injected after compaction / fallback. */
-export type AuthoritativeStructuredState = {
-  readonly version: number;
-  readonly payload: Readonly<Record<string, unknown>>;
-};
-
 export type PiSessionSendOptions = {
   readonly phase: AgentSessionPhase;
   readonly maxToolRounds?: number;
@@ -75,7 +69,6 @@ export type PiSessionCreateParams = {
   readonly compactionPolicy: CompactionPolicy;
   readonly promptCachePolicy: PromptCachePolicy;
   readonly toolPolicy: ToolPolicy;
-  readonly structuredState: AuthoritativeStructuredState;
   readonly systemPrompt: string;
   readonly cwd?: string;
   readonly eventSink: (event: AgentLifecycleEvent) => void;
@@ -93,9 +86,6 @@ export type PiSession = {
   readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
   readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
-  /** Test/harness access to the latest authoritative structured state. */
-  readonly getStructuredState: () => AuthoritativeStructuredState;
-  readonly setStructuredState: (state: AuthoritativeStructuredState) => void;
 };
 
 export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
@@ -125,9 +115,4 @@ export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
 
 export const DEFAULT_TOOL_POLICY: ToolPolicy = {
   allowBuiltin: false,
-};
-
-export const EMPTY_STRUCTURED_STATE: AuthoritativeStructuredState = {
-  version: 1,
-  payload: {},
 };

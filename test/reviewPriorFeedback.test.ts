@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   assembleBotReviewThreads,
   classifyReviewLensFromPointerBody,
+  fetchPriorInlineFeedback,
   formatPriorInlineFeedbackBlock,
   mapAssembledThreadsToPriorInlineFeedback,
   NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES,
@@ -11,7 +12,8 @@ import {
   type PriorInlineFeedbackThread,
   type ReviewThreadComment,
 } from "../src/review/run/reviewPriorFeedback.js";
-import { fetchPriorInlineReviewFeedback } from "../src/github/reviewPriorFeedbackIo.js";
+import { createPrSurface } from "../src/github/prSurface.js";
+import { makeTestConfig } from "./helpers/config.js";
 import {
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
@@ -43,6 +45,23 @@ function comment(
     htmlUrl: `https://github.com/o/r/pull/1#discussion_r${partial.id}`,
     ...partial,
   };
+}
+
+function fetchPriorInlineReviewFeedback(
+  botUserId: number,
+  currentLens: Parameters<typeof fetchPriorInlineFeedback>[1]["currentLens"],
+) {
+  return fetchPriorInlineFeedback(
+    createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      installation: { token: "token", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+    }),
+    { botUserId, currentLens },
+  );
 }
 
 function mockGithub(params: {
@@ -192,7 +211,7 @@ describe("reviewPriorFeedback", () => {
       ],
     });
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, 1, "review");
+    const threads = await fetchPriorInlineReviewFeedback(1, "review");
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
@@ -235,7 +254,7 @@ describe("reviewPriorFeedback", () => {
       ],
     });
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, 1, "review");
+    const threads = await fetchPriorInlineReviewFeedback(1, "review");
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual([
@@ -441,7 +460,7 @@ describe("reviewPriorFeedback", () => {
       ],
     });
 
-    const normalized = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, 1, "review");
+    const normalized = await fetchPriorInlineReviewFeedback(1, "review");
     expect(normalized.map((thread) => thread.path)).toEqual([
       "src/a.ts",
       "src/b.ts",
@@ -449,14 +468,7 @@ describe("reviewPriorFeedback", () => {
       "src/d.ts",
     ]);
 
-    const securityOnly = await fetchPriorInlineReviewFeedback(
-      "token",
-      "o",
-      "r",
-      1,
-      1,
-      "review-security",
-    );
+    const securityOnly = await fetchPriorInlineReviewFeedback(1, "review-security");
     expect(securityOnly).toEqual([
       expect.objectContaining({ path: "src/b.ts", botTitleSnippet: "P0 · Security" }),
     ]);
@@ -562,9 +574,7 @@ describe("reviewPriorFeedback", () => {
       ],
     });
 
-    await expect(
-      fetchPriorInlineReviewFeedback("token", "o", "r", 1, 1, "review"),
-    ).resolves.toEqual([]);
+    await expect(fetchPriorInlineReviewFeedback(1, "review")).resolves.toEqual([]);
   });
 
   it("falls back to originalLine when the live line is missing", () => {

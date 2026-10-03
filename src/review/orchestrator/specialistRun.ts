@@ -1,8 +1,8 @@
-import type { Config } from "../../config.js";
+import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import {
   classifyProviderError,
   isCancelAbortError,
@@ -11,12 +11,9 @@ import {
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import type { PiSession } from "../../agent/runtime/types.js";
-import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
-import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
+import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
-import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
@@ -27,6 +24,10 @@ import {
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
 } from "./specialistTools.js";
+import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
+import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
+import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
@@ -50,6 +51,7 @@ export type RunSpecialistParams = {
   readonly agentEvents?: AgentEventsContext;
   /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
   readonly escalation?: EscalationPlan;
+  readonly createSession?: typeof createFeaturePiSession;
 };
 
 type SubmissionState = {
@@ -59,14 +61,16 @@ type SubmissionState = {
 
 function timeoutError(): AppError {
   return new AppError({
-    code: "review.specialist_timeout",
+    domain: "review",
+    kind: "specialist_timeout",
     message: "Specialist timeout deadline exceeded",
   });
 }
 
 function externalAbortError(): AppError {
   return new AppError({
-    code: "review.specialist_aborted",
+    domain: "review",
+    kind: "specialist_aborted",
     message: "Specialist run aborted by external signal",
   });
 }
@@ -75,7 +79,8 @@ function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): voi
   if (params.signal?.aborted) throw externalAbortError();
   if (!params.shouldContinue()) {
     throw new AppError({
-      code: "review.specialist_stopped",
+      domain: "review",
+      kind: "specialist_stopped",
       message: "Specialist run stopped before completion",
     });
   }
@@ -223,18 +228,16 @@ async function createSessionWithinDeadline(
   submitTool: ReturnType<typeof buildSubmitTool>,
 ): Promise<PiSession> {
   const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
-  const creation = createFeaturePiSession({
+  const creation = (params.createSession ?? createFeaturePiSession)({
     role: "specialist",
     specialistId: params.specialist,
     cfg: params.cfg,
     cwd: params.cwd,
-    systemPrompt: specialistSystemPrompt(params.specialist),
+    systemPrompt: SPECIALIST_SYSTEM_PROMPTS[params.specialist],
     tools: sessionTools.piTools,
     executors: sessionTools.executors,
     attemptModel: params.escalation?.model,
     hostSignal: params.signal,
-    // Parallel specialists share session_role "specialist"; skip durability so
-    // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
   return runWithinDeadline({
     run: () => creation,
@@ -331,7 +334,8 @@ async function runAttempt(
     if (!state.report) {
       assertCanContinue(params, deadlineMs);
       throw new AppError({
-        code: "review.specialist_invalid_report",
+        domain: "review",
+        kind: "specialist_invalid_report",
         message: state.validationError ?? "Specialist did not submit a valid report",
       });
     }
@@ -353,7 +357,8 @@ function failureOutcome(params: {
     specialist: params.specialist,
     durationMs: Date.now() - params.startedAtMs,
     error: new AppError({
-      code: "review.specialist_failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: `${params.specialist} specialist failed after ${params.attempts} attempt(s)`,
       context: {
         specialist: params.specialist,
@@ -371,7 +376,8 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
   let attempts = 0;
   let ordinaryRetryUsed = false;
   let lastError: unknown = new AppError({
-    code: "review.specialist_not_started",
+    domain: "review",
+    kind: "specialist_not_started",
     message: "Specialist did not start",
   });
   let classification: ProviderErrorKind = "unknown";
@@ -448,3 +454,10 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
     cause: lastError,
   });
 }
+
+const SPECIALIST_SYSTEM_PROMPTS = {
+  correctness: buildAutomatedSystemPrompt(),
+  security: automatedSecuritySystemPrompt,
+  quality: automatedQualitySystemPrompt,
+  tests: automatedReviewTestsSystemPrompt,
+} satisfies Readonly<Record<SpecialistId, string>>;

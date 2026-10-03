@@ -55,6 +55,16 @@ workers, repositories, or installations.
    retained in Postgres and inactive rows are removed by the normal retention
    sweep.
 
+## Implementation owner
+
+`askQuota.ts::admitAsk` owns the mention advisory lock, separate retained-any-status
+lookup, bucket admission, reservation, matching work insertion, and conflict
+compensation. The losing reservation has no work row: after releasing outstanding
+and provider capacity it is deleted in the same transaction, satisfying the
+deferred foreign key. Existing rate debits are not refunded. Terminal reservations
+still release through the database trigger. `runDelivery` commits queue writes
+with this operation and emits transactional events afterward.
+
 ## Consequences
 
 - Concurrent web replicas share one admission state and cannot race around a

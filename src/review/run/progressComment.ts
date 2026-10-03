@@ -12,7 +12,7 @@ import {
   STATUS_RUNNING,
   STATUS_WAITING,
   statusFindings,
-} from "../../github/statusCopy.js";
+} from "../statusCopy.js";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_AWAITING_APPROVAL_NOTE,
@@ -24,12 +24,12 @@ import {
   REVIEW_PROGRESS_SOURCE_SLASH,
   reviewProgressCancelledNote,
   type ReviewCancelAttribution,
+  type AnyReviewLens,
 } from "../../settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
-import type { CiSummary } from "../ci/ciSummaryTypes.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
+import type { CiSummary } from "../ci/ciFacts.js";
+import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.js";
 import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.js";
 import {
   SPECIALIST_IDS,
@@ -37,10 +37,8 @@ import {
   type SpecialistId,
   type SpecialistRunPhase,
 } from "../orchestrator/orchestratorTypes.js";
+import { renderProgressRevisionComment } from "./commentMarkers.js";
 import { renderStaleReviewMetadataComment } from "./reviewRender.js";
-
-const PROGRESS_REVISION_RE =
-  /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
 type SpecialistPhase = SpecialistRunPhase;
 
@@ -112,40 +110,6 @@ export function initialProgressTickState(): Extract<SpecialistTickState, { kind:
       tests: { phase: "waiting" },
     },
   };
-}
-
-function renderProgressRevisionComment(revision: number, workItemId?: string): string {
-  return workItemId == null
-    ? `<!-- pr-agent:progress-revision ${revision} -->`
-    : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`;
-}
-
-export function parseProgressRevision(body: string): number | null {
-  return parseProgressRevisionState(body)?.revision ?? null;
-}
-
-export function withProgressRevisionComment(
-  body: string,
-  revision: number,
-  workItemId?: string,
-): string {
-  const withoutRevision = body.replace(PROGRESS_REVISION_RE, "").trimEnd();
-  return `${withoutRevision}\n${renderProgressRevisionComment(revision, workItemId)}`;
-}
-
-export function parseProgressRevisionState(
-  body: string,
-): { readonly revision: number; readonly workItemId?: string } | null {
-  const match = PROGRESS_REVISION_RE.exec(body);
-  if (!match?.[2]) return null;
-  const revision = Number(match[2]);
-  if (!Number.isSafeInteger(revision)) return null;
-  if (match[1] == null) return { revision };
-  try {
-    return { revision, workItemId: decodeURIComponent(match[1]) };
-  } catch {
-    return null;
-  }
 }
 
 export function formatReviewQueuePosition(position: ReviewQueuePosition): string {

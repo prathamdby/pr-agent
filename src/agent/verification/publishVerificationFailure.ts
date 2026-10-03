@@ -1,20 +1,20 @@
+import { createPublishContext } from "../../agentWork/publishOnce.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
-import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
-import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
-import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
-import { enqueueCiProjectionDebounced } from "../../agentWork/intake/queueing.js";
+import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.js";
+import {
+  LEGACY_REVIEW_SUMMARY_SENTINELS,
+  REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+} from "../../settings/index.js";
+import { requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import {
   advancePrHeadCiRevisionForVerificationSignal,
   isEffectiveVerificationSignalTransition,
   type VerificationSignalPrior,
 } from "../../agentWork/prHeadCiState.js";
-import {
-  getLatestCompletedPublishStepDetail,
-  recordPublishStep,
-} from "../../agentWork/repository.js";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
@@ -23,7 +23,6 @@ import {
   type VerificationFailureSignal,
   type VerificationThreadLedger,
 } from "../../agentWork/verificationThreadLedger.js";
-import type { CiProjectionJobData } from "../../agentWork/types.js";
 
 const REVIEW_SUMMARY_SENTINELS = [
   REVIEW_SUMMARY_SENTINEL,
@@ -57,8 +56,7 @@ function findHeadReviewComment(
 }
 
 async function botOwnedComments(prSurface: PrSurface): Promise<readonly PrConversationComment[]> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return [];
+  const botLogin = await prSurface.getBotLogin();
   const comments = await prSurface.listConversationComments();
   return comments.filter((comment) => comment.authorLogin === botLogin);
 }
@@ -97,12 +95,10 @@ async function writeVerificationSignal(
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `verification-failure:${params.resourceKey}`,
     ]);
-    const priorDetail = await getLatestCompletedPublishStepDetail(
-      client,
-      params.resourceKey,
-      VERIFICATION_PUBLISH_LENS,
-      "verification_failure",
-    );
+    const priorDetail = await createPublishContext(client, {
+      resourceKey: params.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+    }).latest("verification_failure");
     const effective = isEffectiveVerificationSignalTransition(priorFromDetail(priorDetail), {
       active,
       headSha: params.headSha,
@@ -113,22 +109,24 @@ async function writeVerificationSignal(
       headSha: params.headSha,
       effective,
     });
-    await recordPublishStep(client, {
+    await createPublishContext(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: VERIFICATION_PUBLISH_LENS,
       step: "verification_failure",
       leaseEpoch: params.leaseEpoch,
       detail: { headSha: params.headSha, active },
-    });
-    const job: CiProjectionJobData = {
-      kind: "ci_projection",
-      installationId: params.installationId,
-      owner: params.prSurface.owner,
-      repo: params.prSurface.repo,
-      headSha: params.headSha,
-    };
-    await enqueueCiProjectionDebounced(params.boss, client, job);
+    }).record();
+    await requestHeadCiProjection(
+      params.boss,
+      {
+        installationId: params.installationId,
+        owner: params.prSurface.owner,
+        repo: params.prSurface.repo,
+        headSha: params.headSha,
+      },
+      { kind: "intake", client },
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

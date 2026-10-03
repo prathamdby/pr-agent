@@ -1,3 +1,4 @@
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
@@ -17,6 +18,7 @@ const cfg = makeTestConfig();
 function checkout(): WritablePrCheckout {
   return {
     dir: "/tmp/checkout",
+    reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
     baseSha: "a".repeat(40),
     commit: vi.fn(),

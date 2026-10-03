@@ -145,7 +145,8 @@ describe("evlog wide events", () => {
     });
     const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const thrown = new AppError({
-      code: "worker.failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: "worker failed",
       cause: { apiKey: "opaque-provider-key" },
     });

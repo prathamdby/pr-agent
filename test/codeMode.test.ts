@@ -6,29 +6,26 @@ import {
   decodeHostCallFailure,
   encodeHostCallFailure,
   isCodeModeHostHalt,
-} from "../src/agent/codemode/hostHalt.js";
+} from "../src/agent/execution/hostHalt.js";
 import type { CodeModeResult } from "../src/agent/codemode/result.js";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
-import { serializeCodeModeValue } from "../src/agent/codemode/serialize.js";
+import { serializeCodeModeValue } from "../src/agent/execution/marshal.js";
 import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.js";
 import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.js";
 import { AppError } from "../src/errors/appError.js";
 import { startWorkerHealthServer } from "../src/agentWork/workerHealth.js";
 import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.js";
-import { CODE_MODE_MAX_TOOL_CALLS, resolveCodeModeExecutorKind } from "../src/settings/index.js";
+import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.js";
 
 function asResult(value: unknown): CodeModeResult {
   return value as CodeModeResult;
 }
 
 describe("Code Mode", () => {
-  it("keeps Vitest execute cells in-process", () => {
-    expect(resolveCodeModeExecutorKind()).toBe("in_process");
-  });
-
   it("terminates while(true){} within the AST budget", async () => {
     const started = Date.now();
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "while (true) {}",
       capabilities: {},
     });
@@ -55,6 +52,7 @@ describe("Code Mode", () => {
     const base = `http://127.0.0.1:${address.port}`;
     try {
       const running = runCodeModeScript({
+        executorKind: "in_process",
         code: "while (true) {}",
         capabilities: {},
       });
@@ -79,6 +77,7 @@ describe("Code Mode", () => {
   it("halts native memory bloat from String.repeat", async () => {
     const before = process.memoryUsage().heapUsed;
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: '"x".repeat(100000000)',
       capabilities: {},
     });
@@ -91,6 +90,7 @@ describe("Code Mode", () => {
   it("rejects ReDoS-prone regular expressions", async () => {
     const started = Date.now();
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: 'new RegExp("(a+)+$").test("aaaaaaaaaaaaaaaaaaaaaaaaaaaaX")',
       capabilities: {},
     });
@@ -107,7 +107,7 @@ describe("Code Mode", () => {
     "new Promise((resolve) => { while (true) {} })",
   ])("keeps %s on the host halt path", async (code) => {
     const started = Date.now();
-    const result = await runCodeModeScript({ code, capabilities: {} });
+    const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
     expect(Date.now() - started).toBeLessThan(500);
@@ -116,6 +116,7 @@ describe("Code Mode", () => {
   it("halts Array.from allocations beyond the cap", async () => {
     const before = process.memoryUsage().heapUsed;
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "Array.from({ length: 100000 })",
       capabilities: {},
     });
@@ -133,7 +134,7 @@ describe("Code Mode", () => {
     '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".matchAll(new RegExp("(a+)+$", "g"))',
   ])("rejects ReDoS-prone patterns for %s", async (code) => {
     const started = Date.now();
-    const result = await runCodeModeScript({ code, capabilities: {} });
+    const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
     expect(Date.now() - started).toBeLessThan(500);
     if (!result.ok) {
       expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
@@ -146,6 +147,7 @@ describe("Code Mode", () => {
     const before = process.memoryUsage().heapUsed;
     const started = Date.now();
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `
         let s = "x";
         while (true) {
@@ -165,6 +167,7 @@ describe("Code Mode", () => {
 
   it("returns structured diagnostics for syntax errors", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "const x = {",
       capabilities: {},
     });
@@ -177,6 +180,7 @@ describe("Code Mode", () => {
 
   it("executes class syntax as JavaScript", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "class Foo { value() { return 4 } }; new Foo().value()",
       capabilities: {},
     });
@@ -211,6 +215,7 @@ describe("Code Mode", () => {
 
   it("does not let guest try/catch swallow the capability call budget", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `
         try {
           for (let i = 0; i < 30; i = i + 1) {
@@ -232,6 +237,7 @@ describe("Code Mode", () => {
   it("halts after more than 25 capability calls", async () => {
     let calls = 0;
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `
         const out = [];
         for (let i = 0; i < 30; i = i + 1) {
@@ -253,6 +259,7 @@ describe("Code Mode", () => {
 
   it("truncates oversized script output", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: '({ items: Array(200).fill("n"), text: "x".repeat(40000) })',
       capabilities: {},
     });
@@ -274,6 +281,7 @@ describe("Code Mode", () => {
 
   it("keeps transfer-limit truncation beside execute output", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `const out = {};
         for (let i = 0; i < 20; i = i + 1) {
           out["k" + i] = "x".repeat(20000);
@@ -296,6 +304,7 @@ describe("Code Mode", () => {
 
   it("returns the last ASI expression as the cell value", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "const a = 1\na + 1",
       capabilities: {},
     });
@@ -305,6 +314,7 @@ describe("Code Mode", () => {
 
   it("keeps a continued expression as one returned value", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "1 +\n  2",
       capabilities: {},
     });
@@ -314,11 +324,13 @@ describe("Code Mode", () => {
 
   it("propagates ACCESS_DENIED from path fencing", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: 'await tools.readWorkspaceFile({ path: "../secret.env" })',
       capabilities: {
         readWorkspaceFile: async () => {
           throw new AppError({
-            code: "pr_workspace.path_traversal",
+            domain: "pr_workspace",
+            kind: "path_traversal",
             message: "Path traversal attempt detected: ../secret.env",
             context: { path: "../secret.env" },
           });
@@ -337,6 +349,7 @@ describe("Code Mode", () => {
     const controller = new AbortController();
     controller.abort();
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `
           try {
             while (true) {}
@@ -355,16 +368,19 @@ describe("Code Mode", () => {
   });
 
   it("hides workspace tools from the model catalog and keeps execute", () => {
-    const bundle = hideWorkspaceToolsBehindCodeMode({
-      piTools: [
-        { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
-        { name: "searchCodeIndex", description: "index", parameters: { type: "object" } },
-      ],
-      executors: {
-        listChangedFiles: async () => ({ files: [] }),
-        searchCodeIndex: async () => ({ unavailable: true }),
+    const bundle = hideWorkspaceToolsBehindCodeMode(
+      {
+        piTools: [
+          { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
+          { name: "searchCodeIndex", description: "index", parameters: { type: "object" } },
+        ],
+        executors: {
+          listChangedFiles: async () => ({ files: [] }),
+          searchCodeIndex: async () => ({ unavailable: true }),
+        },
       },
-    });
+      { executorKind: "in_process" },
+    );
     expect(bundle.piTools.map((tool) => tool.name)).toEqual(["execute", "searchCodeIndex"]);
     expect(bundle.executors.execute).toBeTypeOf("function");
     expect(bundle.executors.listChangedFiles).toBeTypeOf("function");
@@ -379,6 +395,7 @@ describe("Code Mode", () => {
 
   it("returns a successful compact tools.* result", async () => {
     const execute = buildCodeModeExecuteTool({
+      executorKind: "in_process",
       capabilities: {
         listChangedFiles: async () => ({ files: [{ path: "src/a.ts" }] }),
       },
@@ -409,6 +426,7 @@ describe("Code Mode", () => {
 
   it("supports object destructuring", async () => {
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: "const { a } = { a: 1 }; a",
       capabilities: {},
     });
@@ -418,11 +436,13 @@ describe("Code Mode", () => {
 
   it("does not retain variables across execute cells", async () => {
     const first = await runCodeModeScript({
+      executorKind: "in_process",
       code: "var retainedValue = 7; retainedValue",
       capabilities: {},
     });
     expect(first.ok).toBe(true);
     const second = await runCodeModeScript({
+      executorKind: "in_process",
       code: "retainedValue",
       capabilities: {},
     });
@@ -441,11 +461,13 @@ describe("Code Mode", () => {
       model: "gpt-4o-mini",
     };
     const success = await runCodeModeScript({
+      executorKind: "in_process",
       code: "1 + 1",
       capabilities: {},
       ...sink,
     });
     const failure = await runCodeModeScript({
+      executorKind: "in_process",
       code: "throw new Error('nope')",
       capabilities: {},
       ...sink,
@@ -461,6 +483,7 @@ describe("Code Mode", () => {
     const controller = new AbortController();
     controller.abort();
     await runCodeModeScript({
+      executorKind: "in_process",
       code: "1",
       capabilities: {},
       signal: controller.signal,
@@ -480,6 +503,7 @@ describe("Code Mode", () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `await Promise.all([
         tools.readWorkspaceFile({ path: "a.ts" }),
         tools.readWorkspaceFile({ path: "b.ts" }),
@@ -501,7 +525,7 @@ describe("Code Mode", () => {
   });
 
   it("commits explicit state only after a successful cell", async () => {
-    const execute = buildCodeModeExecuteTool({ capabilities: {} });
+    const execute = buildCodeModeExecuteTool({ capabilities: {}, executorKind: "in_process" });
     const first = asResult(await execute.executor({ code: "state.flag = 7; state.flag" }));
     const second = asResult(await execute.executor({ code: "state.flag" }));
     expect(first.ok).toBe(true);
@@ -511,6 +535,7 @@ describe("Code Mode", () => {
     const session = createExecutionSessionStore();
     let releaseHost: (() => void) | undefined;
     const aborted = runCodeModeScript({
+      executorKind: "in_process",
       code: 'state.flag = 99; await tools.readWorkspaceFile({ path: "a.ts" }); state.flag',
       session,
       capabilities: {
@@ -529,6 +554,7 @@ describe("Code Mode", () => {
     const abortedResult = await aborted;
     expect(abortedResult.ok).toBe(false);
     const afterAbort = await runCodeModeScript({
+      executorKind: "in_process",
       code: "Object.prototype.hasOwnProperty.call(state, 'flag')",
       session,
       capabilities: {},
@@ -541,6 +567,7 @@ describe("Code Mode", () => {
     const session = createExecutionSessionStore();
     let releaseHost: (() => void) | undefined;
     const first = runCodeModeScript({
+      executorKind: "in_process",
       code: 'state.fromFirst = true; await tools.readWorkspaceFile({ path: "a.ts" }); state.fromFirst',
       session,
       capabilities: {
@@ -554,6 +581,7 @@ describe("Code Mode", () => {
       setTimeout(resolve, 20);
     });
     const second = await runCodeModeScript({
+      executorKind: "in_process",
       code: "state.fromSecond = true; state.fromSecond",
       session,
       capabilities: {},
@@ -576,6 +604,7 @@ describe("Code Mode", () => {
       (_, index) => `line-${String(index + 1).padStart(3, "0")}:${"x".repeat(80)}`,
     ).join("\n");
     const result = await runCodeModeScript({
+      executorKind: "in_process",
       code: `const file = await tools.readWorkspaceFile({ path: "big.ts" });
         ({ kind: typeof file.content, length: file.content.length, truncated: file.truncation && file.truncation.truncated })`,
       capabilities: {

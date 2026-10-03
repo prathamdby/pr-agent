@@ -1,26 +1,22 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
-import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
-  runStructuredAgentLoop,
-  runValidationRepairLoop,
-} from "../../agentRun/structuredAgentLoop.js";
+  type Config,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+  VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
+  VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+  MAX_TOOL_ROUNDS_VERIFICATION,
+} from "../../settings/index.js";
 import { logInfo } from "../../evlog.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload } from "../../review/triageSchema.js";
-import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
-import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
+import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import {
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
-import {
-  VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
-  VERIFICATION_VALIDATION_REPAIR_ROUNDS,
-  MAX_TOOL_ROUNDS_VERIFICATION,
-} from "../../settings/index.js";
 
 export type VerificationRunResult = {
   readonly lastAssistant: AssistantMessage;
@@ -41,93 +37,57 @@ export async function runVerification(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;
-  readonly durability?: FeatureSessionDurability;
+  readonly sessionContext?: FeatureSessionContext;
   /** Escalation for attempts after the first; undefined leaves the base budget. */
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber, escalation } = params;
-  const providerName = cfg.piProvider;
+  const providerName = cfg.models.provider;
   const setup = buildVerificationRunSetup(params);
-  const session = await createFeaturePiSession({
-    role: "verification",
-    cfg,
-    cwd: params.workspace.agentCwd,
-    systemPrompt: setup.systemPrompt,
-    tools: setup.piTools,
-    executors: setup.executors,
-    durability: params.durability,
-    attemptModel: escalation?.model,
-    hostSignal: params.signal,
-  });
-  let lastText = "";
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, prompt);
-
-  const runValidationRepair = async () => {
-    await runValidationRepairLoop({
-      rounds: VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+  const { lastText } = await runFeatureAgent(
+    {
+      state: setup.submitState,
       shouldContinue: () => shouldContinueVerificationRun(setup),
-      getValidationError: () => setup.submitState.lastValidationError,
-      clearValidationError: () => {
-        setup.submitState.lastValidationError = null;
+      userContent: setup.userContent,
+      investigation: {
+        maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_VERIFICATION, escalation),
+        phase: "verification",
+        checkpointId: "verification:verification",
       },
-      repair: async (validationError) => {
-        lastText = await sendSubmitOnlyRepair(
-          [validationError, "Fix the payload and call submitVerification again."].join("\n\n"),
-        );
+      finalize: {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+        phase: "verification",
+        checkpointId: "verification:verification",
       },
-    });
-  };
+      nudge: VERIFICATION_SUBMIT_ONLY_NUDGE,
+      nudgeRounds: VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
+      repairRounds: VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+      repairPrompt: (validationError) =>
+        [validationError, "Fix the payload and call submitVerification again."].join("\n\n"),
+    },
+    {
+      session: {
+        role: "verification",
+        cfg,
+        cwd: params.workspace.agentCwd,
+        systemPrompt: setup.systemPrompt,
+        tools: setup.piTools,
+        executors: setup.executors,
+        sessionContext: params.sessionContext,
+        attemptModel: escalation?.model,
+        hostSignal: params.signal,
+      },
+    },
+  );
 
-  try {
-    await runStructuredAgentLoop({
-      shouldContinue: () => shouldContinueVerificationRun(setup),
-      phases: [
-        {
-          name: "investigation",
-          run: async () => {
-            lastText = (
-              await session.send(setup.userContent, {
-                maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_VERIFICATION, escalation),
-                phase: "verification",
-                checkpointId: "verification:verification",
-              })
-            ).text;
-          },
-        },
-        {
-          name: "pre_submit",
-          run: async () => {
-            for (
-              let nudge = 0;
-              nudge < VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueVerificationRun(setup);
-              nudge++
-            ) {
-              lastText = await sendSubmitOnlyRepair(VERIFICATION_SUBMIT_ONLY_NUDGE);
-              await runValidationRepair();
-            }
-          },
-        },
-        {
-          name: "validation_repair",
-          run: async () => {
-            await runValidationRepair();
-          },
-        },
-      ],
-    });
-
-    if (setup.submitState.submitted) {
-      logInfo("verification_run_completed", { owner, repo, pr: prNumber });
-    }
-
-    return {
-      lastAssistant: assistantFromText(cfg, lastText, providerName),
-      submitted: setup.submitState.submitted,
-      payload: setup.submitState.payload,
-    };
-  } finally {
-    await session.dispose();
+  if (setup.submitState.submitted) {
+    logInfo("verification_run_completed", { owner, repo, pr: prNumber });
   }
+
+  return {
+    lastAssistant: assistantFromText(cfg, lastText, providerName),
+    submitted: setup.submitState.submitted,
+    payload: setup.submitState.payload,
+  };
 }

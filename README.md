@@ -215,7 +215,7 @@ docker compose up -d --force-recreate pr-agent-worker
 <summary>Provider catalog and models.json</summary>
 
 - Without a catalog, worker boot only checks that `PI_PROVIDER` is a builtin. An unknown `PI_MODEL` falls through to that provider's first model API type. The first session then throws `provider.model_not_found`. Web never validates the model id. A present `models.json` does fail worker boot on a missing selection.
-- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/config.ts`](src/config.ts). If the Google alias is empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
+- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/settings/slices/models.ts`](src/settings/slices/models.ts). If the Google alias is empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
 - Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), add a runtime mount on **both** web and worker (the committed compose file does not), or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
 - Custom provider fields, a minimal proxy example, and verification: [docs/configuration.md](docs/configuration.md#custom-model-providers).
 
@@ -398,12 +398,18 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 ## Data privacy
 
+Agent sessions keep computation in memory. Retries start fresh sessions; saved
+work and publication evidence still protect recovery. Unused encrypted session
+snapshots and phase checkpoints are removed by migration 036.
+
 | Topic         | Rule                                                                                                                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
 | LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.                                                              |
 | Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
 | Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them.                                                     |
+
+Repository searches, including `/triage`, share a bounded output budget. A truncated search is incomplete, not proof that code is absent. Sensitive-path gates still apply. See [workspace search diagnostics](docs/agent-work-ops.md#workspace-search-diagnostics).
 
 Duplicate deliveries retain local metadata only: incoming delivery ID, body fingerprint, and dedupe guard reason, not another body copy. `WEBHOOK_EVENTS_RETENTION_SECONDS` deletes this evidence by its own arrival age (30 days by default). `RETENTION_ENABLED=false` leaves it unpurged. These patterns do not prove malicious intent. See [duplicate-delivery inspection](docs/agent-work-ops.md#duplicate-delivery-evidence).
 

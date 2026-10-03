@@ -23,7 +23,7 @@ export type PublishReviewTestHarness = {
   readonly surface: PrSurface;
   readonly controls: FakePrSurfaceControls;
   readonly publishThreadBatch: Mock<PrSurface["publishThreadBatch"]>;
-  readonly listPullRequestReviewComments: Mock<PrSurface["listPullRequestReviewComments"]>;
+  readonly listReviewComments: Mock<PrSurface["listReviewComments"]>;
   readonly upsertProgressComment: Mock<PrSurface["upsertProgressComment"]>;
   readonly resolveProgressComment: Mock<PrSurface["resolveProgressComment"]>;
   readonly findProgressComment: Mock<PrSurface["findProgressComment"]>;
@@ -41,15 +41,21 @@ export function createPublishReviewTestHarness(options?: {
   );
   let nextReviewId = 1;
 
-  const listPullRequestReviewComments = vi
-    .spyOn(bundle.surface, "listPullRequestReviewComments")
+  const listReviewComments = vi
+    .spyOn(bundle.surface, "listReviewComments")
     .mockImplementation(async () => ({
       comments: [
         {
+          id: 99,
+          inReplyToId: null,
+          pullRequestReviewId: null,
+          userId: null,
+          body: "",
           path: "src/x.ts",
           line: 4,
-          id: 99,
-          url: "https://github.com/o/r/pull/1#discussion_r99",
+          originalLine: 4,
+          htmlUrl: "https://github.com/o/r/pull/1#discussion_r99",
+          authorLogin: "pr-agent[bot]",
         },
       ],
       truncated: false,
@@ -68,6 +74,7 @@ export function createPublishReviewTestHarness(options?: {
   const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
   const resolveProgressComment = vi.spyOn(bundle.surface, "resolveProgressComment");
   const findProgressComment = vi.spyOn(bundle.surface, "findProgressComment");
+  vi.spyOn(bundle.surface, "finishReviewCheck");
   const getLabels = vi.spyOn(bundle.surface, "getLabels");
   const setLabels = vi.spyOn(bundle.surface, "setLabels");
   const setReviewCommitStatus = vi.spyOn(bundle.surface, "setReviewCommitStatus");
@@ -76,7 +83,7 @@ export function createPublishReviewTestHarness(options?: {
     surface: bundle.surface,
     controls: bundle.controls,
     publishThreadBatch,
-    listPullRequestReviewComments,
+    listReviewComments,
     upsertProgressComment,
     resolveProgressComment,
     findProgressComment,
@@ -103,45 +110,40 @@ export function publishReviewTestBaseParams(
     headSha: "sha",
     hasDescriptionReviewMap: false,
     progressCommentIdHint: 99,
-    cfg: {
-      piModel: "gpt-4o-mini",
-      features: { ...makeTestConfig().features, reviewLabels: "off" as const },
-    },
+    cfg: makeTestConfig({ features: { reviewLabels: "off" } }),
     payload: publishReviewTestPayload,
     ...overrides,
   };
 }
 
-export function createAgentWorkRepositoryMock() {
+export function createPublishRecordReadMock() {
   return {
     claimSummaryCommentCreation: vi.fn(async () => true),
     getProgressCommentOwner: vi.fn(async () => null),
+    getReviewCheckRunGithubId: vi.fn(async () => 111),
     getProgressCommentRevision: vi.fn(async () => null),
     getProgressStubPostedAtMs: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),
-    recordPublishStep: vi.fn(),
   };
 }
 
 export function createOwnVerdictCloseMock() {
+  let selected: unknown;
   return {
+    getOwnVerdictCloseRecord: vi.fn(async () => ({
+      selected,
+      githubId: 111,
+      checkApplied: false,
+      statusApplied: false,
+    })),
     withOwnVerdictClose: vi.fn(
       async (client: unknown, _params: unknown, apply: (client: unknown) => unknown) =>
         apply(client),
     ),
-    claimOwnVerdict: vi.fn(async (_client: unknown, params: { selected: unknown }) => ({
-      selected: params.selected,
-      checkApplied: false,
-      statusApplied: false,
-    })),
+    claimOwnVerdict: vi.fn(async (_client: unknown, params: { selected: unknown }) => {
+      selected = params.selected;
+      return { selected, githubId: 111, checkApplied: false, statusApplied: false };
+    }),
     recordOwnVerdictSurfaceApplied: vi.fn(async () => undefined),
-  };
-}
-
-export async function createReviewCheckRunMock() {
-  const actual = await import("../../src/agentWork/reviewCheckRun.js");
-  return {
-    ...actual,
-    completeReviewCheckRun: vi.fn(async () => true),
   };
 }

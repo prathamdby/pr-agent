@@ -1,12 +1,17 @@
-import type { Config } from "../../config.js";
+import { productionInstallationSurface } from "../installationSurface.js";
+import { createPublishContext } from "../publishOnce.js";
+import {
+  type Config,
+  REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+  isAnyReviewLens,
+  LEGACY_REVIEW_SUMMARY_SENTINELS,
+} from "../../settings/index.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../../evlog.js";
-import {
-  createPrSurface,
-  type PrConversationComment,
-  type PrSurface,
-} from "../../github/prSurface.js";
+import { type PrConversationComment, type PrSurface } from "../../github/prSurface.js";
 import {
   getSharedRateLimitCircuit,
   isSharedRateLimitCircuitOpen,
@@ -14,38 +19,24 @@ import {
 import {
   injectVerificationFailureIntoCiCell,
   renderVerificationFailureBlock,
-} from "../../review/ci/verificationFailureBlock.js";
-import {
   applyCiProjectionBodyUpdate,
   decideCiProjectionBodyUpdate,
-} from "../../review/ci/ciSummaryCell.js";
-import {
   renderCiRollupMarker,
   replaceCiRollupMarkerIfNewer,
-} from "../../review/ci/ciRollupMarker.js";
-import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
-import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFromHeadState.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
-import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
-import { formatReviewActionLineCiStatus } from "../../review/ci/ciActionPhrase.js";
-import { parseProgressRevisionState } from "../../review/run/progressComment.js";
+  renderCiSummaryCell,
+  shouldRenderCiSummaryRow,
+  formatReviewActionLineCiStatus,
+} from "../../review/ci/ciSummaryCell.js";
+import type { CiSummaryAuthor } from "../../review/ci/ciAuthor.js";
+import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFacts.js";
 import {
-  REVIEW_SUMMARY_SENTINEL,
-  TRIAGE_SUMMARY_SENTINEL,
-  VERIFICATION_PUBLISH_LENS,
-} from "../../settings/index.js";
-import {
-  isAnyReviewLens,
-  LEGACY_REVIEW_SUMMARY_SENTINELS,
-} from "../../settings/legacyReviewLenses.js";
+  parseReviewMetaFromCommentBody,
+  parseProgressRevisionState,
+} from "../../review/run/commentMarkers.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
-import { mintInstallationToken } from "../durableJob.js";
-import { closeOwnVerdict } from "../closeOwnVerdict.js";
-import {
-  enqueueCiProjectionAfter,
-  enqueueCiProjectionDebouncedStandalone,
-} from "../intake/queueing.js";
+import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.js";
+import { requestHeadCiProjection } from "../ciProjection.js";
 import {
   asPrNumbers,
   clearProjectionRepairPending,
@@ -59,19 +50,11 @@ import {
   storePrNumbersForHead,
   type PrHeadCiStateRow,
 } from "../prHeadCiState.js";
-import {
-  asTerminalOwnCheckStatus,
-  isOwnCheckOpen,
-  resolveOwnVerdictForTerminalReview,
-} from "../ownCheckReconcile.js";
-import {
-  getCompletedPublishStepDetail,
-  getLatestCompletedPublishStepDetail,
-  getProgressCommentOwner,
-  recordPublishStep,
-} from "../repository.js";
+
+import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
@@ -121,18 +104,8 @@ async function reconcileOwnVerdicts(params: {
   );
   for (const item of items) {
     if (!isAnyReviewLens(item.reviewLens)) continue;
-    const checkDetail = await getCompletedPublishStepDetail(
-      params.pool,
-      item.id,
-      item.resourceKey,
-      item.reviewLens,
-      "check_run",
-    );
-    if (!isOwnCheckOpen(checkDetail)) continue;
-    const status = asTerminalOwnCheckStatus(item.status);
-    if (status == null) continue;
     try {
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool: params.pool,
         prSurface: params.prSurface,
         owner: params.owner,
@@ -144,19 +117,13 @@ async function reconcileOwnVerdicts(params: {
         headSha: params.headSha,
         leaseEpoch: null,
         commitStatusEnabled: params.cfg.features.commitStatus,
-        outcome: await resolveOwnVerdictForTerminalReview({
-          pool: params.pool,
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          reviewLens: item.reviewLens,
-          status,
-        }),
-      });
+        summaryCommentId: null,
+      }).repairIfOpen();
     } catch (error) {
       logWarn("ci_projection_own_verdict_failed", {
         workItemId: item.id,
         resourceKey: item.resourceKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -167,12 +134,10 @@ async function verificationFailureActive(
   resourceKey: string,
   headSha: string,
 ): Promise<boolean> {
-  const detail = await getLatestCompletedPublishStepDetail(
-    pool,
-    resourceKey,
-    VERIFICATION_PUBLISH_LENS,
-    "verification_failure",
-  );
+  const detail = await createPublishContext(pool, {
+    resourceKey: resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+  }).latest("verification_failure");
   if (detail == null) return false;
   if (detail.active === false) return false;
   return detail.headSha === headSha;
@@ -228,7 +193,7 @@ async function patchTriageRollupComments(params: {
         repo: params.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -277,7 +242,7 @@ async function findSupersededSummaryComment(params: {
     logWarn("ci_projection_pr_head_failed", {
       headSha: params.headSha,
       commentId: latest.id,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return "retry";
   }
@@ -342,7 +307,7 @@ async function projectOnePr(params: {
       owner: params.data.owner,
       repo: params.data.repo,
       pr: params.prNumber,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return "retry";
   }
@@ -421,7 +386,7 @@ async function projectOnePr(params: {
         repo: params.data.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -460,7 +425,7 @@ async function projectOnePr(params: {
         repo: params.data.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -468,7 +433,7 @@ async function projectOnePr(params: {
     sawUpdate = true;
     const owner = await getProgressCommentOwner(params.pool, resourceKey, "review");
     if (owner != null) {
-      await recordPublishStep(params.pool, {
+      await createPublishContext(params.pool, {
         workItemId: owner.workItemId,
         resourceKey,
         reviewLens: "review",
@@ -480,7 +445,7 @@ async function projectOnePr(params: {
           version: params.row.version,
           commentId: comment.id,
         },
-      });
+      }).record();
     }
     logDebug("ci_projection_patched", {
       owner: params.data.owner,
@@ -538,7 +503,7 @@ async function applyGithubCiListingIfNeeded(params: {
   try {
     snapshot = await surface.getCiStatus(params.data.headSha);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (phase === "seed") {
       logWarn("ci_projection_seed_failed", {
         owner: params.data.owner,
@@ -554,7 +519,10 @@ async function applyGithubCiListingIfNeeded(params: {
       headSha: params.data.headSha,
       message,
     });
-    await enqueueCiProjectionAfter(params.boss, params.data, PENDING_CI_REFRESH_RETRY_SECONDS);
+    await requestHeadCiProjection(params.boss, params.data, {
+      kind: "after",
+      seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
+    });
     return params.row;
   }
 
@@ -564,7 +532,7 @@ async function applyGithubCiListingIfNeeded(params: {
     headSha: params.data.headSha,
     checkRuns: snapshot.checkRuns,
     legacyStatuses: snapshot.legacyStatuses,
-    githubAppId: params.cfg.githubAppId,
+    githubAppId: params.cfg.github.appId,
     checkRunsComplete: snapshot.checkRunsComplete,
   };
 
@@ -598,7 +566,7 @@ export async function executeCiProjectionJob(
     const circuit = await getSharedRateLimitCircuit(pool, data.installationId);
     const openUntil = circuit?.openUntil.getTime() ?? Date.now() + 60_000;
     const startAfter = Math.max(1, Math.ceil((openUntil - Date.now()) / 1000));
-    await enqueueCiProjectionAfter(boss, data, startAfter);
+    await requestHeadCiProjection(boss, data, { kind: "after", seconds: startAfter });
     logDebug("ci_projection_deferred_rate_limit", {
       owner: data.owner,
       repo: data.repo,
@@ -611,8 +579,8 @@ export async function executeCiProjectionJob(
   const createSurface: CiProjectionSurfaceFactory =
     options?.createSurface ??
     (async (prNumber) => {
-      const installation = await mintInstallationToken(cfg, data.installationId);
-      return createPrSurface({
+      const installation = await productionInstallationSurface.token(cfg, data.installationId);
+      return productionInstallationSurface.create({
         cfg,
         installationId: data.installationId,
         owner: data.owner,
@@ -663,7 +631,7 @@ export async function executeCiProjectionJob(
       owner: data.owner,
       repo: data.repo,
       headSha: data.headSha,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 
@@ -706,7 +674,7 @@ export async function executeCiProjectionJob(
   const latest = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
   const versionMoved = latest != null && latest.version > row.version;
   if (aggregate === "retry" || versionMoved) {
-    await enqueueCiProjectionDebouncedStandalone(boss, data);
+    await requestHeadCiProjection(boss, data, { kind: "debounced" });
     return;
   }
 

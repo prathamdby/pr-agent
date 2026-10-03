@@ -7,6 +7,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import type { TriagePreviewHunk } from "./triageRender.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const exec = promisify(execFile);
 
@@ -127,7 +128,7 @@ export async function replayPreviewHunks(params: {
       }
       commitErrors.push({
         threadRootCommentId: hunk.threadRootCommentId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
   }

@@ -1,5 +1,5 @@
 import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/index.js";
-import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
+import { firstNonEmptyLine } from "./parseSlashCommand.js";
 import { commentMentionsBot, stripBotMentions } from "./parseBotMention.js";
 
 export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();

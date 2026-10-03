@@ -1,12 +1,69 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        completed: mocks.completed,
+        write: mocks.write,
+      }),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { PgBoss } from "pg-boss";
 import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
 import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { ReviewJobData } from "../src/agentWork/types.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
@@ -33,35 +90,23 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
-  captureEvent: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
   getProgressCommentOwner: vi.fn(async () => ({ workItemId: "wi-1", generation: 0 })),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
-  recordPublishStep: vi.fn(),
-  hasCompletedPublishStep: vi.fn(async () => false),
-  getCompletedPublishStepDetail: vi.fn(
-    async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
-  ),
+  write: vi.fn(),
+  completed: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
   shouldSkipWork: vi.fn(async () => false),
-  getSharedRateLimitCircuit: vi.fn(async () => null),
-  openSharedRateLimitCircuitBestEffort: vi.fn(),
+  summaryConclude: vi.fn(
+    async (
+      deps: { readonly prSurface: import("../src/github/prSurface.js").PrSurface },
+      write: { readonly body: string },
+    ) => deps.prSurface.upsertProgressComment(write.body, "## PR Agent Review"),
+  ),
 }));
 
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
-  captureException: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  loadReviewExecutorPublishContext: mocks.loadPublishContext,
-  recordPublishStep: mocks.recordPublishStep,
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   shouldSkipWork: mocks.shouldSkipWork,
-  getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
-  getProgressCommentOwner: mocks.getProgressCommentOwner,
-  getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
@@ -71,6 +116,23 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   return {
     ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
     ...createOwnVerdictCloseMock(),
+    loadReviewExecutorPublishContext: mocks.loadPublishContext,
+    getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
+    getProgressCommentOwner: mocks.getProgressCommentOwner,
+    getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
+  };
+});
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
+  return {
+    ...actual,
+    createReviewSummaryComment: (
+      deps: Parameters<typeof actual.createReviewSummaryComment>[0],
+    ) => ({
+      conclude: (write: { readonly body: string }) => mocks.summaryConclude(deps, write),
+    }),
   };
 });
 
@@ -86,26 +148,35 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
-  getSharedRateLimitCircuit: mocks.getSharedRateLimitCircuit,
-  openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
-}));
-
-import * as durableJob from "../src/agentWork/durableJob.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
-import * as prWorkspace from "../src/prWorkspace/index.js";
+import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
 import * as reviewTrustedContext from "../src/review/prompts/reviewTrustedContext.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
-import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
-import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
+import {
+  getActiveRateLimitCircuit,
+  RATE_LIMIT_CIRCUIT_THRESHOLD,
+} from "../src/github/rateLimitCircuit.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
-import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 
-const cfg = makeTestConfig({ piModel: "test" });
+let runExecution: () => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["review"]) => Promise<unknown>,
+): void {
+  runExecution = () =>
+    run(
+      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
+        .review,
+    );
+}
+
+const cfg = makeTestConfig({ models: { model: "test" } });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 const prFiles = {
@@ -118,6 +189,8 @@ const prFiles = {
 const pullRequest = {
   additions: 1,
   deletions: 1,
+  title: "",
+  body: null,
   changed_files: 1,
   base: { repo: { full_name: "o/r" } },
   head: { sha: "head", repo: { full_name: "o/r" } },
@@ -138,46 +211,7 @@ function mockRepositoryView() {
 }
 
 function defaultCheckoutCoverage() {
-  return mockLocalPrWorkspace().getCoverage();
-}
-
-function reviewJob(): JobWithMetadata<ReviewJobData> {
-  const now = new Date();
-  return {
-    id: "job-1",
-    name: "agent-work-review",
-    data: { kind: "review", workItemId: "wi-1" },
-    expireInSeconds: 3600,
-    heartbeatSeconds: null,
-    signal: new AbortController().signal,
-    priority: 0,
-    state: "active",
-    retryLimit: 3,
-    retryCount: 0,
-    retryDelay: 0,
-    retryBackoff: false,
-    startAfter: now,
-    startedOn: now,
-    singletonKey: null,
-    singletonOn: null,
-    deleteAfterSeconds: 0,
-    createdOn: now,
-    completedOn: null,
-    keepUntil: now,
-    policy: "standard",
-    heartbeatOn: null,
-    blocked: false,
-    blocking: false,
-    pendingDependencies: 0,
-    deadLetter: "",
-    output: {},
-    sourceName: null,
-    sourceId: null,
-    sourceCreatedOn: null,
-    sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
-  };
+  return mockLocalPrWorkspace().reader.getCoverage();
 }
 
 function mockAutoPrFiles(surface = durableSurfaceBundle.surface) {
@@ -204,28 +238,39 @@ function mockDurableExecution(
   if (source === "auto") {
     mockAutoPrFiles();
   }
-  vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+  configureExecution(async (spec) => {
     const item = makeItem(source);
-    captured.result = await spec.execute(item, {
-      prSurface: durableSurfaceBundle.surface,
-      headSha: "head",
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-      pullRequest: executionPullRequest,
-      claim: {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        startedAt: new Date("2026-01-01T00:00:10.000Z"),
-        attemptCount: 1,
-        resumed: false,
-      },
-      escalation,
-    });
+    captured.result = await spec.execute(
+      item,
+      createDurableExecutionContext({
+        pool,
+        item: item,
+        prSurface: durableSurfaceBundle.surface,
+        headSha: "head",
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        pullRequest: executionPullRequest,
+        getClaim: () => ({
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          startedAt: new Date("2026-01-01T00:00:10.000Z"),
+          attemptCount: 1,
+          resumed: false,
+        }),
+        getEscalation: () => escalation,
+      }),
+    );
   });
   return captured;
 }
 
-describe("executeReviewJob", () => {
+const verdictMethods = {
+  pending: vi.fn(async (): Promise<number | null> => 123),
+  close: vi.fn(async (_outcome: verdictOwner.OwnVerdictOutcome) => undefined),
+  repairIfOpen: vi.fn(async () => undefined),
+};
+describe("review work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     durableSurfaceBundle = createFakePrSurface(
@@ -235,17 +280,15 @@ describe("executeReviewJob", () => {
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(
       () => durableSurfaceBundle.surface,
     );
-    vi.spyOn(reviewCheckRun, "ensureReviewCheckRunStarted").mockResolvedValue(123);
-    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockResolvedValue(true);
-    vi.spyOn(reviewCheckRun, "cancelReviewCheckRun").mockResolvedValue(true);
-    vi.spyOn(reviewCheckRun, "reviewCheckDetailsUrl").mockImplementation(
+    verdictMethods.close.mockReset().mockResolvedValue(undefined);
+    vi.spyOn(verdictOwner, "reviewVerdict").mockReturnValue(verdictMethods);
+    vi.spyOn(verdictOwner, "reviewCheckDetailsUrl").mockImplementation(
       (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
         summaryCommentId == null
           ? undefined
           : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
     );
-    mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetail.mockImplementation(
+    mocks.completed.mockImplementation(
       async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
     );
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
@@ -299,53 +342,33 @@ describe("executeReviewJob", () => {
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
     mocks.shouldSkipWork.mockResolvedValue(false);
     mocks.getWorkItem.mockResolvedValue(null);
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.buildStaleReschedule.mockReset();
     mockRepositoryView();
     mockDurableExecution("slash");
   });
 
   it("loads publish context in one batched db-read span", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
-  });
-
-  it("continues review when shared rate-limit circuit read fails", async () => {
-    mocks.getSharedRateLimitCircuit.mockRejectedValueOnce(new Error("db down"));
-
-    await executeReviewJob(cfg, pool, boss, reviewJob());
-
-    expect(mocks.runOrchestratedPrReview).toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalledWith(
-      "github_shared_rate_limit_circuit_read_failed",
-      expect.objectContaining({
-        type: "review",
-        message: "db down",
-      }),
-    );
   });
 
   it("records the rate_limit_circuit_opened metric when the review circuit opens", async () => {
     const recordMetric = vi
       .spyOn(reviewRunMetrics, "recordReviewMetric")
       .mockImplementation(() => undefined);
-    const realCreate = rateLimitCircuit.createRateLimitCircuit;
-    let onOpened: ((kind: "primary" | "secondary") => void) | undefined;
-    vi.spyOn(rateLimitCircuit, "createRateLimitCircuit").mockImplementation((params) => {
-      onOpened = params.onOpened;
-      return realCreate(params);
+    const run = mocks.runOrchestratedPrReview.getMockImplementation();
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (...args: unknown[]) => {
+      for (let failure = 0; failure < RATE_LIMIT_CIRCUIT_THRESHOLD; failure += 1) {
+        getActiveRateLimitCircuit()?.recordFailure("primary");
+      }
+      return run?.(...args);
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    onOpened?.("primary");
     expect(recordMetric).toHaveBeenCalledWith({ kind: "rate_limit_circuit_opened" });
-    expect(mocks.openSharedRateLimitCircuitBestEffort).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ lastErrorKind: "primary" }),
-    );
   });
 
   it("passes the resumed thread call count into the review run", async () => {
@@ -361,7 +384,7 @@ describe("executeReviewJob", () => {
       progressCommentGithubId: null,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -378,13 +401,12 @@ describe("executeReviewJob", () => {
     const escalation = escalationForAttempt(
       2,
       makeTestConfig({
-        piFallbackProvider: "anthropic",
-        piFallbackModel: "claude-sonnet-4",
+        models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
       }),
     );
     mockDurableExecution("slash", undefined, escalation);
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ escalation }),
@@ -392,7 +414,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes no escalation plan to the review run on the first attempt", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ escalation: undefined }),
@@ -412,7 +434,7 @@ describe("executeReviewJob", () => {
       progressCommentGithubId: 4321,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ progressCommentIdHint: 4321 }),
@@ -420,7 +442,7 @@ describe("executeReviewJob", () => {
   });
 
   it("skips preflight for slash reviews", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
@@ -438,13 +460,13 @@ describe("executeReviewJob", () => {
     vi.mocked(prSurfaceModule.createPrSurface).mockImplementation(
       () => durableSurfaceBundle.surface,
     );
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const resolved = await spec.resolveHeadSha(durableSurfaceBundle.surface, makeItem("auto"));
       expect(resolved.headSha).toBe("head");
       expect(resolved.pullRequest).toEqual(pullRequest);
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(durableSurfaceBundle.controls.events).toContainEqual({ kind: "getHead" });
   });
@@ -460,12 +482,12 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableSurfaceBundle.surface, "getHead").mockRejectedValueOnce(
       new Error("identity unavailable"),
     );
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const resolved = await spec.resolveHeadSha(durableSurfaceBundle.surface, makeItem("auto"));
       expect(resolved).toEqual({ headSha: "head" });
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.logWarn).toHaveBeenCalledWith("review_pr_identity_fetch_failed", {
       owner: "o",
@@ -476,11 +498,11 @@ describe("executeReviewJob", () => {
   });
 
   it("ensures a review check run before the long review", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.ensureReviewCheckRunStarted).toHaveBeenCalledWith(
-      pool,
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
       expect.objectContaining({
+        pool,
         prSurface: durableSurfaceBundle.surface,
         owner: "o",
         repo: "r",
@@ -495,7 +517,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes queue-derived timing and the live review gate to the orchestrator", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const params = mocks.runOrchestratedPrReview.mock.calls[0]?.[0] as {
       timing: {
@@ -532,7 +554,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort: vi.fn(),
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
@@ -556,7 +578,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort: vi.fn(),
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
@@ -580,7 +602,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(captured.result).toEqual({
       kind: "rescheduled",
@@ -594,11 +616,14 @@ describe("executeReviewJob", () => {
       1,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review was rescheduled for a newer pull request head.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review was rescheduled for a newer pull request head.",
+        }),
+      ]),
     );
   });
 
@@ -608,7 +633,7 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "newer-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
         id: "wi-replacement",
         source: "auto",
@@ -620,17 +645,25 @@ describe("executeReviewJob", () => {
           staleHeadRescheduled: true,
         },
       });
-      await spec.execute(item, {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "old-replacement-head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+      await spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item: item,
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "old-replacement-head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
-      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+    await expect(runExecution()).rejects.toMatchObject({
+      code: "review.stale_head_replacement_exhausted",
     });
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
@@ -649,7 +682,7 @@ describe("executeReviewJob", () => {
         headSha: observedHeadSha,
       });
 
-      await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      await expect(runExecution()).rejects.toMatchObject({
         code: "github.head_sha_mismatch",
       });
 
@@ -666,7 +699,7 @@ describe("executeReviewJob", () => {
     });
     mocks.shouldSkipWork.mockResolvedValue(true);
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "github.head_sha_mismatch",
     });
 
@@ -682,7 +715,7 @@ describe("executeReviewJob", () => {
     });
     mocks.buildStaleReschedule.mockResolvedValue(null);
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "github.head_sha_mismatch",
     });
 
@@ -700,21 +733,33 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "new-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("auto"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("auto"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("auto"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "agent_work.pr_actor_lease_lost",
     });
 
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
 
@@ -729,14 +774,17 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
+        }),
+      ]),
     );
   });
 
@@ -748,7 +796,7 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "old-replacement-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
         id: "wi-replacement",
         source: "auto",
@@ -761,15 +809,23 @@ describe("executeReviewJob", () => {
         },
       });
       await expect(
-        spec.execute(item, {
-          prSurface: durableSurfaceBundle.surface,
-          headSha: "old-replacement-head",
-          pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
-          leaseEpoch: 1,
-          beginAttempt: async () => mockWorkClaim(),
-          signal: new AbortController().signal,
-        }),
-      ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
+        spec.execute(
+          item,
+          createDurableExecutionContext({
+            pool,
+            item: item,
+            prSurface: durableSurfaceBundle.surface,
+            headSha: "old-replacement-head",
+            pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
+            leaseEpoch: 1,
+            job: makeDurableJobMetadata(),
+            beginAttempt: async () => mockWorkClaim(),
+            signal: new AbortController().signal,
+            getClaim: () => undefined,
+            getEscalation: () => undefined,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "review.stale_head_replacement_exhausted" });
     });
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
@@ -777,7 +833,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
@@ -793,7 +849,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.some(
@@ -827,7 +883,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.some(
@@ -835,11 +891,14 @@ describe("executeReviewJob", () => {
       ),
     ).toBe(false);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
+        }),
+      ]),
     );
   });
 
@@ -848,7 +907,7 @@ describe("executeReviewJob", () => {
     const listChangedFiles = mockAutoPrFiles();
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.lightweight).toHaveBeenCalledWith(
@@ -864,12 +923,12 @@ describe("executeReviewJob", () => {
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-        summary: "Documentation-only change set.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ checkRun: "success", summary: "Documentation-only change set." }),
+      ]),
     );
   });
 
@@ -883,14 +942,14 @@ describe("executeReviewJob", () => {
       coverage: { kind: "full" },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "failure",
-        summary: "1 finding",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ checkRun: "failure", summary: "1 finding" }),
+      ]),
     );
   });
 
@@ -902,19 +961,21 @@ describe("executeReviewJob", () => {
       publishSuperseded: false,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not publish a structured review.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not publish a structured review.",
+        }),
+      ]),
     );
   });
 
-  it("emits work completed with failed outcome and prior provider credit lastFailure", async () => {
+  it("logs prior provider credit failure when review is not published", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
       publishStepCount: 0,
@@ -938,31 +999,8 @@ describe("executeReviewJob", () => {
       },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        distinctId: "installation:42",
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "failed",
-          work_item_id: "wi-1",
-          failure_domain: "provider",
-          error_kind: "quota",
-          provider_error_kind: "quota",
-          error_message: "Insufficient credits for model",
-          phase: "synthesis",
-          publish_attempts: 2,
-          provider: "openai",
-          model: "test",
-        }),
-      }),
-    );
-    const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
-      properties: Record<string, unknown>;
-    };
-    expect(properties.properties).not.toHaveProperty("cause_chain");
     expect(mocks.logWarn).toHaveBeenCalledWith(
       "review_not_published",
       expect.objectContaining({
@@ -970,128 +1008,6 @@ describe("executeReviewJob", () => {
         errorKind: "quota",
       }),
     );
-  });
-
-  it("emits work completed with published outcome without token dumps", async () => {
-    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
-      wallClockMs: 200_000,
-      providerOutputTokens: 1500,
-      generationMs: 50_000,
-      providerOutputTps: 30,
-      tokenCoverage: "full_run",
-      findingsCount: 2,
-      severities: ["high"],
-      specialistOutcomes: { report: 4 },
-      publishAttempts: 0,
-      publishStepCount: 5,
-    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
-
-    await executeReviewJob(cfg, pool, boss, reviewJob());
-
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "published",
-          work_type: "review",
-          work_item_id: "wi-1",
-          findings_count: 2,
-          specialist_report: 4,
-          provider: "openai",
-          model: "test",
-          publish_attempts: 0,
-          publish_step_count: 5,
-          attempt_count: 1,
-        }),
-      }),
-    );
-    const properties = (
-      mocks.captureEvent.mock.calls[0]?.[0] as { properties: Record<string, unknown> }
-    ).properties;
-    expect(properties).not.toHaveProperty("wall_clock_ms");
-    expect(properties).not.toHaveProperty("provider_output_tokens");
-    expect(properties).not.toHaveProperty("error_message");
-  });
-
-  it("omits generation telemetry from work completed", async () => {
-    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
-      wallClockMs: 12_000,
-      providerOutputTokens: 100,
-      generationMs: 0,
-      tokenCoverage: "orchestrator_only",
-      findingsCount: 0,
-      severities: [],
-      specialistOutcomes: {},
-      publishAttempts: 0,
-      publishStepCount: 5,
-    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
-
-    await executeReviewJob(cfg, pool, boss, reviewJob());
-
-    const call = mocks.captureEvent.mock.calls.find(
-      (args) => (args[0] as { event?: string }).event === "work completed",
-    );
-    expect(call).toBeDefined();
-    const properties = (call?.[0] as { properties: Record<string, unknown> }).properties;
-    expect(properties).toMatchObject({
-      outcome: "published",
-      work_type: "review",
-      findings_count: 0,
-    });
-    expect(properties).not.toHaveProperty("generation_ms");
-    expect(properties).not.toHaveProperty("provider_output_tps");
-    expect(properties).not.toHaveProperty("wall_clock_ms");
-  });
-
-  it("emits work completed with failed outcome without token dumps", async () => {
-    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
-      wallClockMs: 190_000,
-      providerOutputTokens: 800,
-      generationMs: 40_000,
-      providerOutputTps: 20,
-      tokenCoverage: "full_run",
-      toolCallErrors: 1,
-      lastFailure: null,
-    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
-    mocks.runOrchestratedPrReview.mockResolvedValue({
-      published: false,
-      publishStepCount: 0,
-      publishAttempts: 2,
-      publishSuperseded: false,
-      lastFailure: {
-        failureDomain: "github",
-        errorKind: "rate_limit",
-        errorMessage: "API rate limit exceeded",
-        phase: "publish",
-      },
-    });
-
-    await executeReviewJob(cfg, pool, boss, reviewJob());
-
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "failed",
-          work_type: "review",
-          work_item_id: "wi-1",
-          provider: "openai",
-          model: "test",
-          publish_attempts: 2,
-          failure_domain: "github",
-          error_kind: "rate_limit",
-          error_message: "API rate limit exceeded",
-          phase: "publish",
-        }),
-      }),
-    );
-    const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
-      properties: Record<string, unknown>;
-    };
-    expect(properties.properties).not.toHaveProperty("cause_chain");
-    expect(properties.properties).not.toHaveProperty("tool_call_errors");
   });
 
   it("completes an existing check as cancelled when publish is superseded", async () => {
@@ -1102,138 +1018,61 @@ describe("executeReviewJob", () => {
       publishSuperseded: true,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
-    );
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "superseded",
-          work_item_id: "wi-1",
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
         }),
-      }),
+      ]),
     );
   });
 
-  it("emits work completed with lightweight outcome and no full review", async () => {
+  it("completes lightweight review without a full review", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "lightweight",
-          work_item_id: "wi-1",
-          source: "auto",
-        }),
-      }),
-    );
   });
 
-  it("emits work completed with lightweight outcome when lightweight completion is cancelled", async () => {
+  it("closes the verdict when lightweight completion is cancelled", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: false, reason: "skipped" });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review was cancelled before lightweight completion.",
-      }),
-    );
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "lightweight",
-          work_item_id: "wi-1",
-          source: "auto",
-        }),
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ summary: "Review was cancelled before lightweight completion." }),
+      ]),
     );
   });
 
-  it("does not emit work completed when the claimed review throws", async () => {
+  it("propagates a claimed review failure", async () => {
     const thrownMessage = "orchestrator exploded at /tmp/secret.ts";
     mocks.runOrchestratedPrReview.mockRejectedValue(new Error(thrownMessage));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(thrownMessage);
-
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    await expect(runExecution()).rejects.toThrow(thrownMessage);
   });
 
-  it("does not emit a second work completed when check-run cleanup throws after capture", async () => {
+  it("propagates lightweight verdict cleanup failure", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
-    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockRejectedValue(
-      new Error("check-run update failed"),
-    );
+    vi.mocked(verdictMethods.close).mockRejectedValue(new Error("check-run update failed"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "check-run update failed",
-    );
-
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "lightweight",
-          work_item_id: "wi-1",
-        }),
-      }),
-    );
-  });
-
-  it("emits work completed with degraded outcome when a published run has tool errors", async () => {
-    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
-      wallClockMs: 90_000,
-      providerOutputTokens: 400,
-      generationMs: 20_000,
-      providerOutputTps: 20,
-      tokenCoverage: "full_run",
-      published: true,
-      publishAttempts: 1,
-      toolCallErrors: 2,
-      briefFallback: false,
-      rateLimitCircuitOpened: false,
-      validationFailureCount: 0,
-      findingsCount: 1,
-    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
-
-    await executeReviewJob(cfg, pool, boss, reviewJob());
-
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "degraded",
-          work_item_id: "wi-1",
-          degraded_reason: "tool_call_error",
-          findings_count: 1,
-        }),
-      }),
-    );
+    await expect(runExecution()).rejects.toThrow("check-run update failed");
   });
 
   it("completes an existing check as action_required from the terminal failure hook", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1241,21 +1080,61 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not complete the review after retries.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not complete the review after retries.",
+        }),
+      ]),
+    );
+  });
+
+  it("cancels a pending stale-head replacement before the verdict close, even without a surface", async () => {
+    const cancel = vi
+      .spyOn(reviewReschedule, "cancelPendingStaleHeadReplacement")
+      .mockResolvedValue(undefined);
+    const dead = new Error("dead");
+    configureExecution(async (spec) => {
+      await spec.onTerminalFailure?.(makeItem("slash"), undefined, dead);
+    });
+
+    await runExecution();
+
+    expect(cancel).toHaveBeenCalledWith(pool, expect.objectContaining({ id: "wi-1" }), dead);
+    expect(verdictMethods.close).not.toHaveBeenCalled();
+  });
+
+  it("still closes the crashed verdict when the replacement cancel is rejected", async () => {
+    const cancel = vi
+      .spyOn(reviewReschedule, "cancelPendingStaleHeadReplacement")
+      .mockRejectedValue(new Error("agent_work.replacement_cancel_rejected"));
+    configureExecution(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        durableSurfaceBundle.surface,
+        new Error("dead"),
+      );
+    });
+
+    await runExecution();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ checkRun: "action_required" })]));
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      verdictMethods.close.mock.invocationCallOrder[0] ?? 0,
     );
   });
 
   it("writes the failure notice into the owned stub and closes the crashed verdict", async () => {
     durableSurfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "landed", 4242);
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1263,37 +1142,35 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    const edits = durableSurfaceBundle.controls.events.filter(
-      (event: FakePrSurfaceEvent) => event.kind === "editComment",
+    expect(mocks.summaryConclude).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reviewLens: "review",
+        coordination: expect.objectContaining({ pool, workItemId: "wi-1" }),
+      }),
+      { body: expect.stringContaining("Review did not finish") },
     );
-    expect(edits).toEqual([
-      expect.objectContaining({
-        kind: "editComment",
-        commentId: 4242,
-      }),
-    ]);
-    const edit = edits[0];
-    expect(edit?.kind === "editComment" ? edit.body : "").toContain("Review did not finish");
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not complete the review after retries.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-4242",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not complete the review after retries.",
+        }),
+      ]),
     );
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+    mocks.completed.mockImplementation(async (...args: unknown[]) => {
       if (args[4] === "summary_comment") {
         return { ownVerdictKind: "published", ownCheckFailing: false };
       }
       return { status: "in_progress" };
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1301,9 +1178,9 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(mocks.getCompletedPublishStepDetail).toHaveBeenCalledWith(
+    expect(mocks.completed).toHaveBeenCalledWith(
       pool,
       expect.any(String),
       expect.any(String),
@@ -1315,22 +1192,19 @@ describe("executeReviewJob", () => {
         (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
       ),
     ).toHaveLength(0);
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-      }),
-    );
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ checkRun: "success" })]));
   });
 
   it("skips the terminal failure close when the check already has a conclusion", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+    mocks.completed.mockImplementation(async (...args: unknown[]) => {
       if (args[4] === "summary_comment") {
         return { ownVerdictKind: "published", ownCheckFailing: true };
       }
       return { status: "completed", conclusion: "failure" };
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1338,18 +1212,22 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.filter(
         (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
       ),
     ).toHaveLength(0);
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1357,22 +1235,22 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        headSha: "head",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1", headSha: "head" }),
     );
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(verdictMethods.close).toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
   it("skips check cancellation from onCancelled when reviewLens is null", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         { ...makeItem("slash"), reviewLens: null as unknown as "review" },
         durableSurfaceBundle.surface,
@@ -1380,13 +1258,17 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["cancelled", "superseded", "stale_head"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
   });
 
   it("still attempts DB-id cancel from onCancelled when headSha is missing", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         { ...makeItem("slash"), headSha: undefined as unknown as string },
         durableSurfaceBundle.surface,
@@ -1394,21 +1276,17 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        headSha: undefined,
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1", headSha: undefined }),
     );
+    expect(verdictMethods.close).toHaveBeenCalled();
   });
 
   it("passes undefined detailsUrl from onCancelled when summary comment id is null", async () => {
     mocks.getSummaryCommentGithubId.mockResolvedValueOnce(null);
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1416,22 +1294,19 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        detailsUrl: undefined,
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1" }),
     );
+    expect(verdictMethods.close).toHaveBeenCalled();
   });
 
   it("passes auto preflight files into repository preparation", async () => {
     mockDurableExecution("auto");
     const listChangedFiles = mockAutoPrFiles();
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
@@ -1441,7 +1316,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes resolved pull payload into repository preparation", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
@@ -1464,7 +1339,7 @@ describe("executeReviewJob", () => {
     });
     mocks.fetchPriorFeedback.mockResolvedValue("prior block");
 
-    const review = executeReviewJob(cfg, pool, boss, reviewJob());
+    const review = runExecution();
 
     await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
@@ -1487,9 +1362,7 @@ describe("executeReviewJob", () => {
   it("logs bot identity failures before rethrowing prior feedback errors", async () => {
     mocks.getAppBotIdentity.mockRejectedValueOnce(new Error("identity unavailable"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "identity unavailable",
-    );
+    await expect(runExecution()).rejects.toThrow("identity unavailable");
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1508,7 +1381,7 @@ describe("executeReviewJob", () => {
       return undefined;
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1533,9 +1406,7 @@ describe("executeReviewJob", () => {
   it("rethrows unexpected prior feedback helper rejections", async () => {
     mocks.fetchPriorFeedback.mockRejectedValueOnce(new Error("feedback blew up"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "feedback blew up",
-    );
+    await expect(runExecution()).rejects.toThrow("feedback blew up");
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1565,14 +1436,14 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Be terse."),
       agentInstructionFilesBlock: undefined,
-      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
@@ -1606,7 +1477,7 @@ describe("executeReviewJob", () => {
       base: { repo: { full_name: "o/r" } },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const call = mocks.buildTrustedContext.mock.calls[0]?.[0] as {
       repoPolicyBlock?: string;
@@ -1636,11 +1507,13 @@ describe("executeReviewJob", () => {
     mockDurableExecution("slash", {
       additions: 1,
       deletions: 1,
+      title: "",
+      body: null,
       changed_files: 1,
       head: { sha: "head" },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const call = mocks.buildTrustedContext.mock.calls[0]?.[0] as {
       repoPolicyBlock?: string;
@@ -1665,14 +1538,14 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
-      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
@@ -1696,14 +1569,14 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
-      checkoutCoverage: mockLocalPrWorkspace(checkout).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
@@ -1711,7 +1584,7 @@ describe("executeReviewJob", () => {
   });
 
   it("threads hasDescriptionReviewMap false when PR body lacks a review map section", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: false }),
@@ -1723,18 +1596,26 @@ describe("executeReviewJob", () => {
       ...pullRequest,
       body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`,
     };
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("slash"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        pullRequest: prWithDescriptionOnly,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("slash"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("slash"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          pullRequest: prWithDescriptionOnly,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: false }),
@@ -1746,18 +1627,26 @@ describe("executeReviewJob", () => {
       ...pullRequest,
       body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement\n\n### Review map\n\n1. \`src/a.ts\`: risk surface`,
     };
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("slash"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        pullRequest: prWithDescription,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("slash"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("slash"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          pullRequest: prWithDescription,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: true }),

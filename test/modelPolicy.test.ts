@@ -9,7 +9,7 @@ import { makeTestConfig } from "./helpers/config.js";
 describe("resolveModelPolicy", () => {
   it("uses general primary for specialists and other sessions", () => {
     const policy = resolveModelPolicy(
-      makeTestConfig({ piProvider: "openai", piModel: "gpt-4o-mini" }),
+      makeTestConfig({ models: { provider: "openai", model: "gpt-4o-mini" } }),
     );
     expect(modelAssignmentForRole(policy, "specialist")).toEqual({
       provider: "openai",
@@ -22,12 +22,14 @@ describe("resolveModelPolicy", () => {
   it("uses orchestrator overrides when set", () => {
     const policy = resolveModelPolicy(
       makeTestConfig({
-        piProvider: "openai",
-        piModel: "gpt-4o-mini",
-        piOrchestratorProvider: "anthropic",
-        piOrchestratorModel: "claude-sonnet-4",
-        piFallbackProvider: "openai",
-        piFallbackModel: "gpt-4o",
+        models: {
+          provider: "openai",
+          model: "gpt-4o-mini",
+          orchestratorProvider: "anthropic",
+          orchestratorModel: "claude-sonnet-4",
+          fallbackProvider: "openai",
+          fallbackModel: "gpt-4o",
+        },
       }),
     );
     expect(modelAssignmentForRole(policy, "orchestrator")).toEqual({

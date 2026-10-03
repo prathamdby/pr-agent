@@ -9,6 +9,7 @@ import {
   publishReviewSummaryOnly,
   type PublishSummaryOnlyResult,
 } from "../publish/publishSummaryOnly.js";
+import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
@@ -24,7 +25,7 @@ const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_
 export type PublishSummaryState = {
   published: boolean;
   lastValidationError: string | null;
-  stoppedReason: "superseded" | "stale_head" | null;
+  stoppedReason: PublishStopReason | null;
 };
 
 export type PublishSummaryToolResult =
@@ -42,10 +43,8 @@ export type PublishSummaryToolResult =
       readonly error: string;
     };
 
-type PublishSummaryToolParams = Omit<
-  Parameters<typeof publishReviewSummaryOnly>[0],
-  "payload" | "ledger" | "coverage"
-> & {
+type PublishSummaryToolParams = {
+  readonly session: ReviewPublishSession;
   readonly phaseRef: OrchestratorPhaseRef;
   readonly state: PublishSummaryState;
   readonly getLedger: () => FindingLedger;
@@ -66,13 +65,11 @@ export function createPublishSummaryState(initial?: {
 
 function throwValidationError(
   state: PublishSummaryState,
-  code:
-    | "review.publish_summary_validation_failed"
-    | "review.publish_summary_semantic_validation_failed",
+  kind: "publish_summary_validation_failed" | "publish_summary_semantic_validation_failed",
   message: string,
 ): never {
   state.lastValidationError = message;
-  throw new AppError({ code, message });
+  throw new AppError({ domain: "review", kind, message });
 }
 
 function reconstructPayload(
@@ -85,7 +82,7 @@ function reconstructPayload(
   if (!parsed.success) {
     throwValidationError(
       state,
-      "review.publish_summary_validation_failed",
+      "publish_summary_validation_failed",
       formatReviewValidationError(parsed.issues).message,
     );
   }
@@ -96,7 +93,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   readonly piTool: PiTool;
   readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
 } {
-  const { state, getLedger, getCoverage, ...publishContext } = params;
+  const { state, getLedger, getCoverage, session } = params;
   const piTool: PiTool = {
     name: "publish_summary",
     description:
@@ -123,41 +120,37 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       errorTitle: "publish_summary validation failed:",
     });
     if (!parsed.ok) {
-      throwValidationError(state, "review.publish_summary_validation_failed", parsed.error);
+      throwValidationError(state, "publish_summary_validation_failed", parsed.error);
     }
 
     const ledger = getLedger();
     const candidate = reconstructPayload(state, ledger, parsed.value);
     const validation = validateReviewPayload({
       payload: candidate,
-      cachedDiffIndex: params.cachedDiffIndex,
+      cachedDiffIndex: session.cachedDiffIndex,
       enforceInlineAnchorValidation: false,
     });
     if (!validation.ok) {
-      throwValidationError(
-        state,
-        "review.publish_summary_semantic_validation_failed",
-        validation.message,
-      );
+      throwValidationError(state, "publish_summary_semantic_validation_failed", validation.message);
     }
 
     state.lastValidationError = null;
     const payload = redactReviewPayloadSecrets(candidate);
     let result: PublishSummaryOnlyResult;
     try {
-      result = await publishReviewSummaryOnly({
-        ...publishContext,
+      result = await publishReviewSummaryOnly(session, {
         payload,
         ledger,
         coverage: getCoverage(),
       });
     } catch (error) {
       throw toAppError(error, {
-        code: "review.publish_summary_failed",
+        domain: "review",
+        kind: "publish_summary_failed",
         context: {
-          owner: params.ctx.owner,
-          repo: params.ctx.repo,
-          pr: params.ctx.prNumber,
+          owner: session.ctx.owner,
+          repo: session.ctx.repo,
+          pr: session.ctx.prNumber,
         },
       });
     }

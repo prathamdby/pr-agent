@@ -1,14 +1,11 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { Config } from "../../config.js";
+import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
-import {
-  publishDescriptionToPullRequest,
-  type PublishDescriptionResult,
-} from "./publishDescription.js";
+import { planDescriptionPublish } from "./descriptionPublishPlan.js";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
@@ -30,9 +27,14 @@ import {
   descriptionPrBodyOperationKey,
   operationIntentMarker,
   type OperationIntentContext,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
-import { DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
+
+type DescriptionPublishResult = {
+  readonly prNumber: number;
+  readonly bodyUpdated: boolean;
+  readonly titleUpdated?: boolean;
+};
 
 export type SubmitDescriptionState = {
   published: boolean;
@@ -94,7 +96,8 @@ export function buildSubmitDescriptionTool(params: {
     if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
       params.state.publishSuperseded = true;
       throw new AppError({
-        code: "description.publish_superseded",
+        domain: "description",
+        kind: "publish_superseded",
         message: "Description publish aborted because this work item was superseded or cancelled.",
       });
     }
@@ -107,7 +110,8 @@ export function buildSubmitDescriptionTool(params: {
     if (!parsed.ok) {
       params.state.lastValidationError = parsed.error;
       throw new AppError({
-        code: "description.validation_failed",
+        domain: "description",
+        kind: "validation_failed",
         message: params.state.lastValidationError,
       });
     }
@@ -118,7 +122,8 @@ export function buildSubmitDescriptionTool(params: {
     if (visualIssues.length > 0) {
       params.state.lastValidationError = formatDescriptionVisualValidationError(visualIssues);
       throw new AppError({
-        code: "description.validation_failed",
+        domain: "description",
+        kind: "validation_failed",
         message: params.state.lastValidationError,
       });
     }
@@ -160,21 +165,32 @@ export function buildSubmitDescriptionTool(params: {
             descriptionPrBodyOperationKey(operationIntent.resourceKey),
             operationIntent.workItemId,
           );
-    const publish = () =>
-      publishDescriptionToPullRequest({
+    const publish = async (): Promise<DescriptionPublishResult> => {
+      const { pullRequest } = await params.prSurface.getHead();
+      const plan = planDescriptionPublish({
         cfg: params.cfg,
-        prSurface: params.prSurface,
-        owner: params.owner,
-        repo: params.repo,
-        prNumber: params.prNumber,
+        pullRequest,
+        resource: { owner: params.owner, repo: params.repo, prNumber: params.prNumber },
         payload,
         operationMarker: operationMarker ?? undefined,
       });
+      if (plan.titleUpdated || plan.bodyUpdated) {
+        await params.prSurface.updatePullRequest(
+          { title: plan.title, body: plan.body },
+          operationMarker ?? undefined,
+        );
+      }
+      return {
+        prNumber: params.prNumber,
+        titleUpdated: plan.titleUpdated,
+        bodyUpdated: plan.bodyUpdated,
+      };
+    };
 
     const result =
       params.operationIntent == null
         ? await publish()
-        : await withOperationIntent<PublishDescriptionResult>({
+        : await publishOnce<DescriptionPublishResult>({
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
             operationKey:
@@ -188,8 +204,8 @@ export function buildSubmitDescriptionTool(params: {
               ...(operationMarker == null ? {} : { operationMarker }),
             },
             recover: async () => {
-              const body = await params.prSurface.getPullRequestBody();
-              return body?.includes(operationMarker ?? "\u0000")
+              const { pullRequest } = await params.prSurface.getHead();
+              return pullRequest.body?.includes(operationMarker ?? "\u0000")
                 ? {
                     kind: "reconciled" as const,
                     value: { prNumber: params.prNumber, bodyUpdated: true },

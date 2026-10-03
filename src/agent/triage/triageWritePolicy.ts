@@ -1,7 +1,8 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
 import { AppError } from "../../errors/appError.js";
-import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import type { AppErrorKind } from "../../errors/appErrorCodes.js";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
 
 /**
@@ -98,9 +99,10 @@ export function isTriageSafeNewFilePath(path: string): boolean {
   return TRIAGE_SAFE_NEW_FILE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-function throwBlocked(code: string, message: string, path: string): never {
+function throwBlocked(kind: AppErrorKind<"triage">, message: string, path: string): never {
   throw new AppError({
-    code,
+    domain: "triage",
+    kind,
     message,
     context: { path },
   });
@@ -111,7 +113,7 @@ async function assertResolvedInsideRoot(root: string, candidate: string): Promis
   const realCandidate = await realpath(candidate);
   if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
     throwBlocked(
-      "triage.symlink_escape_blocked",
+      "symlink_escape_blocked",
       `Blocked path that resolves outside the triage checkout: "${candidate}"`,
       candidate,
     );
@@ -136,7 +138,7 @@ export async function assertTriageWritablePath(params: {
   );
   if (isTriageControlPath(normalized)) {
     throwBlocked(
-      "triage.control_path_blocked",
+      "control_path_blocked",
       `Blocked triage write to control-plane path "${normalized}"`,
       normalized,
     );
@@ -145,7 +147,7 @@ export async function assertTriageWritablePath(params: {
   if (params.mode === "edit") {
     if (!implicated.has(normalized)) {
       throwBlocked(
-        "triage.path_not_implicated",
+        "path_not_implicated",
         `Triage may only edit files implicated by the finding inventory (blocked "${normalized}")`,
         normalized,
       );
@@ -154,7 +156,7 @@ export async function assertTriageWritablePath(params: {
 
   if (params.mode === "create" && !isTriageSafeNewFilePath(normalized)) {
     throwBlocked(
-      "triage.unsafe_new_file_blocked",
+      "unsafe_new_file_blocked",
       `Triage may only create files in explicitly safe path classes (blocked "${normalized}")`,
       normalized,
     );
@@ -163,7 +165,7 @@ export async function assertTriageWritablePath(params: {
   if (params.mode === "stage") {
     if (!implicated.has(normalized) && !isTriageSafeNewFilePath(normalized)) {
       throwBlocked(
-        "triage.path_not_implicated",
+        "path_not_implicated",
         `Triage may only stage implicated finding files or explicitly safe new files (blocked "${normalized}")`,
         normalized,
       );

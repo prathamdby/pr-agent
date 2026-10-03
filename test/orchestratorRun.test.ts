@@ -1,9 +1,10 @@
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { AppError } from "../src/errors/appError.js";
-import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
-import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
+import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -18,7 +19,6 @@ import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import {
-  ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   REVIEW_GATE_PROSE_UNASSESSED,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.js";
@@ -135,10 +135,10 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
 vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
   buildPublishThreadTool: vi.fn(
     (params: {
-      resolveProgressCommentUrl: () => Promise<string | undefined>;
+      session: { resolveProgressCommentUrl: () => Promise<string | undefined> };
       initialLedger?: FindingLedger;
     }) => {
-      testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
+      testState.progressUrlResolvers.push(params.session.resolveProgressCommentUrl);
       testState.ledger = params.initialLedger ?? createFindingLedger();
       return {
         piTool: { name: "publish_thread", description: "publish", parameters: {} },
@@ -229,19 +229,17 @@ vi.mock("../src/review/run/reviewRunFallback.js", () => ({
 }));
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
-  publishReviewSummaryOnly: vi.fn(async (params: { readonly payload: Record<string, unknown> }) => {
-    testState.publishOrder.push("summary");
-    testState.deterministicSummaries.push(params.payload);
-    return { kind: "published", summaryCommentId: 10 };
-  }),
+  publishReviewSummaryOnly: vi.fn(
+    async (_session: unknown, input: { readonly payload: Record<string, unknown> }) => {
+      testState.publishOrder.push("summary");
+      testState.deterministicSummaries.push(input.payload);
+      return { kind: "published", summaryCommentId: 10 };
+    },
+  ),
 }));
 
 const runner = vi.hoisted(() => ({
   createSession: vi.fn(),
-}));
-
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
-  createFeaturePiSession: runner.createSession,
 }));
 
 vi.mock("../src/agent/runtime/agentEventSink.js", async (importOriginal) => {
@@ -258,6 +256,11 @@ vi.mock("../src/agent/runtime/agentEventSink.js", async (importOriginal) => {
 });
 
 import {
+  nextStep,
+  type ReviewStepFacts,
+  type ReviewStepKind,
+} from "../src/review/orchestrator/runStep.js";
+import {
   runOrchestratedPrReview,
   type OrchestratedReviewRunParams,
 } from "../src/review/orchestrator/orchestratorRun.js";
@@ -266,27 +269,31 @@ const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/orchestrator-test",
   privateGitDir: "/tmp/orchestrator-test/.git",
   agentCwd: "/tmp/orchestrator-test/agent",
-  changedFiles: [],
-  changedFileByPath: new Map(),
-  checkoutPaths: new Set(),
-  sortedCheckoutPaths: [],
-  checkoutMode: "full",
-  diffIndex: { files: new Map(), truncated: false, listPullRequestFilesIngested: false },
-  stats: { truncated: false, totalChanges: 0, fileCount: 0 },
-  grepLiteral: async () => ({ matches: [], truncated: false }),
-  getDiffForPath: async () => "",
-  getBlameForPath: async () => "",
-  isPathInCheckout: () => false,
-  getCoverage: () =>
-    buildCheckoutCoverage({
-      checkoutMode: "full",
-      checkoutPaths: new Set(),
-      changedFiles: [],
-      stats: { truncated: false },
-    }),
-  noteSearchTruncated: () => undefined,
-  lookupSymbol: () => [],
-  getSymbolIndexStatus: () => ({ available: false }),
+  reader: {
+    ...createWritableRepositoryReader("/tmp/unused"),
+    agentCwd: "/tmp/orchestrator-test/agent",
+    changedFiles: [],
+    changedFileByPath: new Map(),
+    checkoutPaths: new Set(),
+    sortedCheckoutPaths: [],
+    checkoutMode: "full",
+    diffIndex: { files: new Map(), truncated: false, listPullRequestFilesIngested: false },
+    stats: { truncated: false, totalChanges: 0, fileCount: 0 },
+    grepLiteral: async () => ({ matches: [], truncated: false }),
+    getDiffForPath: async () => "",
+    getBlameForPath: async () => "",
+    isPathInCheckout: () => false,
+    getCoverage: () =>
+      buildCheckoutCoverage({
+        checkoutMode: "full",
+        checkoutPaths: new Set(),
+        changedFiles: [],
+        stats: { truncated: false },
+      }),
+    noteSearchTruncated: () => undefined,
+    lookupSymbol: () => [],
+    getSymbolIndexStatus: () => ({ available: false }),
+  },
   cleanup: async () => undefined,
 };
 
@@ -356,7 +363,8 @@ function failed(specialist: SpecialistId, message = `${specialist} failed`): Spe
     specialist,
     durationMs: 1,
     error: new AppError({
-      code: "review.specialist_failed",
+      domain: "review",
+      kind: "specialist_failed",
       message,
       cause: new Error(message),
     }),
@@ -383,6 +391,7 @@ function params(): OrchestratedReviewRunParams {
       remainingTotalMs: () => 60_000,
     },
     gate: { check: async () => ({ kind: "continue" }) },
+    createSession: runner.createSession,
   };
 }
 
@@ -527,8 +536,6 @@ describe("runOrchestratedPrReview", () => {
         dispose: vi.fn(async () => {
           testState.sessionDisposals += 1;
         }),
-        getStructuredState: () => ({ version: 1, payload: {} }),
-        setStructuredState: () => undefined,
       };
       return session;
     });
@@ -539,15 +546,10 @@ describe("runOrchestratedPrReview", () => {
     evlog.initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
-  it("caps orchestrator judgment turns at four tool rounds", () => {
-    expect(ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS).toBe(4);
-  });
-
   it("escalates recon and judgment budgets, the attempt model, and the specialist plan", async () => {
     runner.createSession.mockClear();
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     const escalation = escalationForAttempt(2, cfg);
     testState.judgmentBySource.set("correctness", [finding("correctness")]);
@@ -591,8 +593,7 @@ describe("runOrchestratedPrReview", () => {
   it("grants an escalated attempt the same tools, prompt, cwd, and no model restart", async () => {
     runner.createSession.mockClear();
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
 
     const baseline = runOrchestratedPrReview(params());
@@ -630,8 +631,7 @@ describe("runOrchestratedPrReview", () => {
     runner.createSession.mockClear();
     testState.judgmentFailuresRemaining = 2;
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     const run = runOrchestratedPrReview({
       ...params(),
@@ -1367,8 +1367,8 @@ describe("runOrchestratedPrReview", () => {
     testState.synthesisPublishesSummary = false;
     const run = runOrchestratedPrReview({
       ...params(),
-      cfg: makeTestConfig({ agentEventsEnabled: true }),
-      durability: {
+      cfg: makeTestConfig({ agentEvents: { enabled: true } }),
+      sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",
         installationId: 1,
@@ -1766,8 +1766,8 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview({
       ...params(),
-      cfg: makeTestConfig({ agentEventsEnabled: true }),
-      durability: {
+      cfg: makeTestConfig({ agentEvents: { enabled: true } }),
+      sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",
         installationId: 1,
@@ -1797,5 +1797,146 @@ describe("runOrchestratedPrReview", () => {
     // Later specialist still got a model judgment turn (2 failed attempts for
     // correctness + 1 success for security).
     expect(testState.judgmentPrompts).toHaveLength(3);
+  });
+});
+
+describe("nextStep", () => {
+  const facts: ReviewStepFacts = {
+    hasSession: true,
+    sessionRetired: false,
+    briefSubmitted: true,
+    hostAborted: false,
+    lifecycle: "running",
+    failedSpecialists: 0,
+    specialistCount: 4,
+    summaryPublished: false,
+    recoveryRoundsRun: 0,
+    recoveryRoundLimit: 2,
+  };
+
+  const cases: ReadonlyArray<
+    readonly [string, ReviewStepKind | null, Partial<ReviewStepFacts>, ReviewStepKind]
+  > = [
+    ["starts with recon when a session exists", null, {}, "recon"],
+    [
+      "skips recon and dispatches when no session could be created",
+      null,
+      { hasSession: false },
+      "dispatch_specialists",
+    ],
+    ["repairs a missing brief after recon", "recon", { briefSubmitted: false }, "repair_brief"],
+    [
+      "does not repair a brief once the session retired",
+      "recon",
+      { briefSubmitted: false, sessionRetired: true },
+      "dispatch_specialists",
+    ],
+    [
+      "stops on a host abort that arrives during recon",
+      "recon",
+      { hostAborted: true },
+      "stop_on_host_abort",
+    ],
+    [
+      "stops on a host abort after brief repair",
+      "repair_brief",
+      { hostAborted: true },
+      "stop_on_host_abort",
+    ],
+    [
+      "goes to the terminal tick when recon ended stopped",
+      "recon",
+      { lifecycle: "stopped" },
+      "terminal_tick",
+    ],
+    [
+      "dispatches after a host-abort stop only while not stopped",
+      "stop_on_host_abort",
+      {},
+      "dispatch_specialists",
+    ],
+    [
+      "ticks terminally after a host-abort stop that stopped the run",
+      "stop_on_host_abort",
+      { lifecycle: "stopped" },
+      "terminal_tick",
+    ],
+    [
+      "ticks terminally when dispatch ended stopped",
+      "dispatch_specialists",
+      { lifecycle: "stopped" },
+      "terminal_tick",
+    ],
+    [
+      "finalizes at the deadline when dispatch ended finalizing",
+      "dispatch_specialists",
+      { lifecycle: "finalizing" },
+      "finalize_deadline",
+    ],
+    [
+      "publishes the failure notice when every specialist failed",
+      "dispatch_specialists",
+      { failedSpecialists: 4 },
+      "failure_notice",
+    ],
+    [
+      "synthesizes when a specialist failed but others finished",
+      "dispatch_specialists",
+      { failedSpecialists: 1 },
+      "synthesis",
+    ],
+    [
+      "publishes a deterministic summary when the session retired",
+      "dispatch_specialists",
+      { sessionRetired: true },
+      "deterministic_summary",
+    ],
+    [
+      "publishes a deterministic summary when no session exists",
+      "dispatch_specialists",
+      { hasSession: false },
+      "deterministic_summary",
+    ],
+    [
+      "settles after synthesis published the summary",
+      "synthesis",
+      { summaryPublished: true },
+      "settle_summary",
+    ],
+    ["repairs the summary when synthesis did not publish it", "synthesis", {}, "repair_summary"],
+    ["recovers the summary after a failed repair round", "repair_summary", {}, "recover_summary"],
+    [
+      "settles once the recovery rounds are spent",
+      "recover_summary",
+      { recoveryRoundsRun: 2 },
+      "settle_summary",
+    ],
+    [
+      "settles when the session retired during recovery",
+      "recover_summary",
+      { sessionRetired: true },
+      "settle_summary",
+    ],
+    [
+      "settles when the run stopped during recovery",
+      "repair_summary",
+      { lifecycle: "stopped" },
+      "settle_summary",
+    ],
+  ];
+
+  it.each(cases)("%s", (_name, last, overrides, expected) => {
+    expect(nextStep(last, { ...facts, ...overrides }).kind).toBe(expected);
+  });
+
+  it.each([
+    "terminal_tick",
+    "finalize_deadline",
+    "failure_notice",
+    "settle_summary",
+    "deterministic_summary",
+    "done",
+  ] as const)("ends after %s", (last) => {
+    expect(nextStep(last, facts).kind).toBe("done");
   });
 });

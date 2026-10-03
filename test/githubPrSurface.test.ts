@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   createForPullRequestReviewComment: vi.fn(),
   listForPullRequestReviewComment: vi.fn(),
   deleteForPullRequestComment: vi.fn(),
+  updatePull: vi.fn(),
   logDebug: vi.fn(),
   httpStatus: vi.fn(),
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
@@ -20,6 +21,7 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
   installationOctokit: () => {
     const rest = {
+      pulls: { update: mocks.updatePull },
       reactions: {
         createForIssue: mocks.createForIssue,
         listForIssue: mocks.listForIssue,
@@ -301,5 +303,23 @@ describe("PrSurface acknowledgement reactions", () => {
       expect.objectContaining({ reaction: GITHUB_REACTION_PLUS_ONE }),
     );
     expect(mocks.createForIssue).not.toHaveBeenCalled();
+  });
+});
+
+describe("PrSurface updatePullRequest", () => {
+  it("sends exactly the merged title and body for the bound pull request", async () => {
+    mocks.updatePull.mockResolvedValue({ data: {} });
+
+    await expect(prSurface().updatePullRequest({ title: "T", body: "B" })).resolves.toEqual({
+      prNumber: 7,
+    });
+
+    expect(mocks.updatePull).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      pull_number: 7,
+      title: "T",
+      body: "B",
+    });
   });
 });

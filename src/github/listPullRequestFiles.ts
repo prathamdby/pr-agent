@@ -32,6 +32,8 @@ export type ListPullRequestFilesLimits = {
 type Octokit = ReturnType<typeof installationOctokit>;
 type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
 export type PullRequestForFileList = {
+  readonly title: string;
+  readonly body: string | null;
   readonly additions: number;
   readonly deletions: number;
   readonly changed_files: number;
@@ -40,12 +42,25 @@ export type PullRequestForFileList = {
   readonly merged_at?: string | null;
   readonly head?: {
     readonly sha?: string | null;
+    readonly ref?: string;
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
   readonly base?: {
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
 };
+
+export type PullRequestBranchInfo = {
+  readonly headRef: string;
+  readonly sameRepo: boolean;
+};
+
+export function pullRequestBranchInfo(pullRequest: PullRequestForFileList): PullRequestBranchInfo {
+  return {
+    headRef: pullRequest.head?.ref ?? "",
+    sameRepo: pullRequest.head?.repo?.full_name === pullRequest.base?.repo?.full_name,
+  };
+}
 
 /**
  * A triage checkout may write only while GitHub still considers the PR open and
@@ -70,7 +85,8 @@ export function assertPullRequestFilesHeadSha(
 ): void {
   if (prFiles.headSha?.toLowerCase() !== expectedHeadSha.toLowerCase()) {
     throw new AppError({
-      code: "github.head_sha_mismatch",
+      domain: "github",
+      kind: "head_sha_mismatch",
       message: `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${expectedHeadSha}`,
     });
   }

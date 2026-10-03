@@ -1,28 +1,23 @@
 import { getAppBotIdentity, installationOctokit } from "./appAuth.js";
 import type { InstallationToken } from "./appAuth.js";
 import { logDebug, logWarn } from "../evlog.js";
-import { mintInstallationToken } from "./installationToken.js";
-import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
+import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installationToken.js";
 import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.js";
 import { listCommitCompareFiles } from "./compareCommitFiles.js";
 import {
   listCheckRunsForHead,
-  listCheckRunAnnotations,
   listLegacyCommitStatusesForHead,
   listPullsForHead,
 } from "./ciStatus.js";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
-import { createRateLimitCircuit } from "./rateLimitCircuit.js";
 import { isDuplicateCheckRunCreationError } from "./githubErrors.js";
 import { httpStatus } from "./httpStatus.js";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
-  findPullRequestReviewByMarker,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
   listPullRequestLabels,
-  listPullRequestReviewComments,
   resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   setReviewCommitStatus,
@@ -30,18 +25,10 @@ import {
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "./reviewPublish.js";
-import {
-  fetchBotFindingThreads,
-  fetchPriorInlineReviewFeedback,
-  fetchReviewCommentParentGraph,
-} from "./reviewPriorFeedbackIo.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { mergeDescriptionIntoPrBody } from "../agent/description/descriptionBodyMerge.js";
-import { renderDescriptionAgentBlock } from "../agent/description/descriptionRender.js";
-import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
-import type { ReplyTarget } from "../commands/replyTarget.js";
+import type { ReplyTarget } from "../agentWork/types.js";
 import {
   COMMENT_PAGINATION_MAX_PAGES,
   COMMENTS_PAGE_SIZE,
@@ -55,11 +42,14 @@ import {
 import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
+  ListReviewCommentsResult,
   PrConversationComment,
+  PrReview,
   PrSurface,
   ReviewCheckOutcome,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 async function listConversationCommentsForPr(
   token: string,
@@ -94,36 +84,6 @@ async function listConversationCommentsForPr(
   }));
 }
 
-async function listInlineReviewCommentsForPr(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  expiresAtTs?: number,
-): Promise<readonly PrConversationComment[]> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const rows = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-  return rows.map((comment) => ({
-    id: comment.id,
-    inReplyToId: comment.in_reply_to_id ?? null,
-    authorLogin: comment.user?.login ?? "unknown",
-    body: comment.body ?? "",
-  }));
-}
-
 async function listPushedCommitsForPr(
   token: string,
   owner: string,
@@ -152,49 +112,80 @@ async function listPushedCommitsForPr(
   }));
 }
 
-async function publishDescriptionOnPullRequest(params: {
-  readonly cfg: Pick<import("../config.js").Config, "features">;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-  readonly payload: DescriptionPayload;
-  readonly operationMarker?: string;
-}) {
-  const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, payload, operationMarker } = params;
-  const octokit = installationOctokit(token, tokenExpiresAtTs);
-  const { data: pr } = await octokit.rest.pulls.get({
-    owner,
-    repo,
-    pull_number: prNumber,
+async function listReviewCommentsForPr(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  expiresAtTs?: number,
+): Promise<ListReviewCommentsResult> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  let stoppedAtCap = false;
+  const rows = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: perPage,
+        page,
+      });
+      if (page >= COMMENT_PAGINATION_MAX_PAGES && data.length >= perPage) {
+        stoppedAtCap = true;
+      }
+      return data;
+    },
   });
+  return {
+    comments: rows.map((comment) => ({
+      id: comment.id,
+      inReplyToId: comment.in_reply_to_id ?? null,
+      pullRequestReviewId: comment.pull_request_review_id ?? null,
+      userId: comment.user?.id ?? null,
+      authorLogin: comment.user?.login ?? "unknown",
+      authorAssociation: comment.author_association ?? null,
+      body: comment.body ?? "",
+      path: comment.path ?? null,
+      line: comment.line ?? null,
+      originalLine: comment.original_line ?? null,
+      htmlUrl: comment.html_url,
+    })),
+    truncated: stoppedAtCap,
+  };
+}
 
-  const agentBlock = renderDescriptionAgentBlock(payload, {
-    owner,
-    repo,
-    prNumber,
+async function listPullRequestReviewsForPr(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  expiresAtTs?: number,
+): Promise<readonly PrReview[]> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const reviews = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
   });
-  const mergedBody = mergeDescriptionIntoPrBody({
-    currentBody: pr.body,
-    agentBlock: operationMarker == null ? agentBlock : `${agentBlock}\n${operationMarker}`,
-  });
-
-  const nextTitle = cfg.features.titleRewrite ? payload.title.trim() : (pr.title ?? "");
-  const titleUpdated = cfg.features.titleRewrite && nextTitle !== (pr.title ?? "");
-  const bodyUpdated = mergedBody !== (pr.body ?? "");
-
-  if (titleUpdated || bodyUpdated) {
-    await octokit.rest.pulls.update({
-      owner,
-      repo,
-      pull_number: prNumber,
-      title: nextTitle,
-      body: mergedBody,
-    });
-  }
-
-  return { prNumber, titleUpdated, bodyUpdated };
+  return reviews.map((review) => ({
+    id: review.id,
+    userId: review.user?.id ?? null,
+    authorLogin: review.user?.login ?? null,
+    body: review.body ?? null,
+    commitId: review.commit_id ?? null,
+    htmlUrl: review.html_url,
+  }));
 }
 
 const REVIEW_CHECK_RUN_NAME = "PR Agent Review";
@@ -391,7 +382,7 @@ async function reactOnAckTargets(
           repo,
           targetKind: target.kind,
           reaction: content,
-          message: e instanceof Error ? e.message : String(e),
+          message: errorMessage(e),
         });
       }
     }),
@@ -483,7 +474,6 @@ async function createGithubCheckRunOrRecoverDuplicate(
 export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
   const { cfg, installationId, owner, repo, prNumber } = params;
   let installation: InstallationToken | undefined = params.installation;
-  const rateLimitCircuit = params.rateLimitCircuit ?? createRateLimitCircuit({ installationId });
   let botUserId: number | undefined;
   let botIdentityLoaded = false;
 
@@ -507,7 +497,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         installationId,
         owner,
         repo,
-        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        message: sanitizeLogMessage(errorMessage(error)),
       });
       botUserId = undefined;
     }
@@ -593,55 +583,19 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       await updateIssueComment(token, owner, repo, commentId, body, expiresAtTs);
     },
 
-    async listPullRequestReviewComments() {
+    async listReviewComments() {
       const { token, expiresAtTs } = await ensureAuth();
-      return listPullRequestReviewComments(token, owner, repo, prNumber, expiresAtTs);
+      return listReviewCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
+    },
+
+    async listPullRequestReviews() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listPullRequestReviewsForPr(token, owner, repo, prNumber, expiresAtTs);
     },
 
     async setReviewCommitStatus(headSha, status) {
       const { token, expiresAtTs } = await ensureAuth();
       await setReviewCommitStatus(token, owner, repo, headSha, status, expiresAtTs);
-    },
-
-    async fetchPriorInlineFeedback(
-      requestedBotUserId,
-      currentLens,
-      maintainerDecisionAssociations,
-    ) {
-      const { token, expiresAtTs } = await ensureAuth();
-      return fetchPriorInlineReviewFeedback(
-        token,
-        owner,
-        repo,
-        prNumber,
-        requestedBotUserId,
-        currentLens,
-        expiresAtTs,
-        maintainerDecisionAssociations,
-      );
-    },
-
-    async fetchBotFindingThreads(
-      requestedBotUserId,
-      publishRecordLenses,
-      maintainerDecisionAssociations,
-    ) {
-      const { token, expiresAtTs } = await ensureAuth();
-      return fetchBotFindingThreads(
-        token,
-        owner,
-        repo,
-        prNumber,
-        requestedBotUserId,
-        publishRecordLenses,
-        expiresAtTs,
-        maintainerDecisionAssociations,
-      );
-    },
-
-    async fetchReviewCommentParentGraph() {
-      const { token, expiresAtTs } = await ensureAuth();
-      return fetchReviewCommentParentGraph(token, owner, repo, prNumber, expiresAtTs);
     },
 
     async publishThreadBatch(review: ThreadBatchReview) {
@@ -660,22 +614,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         expiresAtTs,
       );
       return { reviewId: result.id, reviewUrl: result.url };
-    },
-
-    async findPublishedThreadBatch(marker, commitId) {
-      const { token, expiresAtTs } = await ensureAuth();
-      const bot = await getAppBotIdentity(cfg);
-      const found = await findPullRequestReviewByMarker(
-        token,
-        owner,
-        repo,
-        prNumber,
-        marker,
-        bot.login,
-        commitId,
-        expiresAtTs,
-      );
-      return found ? { reviewId: found.id, reviewUrl: found.url } : null;
     },
 
     async listInlineReviewThreads() {
@@ -788,11 +726,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return downloadActionsJobLogs(token, owner, repo, jobId, expiresAtTs);
     },
 
-    async listCheckRunAnnotations(checkRunId) {
-      const { token, expiresAtTs } = await ensureAuth();
-      return listCheckRunAnnotations(token, owner, repo, checkRunId, expiresAtTs);
-    },
-
     async gitCredentialAuth() {
       return ensureAuth();
     },
@@ -800,11 +733,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     async listConversationComments() {
       const { token, expiresAtTs } = await ensureAuth();
       return listConversationCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
-    },
-
-    async listInlineReviewComments() {
-      const { token, expiresAtTs } = await ensureAuth();
-      return listInlineReviewCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
     },
 
     async editReviewComment(commentId, body) {
@@ -824,43 +752,17 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       }
     },
 
-    async getPullRequestBody() {
+    async updatePullRequest(update) {
       const { token, expiresAtTs } = await ensureAuth();
       const octokit = installationOctokit(token, expiresAtTs);
-      const { data } = await octokit.rest.pulls.get({
+      await octokit.rest.pulls.update({
         owner,
         repo,
         pull_number: prNumber,
+        title: update.title,
+        body: update.body,
       });
-      return data.body ?? null;
-    },
-
-    async getPullRequestBranchInfo() {
-      const { token, expiresAtTs } = await ensureAuth();
-      const octokit = installationOctokit(token, expiresAtTs);
-      const { data } = await octokit.rest.pulls.get({
-        owner,
-        repo,
-        pull_number: prNumber,
-      });
-      return {
-        headRef: data.head.ref,
-        sameRepo: data.head.repo?.full_name === data.base.repo?.full_name,
-      };
-    },
-
-    async publishDescription(surfaceCfg, payload, operationMarker) {
-      const { token, expiresAtTs } = await ensureAuth();
-      return publishDescriptionOnPullRequest({
-        cfg: surfaceCfg,
-        token,
-        tokenExpiresAtTs: expiresAtTs,
-        owner,
-        repo,
-        prNumber,
-        payload,
-        operationMarker,
-      });
+      return { prNumber };
     },
 
     async listPushedCommits() {
@@ -883,10 +785,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       } catch {
         return null;
       }
-    },
-
-    isRateLimitCircuitOpen() {
-      return rateLimitCircuit.isOpen();
     },
   };
 }

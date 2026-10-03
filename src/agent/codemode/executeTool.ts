@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
+import type { CodeModeExecutorKind } from "../../settings/index.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { type LocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
@@ -21,6 +22,7 @@ export {
 
 export function buildCodeModeExecuteTool(params: {
   readonly capabilities: CodeModeCapabilityExecutors;
+  readonly executorKind: CodeModeExecutorKind;
   readonly session?: ExecutionSessionStore;
   readonly evidenceLedger?: EvidenceLedger;
   readonly headSha?: string;
@@ -38,6 +40,7 @@ export function buildCodeModeExecuteTool(params: {
       runCodeModeScript({
         code,
         capabilities: params.capabilities,
+        executorKind: params.executorKind,
         session,
         evidenceLedger: params.evidenceLedger,
         headSha: params.headSha,
