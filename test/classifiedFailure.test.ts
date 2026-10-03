@@ -67,13 +67,147 @@ describe("classifyFailure", () => {
         domain: "review",
         kind: "orchestrator_send_failed",
         message: "Insufficient credits for model",
+        cause: new Error("Insufficient credits for model"),
       }),
     );
     expect(f.errorCode).toBe("review.orchestrator_send_failed");
     expect(f.errorKind).toBe("quota");
   });
 
-  it("classifies every closed code as the pre-table review.* substring rules did", () => {
+  it("keeps outcome-unknown publish failures internal despite forbidden wording and causes", () => {
+    const error = new AppError({
+      domain: "operation_intent",
+      kind: "mutation_outcome_unknown",
+      message: "Mutation outcome unknown; automatic retry is forbidden",
+      cause: new AppError({
+        domain: "provider",
+        kind: "request_failed",
+        message: "401 Unauthorized",
+      }),
+    });
+    expect(classifyFailure(error)).toMatchObject({
+      failureDomain: "internal",
+      errorKind: "publish",
+      errorCode: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(
+      classifyFailure(
+        new AppError({
+          domain: "review",
+          kind: "publish_thread_failed",
+          message: "Thread publication failed",
+          cause: error,
+        }),
+      ),
+    ).toMatchObject({ failureDomain: "internal", errorKind: "publish" });
+  });
+
+  it("preserves typed provider causes through transparent review wrappers", () => {
+    const provider = new AppError({
+      domain: "provider",
+      kind: "request_failed",
+      message: "Insufficient credits; GitHub API investigation failed",
+    });
+    for (const kind of ["specialist_failed", "orchestrator_send_failed"] as const) {
+      expect(
+        classifyFailure(
+          new AppError({
+            domain: "review",
+            kind,
+            message: "403 forbidden wrapper",
+            cause: provider,
+          }),
+        ),
+      ).toMatchObject({ failureDomain: "provider", errorKind: "quota" });
+    }
+  });
+
+  it("preserves typed GitHub causes and unknown external kinds", () => {
+    for (const message of ["Resource not accessible by integration", "Unexpected response"]) {
+      expect(
+        classifyFailure(
+          new AppError({
+            domain: "review",
+            kind: "specialist_failed",
+            message: "Insufficient credits",
+            cause: new AppError({
+              domain: "github",
+              kind: "review_check_lookup_incomplete",
+              message,
+            }),
+          }),
+        ),
+      ).toMatchObject({
+        failureDomain: "github",
+        errorKind: message === "Unexpected response" ? "unknown" : "forbidden",
+      });
+    }
+    expect(
+      classifyFailure(
+        new AppError({
+          domain: "provider",
+          kind: "protocol_invalid",
+          message: "Unexpected response",
+        }),
+      ),
+    ).toMatchObject({ failureDomain: "provider", errorKind: "unknown" });
+  });
+
+  it("does not infer GitHub identity from a provider HTTP status", () => {
+    expect(
+      classifyFailure(
+        Object.assign(new Error("401 Unauthorized"), {
+          status: 401,
+          request: { url: "https://api.anthropic.com/v1/messages" },
+        }),
+      ),
+    ).toMatchObject({ failureDomain: "provider", errorKind: "auth" });
+    expect(classifyFailure({ status: 500, message: "Unexpected response" })).toMatchObject({
+      failureDomain: "unknown",
+      errorKind: "unknown",
+    });
+  });
+
+  it("keeps lifecycle and explicit domain hints authoritative", () => {
+    const error = new AppError({
+      domain: "provider",
+      kind: "request_failed",
+      message: "401 Unauthorized",
+    });
+    expect(classifyFailure(error, { lifecycle: "cancelled", domain: "github" })).toMatchObject({
+      failureDomain: "internal",
+      errorKind: "cancelled",
+    });
+    expect(classifyFailure(error, { domain: "internal" })).toMatchObject({
+      failureDomain: "internal",
+      errorKind: "unknown",
+    });
+    expect(classifyFailure(new Error("401 Unauthorized"), { domain: "github" })).toMatchObject({
+      failureDomain: "github",
+      errorKind: "auth",
+    });
+  });
+
+  it("bounds classification of cyclic and deeply wrapped causes", () => {
+    const cycle = new Error("boom");
+    cycle.cause = cycle;
+    expect(classifyFailure(cycle)).toMatchObject({
+      failureDomain: "unknown",
+      errorKind: "unknown",
+    });
+    let error: Error = new AppError({
+      domain: "provider",
+      kind: "request_failed",
+      message: "Insufficient credits",
+    });
+    for (let depth = 0; depth < 6; depth += 1) error = new Error("wrapper", { cause: error });
+    expect(classifyFailure(error)).toMatchObject({
+      failureDomain: "unknown",
+      errorKind: "unknown",
+    });
+  });
+
+  it("classifies every closed code with deliberate domain and internal-kind mappings", () => {
     const abortCodes = new Set(["agent.session_aborted", "review.specialist_aborted"]);
     const legacyKind = (code: string) =>
       code.startsWith("review.") && /validation/.test(code)
@@ -88,8 +222,24 @@ describe("classifyFailure", () => {
         });
         const classified = classifyFailure(error);
         const expected = abortCodes.has(error.code)
-          ? { failureDomain: "provider", errorKind: "cancelled" }
-          : { failureDomain: "internal", errorKind: legacyKind(error.code) };
+          ? { failureDomain: "internal", errorKind: "cancelled" }
+          : error.code === "review.specialist_timeout"
+            ? { failureDomain: "internal", errorKind: "timeout" }
+            : domain === "provider" || domain === "github"
+              ? {
+                  failureDomain: domain,
+                  errorKind:
+                    error.code === "github.review_thread_resolution_denied"
+                      ? "forbidden"
+                      : "unknown",
+                }
+              : {
+                  failureDomain: "internal",
+                  errorKind:
+                    error.code === "operation_intent.mutation_outcome_unknown"
+                      ? "publish"
+                      : legacyKind(error.code),
+                };
         expect([error.code, classified.failureDomain, classified.errorKind]).toEqual([
           error.code,
           expected.failureDomain,
@@ -142,7 +292,7 @@ describe("classified-failure projections", () => {
       domain: "review",
       kind: "orchestrator_send_failed",
       message: "Insufficient credits for model",
-      cause: new Error("wallet empty", { cause: new Error("ledger miss") }),
+      cause: new Error("Insufficient credits", { cause: new Error("ledger miss") }),
     }),
     {
       phase: "synthesis",
@@ -176,7 +326,7 @@ describe("classified-failure projections", () => {
       toolName: "publish_summary",
       provider: "pi",
       model: "m",
-      causeChain: ["wallet empty", "ledger miss"],
+      causeChain: ["Insufficient credits", "ledger miss"],
       errorCount: 3,
     });
     expect(classifiedFailurePostHogProperties(everyOptional)).toEqual({

@@ -29,6 +29,9 @@ export function isCancelAbortError(error: unknown): boolean {
 /** Logs-only classification for worker/provider failures. */
 export function classifyProviderError(error: unknown): ProviderErrorKind {
   if (isCancelAbortError(error)) return "cancelled";
+  // The specialist's host deadline participates in its existing local retry loop.
+  if (isAppError(error) && error.code === "review.specialist_timeout") return "timeout";
+  if (isAppError(error) && error.domain !== "provider") return "unknown";
   if (
     error instanceof Error &&
     error.name === "CodeModeHostHalt" &&

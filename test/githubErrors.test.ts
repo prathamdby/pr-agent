@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { AppError } from "../src/errors/appError.js";
 import {
   classifyGithubError,
   githubRequestPath,
   isDuplicateCheckRunCreationError,
+  looksLikeGithubError,
 } from "../src/github/githubErrors.js";
 
 describe("isDuplicateCheckRunCreationError", () => {
@@ -87,6 +89,16 @@ describe("isDuplicateCheckRunCreationError", () => {
 });
 
 describe("classifyGithubError", () => {
+  it("recognizes the typed resolution denial without relying on message text", () => {
+    const error = new AppError({
+      domain: "github",
+      kind: "review_thread_resolution_denied",
+      message: "Denied",
+      context: { mutationAccepted: false, threadNodeId: "PRRT_1" },
+    });
+    expect(classifyGithubError(error)).toBe("forbidden");
+    expect(looksLikeGithubError(error)).toBe(true);
+  });
   it("classifies Resource not accessible by integration as forbidden", () => {
     expect(
       classifyGithubError(
@@ -121,6 +133,54 @@ describe("classifyGithubError", () => {
 
   it("returns unknown for unclassified errors", () => {
     expect(classifyGithubError(new Error("something else"))).toBe("unknown");
+  });
+});
+
+describe("looksLikeGithubError", () => {
+  it("does not infer GitHub identity from HTTP status alone", () => {
+    expect(looksLikeGithubError({ status: 403, message: "Forbidden" })).toBe(false);
+    expect(
+      looksLikeGithubError({
+        status: 401,
+        request: { url: "https://api.anthropic.com/v1/messages" },
+      }),
+    ).toBe(false);
+  });
+
+  it("recognizes structured GitHub request URLs and response headers", () => {
+    expect(
+      looksLikeGithubError({
+        status: 404,
+        request: { url: "https://api.github.com/repos/acme/widgets" },
+      }),
+    ).toBe(true);
+    expect(
+      looksLikeGithubError({
+        status: 403,
+        response: { headers: { "x-github-request-id": "request-id" } },
+      }),
+    ).toBe(true);
+  });
+
+  it("uses the typed domain before ambiguous message text", () => {
+    expect(
+      looksLikeGithubError(
+        new AppError({
+          domain: "github",
+          kind: "review_check_lookup_incomplete",
+          message: "Unexpected response",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeGithubError(
+        new AppError({
+          domain: "provider",
+          kind: "request_failed",
+          message: "GitHub API investigation: insufficient credits",
+        }),
+      ),
+    ).toBe(false);
   });
 });
 

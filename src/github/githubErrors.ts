@@ -1,3 +1,4 @@
+import { isAppError } from "../errors/appError.js";
 import { httpStatus } from "./httpStatus.js";
 
 type RecordLike = Record<string, unknown>;
@@ -102,6 +103,9 @@ function githubErrorText(error: unknown): string {
 
 /** Logs/analytics-only classification for GitHub API failures. */
 export function classifyGithubError(error: unknown): GithubErrorKind {
+  if (isAppError(error) && error.code === "github.review_thread_resolution_denied") {
+    return "forbidden";
+  }
   const text = githubErrorText(error);
   const status = httpStatus(error);
 
@@ -132,7 +136,21 @@ export function classifyGithubError(error: unknown): GithubErrorKind {
 }
 
 export function looksLikeGithubError(error: unknown): boolean {
-  if (httpStatus(error) != null) return true;
+  if (isAppError(error)) return error.domain === "github";
+  if (isRecord(error)) {
+    const request = isRecord(error.request) ? error.request : undefined;
+    const response = isRecord(error.response) ? error.response : undefined;
+    const headers = isRecord(response?.headers) ? response.headers : undefined;
+    if (typeof headers?.["x-github-request-id"] === "string") return true;
+    for (const url of [request?.url, response?.url]) {
+      if (typeof url !== "string") continue;
+      try {
+        if (new URL(url).hostname === "api.github.com") return true;
+      } catch {
+        // Relative paths cannot establish which API served the request.
+      }
+    }
+  }
   const text = githubErrorText(error);
   // Require GitHub-shaped signals — do not treat bare 401/403 strings as GitHub
   // (provider adapters often surface those without an HTTP status field).
