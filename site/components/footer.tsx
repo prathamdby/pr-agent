@@ -60,7 +60,7 @@ export function Footer() {
                 height={28}
                 className="size-7 rounded-sm outline-none"
               />
-              <span className="text-[15px] font-semibold tracking-[-0.01em]">{PRODUCT_NAME}</span>
+              <span className="text-ui font-semibold tracking-[-0.01em]">{PRODUCT_NAME}</span>
             </a>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-text-secondary">
               AI pull request reviews on servers you run. MIT licensed, no per-seat fee, your GitHub
@@ -78,7 +78,7 @@ export function Footer() {
                     title={label}
                     className="grid size-10 place-items-center rounded-sm bg-surface-raised text-text-secondary shadow-ring transition-[color,background-color,scale] duration-[150ms,150ms,200ms] ease-out hover:bg-surface-hover hover:text-text active:scale-[0.97] motion-reduce:transition-none"
                   >
-                    <Icon className="size-[18px]" />
+                    <Icon className="size-4.5" />
                   </a>
                 </li>
               ))}
@@ -123,7 +123,7 @@ export function Footer() {
                     <a
                       href={resource.path}
                       title={resource.description}
-                      className={`${linkClassName} font-mono text-[13px]`}
+                      className={`${linkClassName} font-mono text-label`}
                     >
                       {resource.path}
                     </a>
@@ -134,7 +134,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-14 flex flex-col gap-4 border-t border-line pt-6 text-[13px] text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-14 flex flex-col gap-4 border-t border-line pt-6 text-label text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
           <p className="tabular">
             © {year} {PRODUCT_NAME}. MIT licensed.
           </p>

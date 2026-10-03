@@ -220,6 +220,7 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `nub run --node test`                  | Vitest via plain Node (escape hatch)                                                                                        |
 | `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                                                                                 |
 | `nub run site:build`                   | Landing site production build                                                                                               |
+| `nub run check:site-design`            | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                      |
 | `nub run site:generate-og`             | Generate landing OG assets                                                                                                  |
 
 Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.

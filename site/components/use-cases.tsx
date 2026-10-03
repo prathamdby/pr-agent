@@ -170,8 +170,8 @@ export function UseCases() {
                 }}
                 className={
                   selected
-                    ? "btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-soft"
-                    : "btn btn-ghost tabs-tab h-11 text-[15px] font-normal"
+                    ? "btn tabs-tab h-11 bg-surface text-ui text-text shadow-soft"
+                    : "btn btn-ghost tabs-tab h-11 text-ui font-normal"
                 }
               >
                 <span>{item.tab}</span>
@@ -198,14 +198,12 @@ export function UseCases() {
               <h3 className="mt-4 text-2xl font-medium tracking-[-0.02em] text-text">
                 {item.title}
               </h3>
-              <p className="mt-3 text-[15px] leading-relaxed text-text-secondary">
-                {item.description}
-              </p>
+              <p className="mt-3 text-ui leading-relaxed text-text-secondary">{item.description}</p>
               <ul className="mt-6 divide-y divide-line">
                 {item.bullets.map((bullet) => (
                   <li
                     key={bullet}
-                    className="flex items-start gap-3 py-3 text-[15px] leading-snug text-pretty text-text"
+                    className="flex items-start gap-3 py-3 text-ui leading-snug text-pretty text-text"
                   >
                     <span
                       aria-hidden="true"

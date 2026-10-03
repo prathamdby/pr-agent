@@ -62,7 +62,7 @@ export function CodeBlock({ label, code, language }: CodeBlockProps) {
         </span>
         <CopyButton text={code} target={`${label} snippet`} />
       </figcaption>
-      <pre className="overflow-x-auto rounded-xs bg-surface p-4 text-[13px] leading-relaxed shadow-soft">
+      <pre className="overflow-x-auto rounded-xs bg-surface p-4 text-label leading-relaxed shadow-soft">
         <code>{highlight(code, language)}</code>
       </pre>
     </figure>

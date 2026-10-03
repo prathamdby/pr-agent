@@ -43,7 +43,7 @@ const ROWS: readonly TriageRow[] = [
 
 function GhGfmTable({ rows }: { readonly rows: readonly TriageRow[] }) {
   return (
-    <table className="w-full border-collapse text-left text-[11px] leading-snug">
+    <table className="w-full border-collapse text-left text-meta leading-snug">
       <thead>
         <tr className="border-b border-line text-text">
           <th scope="col" className="py-1.5 pr-2 font-semibold">

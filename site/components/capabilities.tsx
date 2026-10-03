@@ -31,24 +31,16 @@ function IconTile({ icon: Icon }: { readonly icon: IconComponent }) {
 
 function CommandChip({ value }: { readonly value: string | null }) {
   if (value === null) {
-    return (
-      <span className="rounded-xs bg-surface-raised px-2 py-1 text-xs font-medium text-text-secondary shadow-ring">
-        Automatic
-      </span>
-    );
+    return <span className="chip font-medium text-text-secondary">Automatic</span>;
   }
-  return (
-    <code className="rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs font-medium text-accent-text shadow-ring">
-      {value}
-    </code>
-  );
+  return <code className="chip font-mono font-medium text-accent-text">{value}</code>;
 }
 
 function Copy({ id }: { readonly id: CapabilityId }) {
   const item = capability(id);
   return (
     <>
-      <h3 className="text-[17px] leading-snug font-medium text-text">{item.title}</h3>
+      <h3 className="text-lead leading-snug font-medium text-text">{item.title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-text-secondary">{item.trigger}.</p>
       <p className="mt-3 text-sm leading-relaxed text-text-tertiary">{item.detail}</p>
     </>
@@ -68,7 +60,7 @@ function Card({
 }) {
   const item = capability(id);
   return (
-    <li className={`flex flex-col rounded-lg bg-surface p-6 shadow-card ${className ?? ""}`}>
+    <li className={`flex flex-col card p-6 ${className ?? ""}`}>
       <div className="flex items-start justify-between gap-3">
         <IconTile icon={icon} />
         <CommandChip value={command(item.trigger)} />
@@ -104,7 +96,7 @@ function ReviewLoopCard() {
   const review = capability("review");
   const verify = capability("verify");
   return (
-    <li className="flex flex-col rounded-lg bg-surface p-6 shadow-card sm:row-span-2">
+    <li className="flex flex-col card p-6 sm:row-span-2">
       <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4">
         <div className="relative">
           <Rail className="top-5 bottom-0" />
@@ -123,7 +115,7 @@ function ReviewLoopCard() {
 
         <div className="relative flex h-20 items-center justify-center">
           <Rail className="inset-y-0" />
-          <span className="relative z-10 grid size-[18px] place-items-center rounded-full bg-accent-solid text-on-accent">
+          <span className="relative z-10 grid size-4.5 place-items-center rounded-full bg-accent-solid text-on-accent">
             <Info className="size-3.5" />
           </span>
         </div>
@@ -197,7 +189,7 @@ function TriageVerdicts() {
 function TriageCard() {
   const triage = capability("triage");
   return (
-    <li className="rounded-lg bg-surface p-6 shadow-card sm:col-span-2">
+    <li className="card p-6 sm:col-span-2">
       <div className="grid gap-6 md:grid-cols-2 md:gap-8">
         <div className="flex flex-col">
           <div className="flex items-start justify-between gap-3">

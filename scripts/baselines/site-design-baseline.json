@@ -1,0 +1,41 @@
+{
+  "palette-reset": {
+    "count": 0
+  },
+  "undefined-color-token": {
+    "count": 0
+  },
+  "raw-color": {
+    "count": 22
+  },
+  "primitive-read": {
+    "count": 2
+  },
+  "shadow-var": {
+    "count": 0
+  },
+  "arbitrary-type-size": {
+    "count": 0
+  },
+  "arbitrary-value": {
+    "count": 59
+  },
+  "transition-all": {
+    "count": 0
+  },
+  "hover-unguarded": {
+    "count": 0
+  },
+  "card-clone": {
+    "count": 0
+  },
+  "chip-clone": {
+    "count": 0
+  },
+  "section-title-clone": {
+    "count": 0
+  },
+  "docs-token-parity": {
+    "count": 0
+  }
+}

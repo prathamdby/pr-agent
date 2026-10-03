@@ -1,6 +1,6 @@
 import { ButtonLink } from "@/components/button";
 import { ArrowUpRight, Plus } from "@/components/icons";
-import { Eyebrow, Section } from "@/components/section";
+import { Section, SectionTitle } from "@/components/section";
 import { FAQ_ITEMS } from "@/lib/content";
 import { REPO_URL } from "@/lib/site";
 
@@ -11,14 +11,10 @@ export function Faq() {
     <Section id="faq" labelledBy="faq-heading">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-16">
         <div className="lg:sticky lg:top-28 lg:self-start">
-          <Eyebrow>FAQ</Eyebrow>
-          <h2
-            id="faq-heading"
-            className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
-          >
+          <SectionTitle id="faq-heading" eyebrow="FAQ">
             Questions teams ask before they deploy
-          </h2>
-          <p className="mt-4 max-w-[40ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]">
+          </SectionTitle>
+          <p className="mt-4 max-w-[40ch] text-base leading-relaxed text-text-secondary sm:text-lead">
             Find your starting point here. If your question is missing, open an issue and it gets
             answered in the repository.
           </p>
@@ -33,7 +29,7 @@ export function Faq() {
           </div>
         </div>
 
-        <div className="rounded-lg bg-surface px-5 shadow-card sm:px-6">
+        <div className="card px-5 sm:px-6">
           {FAQ_ITEMS.map((item, index) => (
             <details
               key={item.question}
@@ -41,7 +37,7 @@ export function Faq() {
               open={index === 0}
               className="disclosure group border-b border-line last:border-b-0"
             >
-              <summary className="group/summary flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text">
+              <summary className="group/summary flex items-center justify-between gap-6 py-5 text-ui font-medium text-text">
                 <h3 className="font-medium">{item.question}</h3>
                 <span
                   aria-hidden="true"
@@ -50,7 +46,7 @@ export function Faq() {
                   <Plus className="disclosure-icon size-4" />
                 </span>
               </summary>
-              <p className="max-w-[52ch] pb-5 text-[15px] leading-relaxed text-text-secondary">
+              <p className="max-w-[52ch] pb-5 text-ui leading-relaxed text-text-secondary">
                 {item.answer}
               </p>
             </details>

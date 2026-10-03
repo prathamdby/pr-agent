@@ -54,6 +54,8 @@ jobs:
               - "package.json"
               - "nub.lock"
               - "nub.jsonc"
+              - "scripts/check-site-design.mjs"
+              - "scripts/baselines/site-design-baseline.json"
               - "site/**"
 
   # Always-run aggregator so the required `gate` check reports on every PR,
@@ -170,4 +172,5 @@ jobs:
       - run: nub ci --filter pr-agent... --filter pr-agent-landing...
       - run: nub run lint
       - run: nub run fmt:check
+      - run: nub run check:site-design
       - run: nub run --node site:build

@@ -23,7 +23,7 @@ export function NotFound() {
             <h1 className="mt-4 text-[clamp(2rem,4vw,3rem)] font-medium leading-[1.08] tracking-[-0.03em] text-text">
               This page does not exist
             </h1>
-            <p className="mt-4 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-[1.0625rem]">
+            <p className="mt-4 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lead">
               The PR Agent site is one landing page plus a few machine-readable files. Everything it
               publishes is listed here.
             </p>
@@ -42,7 +42,7 @@ export function NotFound() {
             </div>
           </div>
 
-          <ul className="divide-y divide-line rounded-lg bg-surface px-5 shadow-card sm:px-6">
+          <ul className="divide-y divide-line card px-5 sm:px-6">
             {AGENT_RESOURCES.map((resource) => (
               <li
                 key={resource.path}

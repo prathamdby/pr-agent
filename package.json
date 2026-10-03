@@ -29,6 +29,7 @@
     "site:build": "nub --node run --filter pr-agent-landing build",
     "site:generate-og": "nub --node run --filter pr-agent-landing generate:og",
     "check:static-baseline": "node scripts/check-static-baseline.mjs",
+    "check:site-design": "node scripts/check-site-design.mjs",
     "check:guards": "node scripts/check-static-baseline.mjs && node scripts/check-comments.mjs && node scripts/check-domain-guards.mjs",
     "check:commit-messages": "node scripts/check-commit-messages.mjs",
     "gen:feature-map": "node scripts/gen-feature-map.mjs",

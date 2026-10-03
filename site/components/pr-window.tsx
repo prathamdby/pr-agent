@@ -25,13 +25,13 @@ export function PrWindow() {
           <span className="size-2.5 rounded-full bg-line" />
           <span className="size-2.5 rounded-full bg-line" />
         </span>
-        <span className="tabular flex-1 truncate rounded-xs bg-surface px-2.5 py-1 text-center text-[11px] text-text-tertiary shadow-ring">
+        <span className="tabular flex-1 truncate rounded-xs bg-surface px-2.5 py-1 text-center text-meta text-text-tertiary shadow-ring">
           github.com/acme/api/pull/284
         </span>
       </div>
 
       <div className="px-4 pt-3.5">
-        <p className="text-[15px] leading-snug font-semibold tracking-[-0.01em]">
+        <p className="text-ui leading-snug font-semibold tracking-[-0.01em]">
           Route env knobs through settings{" "}
           <span className="tabular font-normal text-text-tertiary">#284</span>
         </p>
@@ -54,7 +54,7 @@ export function PrWindow() {
             >
               {tab.label}
               {tab.count === null ? null : (
-                <span className="tabular rounded-full bg-surface-raised px-1.5 text-[10px] text-text-secondary shadow-ring">
+                <span className="tabular rounded-full bg-surface-raised px-1.5 text-badge text-text-secondary shadow-ring">
                   {tab.count}
                 </span>
               )}

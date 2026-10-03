@@ -12,7 +12,7 @@ function Mark({ value }: { readonly value: ComparisonMark }) {
     case "yes":
       return (
         <span className="inline-flex size-6 items-center justify-center text-accent-text">
-          <Check className="size-[18px]" />
+          <Check className="size-4.5" />
           <span className="sr-only">Yes</span>
         </span>
       );
@@ -39,7 +39,7 @@ function Mark({ value }: { readonly value: ComparisonMark }) {
 
 function ComparisonTable() {
   return (
-    <div className="hidden overflow-hidden rounded-lg bg-surface shadow-card md:block">
+    <div className="hidden overflow-hidden card md:block">
       <table className="w-full table-fixed border-collapse text-left">
         <thead>
           <tr className="border-b border-line">
@@ -61,7 +61,7 @@ function ComparisonTable() {
               >
                 <span className="inline-flex flex-col items-center gap-2.5 text-text">
                   <BrandLogo name={tool.id} className="size-6" />
-                  <span className="text-[13px] font-medium">{tool.name}</span>
+                  <span className="text-label font-medium">{tool.name}</span>
                 </span>
               </th>
             ))}
@@ -70,10 +70,7 @@ function ComparisonTable() {
         <tbody className="divide-y divide-line">
           {COMPARISON_CRITERIA.map((criterion) => (
             <tr key={criterion.label}>
-              <th
-                scope="row"
-                className="px-5 py-3.5 text-[15px] leading-snug font-medium text-text"
-              >
+              <th scope="row" className="px-5 py-3.5 text-ui leading-snug font-medium text-text">
                 {criterion.label}
               </th>
               {ALTERNATIVE_ROWS.map((tool) => (
@@ -101,8 +98,8 @@ function ComparisonCards() {
   return (
     <ul className="space-y-4 md:hidden">
       {COMPARISON_CRITERIA.map((criterion) => (
-        <li key={criterion.label} className="rounded-lg bg-surface px-5 pt-5 pb-2 shadow-card">
-          <h3 className="text-[15px] leading-snug font-medium text-text">{criterion.label}</h3>
+        <li key={criterion.label} className="card px-5 pt-5 pb-2">
+          <h3 className="text-ui leading-snug font-medium text-text">{criterion.label}</h3>
           <ul className="mt-2 divide-y divide-line">
             {ALTERNATIVE_ROWS.map((tool) => {
               const self = tool.id === SELF;
@@ -111,11 +108,11 @@ function ComparisonCards() {
                   <span
                     className={
                       self
-                        ? "inline-flex items-center gap-2.5 text-[15px] font-medium text-text"
-                        : "inline-flex items-center gap-2.5 text-[15px] text-text-secondary"
+                        ? "inline-flex items-center gap-2.5 text-ui font-medium text-text"
+                        : "inline-flex items-center gap-2.5 text-ui text-text-secondary"
                     }
                   >
-                    <BrandLogo name={tool.id} className="size-[18px] shrink-0" />
+                    <BrandLogo name={tool.id} className="size-4.5 shrink-0" />
                     {tool.name}
                   </span>
                   <Mark value={criterion.marks[tool.id]} />

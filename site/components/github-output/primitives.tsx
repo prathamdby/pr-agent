@@ -25,12 +25,12 @@ export function GhComment({ surface, frame = "inline", children }: GhCommentProp
         />
         <p className="min-w-0 truncate">
           <span className="font-semibold">pr-agent</span>{" "}
-          <span className="rounded-xs px-1 py-px text-[10px] font-medium text-text-secondary shadow-ring">
+          <span className="rounded-xs px-1 py-px text-badge font-medium text-text-secondary shadow-ring">
             bot
           </span>{" "}
           <span className="text-text-secondary">commented just now</span>
         </p>
-        <span className="ml-auto hidden shrink-0 text-[11px] text-text-tertiary sm:inline">
+        <span className="ml-auto hidden shrink-0 text-meta text-text-tertiary sm:inline">
           {surface}
         </span>
       </header>
@@ -59,7 +59,7 @@ export function GhNote({ children }: { readonly children: ReactNode }) {
 
 export function GhCode({ children }: { readonly children: ReactNode }) {
   return (
-    <code className="rounded-xs bg-surface-raised px-1 py-px font-mono text-[11px] text-text">
+    <code className="rounded-xs bg-surface-raised px-1 py-px font-mono text-meta text-text">
       {children}
     </code>
   );
@@ -123,7 +123,7 @@ const TONES: Record<Tone, string> = {
 export function GhPill({ tone, children }: { readonly tone: Tone; readonly children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${TONES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium whitespace-nowrap ${TONES[tone]}`}
     >
       {children}
     </span>
@@ -132,7 +132,7 @@ export function GhPill({ tone, children }: { readonly tone: Tone; readonly child
 
 export function GhPre({ children }: { readonly children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-[11px] leading-relaxed text-text">
+    <pre className="overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-relaxed text-text">
       <code>{children}</code>
     </pre>
   );
