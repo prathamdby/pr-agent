@@ -187,7 +187,7 @@ async function collect() {
   const docFile = path.relative(ROOT, DOC_PATH);
   const docParity = [
     ...[...tokens]
-      .filter((t) => !doc.includes(t))
+      .filter((t) => !new RegExp(`${t}(?![\\w-])`).test(doc))
       .map((t) => ({ file: docFile, line: 0, match: `${t} is in @theme but not documented` })),
     ...[...doc.matchAll(/--color-([a-z][a-z0-9-]*[a-z0-9])\b/g)]
       .filter((m) => !colorNames.has(m[1]))
