@@ -1,7 +1,7 @@
 import { installationOctokit } from "./appAuth.js";
 import { AppError } from "../errors/appError.js";
 import { httpStatus } from "./httpStatus.js";
-import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
+import { stopPaginatedPage } from "./paginateOctokit.js";
 import {
   CHECK_RUNS_MAX_PAGES,
   CHECK_RUNS_PAGE_SIZE,
@@ -34,22 +34,21 @@ export async function findReviewCheckRunByName(
   expiresAtTs?: number,
 ): Promise<{ id: number; url: string | null } | null> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const { items: runs, truncated } = await paginateOctokitPagesWithMeta({
-    perPage: CHECK_RUNS_PAGE_SIZE,
-    maxPages: CHECK_RUNS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.checks.listForRef({
-        owner,
-        repo,
-        ref: headSha,
-        filter: "all",
-        check_name: name,
-        per_page: perPage,
-        page,
-      });
-      return data.check_runs;
+  const checkPage = { page: 0, truncated: false };
+  const runs = await octokit.paginate(
+    octokit.rest.checks.listForRef,
+    {
+      owner,
+      repo,
+      ref: headSha,
+      filter: "all",
+      check_name: name,
+      per_page: CHECK_RUNS_PAGE_SIZE,
     },
-  });
+    (response, done) =>
+      stopPaginatedPage(checkPage, response.data, CHECK_RUNS_PAGE_SIZE, CHECK_RUNS_MAX_PAGES, done),
+  );
+  const truncated = checkPage.truncated;
   if (truncated) {
     throw new AppError({
       domain: "github",
@@ -196,20 +195,19 @@ export async function findIssueCommentBySentinel(
   const octokit = installationOctokit(token, expiresAtTs);
   let lastMatch: IssueCommentWithBody | null = null;
 
-  const pages = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: issueNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const commentPage = { page: 0, truncated: false };
+  const pages = await octokit.paginate(
+    octokit.rest.issues.listComments,
+    { owner, repo, issue_number: issueNumber, per_page: COMMENTS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        commentPage,
+        response.data,
+        COMMENTS_PAGE_SIZE,
+        COMMENT_PAGINATION_MAX_PAGES,
+        done,
+      ),
+  );
 
   for (const c of pages) {
     const body = c.body ?? "";
@@ -316,20 +314,19 @@ export async function listPullRequestLabels(
   expiresAtTs?: number,
 ): Promise<string[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const labels = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.issues.listLabelsOnIssue({
-        owner,
-        repo,
-        issue_number: pullNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const labelPage = { page: 0, truncated: false };
+  const labels = await octokit.paginate(
+    octokit.rest.issues.listLabelsOnIssue,
+    { owner, repo, issue_number: pullNumber, per_page: COMMENTS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        labelPage,
+        response.data,
+        COMMENTS_PAGE_SIZE,
+        COMMENT_PAGINATION_MAX_PAGES,
+        done,
+      ),
+  );
   return labels.map((l) => l.name);
 }
 

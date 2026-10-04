@@ -13,7 +13,8 @@ export type CodeRow = {
     | "call"
     | "member-call"
     | "optional-field"
-    | "fence-literal";
+    | "fence-literal"
+    | "github-list";
   specifierPrefix?: string;
   identifier?: string;
   identifiers?: string[];
@@ -47,6 +48,8 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
   let typeOnlyStatement = false;
   let lastWord = "";
   let pendingSpecifier = false;
+  let restChain = false;
+  let sawDot = false;
   let i = 0;
 
   const hitSpecifier = (specifier: string): boolean => {
@@ -169,10 +172,23 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
       if (row.kind === "fence-literal" && word === "kind") {
         if (/^\s*:\s*["'](?:unleased|unfenced)["']/.test(text.slice(i))) return true;
       }
+      if (
+        row.kind === "github-list" &&
+        restChain &&
+        word.startsWith("list") &&
+        /^\s*\(/.test(text.slice(i))
+      ) {
+        return true;
+      }
+      if (sawDot && word === "rest") restChain = true;
+      else if (!/^\s*\./.test(text.slice(i))) restChain = false;
+      sawDot = false;
       lastWord = word;
       continue;
     }
     if (ch === "(" && lastWord === "import") pendingSpecifier = true;
+    if (ch === ".") sawDot = true;
+    else if (!/\s/.test(ch)) sawDot = false;
     i += 1;
   }
   return false;

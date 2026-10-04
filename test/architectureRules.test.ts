@@ -28,6 +28,7 @@ const CODE_KINDS = new Set([
   "member-call",
   "optional-field",
   "fence-literal",
+  "github-list",
 ]);
 
 function loadCodeRows(): CodeRow[] {

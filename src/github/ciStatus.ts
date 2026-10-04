@@ -5,7 +5,7 @@ import {
 } from "./installationCapabilities.js";
 import { classifyGithubError } from "./githubErrors.js";
 import { installationOctokit } from "./appAuth.js";
-import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
+import { paginateOctokitPagesWithMeta, stopPaginatedPage } from "./paginateOctokit.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.js";
 
@@ -24,21 +24,20 @@ export async function listCheckRunsForHead(
   expiresAtTs?: number,
 ): Promise<CheckRunsForHeadResult> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const { items: runs, truncated } = await paginateOctokitPagesWithMeta({
-    perPage: CHECK_RUNS_PAGE_SIZE,
-    maxPages: CHECK_RUNS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.checks.listForRef({
-        owner,
-        repo,
-        ref: headSha,
-        filter: "latest",
-        per_page: perPage,
-        page,
-      });
-      return data.check_runs;
+  const checkPage = { page: 0, truncated: false };
+  const runs = await octokit.paginate(
+    octokit.rest.checks.listForRef,
+    {
+      owner,
+      repo,
+      ref: headSha,
+      filter: "latest",
+      per_page: CHECK_RUNS_PAGE_SIZE,
     },
-  });
+    (response, done) =>
+      stopPaginatedPage(checkPage, response.data, CHECK_RUNS_PAGE_SIZE, CHECK_RUNS_MAX_PAGES, done),
+  );
+  const truncated = checkPage.truncated;
 
   return {
     truncated,
@@ -69,20 +68,12 @@ export async function listPullsForHead(
   expiresAtTs?: number,
 ): Promise<readonly { readonly number: number }[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const pulls = await paginateOctokitPages({
-    perPage: 100,
-    maxPages: 2,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
-        owner,
-        repo,
-        commit_sha: headSha,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const pullPage = { page: 0, truncated: false };
+  const pulls = await octokit.paginate(
+    octokit.rest.repos.listPullRequestsAssociatedWithCommit,
+    { owner, repo, commit_sha: headSha, per_page: 100 },
+    (response, done) => stopPaginatedPage(pullPage, response.data, 100, 2, done),
+  );
   return pulls.map((pull) => ({ number: pull.number }));
 }
 
