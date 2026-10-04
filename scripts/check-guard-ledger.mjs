@@ -162,9 +162,35 @@ function archiveTree(sha) {
   return dir;
 }
 
+function gitOk(args) {
+  try {
+    execFileSync("git", args, { cwd: SCRIPT_ROOT, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// CI checks out the pull request at depth 1, so origin/main and the commits
+// between it and HEAD are absent until this fetch.
+function ensureMergeBase() {
+  if (!gitOk(["rev-parse", "--verify", "--quiet", "origin/main"])) {
+    execFileSync("git", ["fetch", "--no-tags", "origin", "main:refs/remotes/origin/main"], {
+      cwd: SCRIPT_ROOT,
+      stdio: "inherit",
+    });
+  }
+  if (gitOk(["merge-base", "HEAD", "origin/main"])) return;
+  execFileSync("git", ["fetch", "--no-tags", "--unshallow", "origin"], {
+    cwd: SCRIPT_ROOT,
+    stdio: "inherit",
+  });
+}
+
 function mergeBase() {
   const explicit = argValue("--base");
   if (explicit) return explicit;
+  ensureMergeBase();
   return execFileSync("git", ["merge-base", "HEAD", "origin/main"], {
     cwd: SCRIPT_ROOT,
     encoding: "utf8",
