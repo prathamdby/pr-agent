@@ -71,7 +71,31 @@ export function sourceMatchesCodeRow(row: CodeRow, _fileName: string, text: stri
           break;
         }
         if (quote === "`" && c === "$" && text[i + 1] === "{") {
-          body += c;
+          i += 2;
+          let depth = 1;
+          const start = i;
+          let nested: string | null = null;
+          while (i < text.length && depth > 0) {
+            const current = text[i];
+            if (nested) {
+              if (current === "\\") {
+                i += 2;
+                continue;
+              }
+              if (current === nested) nested = null;
+              i += 1;
+              continue;
+            }
+            if (current === '"' || current === "'" || current === "`") {
+              nested = current;
+              i += 1;
+              continue;
+            }
+            if (current === "{") depth += 1;
+            else if (current === "}") depth -= 1;
+            if (depth > 0) i += 1;
+          }
+          if (sourceMatchesCodeRow(row, _fileName, text.slice(start, i))) return true;
           i += 1;
           continue;
         }
@@ -103,8 +127,8 @@ export function sourceMatchesCodeRow(row: CodeRow, _fileName: string, text: stri
       i += 1;
       while (i < text.length && /[A-Za-z0-9_$]/.test(text[i])) i += 1;
       const word = text.slice(start, i);
-      if ((word === "import" || word === "export") && text.slice(i).match(/^\s+type\b/)) {
-        typeOnlyStatement = true;
+      if (word === "import" || word === "export") {
+        typeOnlyStatement = /^\s+type\b/.test(text.slice(i));
       }
       if (word === "from" || word === "require") pendingSpecifier = true;
       if (word === "import") pendingSpecifier = true;

@@ -208,6 +208,40 @@ export function buildThing(
     expect(violations).toEqual([]);
   });
 
+  it("does not let a type-only import hide the next value import", () => {
+    const rows = loadCodeRows();
+    const pg = rows.find((row) => row.id === "pg");
+    expect(pg).toBeDefined();
+    const text = 'import type { X } from "pg"\nimport { Pool } from "pg";';
+    expect(sourceMatchesCodeRow(pg!, "src/banned/probe.ts", text)).toBe(true);
+  });
+
+  it("sees guards inside template interpolation", () => {
+    const rows = loadCodeRows();
+    const env = rows.find((row) => row.id === "process-env");
+    expect(env).toBeDefined();
+    expect(
+      sourceMatchesCodeRow(env!, "src/banned/probe.ts", "const x = `a ${process.env.FOO}`;"),
+    ).toBe(true);
+  });
+
+  it("matches status assignment only in the SET clause", () => {
+    const rows = loadCodeRows();
+    const sql = rows.find((row) => row.id === "sql-status");
+    expect(sql).toBeDefined();
+    const hit = "const q = `UPDATE agent_work_items SET\n  status = 'failed' WHERE id = $1`;";
+    const miss = "const q = `UPDATE agent_work_items SET updated_at = now() WHERE status = 'failed'`;";
+    expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", hit)).toBe(true);
+    expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", miss)).toBe(false);
+  });
+
+  it("treats a trailing slash as a directory prefix", () => {
+    expect(isCodeRowAllowed("src/github/foo.ts", ["src/github/"])).toBe(true);
+    expect(isCodeRowAllowed("src/github-extra/foo.ts", ["src/github/"])).toBe(false);
+    expect(isCodeRowAllowed("src/index.ts", ["src/index.ts"])).toBe(true);
+    expect(isCodeRowAllowed("src/index.ts.bak", ["src/index.ts"])).toBe(false);
+  });
+
   it("ignores type-only pg imports and comment-only seam names", () => {
     const rows = loadCodeRows();
     const pg = rows.find((row) => row.id === "pg");
