@@ -106,7 +106,9 @@ function countOxRule(tree, row) {
     raw = typeof error.stdout === "string" ? error.stdout : "";
     if (!raw.trim().startsWith("{") && !raw.trim().startsWith("[")) {
       const stderr = typeof error.stderr === "string" ? error.stderr : "";
-      throw new Error(`oxlint failed for ${row.id}: ${stderr || raw || error.message}`);
+      throw new Error(`oxlint failed for ${row.id}: ${stderr || raw || error.message}`, {
+        cause: error,
+      });
     }
   } finally {
     restore?.();
