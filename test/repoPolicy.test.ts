@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_REPO_POLICY_FILE_BYTES,
+  MAX_REPO_POLICY_FILES,
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
 } from "../src/settings/reviewConstants.js";
 import {
@@ -168,6 +169,19 @@ Always enforce this rule.
     expect(result.policy.rules).toHaveLength(1);
     expect(result.policy.rules[0].filename).toBe("a.mdc");
     expect(result.drops).toEqual([{ filename: "b.mdc", reason: "file-skipped" }]);
+  });
+
+  it("skips policy files past the file count cap", async () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index <= MAX_REPO_POLICY_FILES; index += 1) {
+      files[`a${String(index).padStart(2, "0")}.mdc`] = "Valid rule body.";
+    }
+    const root = await policyFixture(files);
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules).toHaveLength(MAX_REPO_POLICY_FILES);
+    expect(result.drops).toEqual([{ filename: "a20.mdc", reason: "file-skipped" }]);
   });
 
   it("returns invalid when .pr-agent exists but is not a directory", async () => {
