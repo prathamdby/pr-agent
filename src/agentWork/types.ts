@@ -1,9 +1,25 @@
 import type { Config, ReviewCancelAttribution } from "../settings/index.js";
+import {
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+} from "../settings/queueConstants.js";
 import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
+
+/** Queue name for each durable work type. A missing key fails typecheck. */
+export const WORK_QUEUES = {
+  review: REVIEW_QUEUE,
+  ask: ASK_QUEUE,
+  description: DESCRIPTION_QUEUE,
+  triage: TRIAGE_QUEUE,
+  verification: VERIFICATION_QUEUE,
+} as const satisfies Record<WorkType, string>;
 export const WORK_STATUSES = [
   "queued",
   "running",

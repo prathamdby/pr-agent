@@ -1,17 +1,11 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import {
-  type Config,
-  ASK_QUEUE,
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
-  TRIAGE_QUEUE,
-  VERIFICATION_QUEUE,
-} from "../settings/index.js";
+import { type Config } from "../settings/index.js";
 import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
 import type { PrSurface } from "../github/prSurface.js";
 import { logWarn } from "../evlog.js";
-import type { WorkType, ReviewWorkItem } from "./types.js";
+import { WORK_QUEUES, type WorkType, type ReviewWorkItem } from "./types.js";
+import { leaseBinding } from "./writeFence.js";
 import {
   runDurableWorkItem,
   createDurableRuntime,
@@ -78,10 +72,19 @@ export function createWorkDefinitions(
     productionInstallationSurface;
   const executionDependencies = { ...dependencies, installationSurface };
   function define<T extends WorkType>(
-    policy: Omit<DurableWorkDefinition<T>, keyof WorkExecution<T> | "dispatch">,
+    policy: Omit<
+      DurableWorkDefinition<T>,
+      keyof WorkExecution<T> | "dispatch" | "queue" | "prActorLease"
+    >,
     execution: WorkExecution<T>,
   ): DurableWorkDefinition<T> {
-    const definition = { ...policy, ...execution };
+    const queue = WORK_QUEUES[policy.type];
+    const definition = {
+      ...policy,
+      ...execution,
+      queue,
+      ...leaseBinding(policy.type, queue),
+    };
     return {
       ...definition,
       dispatch: (job) =>
@@ -99,9 +102,7 @@ export function createWorkDefinitions(
     review: define(
       {
         type: "review",
-        queue: REVIEW_QUEUE,
         concurrency: dependencies.cfg.concurrency.review,
-        prActorLease: { queue: REVIEW_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         acceptItem: (item) => item.reviewLens != null,
         resolveHeadSha: resolveReviewHead,
@@ -111,7 +112,6 @@ export function createWorkDefinitions(
     ask: define(
       {
         type: "ask",
-        queue: ASK_QUEUE,
         concurrency: dependencies.cfg.concurrency.ask,
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
@@ -121,9 +121,7 @@ export function createWorkDefinitions(
     description: define(
       {
         type: "description",
-        queue: DESCRIPTION_QUEUE,
         concurrency: dependencies.cfg.concurrency.description,
-        prActorLease: { queue: DESCRIPTION_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
       },
@@ -132,9 +130,7 @@ export function createWorkDefinitions(
     triage: define(
       {
         type: "triage",
-        queue: TRIAGE_QUEUE,
         concurrency: dependencies.cfg.concurrency.triage,
-        prActorLease: { queue: TRIAGE_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
       },
@@ -143,9 +139,7 @@ export function createWorkDefinitions(
     verification: define(
       {
         type: "verification",
-        queue: VERIFICATION_QUEUE,
         concurrency: dependencies.cfg.concurrency.verification,
-        prActorLease: { queue: VERIFICATION_QUEUE },
         contextPolicy: { commenterId: () => undefined },
         resolveHeadSha: resolveWorkItemHead,
       },
