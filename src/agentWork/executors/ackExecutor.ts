@@ -6,6 +6,7 @@ import {
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
   triageCancelledNotice,
+  type GithubReactionContent,
 } from "../../settings/index.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -31,6 +32,7 @@ import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.j
 import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 import {
+  capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
   type InstallationCapabilities,
@@ -257,7 +259,7 @@ export async function executeAckJob(
   const stored = await loadGithubCapabilityObservation(pool, scope);
   let observation: InstallationCapabilities;
   let installation: AckInstallation | undefined;
-  if (stored) {
+  if (stored && !capabilityObservationUnconfirmed(stored.capabilities)) {
     const unknown = unknownInstallationCapabilities(
       { ...scope, appId: cfg.github.appId },
       String(stored.generation),
@@ -285,12 +287,8 @@ export async function executeAckJob(
   const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
   const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
-  if (
-    !data.awaitingApproval &&
-    !data.closedApproval &&
-    (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available"
-  ) {
-    await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
+  if (!data.awaitingApproval && !data.closedApproval) {
+    await reactBestEffort(prSurface, data.targets, GITHUB_REACTION_EYES);
   }
 
   if (
@@ -394,11 +392,21 @@ export async function executeAckJob(
   }
 
   // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
-  if (
-    data.reply &&
-    data.workItemId == null &&
-    (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available"
-  ) {
-    await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_PLUS_ONE);
+  if (data.reply && data.workItemId == null) {
+    await reactBestEffort(prSurface, data.targets, GITHUB_REACTION_PLUS_ONE);
+  }
+}
+
+/** A reaction never blocks the replies and progress that follow it in the same job. */
+async function reactBestEffort(
+  prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
+  targets: AckJobData["targets"],
+  reaction: GithubReactionContent,
+): Promise<void> {
+  if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") !== "available") return;
+  try {
+    await prSurface.setAcknowledgementReaction(targets, reaction);
+  } catch (error) {
+    logWarn("ack_reaction_failed", { reaction, message: errorMessage(error) });
   }
 }

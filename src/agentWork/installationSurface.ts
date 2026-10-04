@@ -6,7 +6,6 @@ import {
   parseRepositoryInstallation,
   type BotIdentity,
   type InstallationToken,
-  type InstallationTokenOptions,
 } from "../github/appAuth.js";
 import {
   mintInstallationToken,
@@ -104,12 +103,10 @@ export function openInstallationSurface(
       : (cached?.permissionsKey ?? "");
     const previous = cached ? await cached.pending : seed;
     params.signal?.throwIfAborted();
-    const requested = narrowRequestedPermissions(previous?.requestedPermissions, permissions);
-    const expected = requested ?? permissions;
     const consistent =
-      !expected ||
+      !permissions ||
       (previous?.permissions != null &&
-        Object.entries(expected).every(
+        Object.entries(permissions).every(
           ([permission, grant]) => previous.permissions?.[permission] === grant,
         ));
     if (
@@ -130,7 +127,6 @@ export function openInstallationSurface(
       .mintToken(params.cfg, params.installationId, {
         signal: params.signal,
         repositories,
-        permissions: requested,
       })
       .then((value) => {
         params.signal?.throwIfAborted();
@@ -139,20 +135,6 @@ export function openInstallationSurface(
             ? undefined
             : parseInstallationPermissions(value.permissions);
         if (value.permissions !== undefined && !effective) throw preflightUnavailable();
-        if (
-          requested &&
-          effective &&
-          Object.entries(effective).some(
-            ([permission, grant]) =>
-              !(permission === "metadata" && grant === "read") &&
-              !Object.entries(requested).some(
-                ([requestedPermission, allowed]) =>
-                  requestedPermission === permission &&
-                  (grant === allowed || (grant === "read" && allowed === "write")),
-              ),
-          )
-        )
-          throw preflightUnavailable();
         if (
           value.repositorySelection === "all" ||
           (value.repositories &&
@@ -372,21 +354,6 @@ function joinPreflight(
       },
     );
   });
-}
-
-function narrowRequestedPermissions(
-  requested: InstallationTokenOptions["permissions"],
-  observed?: InstallationPermissions,
-): InstallationTokenOptions["permissions"] {
-  if (!requested || !observed) return requested;
-  // Only existing request keys survive. A fresh grant can shrink, never widen, that scope.
-  return Object.fromEntries(
-    Object.entries(requested).flatMap(([key, value]) => {
-      const current = observed[key];
-      if (!current || value == null) return [];
-      return [[key, current === "read" ? "read" : value]];
-    }),
-  );
 }
 
 export type InstallationSurface = ReturnType<typeof openInstallationSurface>;

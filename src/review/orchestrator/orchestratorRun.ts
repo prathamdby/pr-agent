@@ -1446,6 +1446,9 @@ export async function runOrchestratedPrReview(
     let step = nextStep(null, stepFacts());
     while (step.kind !== "done") {
       await runStep(step);
+      // Tool executors and the completion pump absorb callback errors, so a
+      // failed artifact write surfaces here rather than at its call site.
+      recovery?.throwIfFailed();
       step = nextStep(step.kind, stepFacts());
     }
   } catch (error) {

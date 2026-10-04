@@ -86,17 +86,6 @@ export async function listPullsForHead(
   return pulls.map((pull) => ({ number: pull.number }));
 }
 
-export async function listLegacyCommitStatusesForHead(
-  token: string,
-  owner: string,
-  repo: string,
-  headSha: string,
-  expiresAtTs?: number,
-): Promise<CiLegacyStatus[]> {
-  return (await listLegacyCommitStatusesForHeadDetailed(token, owner, repo, headSha, expiresAtTs))
-    .legacyStatuses;
-}
-
 export async function listLegacyCommitStatusesForHeadDetailed(
   token: string,
   owner: string,

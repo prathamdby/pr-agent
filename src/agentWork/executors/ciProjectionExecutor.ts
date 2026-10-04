@@ -65,6 +65,7 @@ import {
   type GithubCiSourceAvailability,
 } from "../githubCapabilityRepository.js";
 import {
+  capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
 } from "../../github/installationCapabilities.js";
@@ -650,7 +651,10 @@ export async function executeCiProjectionJob(
   const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
   let observation = await loadGithubCapabilityObservation(pool, scope);
   let installation: Awaited<ReturnType<typeof productionInstallationSurface.token>> | undefined;
-  if (observation == null && options?.createSurface == null) {
+  if (
+    (observation == null || capabilityObservationUnconfirmed(observation.capabilities)) &&
+    options?.createSurface == null
+  ) {
     const generation = await nextGithubCapabilityObservationGeneration(pool);
     const preflight = await productionInstallationSurface.preflight({ cfg, ...scope, generation });
     await saveGithubCapabilityObservation(pool, { ...scope, observation: preflight.observation });
@@ -685,8 +689,17 @@ export async function executeCiProjectionJob(
     if (
       capabilityPolicy.access("pullRequestsRead") === "denied" ||
       capabilityPolicy.access("commentsWrite") === "denied"
-    )
+    ) {
+      if (await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha)) {
+        logWarn("ci_projection_repair_unreachable", {
+          owner: data.owner,
+          repo: data.repo,
+          headSha: data.headSha,
+          reason: "capability_denied",
+        });
+      }
       return;
+    }
   }
   const createSurface: CiProjectionSurfaceFactory =
     options?.createSurface ??

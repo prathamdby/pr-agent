@@ -91,6 +91,10 @@ import {
   VERIFICATION_QUEUE,
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
+import {
+  deniedInstallationCapabilities,
+  unknownInstallationCapabilities,
+} from "../../src/github/installationCapabilities.js";
 import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
 import {
   makeDurableJobMetadata,
@@ -279,6 +283,107 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     } finally {
       create.mockRestore();
     }
+  });
+
+  it("refreshes a stored observation that never confirmed access before reusing it", async () => {
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    const capabilityScope = { appId: cfg.github.appId, ...scope };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: unknownInstallationCapabilities(capabilityScope, "1"),
+    });
+    const preflight = vi
+      .spyOn(productionInstallationSurface, "preflight")
+      .mockResolvedValue({ observation: deniedInstallationCapabilities(capabilityScope, "2") });
+    const create = vi.spyOn(productionInstallationSurface, "create");
+    try {
+      await executeCiProjectionJob(cfg, pool, boss, {
+        kind: "ci_projection",
+        ...scope,
+        headSha: "capability-refresh",
+      });
+      expect(preflight).toHaveBeenCalledTimes(1);
+      expect(await loadGithubCapabilityObservation(pool, scope)).toMatchObject({
+        generation: 2,
+        capabilities: { pullRequestsRead: "denied", commentsWrite: "denied" },
+      });
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      preflight.mockRestore();
+      create.mockRestore();
+    }
+  });
+
+  it("renders an unseeded head as waiting unless a CI source is denied", async () => {
+    const headSha = "capability-unseeded";
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending', 1)`,
+      [
+        OWNER,
+        REPO,
+        headSha,
+        JSON.stringify({ lint: ciStateFact({ status: "in_progress", conclusion: null }) }),
+      ],
+    );
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    const waiting = await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001);
+    expect(waiting).toEqual({
+      summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+      version: (await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.version,
+    });
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 2,
+        capabilities: { checksRead: "available", statusesRead: "denied" },
+      },
+    });
+    const denied = await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001);
+    expect(denied.summary.headline).not.toBe("⏳ Waiting for CI");
+    expect(denied.summary.permissionNote).toContain("Partial CI view");
+  });
+
+  it("clears a repair flag the projector cannot act on while comment access is denied", async () => {
+    const headSha = "capability-repair-denied";
+    await insertSeededHead(headSha, {}, "none", 1);
+    await insertReviewWorkItem(headSha);
+    await pool.query(
+      `UPDATE pr_head_ci_state SET projection_repair_pending = true
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+      [OWNER, REPO, headSha],
+    );
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { pullRequestsRead: "available", commentsWrite: "denied" },
+      },
+    });
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    const createSurface = vi.fn(async () => fake.surface);
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      { kind: "ci_projection", ...scope, headSha },
+      { createSurface },
+    );
+    expect(createSurface).not.toHaveBeenCalled();
+    expect((await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.projectionRepairPending).toBe(
+      false,
+    );
+    expect(
+      (await listProjectionRepairPendingHeads(pool, 100)).map((head) => head.headSha),
+    ).not.toContain(headSha);
   });
 
   it("keeps established denial through unknown metadata and fences runtime denial to that observation", async () => {

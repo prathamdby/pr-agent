@@ -128,13 +128,17 @@ async function dependencyMismatch(db: Pool | PoolClient, envelope: ReviewArtifac
   const pending = [envelope];
   const loaded = new Map([[envelope.logicalKey, envelope]]);
   let bytes = Buffer.byteLength(encodeReviewArtifact(envelope), "utf8");
+  let overBudget = false;
   async function readPrior(logicalKey: string) {
     const cached = loaded.get(logicalKey);
     if (cached) return cached;
     const row = await artifactRow(db, envelope.binding.workItemId, logicalKey);
     if (!row) return null;
     bytes += Buffer.byteLength(row.envelope, "utf8");
-    if (bytes > REVIEW_ARTIFACT_BUDGET_BYTES) return null;
+    if (bytes > REVIEW_ARTIFACT_BUDGET_BYTES) {
+      overBudget = true;
+      return null;
+    }
     const prior = decodeArtifact(row, envelope.binding);
     if (!prior) return null;
     loaded.set(logicalKey, prior);
@@ -143,38 +147,46 @@ async function dependencyMismatch(db: Pool | PoolClient, envelope: ReviewArtifac
   }
   // Every edge must descend in logical order, including implicit journal links.
   // Visit each key once without recursion; the byte budget bounds total traversal.
-  while (pending.length > 0) {
-    const current = pending.pop();
-    if (!current) break;
-    const seen = new Set<string>();
-    for (const dependency of reviewArtifactDependencies(current)) {
-      if (seen.has(dependency.logicalKey)) return "artifact_dependency";
-      seen.add(dependency.logicalKey);
-      const prior = await readPrior(dependency.logicalKey);
-      if (
-        !prior ||
-        prior.order >= current.order ||
-        reviewArtifactHash(prior) !== dependency.payloadHash
-      )
-        return "artifact_dependency";
+  async function firstMismatch() {
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (!current) break;
+      const seen = new Set<string>();
+      for (const dependency of reviewArtifactDependencies(current)) {
+        if (seen.has(dependency.logicalKey)) return "artifact_dependency";
+        seen.add(dependency.logicalKey);
+        const prior = await readPrior(dependency.logicalKey);
+        if (
+          !prior ||
+          prior.order >= current.order ||
+          reviewArtifactHash(prior) !== dependency.payloadHash
+        )
+          return "artifact_dependency";
+      }
+      const artifact = current.artifact;
+      if (artifact.kind === "publication_prepared" && artifact.sequence > 0) {
+        const prior = await readPrior(`decision/${artifact.sequence - 1}/settled`);
+        if (!prior || prior.order >= current.order || prior.artifact.kind !== "publication_settled")
+          return "decision_order";
+      } else if (artifact.kind === "publication_settled") {
+        const prior = await readPrior(`decision/${artifact.sequence}/prepared`);
+        if (
+          !prior ||
+          prior.order >= current.order ||
+          prior.artifact.kind !== "publication_prepared"
+        )
+          return "prepared_decision_missing";
+        if (
+          prior.artifact.decisionId !== artifact.decisionId ||
+          reviewArtifactHash(prior) !== artifact.preparedHash
+        )
+          return "prepared_decision_mismatch";
+      }
     }
-    const artifact = current.artifact;
-    if (artifact.kind === "publication_prepared" && artifact.sequence > 0) {
-      const prior = await readPrior(`decision/${artifact.sequence - 1}/settled`);
-      if (!prior || prior.order >= current.order || prior.artifact.kind !== "publication_settled")
-        return "decision_order";
-    } else if (artifact.kind === "publication_settled") {
-      const prior = await readPrior(`decision/${artifact.sequence}/prepared`);
-      if (!prior || prior.order >= current.order || prior.artifact.kind !== "publication_prepared")
-        return "prepared_decision_missing";
-      if (
-        prior.artifact.decisionId !== artifact.decisionId ||
-        reviewArtifactHash(prior) !== artifact.preparedHash
-      )
-        return "prepared_decision_mismatch";
-    }
+    return null;
   }
-  return null;
+  const reason = await firstMismatch();
+  return overBudget ? "artifact_budget" : reason;
 }
 
 export type ReviewArtifactStore = {
@@ -218,6 +230,9 @@ export function openReviewArtifactStore(
           return "existing";
         }
         const mismatch = await dependencyMismatch(client, envelope);
+        // The walk counts only stored rows plus this envelope, so overflowing it
+        // proves the insert cannot fit the work budget either.
+        if (mismatch === "artifact_budget") return "capacity";
         if (mismatch) reviewArtifactInvalid(mismatch);
         let preparedKey: string | null = null;
         let reserve = 0;

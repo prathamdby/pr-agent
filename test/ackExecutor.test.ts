@@ -162,7 +162,14 @@ import { logWarn } from "../src/evlog.js";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
+  unknownInstallationCapabilities,
 } from "../src/github/installationCapabilities.js";
+import {
+  loadGithubCapabilityObservation,
+  saveGithubCapabilityObservation,
+} from "../src/agentWork/githubCapabilityRepository.js";
+import { productionInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
@@ -210,6 +217,52 @@ describe("executeAckJob", () => {
     });
     expect(reactions).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalled();
+  });
+
+  it("refreshes a stored observation that never confirmed access", async () => {
+    const scope = { appId: cfg.github.appId, installationId: 42, owner: "o", repo: "r" };
+    vi.mocked(loadGithubCapabilityObservation).mockResolvedValueOnce({
+      generation: 1,
+      capabilities: unknownInstallationCapabilities(scope, "1").availability,
+    });
+    const observation = availableInstallationCapabilities(scope, "2");
+    const preflight = vi.spyOn(productionInstallationSurface, "preflight").mockResolvedValueOnce({
+      observation,
+      installation: { token: "fresh", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+    });
+    await executeAckJob(cfg, pool, ackData());
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(saveGithubCapabilityObservation).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ observation }),
+    );
+    expect(
+      vi
+        .mocked(prSurfaceModule.createPrSurface)
+        .mock.calls.at(-1)?.[0]
+        .capabilities?.access("reactionsWrite"),
+    ).toBe("available");
+  });
+
+  it("still replies when an acknowledgement reaction fails", async () => {
+    vi.spyOn(surfaceBundle.surface, "setAcknowledgementReaction").mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "essential_access_denied",
+        message: "GitHub denied installation operation",
+      }),
+    );
+    await expect(
+      executeAckJob(cfg, pool, {
+        ...ackData(),
+        reply: { target: { kind: "prConversation", prNumber: 1 }, body: "help" },
+      }),
+    ).resolves.toBeUndefined();
+    expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toEqual(["help"]);
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_reaction_failed",
+      expect.objectContaining({ reaction: GITHUB_REACTION_EYES }),
+    );
   });
 
   it("posts eyes on every ack target", async () => {

@@ -276,7 +276,7 @@ describe("leased execution", () => {
     defaultMocks();
   });
   it.each([true, false])(
-    "preserves the acknowledged cancellation result through both lease APIs (%s)",
+    "preserves the acknowledged cancellation result while the lease is held (%s)",
     async (changed) => {
       const item = makeItem();
       vi.mocked(repo.markWorkCancelled).mockResolvedValue(changed);
@@ -296,12 +296,10 @@ describe("leased execution", () => {
       if (!execution) throw new Error("expected an owned execution");
       try {
         await expect(execution.cancelWhileOwned(item, "cancel")).resolves.toBe(changed);
-        await expect(execution.mark.cancelled(item.id)).resolves.toBe(changed);
-        expect(repo.markWorkCancelled).toHaveBeenNthCalledWith(1, pool, item.id, 1);
-        expect(repo.markWorkCancelled).toHaveBeenNthCalledWith(2, pool, item.id, 1);
+        expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, item.id, 1);
         vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
         await expect(execution.cancelWhileOwned(item, "lost")).resolves.toBeNull();
-        expect(repo.markWorkCancelled).toHaveBeenCalledTimes(2);
+        expect(repo.markWorkCancelled).toHaveBeenCalledTimes(1);
       } finally {
         await execution.release();
       }

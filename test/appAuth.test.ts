@@ -343,7 +343,7 @@ describe("installationOctokit", () => {
     expect(mintToken).toHaveBeenCalledTimes(1);
   });
 
-  it("does not widen an explicitly selected repository or requested permission on refresh", async () => {
+  it("does not widen an explicitly selected repository on refresh", async () => {
     const cfg = makeTestConfig();
     const lookupInstallation = vi.fn(async () => ({
       id: 42,
@@ -360,7 +360,6 @@ describe("installationOctokit", () => {
         ttlMs: 3_600_000,
         permissions: { contents: "read", pull_requests: "read" },
         repositories: ["r"],
-        requestedPermissions: { contents: "read", pull_requests: "read" },
       })
       .mockResolvedValue({
         token: "narrow-refreshed",
@@ -368,7 +367,6 @@ describe("installationOctokit", () => {
         ttlMs: 3_600_000,
         permissions: { contents: "read", pull_requests: "read" },
         repositories: ["r"],
-        requestedPermissions: { contents: "read", pull_requests: "read" },
       });
     const adapter = openInstallationSurface({
       lookupInstallation,
@@ -390,10 +388,7 @@ describe("installationOctokit", () => {
     expect(mintToken).toHaveBeenLastCalledWith(
       cfg,
       42,
-      expect.objectContaining({
-        repositories: ["r"],
-        permissions: { contents: "read", pull_requests: "read" },
-      }),
+      expect.objectContaining({ repositories: ["r"] }),
     );
     expect(result.observation.availability.reviewWrite).toBe("denied");
   });

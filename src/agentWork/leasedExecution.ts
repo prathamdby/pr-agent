@@ -355,7 +355,6 @@ export type LeasedExecution = {
     forceCompletedRescheduledParent(itemId: string): Promise<boolean>;
     retrying(itemId: string, error: unknown): Promise<boolean>;
     failed(itemId: string, error: unknown): Promise<boolean>;
-    cancelled(itemId: string): Promise<boolean>;
   };
   /** Stop observers and renewal, then clear the holder; safe to call more than once. */
   release(): Promise<void>;
@@ -536,7 +535,6 @@ export async function openLeasedExecution(
         forceMarkRescheduledParentCompleted(pool, itemId, requireLeaseEpoch(itemId)),
       retrying: (itemId, error) => markWorkRetrying(pool, itemId, error, leaseEpoch),
       failed: (itemId, error) => markWorkFailed(pool, itemId, error, leaseEpoch),
-      cancelled: (itemId) => markWorkCancelled(pool, itemId, leaseEpoch),
     },
     release: async () => {
       stopCancelObserve?.();

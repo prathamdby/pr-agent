@@ -684,8 +684,8 @@ export async function clearProjectionRepairPending(
   owner: string,
   repo: string,
   headSha: string,
-): Promise<void> {
-  await pool.query(
+): Promise<boolean> {
+  const result = await pool.query(
     `UPDATE pr_head_ci_state
         SET projection_repair_pending = false,
             updated_at = now()
@@ -693,6 +693,7 @@ export async function clearProjectionRepairPending(
         AND projection_repair_pending = true`,
     [owner, repo, headSha],
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function deleteExpiredPrHeadCiState(

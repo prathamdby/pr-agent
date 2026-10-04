@@ -28,7 +28,6 @@ export async function mintInstallationToken(
       ttlMs: Math.max(0, expiresAtTs - now),
       permissions: auth.permissions,
       repositories: auth.repositories?.map((repository) => repository.name) ?? options.repositories,
-      requestedPermissions: options.permissions,
       repositorySelection: auth.repository_selection,
     };
   }

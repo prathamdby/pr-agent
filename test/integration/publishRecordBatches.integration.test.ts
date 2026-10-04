@@ -1217,6 +1217,66 @@ try {
       );
       expect(Number(usage.rows[0]?.bytes)).toBeLessThanOrEqual(REVIEW_ARTIFACT_BUDGET_BYTES);
     });
+
+    it("reports capacity when a fresh artifact's dependency walk exceeds the budget", async () => {
+      const evidence: {
+        version: 1;
+        kind: "file_range";
+        path: string;
+        startLine: number;
+        endLine: number;
+        headSha: string;
+        contentHash: string;
+      }[] = [];
+      const reportWith = () =>
+        createReviewArtifactEnvelope(binding, {
+          kind: "report",
+          specialist: "correctness",
+          report: { status: "no_findings", findings: [] },
+          evidence,
+        });
+      const maxBytes = REVIEW_ARTIFACT_BUDGET_BYTES - 64;
+      let bytes = Buffer.byteLength(JSON.stringify(reportWith()), "utf8");
+      for (let segments = 400; segments > 0;) {
+        const read = {
+          version: 1 as const,
+          kind: "file_range" as const,
+          path: `src/${evidence.length}/${"segment/".repeat(segments)}file.ts`,
+          startLine: 1,
+          endLine: 1,
+          headSha: binding.headSha,
+          contentHash: "a".repeat(64),
+        };
+        const added = Buffer.byteLength(JSON.stringify(read), "utf8") + (evidence.length ? 1 : 0);
+        if (bytes + added <= maxBytes) {
+          evidence.push(read);
+          bytes += added;
+        } else segments = Math.floor(segments / 2);
+      }
+      const report = reportWith();
+      expect(Buffer.byteLength(JSON.stringify(report), "utf8")).toBe(bytes);
+      expect(await store.save(report)).toBe("stored");
+      const prepared = createReviewArtifactEnvelope(binding, {
+        kind: "publication_prepared",
+        decisionId: "over-budget",
+        sequence: 0,
+        operationKey: "review:batch:over-budget",
+        payload: reviewPayloadFromFindings([]),
+        dependencies: [{ logicalKey: report.logicalKey, payloadHash: reviewArtifactHash(report) }],
+      });
+      expect(bytes + Buffer.byteLength(JSON.stringify(prepared), "utf8")).toBeGreaterThan(
+        REVIEW_ARTIFACT_BUDGET_BYTES,
+      );
+      expect(await store.save(prepared)).toBe("capacity");
+      expect(await store.load(report.logicalKey)).toEqual(report);
+      expect(
+        (
+          await pool.query("SELECT logical_key FROM review_run_artifacts WHERE work_item_id = $1", [
+            binding.workItemId,
+          ])
+        ).rows,
+      ).toEqual([{ logical_key: report.logicalKey }]);
+    });
   });
 
   it.each(["postgres", "fake"] as const)(

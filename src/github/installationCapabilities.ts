@@ -146,6 +146,12 @@ export function installationCapabilitiesFromPermissions(params: {
   );
   return { ...params, availability };
 }
+/** A timed-out preflight persists "unknown"; reusing that observation never confirms access. */
+export function capabilityObservationUnconfirmed(
+  availability: Partial<Record<InstallationOperation, CapabilityAvailability>>,
+): boolean {
+  return Object.values(availability).includes("unknown");
+}
 export function essentialCapabilitiesDenied(observation: InstallationCapabilities) {
   return essentialInstallationOperations.filter(
     (operation) => observation.availability[operation] === "denied",

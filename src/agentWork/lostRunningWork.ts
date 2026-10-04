@@ -44,23 +44,36 @@ export async function listTerminalReviewsWithOpenOwnChecks(
        LEFT JOIN publish_records p
          ON p.work_item_id = w.id
         AND p.step = 'check_run'
+       LEFT JOIN github_repository_capabilities g
+         ON g.installation_id = w.installation_id
+        AND g.owner = w.owner
+        AND g.repo = w.repo
+      CROSS JOIN LATERAL (
+        -- Blocked candidates would refill the bounded batch. As in closeOpenOwnVerdict,
+        -- no saved record allows repair and a missing key is unknown.
+        SELECT g.installation_id IS NULL OR g.capabilities->>'checksWrite' = 'available' AS checks,
+               g.installation_id IS NULL OR g.capabilities->>'statusesWrite' = 'available' AS statuses
+      ) writable
       WHERE w.type = 'review'
         AND w.status IN ('completed', 'failed', 'cancelled', 'superseded')
         AND (
           (p.detail ? 'selectedOwnVerdict' AND (
-            (COALESCE(p.detail->>'ownCheckApplied', '') <> 'true'
+            (writable.checks
+              AND COALESCE(p.detail->>'ownCheckApplied', '') <> 'true'
               AND COALESCE(p.detail->>'ownCheckState', '') <> 'skipped-for-this-run')
-            OR (p.detail->'selectedOwnVerdict'->'status'->>'enabled' = 'true'
+            OR (writable.statuses
+              AND p.detail->'selectedOwnVerdict'->'status'->>'enabled' = 'true'
               AND COALESCE(p.detail->'selectedOwnVerdict'->'status'->>'headSha', '')
                   NOT IN ('', 'deferred-to-worker')
               AND COALESCE(p.detail->>'ownStatusApplied', '') <> 'true'
               AND COALESCE(p.detail->>'ownStatusState', '') <> 'skipped-for-this-run')
           ))
-          OR (NOT (p.detail ? 'selectedOwnVerdict') AND p.status = 'completed' AND (
+          OR (NOT (p.detail ? 'selectedOwnVerdict') AND p.status = 'completed'
+            AND (writable.checks OR writable.statuses) AND (
             COALESCE(p.detail->>'status', '') = 'in_progress'
             OR COALESCE(p.detail->>'conclusion', '') = ''
           ))
-          OR (p.id IS NULL AND EXISTS (
+          OR (p.id IS NULL AND (writable.checks OR writable.statuses) AND EXISTS (
             SELECT 1 FROM operation_intents i WHERE i.work_item_id = w.id
               AND i.mutation_kind = 'github.review_commit_status'
               AND (i.detail->>'state' = 'pending'

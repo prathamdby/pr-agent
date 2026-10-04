@@ -26,7 +26,13 @@ export async function loadRenderableHeadCi(
       : await loadGithubCiSourceAvailability(pool, { installationId, owner, repo, headSha });
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
   if (row == null) return waitingCiSummary(0);
-  if (headCiNeedsSeed(row) && sourceAvailability == null) return waitingCiSummary(row.version);
+  // An unseeded head has not been listed yet; only a denied source is known to be missing.
+  if (
+    headCiNeedsSeed(row) &&
+    sourceAvailability?.checks.access !== "denied" &&
+    sourceAvailability?.statuses.access !== "denied"
+  )
+    return waitingCiSummary(row.version);
   return ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
     sourceAvailability,

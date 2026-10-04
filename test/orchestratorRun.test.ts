@@ -126,6 +126,10 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
       readonly escalation?: EscalationPlan;
+      readonly onValidatedReport?: (report: {
+        status: "findings" | "no_findings";
+        findings: readonly ReviewFinding[];
+      }) => Promise<void>;
     }) => {
       const outcome = testState.outcomes.get(params.specialist);
       if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
@@ -137,6 +141,12 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
         params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
           once: true,
         });
+      }).then(async (result) => {
+        if (result.kind !== "error")
+          await params.onValidatedReport?.(
+            result.kind === "report" ? result.report : { status: "no_findings", findings: [] },
+          );
+        return result;
       });
     },
   ),
@@ -708,6 +718,46 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true });
     expect(load).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it("stops before synthesis when a specialist report cannot be stored", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const storageError = new AppError({
+      domain: "publish_store",
+      kind: "invalid_detail",
+      message: "artifact store unavailable",
+    });
+    const save = vi.fn(async (envelope: unknown) => {
+      if ((envelope as { logicalKey?: string }).logicalKey === "report/correctness")
+        throw storageError;
+      return "stored" as const;
+    });
+    const recovery = openReviewRecovery(binding, { load: async () => null, save });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      cfg: makeTestConfig({ review: { recoveryEnabled: true } }),
+      recovery,
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const)
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    await expect(run).rejects.toBe(storageError);
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ logicalKey: "report/correctness" }),
+    );
+    expect(testState.publishOrder).not.toContain("summary");
   });
 
   it("escalates recon and judgment budgets, the attempt model, and the specialist plan", async () => {

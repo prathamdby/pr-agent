@@ -33,16 +33,12 @@ export type InstallationToken = {
   readonly ttlMs: number;
   readonly permissions?: InstallationPermissions;
   readonly repositories?: readonly string[];
-  readonly requestedPermissions?: InstallationTokenOptions["permissions"];
   readonly repositorySelection?: "all" | "selected";
 };
 
 export type InstallationTokenOptions = {
   readonly signal?: AbortSignal;
   readonly repositories?: string[];
-  readonly permissions?: NonNullable<
-    Parameters<Octokit["rest"]["apps"]["createInstallationAccessToken"]>[0]
-  >["permissions"];
 };
 export type RepositoryInstallation = {
   readonly id: number;
@@ -117,7 +113,6 @@ export async function mintScopedInstallationAuth(
   const { data } = await octokit.rest.apps.createInstallationAccessToken({
     installation_id: installationId,
     repositories: options.repositories,
-    permissions: options.permissions,
     request: { signal: options.signal },
   });
   if (

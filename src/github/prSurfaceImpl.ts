@@ -369,7 +369,7 @@ async function reactOnAckTargets(
       } catch (e) {
         const status = httpStatus(e);
         if (status === 422) return;
-        if (strict) throw e;
+        if (strict && isConfirmedCapabilityDenial(e)) throw e;
         if (status === 403) {
           logDebug("reaction_suppressed_forbidden", {
             owner,

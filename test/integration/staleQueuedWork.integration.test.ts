@@ -1692,6 +1692,10 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
               })
             )?.capabilities.checksWrite,
           ).toBe("denied");
+          // A blocked candidate must not occupy the bounded repair batch.
+          expect(
+            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+          ).not.toContain(id);
           const restarts = Array.from({ length: 2 }, () =>
             spawnSync(
               "nub",
