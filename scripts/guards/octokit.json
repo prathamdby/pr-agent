@@ -1,0 +1,12 @@
+{
+  "id": "octokit",
+  "kind": "module",
+  "specifierPrefix": "@octokit/",
+  "skipTypeOnly": false,
+  "allow": ["src/github/"],
+  "mustCatch": [
+    "const { Octokit } = await import(\"@octokit/rest\");",
+    "const rest = require(\"@octokit/rest\");",
+    "import { Octokit } from \"@octokit/rest\";"
+  ]
+}

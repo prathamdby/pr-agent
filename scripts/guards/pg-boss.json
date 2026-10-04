@@ -1,0 +1,8 @@
+{
+  "id": "pg-boss",
+  "kind": "module",
+  "specifierPrefix": "pg-boss",
+  "skipTypeOnly": true,
+  "allow": ["src/db/", "src/agentWork/boss.ts"],
+  "mustCatch": ["import { PgBoss } from \"pg-boss\";"]
+}

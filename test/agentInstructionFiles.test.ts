@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -150,6 +151,12 @@ describe("pr-agent AGENTS.md trusted-context load", () => {
     if (loaded.kind !== "ok") return;
     expect(loaded.drops).toEqual([]);
     const agentsBody = loaded.files.find((file) => file.filename === "AGENTS.md")?.body ?? "";
+    const tokens = new Set([...agents.matchAll(/`([^`]+)`/g)].map((match) => match[1]));
+    for (const token of tokens) {
+      if (!token.includes("/") || token.includes(" ") || token.startsWith("http")) continue;
+      if (token.includes("*") || token.includes("<")) continue;
+      expect([token, existsSync(join(REPO_ROOT, token.replace(/\/$/, "")))]).toEqual([token, true]);
+    }
     expect(agentsBody).toContain("docs/cursor-cloud.md");
     expect(agentsBody).not.toContain("fuse-overlayfs");
     expect(agentsBody).not.toContain("sudo dockerd");

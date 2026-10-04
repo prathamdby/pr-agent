@@ -1,0 +1,11 @@
+{
+  "id": "pi-sdk",
+  "kind": "module",
+  "specifierPrefix": "@earendil-works/",
+  "skipTypeOnly": true,
+  "allow": ["src/agent/runtime/"],
+  "mustCatch": [
+    "import { createAgentSession } from \"@earendil-works/pi-agent-core\";",
+    "const sdk = await import(\"@earendil-works/pi-ai\");"
+  ]
+}

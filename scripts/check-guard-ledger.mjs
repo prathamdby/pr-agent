@@ -163,13 +163,15 @@ function countOxRule(tree, row) {
   return diagnostics.filter((item) => item.code === row.lintCode).length;
 }
 
+const COUNT_KINDS = new Set(["pattern", "files", "oxlint-deny"]);
+
 function measure(tree, rows) {
   const counts = {};
   for (const row of rows) {
+    if (!COUNT_KINDS.has(row.kind)) continue;
     if (row.kind === "pattern") counts[row.id] = countPattern(tree, row);
     else if (row.kind === "files") counts[row.id] = countFiles(tree, row);
-    else if (row.kind === "oxlint-deny") counts[row.id] = countOxRule(tree, row);
-    else throw new Error(`unknown row kind ${row.kind} in ${row.id}`);
+    else counts[row.id] = countOxRule(tree, row);
   }
   return counts;
 }
@@ -242,6 +244,10 @@ try {
 
 let loosening = false;
 for (const row of rows) {
+  if (!COUNT_KINDS.has(row.kind)) {
+    console.log(`  ${row.id}  kind ${row.kind}  syntax row`);
+    continue;
+  }
   const head = headCounts[row.id];
   const base = baseCounts[row.id];
   const status = head > base ? "LOOSENING" : "ok";
