@@ -1,0 +1,7 @@
+{
+  "id": "no-unsafe-type-assertion-src",
+  "kind": "oxlint-deny",
+  "rule": "typescript/no-unsafe-type-assertion",
+  "lintCode": "typescript(no-unsafe-type-assertion)",
+  "scope": "src"
+}

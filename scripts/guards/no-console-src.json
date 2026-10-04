@@ -1,0 +1,7 @@
+{
+  "id": "no-console-src",
+  "kind": "pattern",
+  "pattern": "console\\.(log|error|warn|info|debug|trace)\\s*\\(",
+  "scope": "src",
+  "flags": ""
+}

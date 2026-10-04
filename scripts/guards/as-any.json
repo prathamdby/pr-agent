@@ -1,0 +1,7 @@
+{
+  "id": "as-any",
+  "kind": "pattern",
+  "pattern": "\\bas\\s+any\\b",
+  "scope": "src",
+  "flags": ""
+}
