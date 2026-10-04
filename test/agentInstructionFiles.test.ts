@@ -155,7 +155,7 @@ describe("pr-agent AGENTS.md trusted-context load", () => {
     for (const token of tokens) {
       if (!token.includes("/") || token.includes(" ") || token.startsWith("http")) continue;
       if (token.includes("*") || token.includes("<")) continue;
-      expect(existsSync(join(REPO_ROOT, token.replace(/\/$/, ""))), token).toBe(true);
+      expect([token, existsSync(join(REPO_ROOT, token.replace(/\/$/, "")))]).toEqual([token, true]);
     }
     expect(agentsBody).toContain("docs/cursor-cloud.md");
     expect(agentsBody).not.toContain("fuse-overlayfs");

@@ -29,7 +29,8 @@ function assignsWorkItemStatus(text: string): boolean {
 }
 
 /** Walk source, skipping comments and string interiors, and record the forms a code row cares about. */
-export function sourceMatchesCodeRow(row: CodeRow, _fileName: string, text: string): boolean {
+export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: string): boolean {
+  void fileName;
   let typeOnlyStatement = false;
   let lastWord = "";
   let pendingSpecifier = false;
@@ -95,7 +96,7 @@ export function sourceMatchesCodeRow(row: CodeRow, _fileName: string, text: stri
             else if (current === "}") depth -= 1;
             if (depth > 0) i += 1;
           }
-          if (sourceMatchesCodeRow(row, _fileName, text.slice(start, i))) return true;
+          if (sourceMatchesCodeRow(row, fileName, text.slice(start, i))) return true;
           i += 1;
           continue;
         }
