@@ -5,15 +5,15 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const QUEUE_CONSTANTS = path.join(ROOT, "src", "settings", "queueConstants.ts");
 const WORKER = path.join(ROOT, "src", "agentWork", "worker.ts");
 const DEFINITIONS = path.join(ROOT, "src", "agentWork", "workDefinition.ts");
 const TYPES = path.join(ROOT, "src", "agentWork", "types.ts");
+const WRITE_FENCE = path.join(ROOT, "src", "agentWork", "writeFence.ts");
 
-const queueSrc = fs.readFileSync(QUEUE_CONSTANTS, "utf8");
 const workerSrc = fs.readFileSync(WORKER, "utf8");
 const definitionsSrc = fs.readFileSync(DEFINITIONS, "utf8");
 const typesSrc = fs.readFileSync(TYPES, "utf8");
+const fenceSrc = fs.readFileSync(WRITE_FENCE, "utf8");
 
 const QUEUE_FILES = [
   path.join(ROOT, "src", "settings", "queueConstants.ts"),
@@ -58,25 +58,34 @@ for (const match of definitionsSrc.matchAll(
   );
 }
 
+const workQueueBlock = /export const WORK_QUEUES = \{([\s\S]*?)\}/.exec(typesSrc)?.[1] ?? "";
+const typeToQueueConst = Object.fromEntries(
+  [...workQueueBlock.matchAll(/(\w+):\s*(\w+_QUEUE)/g)].map((match) => [match[1], match[2]]),
+);
+const unleasedBlock = /export const UNLEASED_WORK_TYPES = \[([\s\S]*?)\]/.exec(fenceSrc)?.[1] ?? "";
+const unleasedTypes = [...unleasedBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
 const durableRegistrations = [
   ...definitionsSrc.matchAll(/(\w+): define\(\s*\{([\s\S]*?)\},\s*(create\w+WorkExecution)\(/g),
 ].map((match) => ({
   data: match[1],
-  queueConst: /\bqueue: (\w+_QUEUE)/.exec(match[2])?.[1],
+  queueConst: typeToQueueConst[match[1]],
   executor: match[3],
 }));
 const declaredTypes = [...workTypes.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 if (
   !workerSrc.includes("createWorkDefinitions") ||
   durableRegistrations.length !== declaredTypes.length ||
-  durableRegistrations.some((row) => !row.queueConst || !declaredTypes.includes(row.data))
+  durableRegistrations.some((row) => !row.queueConst || !declaredTypes.includes(row.data)) ||
+  declaredTypes.some((type) => typeToQueueConst[type] == null) ||
+  unleasedTypes.some((type) => !declaredTypes.includes(type))
 ) {
   throw new Error("Durable work definitions do not cover the registered WorkType union");
 }
 
-const leased = [...queueSrc.matchAll(/^\s*(\w+_QUEUE),?\s*$/gm)]
-  .map((m) => m[1])
-  .filter((name) => workerSrc.includes(name) && queueSrc.includes("LEASED_WORK_QUEUES"));
+const leased = Object.entries(typeToQueueConst)
+  .filter(([type]) => !unleasedTypes.includes(type))
+  .map(([, queueConst]) => queueConst);
 
 const rows = [...registrations, ...durableRegistrations, ...retention].map((r) => {
   const queue = queueValues[r.queueConst] ?? r.queueConst;

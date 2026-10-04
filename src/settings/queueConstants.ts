@@ -30,14 +30,6 @@ export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 export const ESCALATED_TOOL_ROUNDS_MULTIPLIER = 2;
 export const ESCALATED_TOOL_ROUNDS_CAP = 64;
 
-/** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0030). */
-export const LEASED_WORK_QUEUES = [
-  REVIEW_QUEUE,
-  DESCRIPTION_QUEUE,
-  TRIAGE_QUEUE,
-  VERIFICATION_QUEUE,
-] as const;
-
 /** Queued this long with no live lease and no live pg-boss job means the delivery chain died. */
 export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;
 export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
