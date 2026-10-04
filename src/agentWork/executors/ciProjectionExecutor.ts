@@ -55,6 +55,22 @@ import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import {
+  loadGithubCapabilityObservation,
+  loadGithubCiSourceAvailability,
+  recordGithubCiSourceRead,
+  recordGithubCapabilityDenial,
+  saveGithubCapabilityObservation,
+  nextGithubCapabilityObservationGeneration,
+  type GithubCiSourceAvailability,
+} from "../githubCapabilityRepository.js";
+import {
+  capabilityObservationUnconfirmed,
+  createReviewCapabilityPolicy,
+  unknownInstallationCapabilities,
+} from "../../github/installationCapabilities.js";
+import type { CiStatusSourcesResult } from "../../github/ciStatus.js";
+import { ciSourcesComplete } from "../../review/ci/ciFacts.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
@@ -146,6 +162,7 @@ async function verificationFailureActive(
 function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): string | null {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
+    sourceAvailability: row.sourceAvailability,
   });
   if (!shouldRenderCiSummaryRow(rendered.summary)) return null;
   let cell = renderCiSummaryCell(rendered.summary, row.headSha, rendered.version);
@@ -157,6 +174,7 @@ function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): str
 function projectedActionPhrase(row: PrHeadCiStateRow): string {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
+    sourceAvailability: row.sourceAvailability,
   });
   return formatReviewActionLineCiStatus(rendered.summary);
 }
@@ -491,6 +509,7 @@ async function applyGithubCiListingIfNeeded(params: {
   readonly prNumbers: readonly number[];
   readonly probeSurface: PrSurface;
   readonly createSurface: CiProjectionSurfaceFactory;
+  readonly availability?: GithubCiSourceAvailability;
 }): Promise<PrHeadCiStateRow | null> {
   const phase = headCiListingPhase(params.row);
   if (phase === "none") return params.row;
@@ -499,7 +518,7 @@ async function applyGithubCiListingIfNeeded(params: {
     params.prNumbers.length > 0
       ? await params.createSurface(params.prNumbers[0] ?? 0)
       : params.probeSurface;
-  let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>>;
+  let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>> & Partial<CiStatusSourcesResult>;
   try {
     snapshot = await surface.getCiStatus(params.data.headSha);
   } catch (error) {
@@ -533,18 +552,71 @@ async function applyGithubCiListingIfNeeded(params: {
     checkRuns: snapshot.checkRuns,
     legacyStatuses: snapshot.legacyStatuses,
     githubAppId: params.cfg.github.appId,
-    checkRunsComplete: snapshot.checkRunsComplete,
+    checkRunsComplete:
+      snapshot.checkRunsComplete !== false && snapshot.legacyStatusesComplete !== false,
   };
 
+  let listedRow: PrHeadCiStateRow;
   if (phase === "seed") {
     const seeded = await seedPrHeadCiStateFromSnapshot(params.pool, listing);
     captureListingRollupChange(params.data, seeded.previousRollup, seeded.row);
-    return seeded.row;
+    listedRow = seeded.row;
+  } else {
+    const refreshed = await refreshPrHeadCiFromGithubSnapshot(params.pool, listing);
+    captureListingRollupChange(params.data, refreshed.previousRollup, refreshed.row);
+    listedRow = refreshed.row;
   }
+  if (params.availability == null) return listedRow;
+  for (const source of ["checks", "statuses"] as const) {
+    const detail = snapshot.sources?.[source];
+    // Legacy injected surfaces have complete statuses; production surfaces provide
+    // explicit access and completeness for both independent read boundaries.
+    await recordGithubCiSourceRead(params.pool, {
+      ...params.data,
+      source,
+      generation: params.availability.generation,
+      access:
+        detail?.access ??
+        (params.availability[source].access === "denied" ? "denied" : "available"),
+      complete:
+        detail?.complete ??
+        (source === "checks"
+          ? snapshot.checkRunsComplete !== false
+          : snapshot.legacyStatusesComplete !== false),
+    });
+  }
+  const availability = await loadGithubCiSourceAvailability(params.pool, params.data);
+  const latest = await loadPrHeadCiState(
+    params.pool,
+    params.data.owner,
+    params.data.repo,
+    params.data.headSha,
+  );
+  const scopedRow = withSourceAvailability(latest ?? listedRow, availability);
+  if (
+    Object.values(snapshot.sources ?? {}).some((source) => source.access === "unknown") &&
+    headCiListingPhase(scopedRow) !== "none"
+  ) {
+    await requestHeadCiProjection(params.boss, params.data, {
+      kind: "after",
+      seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
+    });
+  }
+  return scopedRow;
+}
 
-  const refreshed = await refreshPrHeadCiFromGithubSnapshot(params.pool, listing);
-  captureListingRollupChange(params.data, refreshed.previousRollup, refreshed.row);
-  return refreshed.row;
+function withSourceAvailability(
+  row: PrHeadCiStateRow,
+  sourceAvailability: GithubCiSourceAvailability,
+): PrHeadCiStateRow {
+  return {
+    ...row,
+    sourceAvailability,
+    rollup:
+      !ciSourcesComplete(sourceAvailability) && (row.rollup === "passing" || row.rollup === "none")
+        ? "unknown"
+        : row.rollup,
+  };
 }
 
 /**
@@ -576,10 +648,62 @@ export async function executeCiProjectionJob(
     return;
   }
 
+  const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
+  let observation = await loadGithubCapabilityObservation(pool, scope);
+  let installation: Awaited<ReturnType<typeof productionInstallationSurface.token>> | undefined;
+  if (
+    (observation == null || capabilityObservationUnconfirmed(observation.capabilities)) &&
+    options?.createSurface == null
+  ) {
+    const generation = await nextGithubCapabilityObservationGeneration(pool);
+    const preflight = await productionInstallationSurface.preflight({ cfg, ...scope, generation });
+    await saveGithubCapabilityObservation(pool, { ...scope, observation: preflight.observation });
+    installation = preflight.installation;
+    observation = await loadGithubCapabilityObservation(pool, scope);
+  }
+  let scopedAvailability =
+    observation == null ? undefined : await loadGithubCiSourceAvailability(pool, data);
+  let capabilityPolicy: ReturnType<typeof createReviewCapabilityPolicy> | undefined;
+  if (observation != null) {
+    const unknown = unknownInstallationCapabilities(
+      { appId: cfg.github.appId, ...scope },
+      String(observation.generation),
+    );
+    const availability = { ...unknown.availability, ...observation.capabilities };
+    const scopedOperations = {
+      ...availability,
+      checksRead: scopedAvailability?.checks.access ?? availability.checksRead,
+      statusesRead: scopedAvailability?.statuses.access ?? availability.statusesRead,
+    };
+    const generation = observation.generation;
+    capabilityPolicy = createReviewCapabilityPolicy(
+      {
+        scope: { appId: cfg.github.appId, ...scope },
+        generation: String(generation),
+        availability: scopedOperations,
+      },
+      async (operation) => {
+        await recordGithubCapabilityDenial(pool, { ...scope, generation, operation });
+      },
+    );
+    if (
+      capabilityPolicy.access("pullRequestsRead") === "denied" ||
+      capabilityPolicy.access("commentsWrite") === "denied"
+    ) {
+      if (await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha)) {
+        logWarn("ci_projection_repair_unreachable", {
+          owner: data.owner,
+          repo: data.repo,
+          headSha: data.headSha,
+          reason: "capability_denied",
+        });
+      }
+      return;
+    }
+  }
   const createSurface: CiProjectionSurfaceFactory =
     options?.createSurface ??
     (async (prNumber) => {
-      const installation = await productionInstallationSurface.token(cfg, data.installationId);
       return productionInstallationSurface.create({
         cfg,
         installationId: data.installationId,
@@ -587,6 +711,7 @@ export async function executeCiProjectionJob(
         repo: data.repo,
         prNumber,
         installation,
+        capabilities: capabilityPolicy,
       });
     });
 
@@ -603,6 +728,11 @@ export async function executeCiProjectionJob(
   if (prNumbers.length > 0) {
     await storePrNumbersForHead(pool, data.owner, data.repo, data.headSha, prNumbers);
   }
+  if (observation != null) {
+    scopedAvailability = await loadGithubCiSourceAvailability(pool, data);
+    row = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
+    if (row != null) row = withSourceAvailability(row, scopedAvailability);
+  }
 
   row = await applyGithubCiListingIfNeeded({
     cfg,
@@ -613,19 +743,28 @@ export async function executeCiProjectionJob(
     prNumbers,
     probeSurface,
     createSurface,
+    availability: scopedAvailability,
   });
   if (row == null) return;
 
   try {
-    const authorSurface =
-      prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
-    row = await authorHeadCiIfFactsChanged({
-      cfg,
-      pool,
-      prSurface: authorSurface,
-      row,
-      author: options?.author,
-    });
+    if (capabilityPolicy?.access("actionsRead") === "denied") {
+      logDebug("ci_projection_actions_unavailable", {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+      });
+    } else {
+      const authorSurface =
+        prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
+      row = await authorHeadCiIfFactsChanged({
+        cfg,
+        pool,
+        prSurface: authorSurface,
+        row,
+        author: options?.author,
+      });
+    }
   } catch (error) {
     logWarn("ci_projection_author_failed", {
       owner: data.owner,

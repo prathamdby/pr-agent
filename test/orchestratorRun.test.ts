@@ -15,7 +15,7 @@ import type {
 import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
 import type { Pool } from "pg";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { reviewPayloadFromFindings, type ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import {
@@ -26,6 +26,15 @@ import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/promp
 import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
+import {
+  openReviewRecovery,
+  snapshotFindingLedger,
+} from "../src/review/recovery/reviewRecovery.js";
+import {
+  createReviewArtifactBinding,
+  createReviewArtifactEnvelope,
+  reviewArtifactHash,
+} from "../src/review/recovery/reviewArtifacts.js";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -89,7 +98,8 @@ const publishRecordMocks = vi.hoisted(() => ({
 vi.mock("../src/agentWork/publishRecordRepository.js", () => publishRecordMocks);
 
 vi.mock("../src/review/run/reviewRunSetup.js", () => ({
-  buildReviewRunSetup: vi.fn(() => ({
+  buildReviewRunSetup: vi.fn((params: { trustedContext?: string }) => ({
+    orchestratorUserContent: params.trustedContext ?? "",
     systemPrompt: "legacy prompt must not be used",
     userContent: "Inspect the pull request.",
     workspaceTools: { piTools: [], executors: {} },
@@ -116,6 +126,10 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
       readonly escalation?: EscalationPlan;
+      readonly onValidatedReport?: (report: {
+        status: "findings" | "no_findings";
+        findings: readonly ReviewFinding[];
+      }) => Promise<void>;
     }) => {
       const outcome = testState.outcomes.get(params.specialist);
       if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
@@ -127,6 +141,12 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
         params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
           once: true,
         });
+      }).then(async (result) => {
+        if (result.kind !== "error")
+          await params.onValidatedReport?.(
+            result.kind === "report" ? result.report : { status: "no_findings", findings: [] },
+          );
+        return result;
       });
     },
   ),
@@ -179,6 +199,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
         getLedger: () => testState.ledger ?? createFindingLedger(),
         getPublishedBatchCount: () => testState.publishedBatchCount,
         getStopReason: () => null,
+        replay: vi.fn(async () => undefined),
       };
     },
   ),
@@ -484,7 +505,7 @@ describe("runOrchestratedPrReview", () => {
           testState.sentSendOptions.push(opts);
           const phase = prompt.includes("Inspect this pull request")
             ? "recon"
-            : prompt.startsWith("Judge the ")
+            : prompt.includes("Judge the ")
               ? "judgment"
               : prompt.includes("Synthesize the final")
                 ? "synthesis"
@@ -500,7 +521,7 @@ describe("runOrchestratedPrReview", () => {
               await executors.submit_specialist_brief?.(
                 testState.submittedBrief ?? defaultSubmittedBrief(),
               );
-          } else if (prompt.startsWith("Judge the ")) {
+          } else if (prompt.includes("Judge the ")) {
             testState.judgmentPrompts.push(prompt);
             if (testState.judgmentFailuresRemaining > 0) {
               testState.judgmentFailuresRemaining -= 1;
@@ -544,6 +565,199 @@ describe("runOrchestratedPrReview", () => {
   afterEach(() => {
     vi.useRealTimers();
     evlog.initEvlog("error", { silent: true, suppressDrainWarning: true });
+  });
+
+  it.each([false, true])(
+    "bootstraps all remaining validated reports as untrusted evidence (positive=%s)",
+    async (positive) => {
+      const binding = createReviewArtifactBinding(
+        {
+          workItemId: "00000000-0000-4000-8000-000000000001",
+          resourceKey: "o/r#1",
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          installationId: 1,
+          baseSha: "base",
+          headSha: "a".repeat(40),
+          mode: "review",
+        },
+        "a".repeat(64),
+      );
+      const rows = new Map([
+        [
+          "brief",
+          createReviewArtifactEnvelope(binding, { kind: "brief", brief: defaultSubmittedBrief() }),
+        ],
+        ...(["correctness", "security", "quality", "tests"] as const).map(
+          (specialist) =>
+            [
+              `report/${specialist}`,
+              createReviewArtifactEnvelope(binding, {
+                kind: "report",
+                specialist,
+                report: { status: "no_findings", findings: [] },
+                evidence: [],
+              }),
+            ] as const,
+        ),
+      ]);
+      if (positive) {
+        for (const specialist of ["correctness", "quality", "security"] as const) {
+          const item = finding(specialist, {
+            detail: `${specialist}-unique-cached-evidence`,
+            fixPrompt: "Guard the changed path.",
+          });
+          testState.judgmentBySource.set(specialist, [item]);
+          rows.set(
+            `report/${specialist}`,
+            createReviewArtifactEnvelope(binding, {
+              kind: "report",
+              specialist,
+              report: { status: "findings", findings: [item] },
+              evidence: [],
+            }),
+          );
+        }
+        const ledger = snapshotFindingLedger(createFindingLedger());
+        const prepared = createReviewArtifactEnvelope(binding, {
+          kind: "publication_prepared",
+          decisionId: "settled-security",
+          sequence: 0,
+          operationKey: "local:security:0",
+          payload: reviewPayloadFromFindings([]),
+          dependencies: [],
+          canonical: {
+            kind: "threads",
+            source: "security",
+            ledgerBefore: ledger,
+            localDelta: ledger,
+            inline: [],
+            footers: [],
+            counts: { suppressed: 0, capDowngraded: 0 },
+            resultKind: "empty",
+            evidence: [],
+            judgmentDegraded: false,
+          },
+        });
+        rows.set(prepared.logicalKey, prepared);
+        const settled = createReviewArtifactEnvelope(binding, {
+          kind: "publication_settled",
+          decisionId: "settled-security",
+          sequence: 0,
+          preparedHash: reviewArtifactHash(prepared),
+          outcome: "accepted",
+        });
+        rows.set(settled.logicalKey, settled);
+      }
+      const load = vi.fn(async (key: string) => rows.get(key) ?? null);
+      const recovery = openReviewRecovery(binding, { load, save: async () => "stored" });
+      const result = await runOrchestratedPrReview({
+        ...params(),
+        cfg: makeTestConfig({ review: { recoveryEnabled: true } }),
+        recovery,
+        workspace: { ...workspace, reader: { ...workspace.reader, isPathInCheckout: () => true } },
+        trustedContext: "normal trusted policy",
+      });
+      expect(result.published).toBe(true);
+      expect(testState.briefMessages).toEqual([]);
+      expect(
+        testState.sentPrompts.some((prompt) => prompt.includes(ORCHESTRATOR_RECON_INSTRUCTION)),
+      ).toBe(false);
+      expect(testState.sentPrompts[0]).toContain("cached_review_brief");
+      expect(testState.sentPrompts[0]).toContain("untrusted");
+      expect(testState.sentPrompts[0]).toContain("normal trusted policy");
+      if (positive) {
+        const firstPrompt = testState.sentPrompts[0];
+        const untrustedBlocks = [
+          ...firstPrompt.matchAll(
+            /<untrusted_evidence untrusted="true">[\s\S]*?<\/untrusted_evidence>/g,
+          ),
+        ].map((match) => match[0]);
+        for (const specialist of ["correctness", "quality"]) {
+          expect(
+            untrustedBlocks.some(
+              (block) =>
+                block.includes(`Source: cached_report_${specialist}`) &&
+                block.includes(`${specialist}-unique-cached-evidence`),
+            ),
+          ).toBe(true);
+        }
+        expect(firstPrompt).not.toContain("security-unique-cached-evidence");
+        expect(testState.publishOrder).not.toContain("security");
+      }
+      expect(load).toHaveBeenCalledWith("report/correctness");
+    },
+  );
+
+  it("does not touch supplied recovery storage while the flag is off", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const load = vi.fn(async () => {
+      throw new Error("flag-off read");
+    });
+    const save = vi.fn(async () => {
+      throw new Error("flag-off write");
+    });
+    const recovery = openReviewRecovery(binding, { load, save });
+    const run = runOrchestratedPrReview({ ...params(), recovery });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const)
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(load).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("stops before synthesis when a specialist report cannot be stored", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const storageError = new AppError({
+      domain: "publish_store",
+      kind: "invalid_detail",
+      message: "artifact store unavailable",
+    });
+    const save = vi.fn(async (envelope: unknown) => {
+      if ((envelope as { logicalKey?: string }).logicalKey === "report/correctness")
+        throw storageError;
+      return "stored" as const;
+    });
+    const recovery = openReviewRecovery(binding, { load: async () => null, save });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      cfg: makeTestConfig({ review: { recoveryEnabled: true } }),
+      recovery,
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const)
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    await expect(run).rejects.toBe(storageError);
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ logicalKey: "report/correctness" }),
+    );
+    expect(testState.publishOrder).not.toContain("summary");
   });
 
   it("escalates recon and judgment budgets, the attempt model, and the specialist plan", async () => {

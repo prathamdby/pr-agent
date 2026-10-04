@@ -4,6 +4,8 @@ import type { OperationIntentRow } from "../agentWork/operationIntentRepository.
 import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import type { ReplyTarget } from "../agentWork/types.js";
 import type { InstallationToken } from "./appAuth.js";
+import type { ReviewCapabilityPolicy } from "./installationCapabilities.js";
+import type { CiStatusSourcesResult } from "./ciStatus.js";
 import type {
   ListPullRequestFilesLimits,
   ListPullRequestFilesResult,
@@ -73,6 +75,8 @@ export type CiStatusSnapshot = {
   /** False when the provider pagination cap prevented a complete check-run view. */
   readonly checkRunsComplete?: boolean;
   readonly legacyStatuses: readonly CiLegacyStatus[];
+  readonly legacyStatusesComplete?: boolean;
+  readonly sources?: CiStatusSourcesResult["sources"];
 };
 
 export type PrConversationComment = {
@@ -129,6 +133,8 @@ export type CreatePrSurfaceParams = PrResource & {
   readonly installationId: number;
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
+  readonly capabilities?: ReviewCapabilityPolicy;
+  readonly tokenResolver?: () => Promise<InstallationToken>;
   readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
@@ -160,6 +166,7 @@ export type PrSurfaceMutationMethods = {
 
 /** Read-only methods remain callable while a leased execution is fenced. */
 export type PrSurfaceReadMethods = PrResource & {
+  readonly capabilities?: ReviewCapabilityPolicy;
   getHead(): Promise<PullRequestHeadResolution>;
   getHeadSha(): Promise<string>;
   getBotLogin(): Promise<string>;
@@ -179,6 +186,8 @@ export type PrSurfaceReadMethods = PrResource & {
   getLabels(): Promise<readonly string[]>;
   findReviewCheck(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
+  /** Independent, complete status evidence. Legacy adapters may omit it. */
+  getReviewCommitStatuses?(headSha: string): Promise<readonly CiLegacyStatus[]>;
   listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;

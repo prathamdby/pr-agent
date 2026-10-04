@@ -1,7 +1,8 @@
 import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
+import { emitWorkSpan, safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
+import { specialistSpanFromContext } from "../../analytics/workSpan.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import {
   classifyProviderError,
@@ -36,6 +37,7 @@ const MISSING_REPORT_ERROR =
   "No valid SpecialistReport was submitted. Call submit_findings_report with the complete report.";
 
 export type RunSpecialistParams = {
+  readonly onValidatedReport?: (report: SpecialistReport) => Promise<void>;
   readonly cfg: Config;
   readonly cwd: string;
   readonly specialist: SpecialistId;
@@ -58,6 +60,22 @@ type SubmissionState = {
   report: SpecialistReport | null;
   validationError: string | null;
 };
+
+function emitSpecialistStage(
+  params: RunSpecialistParams,
+  input: Omit<Parameters<typeof specialistSpanFromContext>[0], "context" | "specialistId">,
+): void {
+  if (!params.agentEvents) return;
+  emitWorkSpan(
+    params.agentEvents,
+    params.cfg,
+    specialistSpanFromContext({
+      ...input,
+      context: params.agentEvents,
+      specialistId: params.specialist,
+    }),
+  );
+}
 
 function timeoutError(): AppError {
   return new AppError({
@@ -120,6 +138,7 @@ async function waitBeforeStage(
 
 function buildSubmitTool(
   state: SubmissionState,
+  params: RunSpecialistParams,
   evidence?: {
     readonly ledger: EvidenceLedger;
     readonly headSha: string;
@@ -135,9 +154,16 @@ function buildSubmitTool(
 } {
   const piTool = buildSubmitFindingsReportPiTool();
   const executor: AgentRunnerToolExecutor = async (args) => {
+    const schemaStartedAt = Date.now();
     const parsed = parseToolInput(specialistReportSchema, args, {
       toolName: "submit_findings_report",
       errorTitle: "SpecialistReport validation failed:",
+    });
+    emitSpecialistStage(params, {
+      stage: "schema",
+      outcome: parsed.ok ? "accepted" : "rejected",
+      latencyMs: Date.now() - schemaStartedAt,
+      ...(!parsed.ok ? { errorReason: "review.specialist_invalid_report" } : {}),
     });
     if (!parsed.ok) {
       state.validationError = parsed.error;
@@ -146,6 +172,7 @@ function buildSubmitTool(
 
     let report = parsed.value;
     if (evidence != null && report.findings.length > 0) {
+      const validationStartedAt = Date.now();
       const filtered = assertFindingsHaveEvidence(
         report.findings,
         evidence.ledger,
@@ -155,6 +182,17 @@ function buildSubmitTool(
           isPathInCheckout: evidence.isPathInCheckout,
         },
       );
+      emitSpecialistStage(params, {
+        stage: "validation",
+        outcome: filtered.rejected.length > 0 ? "rejected" : "accepted",
+        latencyMs: Date.now() - validationStartedAt,
+        submittedCount: report.findings.length,
+        acceptedCount: filtered.accepted.length,
+        rejectedCount: filtered.rejected.length,
+        ...(filtered.rejected.length > 0
+          ? { errorReason: filtered.rejected[0]?.reasonCode ?? "no_evidence" }
+          : {}),
+      });
       if (filtered.rejected.length > 0 && evidence.agentEvents) {
         safeEmitEvidenceRejectEvent(evidence.agentEvents, evidence.cfg, {
           specialist: evidence.specialist,
@@ -238,6 +276,7 @@ async function createSessionWithinDeadline(
     executors: sessionTools.executors,
     attemptModel: params.escalation?.model,
     hostSignal: params.signal,
+    sessionContext: params.agentEvents,
   });
   return runWithinDeadline({
     run: () => creation,
@@ -259,6 +298,7 @@ async function runAttempt(
   const state: SubmissionState = { report: null, validationError: null };
   const submitTool = buildSubmitTool(
     state,
+    params,
     params.evidenceLedger && params.headSha
       ? {
           ledger: params.evidenceLedger,
@@ -370,7 +410,7 @@ function failureOutcome(params: {
   };
 }
 
-export async function runSpecialist(params: RunSpecialistParams): Promise<SpecialistOutcome> {
+async function runSpecialistOutcome(params: RunSpecialistParams): Promise<SpecialistOutcome> {
   const startedAtMs = Date.now();
   const deadlineMs = startedAtMs + params.timeoutMs;
   let attempts = 0;
@@ -404,7 +444,7 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
       const report = await runAttempt(params, deadlineMs);
       const durationMs = Date.now() - startedAtMs;
       if (report.status === "no_findings") {
-        return { kind: "empty", specialist: params.specialist, durationMs };
+        return { kind: "empty", specialist: params.specialist, durationMs, report };
       }
       return {
         kind: "report",
@@ -455,7 +495,26 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
   });
 }
 
-const SPECIALIST_SYSTEM_PROMPTS = {
+export async function runSpecialist(params: RunSpecialistParams): Promise<SpecialistOutcome> {
+  const outcome = await runSpecialistOutcome(params);
+  if (outcome.kind !== "error") {
+    await params.onValidatedReport?.(
+      outcome.kind === "report"
+        ? outcome.report
+        : (outcome.report ?? { status: "no_findings", findings: [] }),
+    );
+  }
+  // This owner emits before the serialized judgment consumer receives the report.
+  emitSpecialistStage(params, {
+    stage: "run",
+    outcome: outcome.kind,
+    latencyMs: outcome.durationMs,
+    ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
+  });
+  return outcome;
+}
+
+export const SPECIALIST_SYSTEM_PROMPTS = {
   correctness: buildAutomatedSystemPrompt(),
   security: automatedSecuritySystemPrompt,
   quality: automatedQualitySystemPrompt,

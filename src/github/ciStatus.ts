@@ -1,8 +1,13 @@
-import { isGithubNotFoundError, isMissingActionsPermissionError } from "./actionsLogs.js";
+import { isMissingActionsPermissionError } from "./actionsLogs.js";
+import {
+  isConfirmedCapabilityDenial,
+  type ReviewCapabilityPolicy,
+} from "./installationCapabilities.js";
+import { classifyGithubError } from "./githubErrors.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
+import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.js";
 
 export const isMissingChecksPermissionError = isMissingActionsPermissionError;
 
@@ -81,30 +86,110 @@ export async function listPullsForHead(
   return pulls.map((pull) => ({ number: pull.number }));
 }
 
-export async function listLegacyCommitStatusesForHead(
+export async function listLegacyCommitStatusesForHeadDetailed(
   token: string,
   owner: string,
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<CiLegacyStatus[]> {
+): Promise<{ readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }> {
   const octokit = installationOctokit(token, expiresAtTs);
-  try {
-    const { data } = await octokit.rest.repos.getCombinedStatusForRef({
-      owner,
-      repo,
-      ref: headSha,
-    });
-    return data.statuses.map((status) => ({
+  const { items, truncated } = await paginateOctokitPagesWithMeta({
+    perPage: CHECK_RUNS_PAGE_SIZE,
+    maxPages: CHECK_RUNS_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.repos.getCombinedStatusForRef({
+        owner,
+        repo,
+        ref: headSha,
+        page,
+        per_page: perPage,
+      });
+      return data.statuses;
+    },
+  });
+  return {
+    truncated,
+    legacyStatuses: items.map((status) => ({
       context: status.context,
       state: status.state,
       description: status.description ?? null,
       targetUrl: status.target_url ?? null,
       updatedAt: status.updated_at ?? null,
       createdAt: status.created_at ?? null,
-    }));
-  } catch (error) {
-    if (isMissingChecksPermissionError(error) || isGithubNotFoundError(error)) return [];
-    throw error;
-  }
+    })),
+  };
+}
+
+export type CiStatusSourceResult = {
+  readonly access: CiSourceAccess;
+  readonly complete: boolean;
+};
+export type CiStatusSourcesResult = {
+  readonly checkRuns: readonly CiCheckRunSnapshot[];
+  readonly legacyStatuses: readonly CiLegacyStatus[];
+  readonly checkRunsComplete: boolean;
+  readonly legacyStatusesComplete: boolean;
+  readonly sources: {
+    readonly checks: CiStatusSourceResult;
+    readonly statuses: CiStatusSourceResult;
+  };
+};
+
+/** Independent read boundaries: a denied source is never a successful empty listing. */
+export async function readCiStatusSources(params: {
+  readonly token: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly expiresAtTs?: number;
+  readonly capabilityPolicy?: ReviewCapabilityPolicy;
+}): Promise<CiStatusSourcesResult> {
+  const read = async <T>(
+    operation: "checksRead" | "statusesRead",
+    fetch: () => Promise<{ readonly items: T[]; readonly complete: boolean }>,
+  ): Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }> => {
+    const access = params.capabilityPolicy?.access(operation) ?? "available";
+    if (access === "denied") return { items: [], source: { access, complete: false } };
+    try {
+      const result = await fetch();
+      return { items: result.items, source: { access: "available", complete: result.complete } };
+    } catch (error) {
+      if (isConfirmedCapabilityDenial(error)) {
+        await params.capabilityPolicy?.deny(operation);
+        return { items: [], source: { access: "denied", complete: false } };
+      }
+      // Throttling retains the shared-circuit retry path. Other incomplete reads
+      // are source-local so the successful sibling can still contribute facts.
+      if (classifyGithubError(error) === "rate_limit") throw error;
+      return { items: [], source: { access: "unknown", complete: false } };
+    }
+  };
+  const checks = await read("checksRead", async () => {
+    const result = await listCheckRunsForHead(
+      params.token,
+      params.owner,
+      params.repo,
+      params.headSha,
+      params.expiresAtTs,
+    );
+    return { items: result.checkRuns, complete: !result.truncated };
+  });
+  const statuses = await read("statusesRead", async () => {
+    const result = await listLegacyCommitStatusesForHeadDetailed(
+      params.token,
+      params.owner,
+      params.repo,
+      params.headSha,
+      params.expiresAtTs,
+    );
+    return { items: result.legacyStatuses, complete: !result.truncated };
+  });
+  return {
+    checkRuns: checks.items,
+    legacyStatuses: statuses.items,
+    checkRunsComplete: checks.source.complete,
+    legacyStatusesComplete: statuses.source.complete,
+    sources: { checks: checks.source, statuses: statuses.source },
+  };
 }

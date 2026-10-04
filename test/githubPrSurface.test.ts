@@ -55,6 +55,10 @@ vi.mock("../src/github/httpStatus.js", () => ({
 
 import { createPrSurface } from "../src/github/prSurface.js";
 import {
+  availableInstallationCapabilities,
+  createReviewCapabilityPolicy,
+} from "../src/github/installationCapabilities.js";
+import {
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
@@ -303,6 +307,45 @@ describe("PrSurface acknowledgement reactions", () => {
       expect.objectContaining({ reaction: GITHUB_REACTION_PLUS_ONE }),
     );
     expect(mocks.createForIssue).not.toHaveBeenCalled();
+  });
+
+  it("keeps capability-gated reactions best-effort and raises only confirmed denials", async () => {
+    const deny = vi.fn(async () => undefined);
+    const policy = createReviewCapabilityPolicy(
+      availableInstallationCapabilities({ appId: "1", installationId: 1, owner: "o", repo: "r" }),
+      deny,
+    );
+    const gated = createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      prNumber: 7,
+      installation: { token: "tok", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+      capabilities: policy,
+    });
+    mocks.listForIssue
+      .mockRejectedValueOnce(new Error("server error"))
+      .mockResolvedValueOnce({ data: [] });
+    mocks.httpStatus.mockReturnValue(500);
+    await expect(
+      gated.setAcknowledgementReaction(
+        [
+          { kind: "pr", prNumber: 1 },
+          { kind: "pr", prNumber: 2 },
+        ],
+        GITHUB_REACTION_EYES,
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.createForIssue).toHaveBeenCalledTimes(1);
+    expect(deny).not.toHaveBeenCalled();
+
+    mocks.createForIssue.mockRejectedValueOnce(new Error("Resource not accessible by integration"));
+    mocks.httpStatus.mockReturnValue(403);
+    await expect(
+      gated.setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], GITHUB_REACTION_EYES),
+    ).rejects.toMatchObject({ code: "github.essential_access_denied" });
+    expect(deny).toHaveBeenCalledWith("reactionsWrite");
   });
 });
 

@@ -13,6 +13,13 @@ Decision 6 is amended by [ADR 0043](0043-deep-module-map.md): unused phase
 checkpoints and encrypted session snapshots are removed; operation intents and
 publish records remain authoritative.
 
+Decision 6 is further amended by
+[ADR 0044](0044-review-validated-artifact-recovery.md): optional review artifacts
+retain validated redacted structured output, not session computation. Briefs,
+reports, and publication/summary inputs can contain code excerpts. The no-model-text
+rule below applies to lifecycle/audit records, not that separate private store.
+Fresh judgment sessions never restore transcripts.
+
 ## Context
 
 pr-agent supported Pi and Cursor through a shared `AgentRunnerProvider` interface.
@@ -67,6 +74,12 @@ policy, durable operation intents, and strict redaction.
 
 ## Consequences
 
+- Runtime-session and send UUIDs identify actual sessions and sends. Reusable
+  prompt-cache identity does not identify a telemetry generation.
+- Local metadata audit and PostHog are independent; usage is optional and absent
+  fields are not zero-filled. Specialist non-generation stages emit as they settle.
+- Structured failure origins and lifecycle boundaries outrank ambiguous wrapper
+  text. Execution-stop metadata alone cannot claim a committed durable terminal.
 - One failure model and one test seam for agent sessions.
 - Worker images do not need coding-agent, an MCP bridge, or a native SQLite build
   for the agent runtime.

@@ -12,7 +12,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
 import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.js";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import {
@@ -28,6 +28,8 @@ import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
 import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
+import * as analytics from "../../src/analytics/index.js";
+import * as workTelemetry from "../../src/analytics/workCompleted.js";
 import type {
   AckJobData,
   CiProjectionJobData,
@@ -172,6 +174,23 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
 
+  beforeEach(() => {
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 9001,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions: {
+        contents: "read",
+        pull_requests: "write",
+        issues: "write",
+        checks: "write",
+        statuses: "write",
+        actions: "read",
+      },
+    });
+  });
+
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
@@ -226,6 +245,356 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
+
+  it.each(["queued", "running"] as const)(
+    "lifecycle supersede reports only committed %s changes, never duplicates or rollback",
+    async (status) => {
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      const terminal = vi.spyOn(workTelemetry, "captureWorkTerminal");
+      const ref = makePrRef();
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "auto" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+      );
+      const original = (
+        await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows[0].id;
+      if (status === "running") {
+        const lease = await acquirePrActorLease(pool, {
+          resourceKey: prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          workType: "review",
+          workItemId: original,
+          holderId: "intake-lifecycle",
+          ttlSeconds: 300,
+        });
+        if (!lease.acquired) throw new Error("expected acquired lease");
+        await claimWorkForExecution(pool, original, lease.leaseEpoch);
+      }
+      capture.mockClear();
+      const h = headers("synchronize", randomUUID());
+      const nextRef = { ...ref, headSha: "new-head" };
+      const failure = withSendFailOnNth(boss, 1);
+      try {
+        await expect(
+          applyAutomatedPullRequestIntake(boss, pool, h, nextRef, "synchronize", intakeLog(), cfg),
+        ).rejects.toThrow("injected send failure");
+      } finally {
+        failure.restore();
+      }
+      expect(capture).not.toHaveBeenCalled();
+      expect(terminal).not.toHaveBeenCalled();
+      expect((await getWorkItem(pool, original))?.status).toBe(status);
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        h,
+        nextRef,
+        "synchronize",
+        intakeLog(),
+        cfg,
+      );
+      expect(capture).toHaveBeenCalledExactlyOnceWith({
+        distinctId: `installation:${ref.installationId}`,
+        event: status === "queued" ? "work item superseded" : "work lifecycle",
+        properties: expect.objectContaining({
+          work_item_id: original,
+          owner: ref.owner,
+          repo: ref.repo,
+          pr_number: ref.prNumber,
+          head_sha: ref.headSha,
+          work_type: "review",
+          source: "intake",
+          ...(status === "queued"
+            ? { outcome: "superseded" }
+            : {
+                lifecycle_status: "cancel_requested",
+                trigger_source: "auto",
+                delivery_id: h.delivery,
+              }),
+          reason: "auto_replacement",
+        }),
+      });
+      if (status === "queued")
+        expect(terminal).toHaveBeenCalledExactlyOnceWith({
+          workItemId: original,
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          prNumber: ref.prNumber,
+          headSha: ref.headSha,
+          workType: "review",
+          outcome: "superseded",
+          reason: "auto_replacement",
+          source: "intake",
+        });
+      else expect(terminal).not.toHaveBeenCalled();
+      const committed = await getWorkItem(pool, original);
+      expect(committed?.status).toBe(status === "queued" ? "superseded" : "running");
+      expect(committed?.cancelRequestedAt != null).toBe(status === "running");
+      capture.mockClear();
+      terminal.mockClear();
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        h,
+        nextRef,
+        "synchronize",
+        intakeLog(),
+        cfg,
+      );
+      expect(capture).not.toHaveBeenCalled();
+      expect(terminal).not.toHaveBeenCalled();
+      if (status === "running") {
+        await applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("synchronize", randomUUID()),
+          nextRef,
+          "synchronize",
+          intakeLog(),
+          cfg,
+        );
+        const originalEvents = capture.mock.calls.filter(
+          ([event]) =>
+            event.event === "work lifecycle" && event.properties?.work_item_id === original,
+        );
+        expect(originalEvents).toEqual([]);
+      }
+    },
+  );
+
+  it.each(["force", "cancel", "closed", "merged"] as const)(
+    "lifecycle %s reports each winning cancellation after commit without private attribution",
+    async (trigger) => {
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      const terminal = vi.spyOn(workTelemetry, "captureWorkTerminal");
+      const ref = makePrRef();
+      const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "auto", triage: "manual" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+      );
+      const input: SlashCommandInput = {
+        headers: headers("review", randomUUID()),
+        ...ref,
+        commentId: 101,
+        commenterId: 202,
+        commenterLogin: "private-login",
+        body: "/review",
+        command: "review",
+        replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+      };
+      await runDelivery(pool, boss, cfg, { kind: "slash", input }, intakeLog());
+      if (trigger === "closed" || trigger === "merged") {
+        await runDelivery(
+          pool,
+          boss,
+          cfg,
+          {
+            kind: "slash",
+            input: {
+              ...input,
+              headers: headers("triage", randomUUID()),
+              commentId: 102,
+              body: "/triage",
+              command: "triage",
+              triageScope: "all",
+              triageMode: "apply",
+            },
+          },
+          intakeLog(),
+        );
+      }
+      const rows = (
+        await pool.query(
+          "SELECT id, type, source, head_sha FROM agent_work_items WHERE resource_key = $1",
+          [key],
+        )
+      ).rows;
+      const auto = rows.find((row) => row.source === "auto");
+      const lease = await acquirePrActorLease(pool, {
+        resourceKey: key,
+        workType: "review",
+        workItemId: auto.id,
+        holderId: "intake-lifecycle",
+        ttlSeconds: 300,
+      });
+      if (!lease.acquired) throw new Error("expected acquired lease");
+      await claimWorkForExecution(pool, auto.id, lease.leaseEpoch);
+      capture.mockClear();
+      const command =
+        trigger === "force" || trigger === "cancel"
+          ? {
+              kind: "slash" as const,
+              input: {
+                ...input,
+                headers: headers(trigger, randomUUID()),
+                commentId: 103,
+                body: trigger === "force" ? "/review force" : "/cancel",
+                command: trigger === "force" ? "review" : "cancel",
+              },
+            }
+          : {
+              kind: "pull_request" as const,
+              headers: headers("closed", randomUUID()),
+              ref,
+              action: "closed",
+              opts: { lifecycle: { state: trigger, observedAt: "2026-10-03T00:00:00Z" } },
+            };
+      const failure = withSendFailOnNth(boss, 1);
+      try {
+        await expect(runDelivery(pool, boss, cfg, command, intakeLog())).rejects.toThrow(
+          "injected send failure",
+        );
+      } finally {
+        failure.restore();
+      }
+      expect(capture).not.toHaveBeenCalled();
+      expect(terminal).not.toHaveBeenCalled();
+      const visibleAtCapture: string[] = [];
+      capture.mockImplementation(() => {
+        // The spy throws too: accepted intake must still resolve.
+        visibleAtCapture.push("captured");
+        throw new Error("analytics unavailable");
+      });
+      await expect(runDelivery(pool, boss, cfg, command, intakeLog())).resolves.toBeUndefined();
+      expect(visibleAtCapture).toHaveLength(rows.length);
+      expect(new Set(capture.mock.calls.map(([event]) => event.properties?.work_item_id))).toEqual(
+        new Set(rows.map((row) => row.id)),
+      );
+      for (const row of rows) {
+        expect(capture).toHaveBeenCalledWith({
+          distinctId: `installation:${ref.installationId}`,
+          event: "work item cancelled",
+          properties: expect.objectContaining({
+            work_item_id: row.id,
+            work_type: row.type,
+            source: "intake",
+            head_sha: row.head_sha,
+            outcome: "cancelled",
+            reason:
+              trigger === "force"
+                ? "review_force"
+                : trigger === "cancel"
+                  ? "slash_cancel"
+                  : `pr_${trigger}`,
+          }),
+        });
+        expect(terminal).toHaveBeenCalledWith(
+          expect.objectContaining({
+            workItemId: row.id,
+            headSha: row.head_sha,
+            workType: row.type,
+            outcome: "cancelled",
+            source: "intake",
+          }),
+        );
+        expect((await getWorkItem(pool, row.id))?.status).toBe("cancelled");
+      }
+      expect(JSON.stringify(capture.mock.calls)).not.toContain("private-login");
+      capture.mockClear();
+      terminal.mockClear();
+      await runDelivery(pool, boss, cfg, command, intakeLog());
+      expect(capture).not.toHaveBeenCalled();
+      expect(terminal).not.toHaveBeenCalled();
+      if (trigger === "cancel" && command.kind === "slash") {
+        await runDelivery(
+          pool,
+          boss,
+          cfg,
+          {
+            kind: "slash",
+            input: { ...command.input, headers: headers("cancel", randomUUID()), commentId: 104 },
+          },
+          intakeLog(),
+        );
+        expect(capture).not.toHaveBeenCalled();
+        expect(terminal).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["description", "verification"] as const)(
+    "lifecycle automated %s replacements report the old queued identity",
+    async (type) => {
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      const terminal = vi.spyOn(workTelemetry, "captureWorkTerminal");
+      const ref = makePrRef();
+      const cfg = makeTestConfig({
+        features: {
+          ...intakeCfg.features,
+          review: "manual",
+          describe: type === "description" ? "auto" : "off",
+          verification: type === "verification" ? "auto" : "off",
+        },
+      });
+      const action = type === "description" ? "opened" : "synchronize";
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers(action, randomUUID()),
+        ref,
+        action,
+        intakeLog(),
+        cfg,
+      );
+      const original = (
+        await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows[0].id;
+      capture.mockClear();
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers(action, randomUUID()),
+        { ...ref, headSha: "new-head" },
+        action,
+        intakeLog(),
+        cfg,
+      );
+      expect(capture).toHaveBeenCalledExactlyOnceWith({
+        distinctId: `installation:${ref.installationId}`,
+        event: "work item superseded",
+        properties: expect.objectContaining({
+          work_item_id: original,
+          work_type: type,
+          head_sha: ref.headSha,
+          source: "intake",
+          outcome: "superseded",
+          reason: "auto_replacement",
+        }),
+      });
+      expect(terminal).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          workItemId: original,
+          workType: type,
+          headSha: ref.headSha,
+          outcome: "superseded",
+          source: "intake",
+          reason: "auto_replacement",
+        }),
+      );
+    },
+  );
 
   it("HTTP timeout waits for actual delivery rollback and publishes no transactional events", async () => {
     const ref = makePrRef();

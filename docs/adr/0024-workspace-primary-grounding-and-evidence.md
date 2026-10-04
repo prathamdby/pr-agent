@@ -51,6 +51,14 @@ switches and golden-PR eval suites are out of scope for this program.
 
 ## Consequences
 
+- [ADR 0044](0044-review-validated-artifact-recovery.md) adds a separate private
+  store of redacted structured review outputs, not model text in `agent_events`.
+  These outputs may contain code excerpts. Saved coverage never grants evidence:
+  `evidenceLedger.ts::revalidateEvidenceDescriptors` rereads exact ranges through
+  the current governed reader at the reviewed head. Complete lines normalized
+  to LF without a terminal newline must reproduce the descriptor hash. Coverage
+  is staged until every descriptor passes; misses require normal fresh work,
+  while reader errors propagate. Existing evidence and publication gates remain.
 - New Postgres tables: `agent_events`, `repo_finding_history`, optional
   `code_index_*` (FTS first; no required `pgvector`).
 - Tool and trusted-context surfaces expose **checkout coverage** so sparse or

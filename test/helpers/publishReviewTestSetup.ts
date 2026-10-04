@@ -145,5 +145,9 @@ export function createOwnVerdictCloseMock() {
       return { selected, githubId: 111, checkApplied: false, statusApplied: false };
     }),
     recordOwnVerdictSurfaceApplied: vi.fn(async () => undefined),
+    recordOwnVerdictSurfaceState: vi.fn(async () => undefined),
+    getDelegatedOwnVerdictFinish: vi.fn(async () => null),
+    hasOwnVerdictSurfaceAcceptance: vi.fn(async () => false),
+    hasUnresolvedDelegatedOwnStatus: vi.fn(async () => false),
   };
 }

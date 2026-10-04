@@ -23,6 +23,8 @@ export type AgentEventsContext = {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
+  readonly executionId?: string;
+  readonly attemptCount?: number;
 };
 
 function baseInsertRow(context: AgentEventsContext): Omit<AgentEventInsertRow, "eventKind"> {
@@ -41,6 +43,11 @@ export function lifecycleAuditToInsertRow(
   sessionRole?: AgentSessionRole,
 ): AgentEventInsertRow {
   const detail: Record<string, unknown> = {};
+  if (record.sessionId != null) detail.sessionId = record.sessionId;
+  if (record.generationId != null) detail.generationId = record.generationId;
+  if (record.specialistId != null) detail.specialistId = record.specialistId;
+  if (context.executionId != null) detail.executionId = context.executionId;
+  if (context.attemptCount != null) detail.attemptCount = context.attemptCount;
   if (record.attempt != null) detail.attempt = record.attempt;
   if (record.reason != null) detail.reason = record.reason;
   if (record.failureDomain != null) detail.failureDomain = record.failureDomain;
@@ -196,7 +203,7 @@ export function createDurableLifecycleEventSink(
   return (event) => {
     const record = agentAuditRecordFromLifecycleEvent(event);
     const row = lifecycleAuditToInsertRow(context, record, event.role);
-    safeAppendAgentEvents(context.pool, cfg, [row]);
+    safeEmitAgentEvent(context, cfg, row);
     if (event.kind !== "completion" && event.kind !== "failure") return;
     if (event.phase == null) return;
     if (event.durationMs == null) return;
@@ -209,6 +216,9 @@ export function createDurableLifecycleEventSink(
         sessionRole: event.role,
         provider: event.provider,
         model: event.model,
+        ...(event.generationId != null ? { spanId: event.generationId } : {}),
+        ...(event.sessionId != null ? { sessionId: event.sessionId } : {}),
+        ...(event.specialistId != null ? { specialistId: event.specialistId } : {}),
         latencyMs: event.durationMs,
         isError: event.kind === "failure",
         ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
@@ -240,7 +250,11 @@ export function safeEmitAgentEvent(
   cfg: Pick<Config, "agentEvents">,
   row: AgentEventInsertRow,
 ): void {
-  safeAppendAgentEvents(context.pool, cfg, [row]);
+  try {
+    safeAppendAgentEvents(context.pool, cfg, [row]);
+  } catch {
+    // Optional audit persistence must not alter feature execution or analytics.
+  }
 }
 
 export function safeEmitDecisionEvent(
@@ -296,7 +310,7 @@ export function safeEmitEvidenceRejectEvent(
 }
 
 export function resolveAgentEventsContext(
-  cfg: Pick<Config, "agentEvents">,
+  _cfg: Pick<Config, "agentEvents">,
   sessionContext?: {
     readonly pool: Pool | PoolClient;
     readonly workItemId: string;
@@ -304,9 +318,11 @@ export function resolveAgentEventsContext(
     readonly owner?: string;
     readonly repo?: string;
     readonly prNumber?: number;
+    readonly executionId?: string;
+    readonly attemptCount?: number;
   },
 ): AgentEventsContext | null {
-  if (!cfg.agentEvents.enabled || !sessionContext) return null;
+  if (!sessionContext) return null;
   const { owner, repo, prNumber } = sessionContext;
   if (!owner || !repo || prNumber == null) return null;
   return {
@@ -316,5 +332,7 @@ export function resolveAgentEventsContext(
     owner,
     repo,
     prNumber,
+    ...(sessionContext.executionId != null ? { executionId: sessionContext.executionId } : {}),
+    ...(sessionContext.attemptCount != null ? { attemptCount: sessionContext.attemptCount } : {}),
   };
 }

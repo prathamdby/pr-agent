@@ -68,6 +68,12 @@ After an interrupted publish, PR Agent checks the saved result and available evi
 
 Recovering a run does not use another retry unless PR Agent starts another work attempt. An interrupted work attempt still counts. Previously failed runs are not reopened automatically.
 
+`REVIEW_RECOVERY_ENABLED=false` keeps validated review artifact recovery off by
+default. Enabling it can reuse a validated brief or specialist report after a
+restart, but evidence is read again and publication still uses the normal gates.
+It does not restore a conversation. Keep it off until local crash/restart proof
+and rollout approval. See [operations.md](docs/operations.md#review-reliability-rollout).
+
 After PR Agent accepts a close or merge, automated review requests and `/review`
 (including `force`) and stale-head replacements cannot start another review. A closed command receives a
 reply asking you to reopen first; a merged command is refused. A newer
@@ -104,11 +110,26 @@ Create the GitHub App and paste a real private key before you start Compose. The
 | --------------- | ------------ | ------------------------------------------------------------------------------- |
 | Issues          | Read & write | PR conversation comments and reactions                                          |
 | Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`                                |
-| Contents        | Read & write | Read code; write only needed for `/triage` pushes                               |
+| Contents        | Read         | Read code. Add write only for `/triage` pushes.                                 |
 | Metadata        | Read         | Required by GitHub for apps                                                     |
 | Checks          | Read & write | Review check run + CI summary inputs                                            |
 | Actions         | Read         | Condensed job logs when CI fails                                                |
 | Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
+
+Before a new review, PR Agent checks the App's current grants for that repository.
+Missing code or PR reads, reviews, or conversation publication stops the run
+before it reads a checkout or calls the model. Checks, commit statuses, Actions
+logs, labels, and reactions are optional. Missing access disables only those
+operations and adds one notice to the review. Conversation comments and labels
+accept Issues or Pull requests grants at the required level. Reviews do not
+require Contents write.
+
+An incomplete or inaccessible CI source cannot show passing or no-CI copy.
+Known failures remain visible with a partial-view notice. Restore the grant and
+start a new review to refresh CI and retry applicable verdict repair. A timeout
+or rate limit reports an unavailable access check, not missing permission.
+An already-published review can finish from exact saved receipts without new
+publication permission.
 
 `workflow_run` or `check_suite` (completed) refreshes the CI row and action line on an existing review summary when Actions finish later. After you push, a finished review's CI row and action line follow the new head. The footer still names the reviewed commit. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Opening, synchronizing, or reopening a pull request also enqueues a snapshot when that head has no seeded row. Ack and publish do the same after they write the comment. A missing or unseeded snapshot shows **Waiting for CI**. A complete snapshot with no external checks shows **No CI checks on this head**. Own-App `check_run` and `check_suite` deliveries are ignored.
 
@@ -402,6 +423,12 @@ Agent sessions keep computation in memory. Retries start fresh sessions; saved
 work and publication evidence still protect recovery. Unused encrypted session
 snapshots and phase checkpoints are removed by migration 036.
 
+Optional review recovery stores redacted structured briefs, reports, publication
+plans, and summary inputs on your infrastructure. Finding details, fix directions,
+and suggested code can contain code excerpts. It does not retain raw checkout
+files, prompts, reasoning, or transcripts. Migration 037 adds this separate store;
+work-item retention deletes its rows even after recovery is disabled.
+
 | Topic         | Rule                                                                                                                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
@@ -434,7 +461,11 @@ Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` d
 <details>
 <summary>PostHog</summary>
 
-PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and error text stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and raw error payloads stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+
+PostHog and the local metadata audit (`AGENT_EVENTS_ENABLED`) are independent.
+PostHog receives metadata, not recovery artifact contents. Classified failures
+can include sanitized, bounded error messages; raw error payloads are not sent.
 
 </details>
 

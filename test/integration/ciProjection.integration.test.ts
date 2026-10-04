@@ -1,5 +1,8 @@
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import {
+  openInstallationSurface,
+  productionInstallationSurface,
+} from "../../src/agentWork/installationSurface.js";
 import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import type { PrRef } from "../../src/agentWork/types.js";
 import {
@@ -17,7 +20,19 @@ import { loadRenderableHeadCi, requestHeadCiProjection } from "../../src/agentWo
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
-import { loadPrHeadCiState, storePrNumbersForHead } from "../../src/agentWork/prHeadCiState.js";
+import {
+  loadPrHeadCiState,
+  storePrNumbersForHead,
+  listProjectionRepairPendingHeads,
+} from "../../src/agentWork/prHeadCiState.js";
+import {
+  saveGithubCapabilityObservation,
+  loadGithubCapabilityObservation,
+  loadGithubCiSourceAvailability,
+  recordGithubCiSourceRead,
+  changeGithubPreflightFailureCount,
+  recordGithubCapabilityDenial,
+} from "../../src/agentWork/githubCapabilityRepository.js";
 import { getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
 import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
@@ -76,6 +91,10 @@ import {
   VERIFICATION_QUEUE,
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
+import {
+  deniedInstallationCapabilities,
+  unknownInstallationCapabilities,
+} from "../../src/github/installationCapabilities.js";
 import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
 import {
   makeDurableJobMetadata,
@@ -221,17 +240,409 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM github_repository_capabilities WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query(
-      "DELETE FROM pr_actor_leases WHERE resource_key = $1 AND work_type = 'verification'",
+      "DELETE FROM pr_actor_leases WHERE resource_key = $1 AND work_type IN ('verification', 'review')",
       [`${OWNER}/${REPO}#${PR_NUMBER}`],
     );
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
     await deleteQueueJobs(boss, VERIFICATION_QUEUE);
+  });
+
+  it("persists projector runtime denial and makes the next caller skip denied publication", async () => {
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { pullRequestsRead: "available", commentsWrite: "available" },
+      },
+    });
+    const create = vi
+      .spyOn(productionInstallationSurface, "create")
+      .mockImplementation(async (params) => {
+        await params.capabilities?.deny("commentsWrite");
+        throw new Error("Resource not accessible by integration");
+      });
+    try {
+      const data = { kind: "ci_projection" as const, ...scope, headSha: "runtime-denial" };
+      await expect(executeCiProjectionJob(cfg, pool, boss, data)).rejects.toThrow(
+        "Resource not accessible",
+      );
+      expect((await loadGithubCapabilityObservation(pool, scope))?.capabilities.commentsWrite).toBe(
+        "denied",
+      );
+      create.mockClear();
+      await executeCiProjectionJob(cfg, pool, boss, { ...data });
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it("refreshes a stored observation that never confirmed access before reusing it", async () => {
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    const capabilityScope = { appId: cfg.github.appId, ...scope };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: unknownInstallationCapabilities(capabilityScope, "1"),
+    });
+    const preflight = vi
+      .spyOn(productionInstallationSurface, "preflight")
+      .mockResolvedValue({ observation: deniedInstallationCapabilities(capabilityScope, "2") });
+    const create = vi.spyOn(productionInstallationSurface, "create");
+    try {
+      await executeCiProjectionJob(cfg, pool, boss, {
+        kind: "ci_projection",
+        ...scope,
+        headSha: "capability-refresh",
+      });
+      expect(preflight).toHaveBeenCalledTimes(1);
+      expect(await loadGithubCapabilityObservation(pool, scope)).toMatchObject({
+        generation: 2,
+        capabilities: { pullRequestsRead: "denied", commentsWrite: "denied" },
+      });
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      preflight.mockRestore();
+      create.mockRestore();
+    }
+  });
+
+  it("renders an unseeded head as waiting unless a CI source is denied", async () => {
+    const headSha = "capability-unseeded";
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending', 1)`,
+      [
+        OWNER,
+        REPO,
+        headSha,
+        JSON.stringify({ lint: ciStateFact({ status: "in_progress", conclusion: null }) }),
+      ],
+    );
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    const waiting = await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001);
+    expect(waiting).toEqual({
+      summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+      version: (await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.version,
+    });
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 2,
+        capabilities: { checksRead: "available", statusesRead: "denied" },
+      },
+    });
+    const denied = await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001);
+    expect(denied.summary.headline).not.toBe("⏳ Waiting for CI");
+    expect(denied.summary.permissionNote).toContain("Partial CI view");
+  });
+
+  it("clears a repair flag the projector cannot act on while comment access is denied", async () => {
+    const headSha = "capability-repair-denied";
+    await insertSeededHead(headSha, {}, "none", 1);
+    await insertReviewWorkItem(headSha);
+    await pool.query(
+      `UPDATE pr_head_ci_state SET projection_repair_pending = true
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+      [OWNER, REPO, headSha],
+    );
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { pullRequestsRead: "available", commentsWrite: "denied" },
+      },
+    });
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    const createSurface = vi.fn(async () => fake.surface);
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      { kind: "ci_projection", ...scope, headSha },
+      { createSurface },
+    );
+    expect(createSurface).not.toHaveBeenCalled();
+    expect((await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.projectionRepairPending).toBe(
+      false,
+    );
+    expect(
+      (await listProjectionRepairPendingHeads(pool, 100)).map((head) => head.headSha),
+    ).not.toContain(headSha);
+  });
+
+  it("keeps established denial through unknown metadata and fences runtime denial to that observation", async () => {
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "denied", statusesRead: "available" },
+      },
+    });
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 2,
+        capabilities: { checksRead: "unknown", statusesRead: "unknown" },
+      },
+    });
+    expect(await loadGithubCapabilityObservation(pool, scope)).toMatchObject({
+      generation: 2,
+      capabilities: { checksRead: "denied", statusesRead: "unknown" },
+    });
+    expect(
+      await recordGithubCapabilityDenial(pool, {
+        ...scope,
+        generation: 2,
+        operation: "statusesRead",
+      }),
+    ).toBe(true);
+    expect((await loadGithubCapabilityObservation(pool, scope))?.capabilities.statusesRead).toBe(
+      "denied",
+    );
+  });
+
+  it("fences durable preflight failure counters to the current lease", async () => {
+    const workItemId = await insertReviewWorkItem("capability-preflight");
+    await pool.query(
+      `INSERT INTO pr_actor_leases (resource_key, work_type, work_item_id, lease_epoch, holder_id, expires_at)
+       VALUES ($1, 'review', $2, 1, 'capability-test', now() + interval '1 minute')`,
+      [`${OWNER}/${REPO}#${PR_NUMBER}`, workItemId],
+    );
+    expect(await changeGithubPreflightFailureCount(pool, { workItemId, leaseEpoch: 1 })).toBe(1);
+    expect(
+      await changeGithubPreflightFailureCount(pool, { workItemId, leaseEpoch: 1, reset: true }),
+    ).toBe(0);
+    await pool.query("UPDATE pr_actor_leases SET lease_epoch = 2 WHERE work_item_id = $1", [
+      workItemId,
+    ]);
+    await expect(
+      changeGithubPreflightFailureCount(pool, { workItemId, leaseEpoch: 1 }),
+    ).rejects.toMatchObject({
+      code: "agent_work.pr_actor_lease_lost",
+    });
+    const result = await pool.query<{ github_preflight_failure_count: number }>(
+      "SELECT github_preflight_failure_count FROM agent_work_items WHERE id = $1",
+      [workItemId],
+    );
+    expect(result.rows[0]?.github_preflight_failure_count).toBe(0);
+  });
+
+  it("retains scoped denial across restart and requires fresh listing after restoration", async () => {
+    const headSha = "capability-restoration";
+    await insertSeededHead(headSha, {}, "none", 1);
+    const workItemId = await insertReviewWorkItem(headSha);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setHeadSha(headSha);
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [],
+      legacyStatuses: [],
+      checkRunsComplete: true,
+    });
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 1, workItemId),
+      501,
+    );
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO, headSha };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "denied", statusesRead: "denied" },
+      },
+    });
+    const denied = await loadGithubCiSourceAvailability(pool, scope);
+    expect(denied.checks.access).toBe("denied");
+    // A new caller has no in-memory state. Storage remains the authority.
+    const restarted = await loadGithubCiSourceAvailability(pool, { ...scope });
+    expect(restarted).toEqual(denied);
+    expect(
+      await recordGithubCiSourceRead(pool, {
+        ...scope,
+        source: "checks",
+        generation: 1,
+        access: "available",
+        complete: true,
+      }),
+    ).toBe(false);
+    expect((await loadGithubCiSourceAvailability(pool, scope)).checks.access).toBe("denied");
+    const partial = await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001);
+    expect(partial.summary.status).toBe("unavailable");
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    await executeCiProjectionJob(cfg, pool, boss, job, { ...options });
+    expect(getCiStatusCount(fake.controls.events)).toBe(0);
+    expect(await boss.findJobs(CI_PROJECTION_QUEUE, {})).toHaveLength(0);
+    expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain(
+      "Partial CI view",
+    );
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 2,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: { generation: 1, capabilities: { checksRead: "denied" } },
+    });
+    const restored = await loadGithubCiSourceAvailability(pool, scope);
+    expect(restored.checks).toMatchObject({ access: "available", listingRequired: true });
+    expect((await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001)).summary.status).toBe(
+      "unavailable",
+    );
+    expect(
+      await recordGithubCiSourceRead(pool, {
+        ...scope,
+        source: "checks",
+        generation: 1,
+        access: "available",
+        complete: true,
+      }),
+    ).toBe(false);
+    expect((await loadGithubCiSourceAvailability(pool, scope)).checks.listingRequired).toBe(true);
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+    expect((await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001)).summary.status).toBe(
+      "none",
+    );
+    expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain(
+      "No CI checks on this head",
+    );
+    const completeVersion = (await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.version;
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 3,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+    expect((await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.version).toBe(completeVersion);
+    expect(
+      await recordGithubCapabilityDenial(pool, {
+        ...scope,
+        generation: 3,
+        operation: "checksRead",
+      }),
+    ).toBe(true);
+    expect((await loadGithubCiSourceAvailability(pool, scope)).checks.access).toBe("denied");
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 4,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    expect(
+      await recordGithubCapabilityDenial(pool, {
+        ...scope,
+        generation: 3,
+        operation: "checksRead",
+      }),
+    ).toBe(false);
+    expect((await loadGithubCiSourceAvailability(pool, scope)).checks.access).toBe("available");
+    const otherInstallation = await loadGithubCiSourceAvailability(pool, {
+      ...scope,
+      installationId: 9002,
+    });
+    expect(otherInstallation.checks.access).toBe("unknown");
+  });
+
+  it("bounds unknown source refreshes durably and reopens them on a fresh observation", async () => {
+    const headSha = "capability-unknown";
+    await insertSeededHead(headSha, {}, "none", 1);
+    await insertReviewWorkItem(headSha);
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO, headSha };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    const getCiStatus = vi.fn(async () => ({
+      checkRuns: [],
+      legacyStatuses: [],
+      checkRunsComplete: true,
+      legacyStatusesComplete: false,
+      sources: {
+        checks: { access: "available" as const, complete: true },
+        statuses: { access: "unknown" as const, complete: false },
+      },
+    }));
+    const options = { createSurface: async () => ({ ...fake.surface, getCiStatus }) };
+    const job = { ...scope, kind: "ci_projection" as const };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await executeCiProjectionJob(cfg, pool, boss, job, options);
+      await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
+    }
+    expect(getCiStatus).toHaveBeenCalledTimes(3);
+    expect((await loadRenderableHeadCi(pool, OWNER, REPO, headSha, 9001)).summary.status).toBe(
+      "unavailable",
+    );
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 2,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatus).toHaveBeenCalledTimes(4);
+  });
+
+  it("repairs stale scoped generations outside an observation fanout batch", async () => {
+    const headSha = "capability-fanout";
+    await insertSeededHead(headSha, {}, "none", 1);
+    const scope = { installationId: 9001, owner: OWNER, repo: REPO, headSha };
+    await saveGithubCapabilityObservation(pool, {
+      ...scope,
+      observation: {
+        generation: 1,
+        capabilities: { checksRead: "available", statusesRead: "available" },
+      },
+    });
+    await loadGithubCiSourceAvailability(pool, scope);
+    await pool.query(
+      "UPDATE pr_head_ci_state SET projection_repair_pending = false WHERE owner = $1",
+      [OWNER],
+    );
+    await pool.query("UPDATE github_repository_capabilities SET generation = 2 WHERE owner = $1", [
+      OWNER,
+    ]);
+    expect(await listProjectionRepairPendingHeads(pool, 10)).toContainEqual(
+      expect.objectContaining({ owner: OWNER, repo: REPO, headSha, installationId: 9001 }),
+    );
+    expect((await loadGithubCiSourceAvailability(pool, scope)).generation).toBe(2);
   });
 
   async function insertSeededHead(

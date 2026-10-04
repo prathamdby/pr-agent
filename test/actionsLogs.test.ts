@@ -42,6 +42,17 @@ function job(id: number, conclusion: string) {
 }
 
 describe("listFailingActionsJobsForHead", () => {
+  it("does not treat throttling or ambiguous forbidden responses as permission denial", async () => {
+    for (const error of [
+      Object.assign(new Error("API rate limit exceeded"), { status: 403 }),
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+      Object.assign(new Error("Request timeout"), { status: 504 }),
+    ]) {
+      listWorkflowRunsForRepo.mockRejectedValueOnce(error);
+      await expect(listFailingActionsJobsForHead("tok", "o", "r", "abc")).rejects.toBe(error);
+      expect(isMissingActionsPermissionError(error)).toBe(false);
+    }
+  });
   it("lists jobs only for the reviewed head and stops at the failing-job cap", async () => {
     const head = "abc123";
     listWorkflowRunsForRepo.mockResolvedValue({
@@ -123,6 +134,11 @@ describe("listFailingActionsJobsForHead", () => {
 });
 
 describe("downloadActionsJobLogs", () => {
+  it("does not persist denial for ambiguous log-download failures", async () => {
+    const error = Object.assign(new Error("API rate limit exceeded"), { status: 403 });
+    downloadJobLogsForWorkflowRun.mockRejectedValueOnce(error);
+    await expect(downloadActionsJobLogs("tok", "o", "r", 9)).rejects.toBe(error);
+  });
   it("returns the full downloaded log and leaves bounding to the CI author", async () => {
     const headSentinel = "HEAD-ONLY-SENTINEL-do-not-drop";
     const huge = `${headSentinel}\n${"z".repeat(200_000)}\nError: Process completed with exit code 1.`;

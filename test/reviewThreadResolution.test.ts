@@ -169,11 +169,88 @@ describe("review thread resolution", () => {
   });
 
   it("resolves review threads by GraphQL node id", async () => {
-    mocks.graphql.mockResolvedValue({});
+    mocks.graphql.mockResolvedValue({
+      resolveReviewThread: { thread: { id: "node-1", isResolved: true } },
+    });
 
     await resolveReviewThread("tok", "node-1");
 
     expect(mocks.graphql.mock.calls[0]?.[1]).toEqual({ threadId: "node-1" });
+  });
+
+  it.each(["returned", "thrown"])(
+    "rejects structured HTTP-200 resolution denial (%s)",
+    async (mode) => {
+      const response = {
+        data: { resolveReviewThread: null },
+        errors: [{ type: "FORBIDDEN", path: ["resolveReviewThread"], message: "Denied" }],
+      };
+      if (mode === "returned") mocks.graphql.mockResolvedValue(response);
+      else
+        mocks.graphql.mockRejectedValue(
+          Object.assign(new Error("Denied"), response, { status: 200 }),
+        );
+      await expect(resolveReviewThread("tok", "node-1")).rejects.toMatchObject({
+        code: "github.review_thread_resolution_denied",
+        context: { mutationAccepted: false, threadNodeId: "node-1" },
+      });
+    },
+  );
+
+  it.each([
+    {
+      data: { resolveReviewThread: null },
+      errors: [{ type: "RATE_LIMITED", path: ["resolveReviewThread"] }],
+    },
+    {
+      data: { resolveReviewThread: null },
+      errors: [{ message: "Resource not accessible by integration" }],
+    },
+    {
+      data: { resolveReviewThread: { thread: { id: "node-1", isResolved: true } } },
+      errors: [{ type: "FORBIDDEN", path: ["resolveReviewThread"] }],
+    },
+    {
+      data: { resolveReviewThread: null },
+      errors: [{ type: "FORBIDDEN", path: ["otherMutation"] }],
+    },
+  ])("does not prove permanent nonacceptance from ambiguous GraphQL evidence", async (response) => {
+    const error = Object.assign(new Error("GraphQL failed"), response, { status: 200 });
+    mocks.graphql.mockRejectedValue(error);
+    await expect(resolveReviewThread("tok", "node-1")).rejects.toBe(error);
+  });
+
+  it("does not deny positive mutation data returned without a response envelope", async () => {
+    mocks.graphql.mockResolvedValue({
+      resolveReviewThread: { thread: { id: "node-1", isResolved: true } },
+      errors: [{ type: "FORBIDDEN", path: ["resolveReviewThread"] }],
+    });
+    await expect(resolveReviewThread("tok", "node-1")).resolves.toBeUndefined();
+  });
+
+  it("recognizes an authoritative scoped denial with absent data", async () => {
+    mocks.graphql.mockRejectedValue(
+      Object.assign(new Error("Denied"), {
+        errors: [{ extensions: { code: "FORBIDDEN" }, path: ["resolveReviewThread"] }],
+        data: undefined,
+        status: 200,
+      }),
+    );
+    await expect(resolveReviewThread("tok", "node-1")).rejects.toMatchObject({
+      code: "github.review_thread_resolution_denied",
+    });
+  });
+
+  it("does not claim success for returned rate-limit or malformed mutation responses", async () => {
+    mocks.graphql.mockResolvedValue({
+      data: null,
+      errors: [{ type: "RATE_LIMITED", path: ["resolveReviewThread"] }],
+    });
+    await expect(resolveReviewThread("tok", "node-1")).rejects.not.toMatchObject({
+      code: "github.review_thread_resolution_denied",
+    });
+    mocks.graphql.mockResolvedValue({});
+    await expect(resolveReviewThread("tok", "node-1")).rejects.toThrow(/did not confirm/);
   });
 
   it("warnReviewThreadResolutionDegraded logs once for non-ok status", () => {

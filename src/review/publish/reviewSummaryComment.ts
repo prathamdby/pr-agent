@@ -19,6 +19,33 @@ import {
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import type {
+  InstallationOperation,
+  ReviewCapabilityPolicy,
+} from "../../github/installationCapabilities.js";
+
+function capabilityNotice(policy: ReviewCapabilityPolicy | undefined): string | null {
+  if (!policy) return null;
+  const unavailable = (operation: InstallationOperation) =>
+    policy.access(operation) !== "available";
+  const surfaces: string[] = [];
+  for (const [name, read, write] of [
+    ["Checks", "checksRead", "checksWrite"],
+    ["commit statuses", "statusesRead", "statusesWrite"],
+  ] as const) {
+    const missingRead = unavailable(read);
+    const missingWrite = unavailable(write);
+    if (missingRead || missingWrite) {
+      surfaces.push(
+        `${name} ${missingRead && missingWrite ? "read/write" : missingRead ? "read" : "write"}`,
+      );
+    }
+  }
+  if (unavailable("actionsRead")) surfaces.push("Actions logs");
+  if (unavailable("labelsRead") || unavailable("labelsWrite")) surfaces.push("labels");
+  if (unavailable("reactionsWrite")) surfaces.push("reactions");
+  return surfaces.length ? `Unavailable for this review: ${surfaces.join(", ")}.` : null;
+}
 
 export type SummaryCommentCoordination = {
   pool: Pool;
@@ -380,9 +407,11 @@ export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
     progressRevision: ProgressCommentRevision,
   ): Promise<SummaryCommentUpsertResult> => {
     const { coordination } = deps;
+    const notice = capabilityNotice(deps.prSurface.capabilities);
+    const body = notice == null ? params.body : `${params.body}\n\n${notice}`;
     if (coordination == null) {
       return deps.prSurface.upsertProgressComment(
-        params.body,
+        body,
         REVIEW_SUMMARY_SENTINEL,
         params.knownExisting ?? null,
       );
@@ -394,7 +423,7 @@ export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
       leaseEpoch: coordination.leaseEpoch,
       reviewLens: deps.reviewLens,
       prSurface: deps.prSurface,
-      body: params.body,
+      body,
       sentinel: REVIEW_SUMMARY_SENTINEL,
       hintCommentId: params.hintCommentId,
       progressRevision,

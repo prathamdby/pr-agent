@@ -14,7 +14,12 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
 
 1. **`PrSurface`** (`src/github/prSurface.ts`) is the sole worker/feature entry for PR-surface GitHub I/O. Production code calls `createPrSurface`; tests use `createFakePrSurface`. Implementation stays in `prSurfaceImpl.ts` (not imported outside `src/github/`).
 
-2. **No installation tokens outside `src/github/`**. Executors receive `PrSurface` on `DurableExecutionContext` (and mint only inside `durableJob.ts` when constructing a surface). `gitCredentialAuth()` is the only credential escape hatch for `src/prWorkspace/` git checkout.
+2. **Managed installation authentication.** Executors receive `PrSurface` on
+   `DurableExecutionContext`. `installationSurface.ts` owns worker credential
+   caches and managed surface creation; features never receive raw Octokit or
+   tokens. `gitCredentialAuth()` is the only credential escape hatch for
+   `src/prWorkspace/` checkout. A managed surface uses a token resolver, not a
+   captured snapshot, so subsequent calls use refreshed authentication.
 
 3. **CI guards** — `test/architectureRules.test.ts` keeps `@octokit/*` imports inside `src/github/` and rejects exported installation-token parameters outside `src/github/` and the `src/prWorkspace/` checkout credential seam. `test/prSurfaceImportGraph.test.ts` keeps `installationOctokit` references inside those seams and covers the guard helpers.
 
@@ -39,6 +44,20 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
    or incomplete evidence reads remain transient. Read-only methods do not cross the
    boundary so a replacement worker can recover evidence after a stale
    execution is fenced. Unleased ask work keeps the ordinary surface.
+
+6. **Scoped operation capabilities.** `installationCapabilities.ts` validates
+   App and installation identity, repository association, suspension, and
+   permission levels and alternatives. A fresh review observation precedes
+   managed authentication and real head resolution. Exact completion receipts
+   precede admission, pending verdict creation, workspace preparation, and model
+   work. Only new output needs essential read/publication grants.
+
+   Run-scoped policy never mutates shared configuration or unrelated work
+   types. Optional Checks, statuses, Actions, labels (including categories), and
+   reactions gate reads as well as writes. A confirmed endpoint denial shrinks
+   and persists only its affected capability. Metadata is not write acceptance;
+   mutation fences and uncertain-intent recovery remain mandatory. Accepted or
+   acceptance-uncertain operations cannot become deliberately skipped.
 
 ## Consequences
 

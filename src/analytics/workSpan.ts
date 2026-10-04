@@ -9,9 +9,15 @@ export type WorkSpanContext = {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
+  readonly executionId?: string;
+  readonly attemptCount?: number;
 };
 
-export type WorkSpanKind = "llm_generation" | "publish_span" | "phase_checkpoint";
+export type WorkSpanKind =
+  | "llm_generation"
+  | "publish_span"
+  | "phase_checkpoint"
+  | "specialist_span";
 
 type WorkSpanBase = {
   readonly workItemId: string;
@@ -25,6 +31,10 @@ type WorkSpanBase = {
   readonly latencyMs: number;
   readonly isError: boolean;
   readonly errorReason?: string;
+  readonly sessionId?: string;
+  readonly specialistId?: string;
+  readonly executionId?: string;
+  readonly attemptCount?: number;
 };
 
 export type LlmWorkSpan = WorkSpanBase & {
@@ -51,7 +61,18 @@ export type CheckpointWorkSpan = WorkSpanBase & {
   readonly phase: string;
 };
 
-export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan;
+export type SpecialistWorkSpan = WorkSpanBase & {
+  readonly kind: "specialist_span";
+  readonly phase: "specialist";
+  readonly specialistId: string;
+  readonly stage: "schema" | "validation" | "run";
+  readonly outcome: "accepted" | "rejected" | "report" | "empty" | "error";
+  readonly submittedCount?: number;
+  readonly acceptedCount?: number;
+  readonly rejectedCount?: number;
+};
+
+export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan | SpecialistWorkSpan;
 
 export function newSpanId(): string {
   return randomUUID();
@@ -65,7 +86,10 @@ function sharedPostHogProperties(span: WorkSpan): Record<string, string | number
     ...(span.parentSpanId != null ? { $ai_parent_id: span.parentSpanId } : {}),
     $ai_latency: span.latencyMs / 1000,
     $ai_is_error: span.isError,
-    $ai_session_id: null,
+    ...(span.sessionId != null ? { $ai_session_id: span.sessionId } : {}),
+    ...(span.specialistId != null ? { specialist_id: span.specialistId } : {}),
+    ...(span.executionId != null ? { execution_id: span.executionId } : {}),
+    ...(span.attemptCount != null ? { attempt_count: span.attemptCount } : {}),
     work_item_id: span.workItemId,
     owner: span.owner,
     repo: span.repo,
@@ -117,6 +141,19 @@ export function projectWorkSpanToPostHog(span: WorkSpan): {
           phase: span.phase,
         },
       };
+    case "specialist_span":
+      return {
+        event: "$ai_span",
+        properties: {
+          ...shared,
+          phase: span.phase,
+          stage: span.stage,
+          outcome: span.outcome,
+          ...(span.submittedCount != null ? { submitted_count: span.submittedCount } : {}),
+          ...(span.acceptedCount != null ? { accepted_count: span.acceptedCount } : {}),
+          ...(span.rejectedCount != null ? { rejected_count: span.rejectedCount } : {}),
+        },
+      };
     default: {
       const exhaustive: never = span;
       return exhaustive;
@@ -136,6 +173,10 @@ export function projectWorkSpanToAgentEventRow(
   };
   if (span.parentSpanId != null) detail.parentSpanId = span.parentSpanId;
   if (span.errorReason != null) detail.errorReason = span.errorReason;
+  if (span.sessionId != null) detail.sessionId = span.sessionId;
+  if (span.specialistId != null) detail.specialistId = span.specialistId;
+  if (span.executionId != null) detail.executionId = span.executionId;
+  if (span.attemptCount != null) detail.attemptCount = span.attemptCount;
 
   switch (span.kind) {
     case "llm_generation":
@@ -191,6 +232,27 @@ export function projectWorkSpanToAgentEventRow(
         failureCode: span.errorReason ?? null,
         detail,
       };
+    case "specialist_span":
+      return {
+        workItemId: context.workItemId,
+        installationId: context.installationId,
+        owner: context.owner,
+        repo: context.repo,
+        prNumber: context.prNumber,
+        sessionRole: "specialist",
+        eventKind: "specialist",
+        phase: span.phase,
+        ok: !span.isError,
+        failureCode: span.errorReason ?? null,
+        detail: {
+          ...detail,
+          stage: span.stage,
+          outcome: span.outcome,
+          ...(span.submittedCount != null ? { submittedCount: span.submittedCount } : {}),
+          ...(span.acceptedCount != null ? { acceptedCount: span.acceptedCount } : {}),
+          ...(span.rejectedCount != null ? { rejectedCount: span.rejectedCount } : {}),
+        },
+      };
     default: {
       const exhaustive: never = span;
       return exhaustive;
@@ -199,12 +261,16 @@ export function projectWorkSpanToAgentEventRow(
 }
 
 export function captureWorkSpan(span: WorkSpan): void {
-  const projected = projectWorkSpanToPostHog(span);
-  captureEvent({
-    distinctId: installationDistinctId(span.installationId),
-    event: projected.event,
-    properties: projected.properties,
-  });
+  try {
+    const projected = projectWorkSpanToPostHog(span);
+    captureEvent({
+      distinctId: installationDistinctId(span.installationId),
+      event: projected.event,
+      properties: projected.properties,
+    });
+  } catch {
+    // Observability cannot fail or retry feature work.
+  }
 }
 
 export function llmSpanFromSession(input: {
@@ -223,6 +289,9 @@ export function llmSpanFromSession(input: {
   readonly isError: boolean;
   readonly parentSpanId?: string | null;
   readonly errorReason?: string;
+  readonly spanId?: string;
+  readonly sessionId?: string;
+  readonly specialistId?: string;
 }): LlmWorkSpan {
   return {
     kind: "llm_generation",
@@ -231,7 +300,7 @@ export function llmSpanFromSession(input: {
     owner: input.context.owner,
     repo: input.context.repo,
     prNumber: input.context.prNumber,
-    spanId: newSpanId(),
+    spanId: input.spanId ?? newSpanId(),
     spanName: input.sessionRole != null ? `${input.sessionRole}:${input.phase}` : input.phase,
     parentSpanId: input.parentSpanId === undefined ? input.context.workItemId : input.parentSpanId,
     latencyMs: input.latencyMs,
@@ -247,6 +316,46 @@ export function llmSpanFromSession(input: {
     ...(input.totalTokens != null ? { totalTokens: input.totalTokens } : {}),
     phase: input.phase,
     ...(input.sessionRole != null ? { sessionRole: input.sessionRole } : {}),
+    ...(input.sessionId != null ? { sessionId: input.sessionId } : {}),
+    ...(input.specialistId != null ? { specialistId: input.specialistId } : {}),
+    ...(input.context.executionId != null ? { executionId: input.context.executionId } : {}),
+    ...(input.context.attemptCount != null ? { attemptCount: input.context.attemptCount } : {}),
+  };
+}
+
+export function specialistSpanFromContext(input: {
+  readonly context: WorkSpanContext;
+  readonly specialistId: string;
+  readonly stage: SpecialistWorkSpan["stage"];
+  readonly outcome: SpecialistWorkSpan["outcome"];
+  readonly latencyMs: number;
+  readonly errorReason?: string;
+  readonly submittedCount?: number;
+  readonly acceptedCount?: number;
+  readonly rejectedCount?: number;
+}): SpecialistWorkSpan {
+  return {
+    workItemId: input.context.workItemId,
+    installationId: input.context.installationId,
+    owner: input.context.owner,
+    repo: input.context.repo,
+    prNumber: input.context.prNumber,
+    ...(input.context.executionId != null ? { executionId: input.context.executionId } : {}),
+    ...(input.context.attemptCount != null ? { attemptCount: input.context.attemptCount } : {}),
+    kind: "specialist_span",
+    spanId: newSpanId(),
+    spanName: `specialist:${input.specialistId}:${input.stage}`,
+    parentSpanId: input.context.workItemId,
+    phase: "specialist",
+    specialistId: input.specialistId,
+    stage: input.stage,
+    outcome: input.outcome,
+    latencyMs: input.latencyMs,
+    isError: input.outcome === "error" || input.outcome === "rejected",
+    ...(input.errorReason != null ? { errorReason: input.errorReason } : {}),
+    ...(input.submittedCount != null ? { submittedCount: input.submittedCount } : {}),
+    ...(input.acceptedCount != null ? { acceptedCount: input.acceptedCount } : {}),
+    ...(input.rejectedCount != null ? { rejectedCount: input.rejectedCount } : {}),
   };
 }
 
@@ -272,5 +381,7 @@ export function publishSpanFromContext(input: {
     isError: input.isError,
     ...(input.errorReason != null ? { errorReason: input.errorReason } : {}),
     publishStep: input.publishStep,
+    ...(input.context.executionId != null ? { executionId: input.context.executionId } : {}),
+    ...(input.context.attemptCount != null ? { attemptCount: input.context.attemptCount } : {}),
   };
 }

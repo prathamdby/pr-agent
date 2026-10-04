@@ -11,18 +11,31 @@ import {
 import { AUTOMATED_PR_ACTIONS, CI_PROJECTION_QUEUE, DEFERRED_HEAD_SHA } from "../settings/index.js";
 import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
 import { installationGroupId, type CiProjectionJobData, type JobCorrelation } from "./types.js";
+import { loadGithubCiSourceAvailability } from "./githubCapabilityRepository.js";
 
 export async function loadRenderableHeadCi(
   pool: Pool,
   owner: string,
   repo: string,
   headSha: string,
+  installationId?: number,
 ): Promise<RenderableHeadCi> {
+  const sourceAvailability =
+    installationId == null
+      ? undefined
+      : await loadGithubCiSourceAvailability(pool, { installationId, owner, repo, headSha });
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
   if (row == null) return waitingCiSummary(0);
-  if (headCiNeedsSeed(row)) return waitingCiSummary(row.version);
+  // An unseeded head has not been listed yet; only a denied source is known to be missing.
+  if (
+    headCiNeedsSeed(row) &&
+    sourceAvailability?.checks.access !== "denied" &&
+    sourceAvailability?.statuses.access !== "denied"
+  )
+    return waitingCiSummary(row.version);
   return ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
+    sourceAvailability,
   });
 }
 

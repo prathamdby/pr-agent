@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -1535,6 +1536,244 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           statusCalls: status.mock.calls.length,
         }),
       );
+    },
+  );
+
+  // Failure modes: denial lost on restart, denied token/metadata polling, a stale
+  // denial overriding restored grants, status-only starts missing the repair list,
+  // and a deliberate skip becoming evidence.
+  it.each([
+    "unresolved",
+    "blocked",
+    "skipped-for-this-run",
+    "pending_status_without_check",
+  ] as const)(
+    "finds pending own-verdict selections only when %s remains applicable",
+    async (state) => {
+      const { claimOwnVerdict, recordOwnVerdictSurfaceState } =
+        await import("../../src/agentWork/publishRecordRepository.js");
+      const { id, resourceKey } = await insertAgedQueuedWork();
+      await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE id = $1", [id]);
+      const identity = {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      const selected = {
+        conclusion: "success" as const,
+        summary: "winner",
+        status: { headSha: "h", enabled: false, state: "success" as const },
+      };
+      if (state === "pending_status_without_check") {
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+           VALUES ($1, $2, $3, 'github.review_commit_status', 'pending',
+                   '{"state":"pending","headSha":"h","__result":null}'::jsonb)`,
+          [randomUUID(), id, `review:commit_status:${resourceKey}:h:pending`],
+        );
+      } else {
+        await claimOwnVerdict(pool, { ...identity, selected });
+        await recordOwnVerdictSurfaceState(pool, { ...identity, selected }, "check", state);
+      }
+      const candidates = (await listTerminalReviewsWithOpenOwnChecks(pool)).map(
+        (item) => item.workItemId,
+      );
+      expect(candidates.includes(id)).toBe(state !== "skipped-for-this-run");
+      const row = await pool.query(
+        "SELECT github_id, detail FROM publish_records WHERE work_item_id = $1",
+        [id],
+      );
+      if (state === "pending_status_without_check") {
+        expect(row.rows).toEqual([]);
+        const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
+          await import("../../src/github/installationCapabilities.js");
+        const available = availableInstallationCapabilities({
+          appId: makeTestConfig().github.appId,
+          installationId: 1,
+          owner: OWNER,
+          repo: "r",
+        });
+        const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+        Object.defineProperty(fake.surface, "capabilities", {
+          value: createReviewCapabilityPolicy({
+            ...available,
+            availability: {
+              ...available.availability,
+              checksRead: "denied",
+              checksWrite: "denied",
+            },
+          }),
+        });
+        await reviewVerdict({
+          ...identity,
+          pool,
+          prSurface: fake.surface,
+          owner: OWNER,
+          repo: "r",
+          prNumber: 1,
+          headSha: "h",
+          commitStatusEnabled: false,
+        }).repairIfOpen();
+        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
+          [],
+        );
+        expect(
+          fake.controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
+        ).toEqual([
+          expect.objectContaining({ status: expect.objectContaining({ state: "error" }) }),
+        ]);
+        expect(
+          (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+        ).not.toContain(id);
+        return;
+      }
+      expect(row.rows[0].github_id).toBeNull();
+      expect(row.rows[0].detail.ownCheckApplied).toBeUndefined();
+      expect(row.rows[0].detail.conclusion).toBeUndefined();
+      if (state === "blocked") {
+        const {
+          saveGithubCapabilityObservation,
+          loadGithubCapabilityObservation,
+          recordGithubCapabilityDenial,
+        } = await import("../../src/agentWork/githubCapabilityRepository.js");
+        const { availableInstallationCapabilities } =
+          await import("../../src/github/installationCapabilities.js");
+        const availability = availableInstallationCapabilities({
+          appId: makeTestConfig().github.appId,
+          installationId: 1,
+          owner: OWNER,
+          repo: "r",
+        }).availability;
+        await recordReviewCheckRun(pool, {
+          ...identity,
+          githubId: 111,
+          detail: { status: "in_progress" },
+        });
+        await saveGithubCapabilityObservation(pool, {
+          installationId: 1,
+          owner: OWNER,
+          repo: "r",
+          observation: {
+            generation: 1,
+            capabilities: availability,
+          },
+        });
+        try {
+          const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+          vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+            token: "synthetic-integration-token",
+            expiresAtTs: Date.now() + 60_000,
+            ttlMs: 60_000,
+          });
+          vi.spyOn(prSurface, "createPrSurface").mockImplementation((params) => {
+            Object.defineProperty(fake.surface, "capabilities", {
+              value: params.capabilities,
+              configurable: true,
+            });
+            return fake.surface;
+          });
+          const finish = vi
+            .spyOn(fake.surface, "finishReviewCheck")
+            .mockImplementationOnce(async () => {
+              await fake.surface.capabilities?.deny("checksWrite");
+              throw Object.assign(new Error("Resource not accessible by integration"), {
+                status: 403,
+                accepted: false,
+              });
+            });
+          await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
+          expect(
+            (
+              await loadGithubCapabilityObservation(pool, {
+                installationId: 1,
+                owner: OWNER,
+                repo: "r",
+              })
+            )?.capabilities.checksWrite,
+          ).toBe("denied");
+          // A blocked candidate must not occupy the bounded repair batch.
+          expect(
+            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+          ).not.toContain(id);
+          const restarts = Array.from({ length: 2 }, () =>
+            spawnSync(
+              "nub",
+              [
+                "-e",
+                `
+            const { Pool } = await import("pg");
+            const { productionInstallationSurface } = await import("./src/agentWork/installationSurface.ts");
+            const { reconcileLostRunningWork } = await import("./src/agentWork/lostRunningWork.ts");
+            const { makeTestConfig } = await import("./test/helpers/config.ts");
+            let tokenCalls = 0, surfaceCalls = 0;
+            productionInstallationSurface.token = async () => { tokenCalls++; throw new Error("Denied token polling"); };
+            productionInstallationSurface.create = async () => { surfaceCalls++; throw new Error("Denied surface polling"); };
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+            try {
+              await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
+              console.log(JSON.stringify({ pid: process.pid, tokenCalls, surfaceCalls }));
+            } finally { await pool.end(); }
+          `,
+              ],
+              { cwd: process.cwd(), encoding: "utf8", timeout: 30_000 },
+            ),
+          );
+          const pids: number[] = [];
+          for (const restart of restarts) {
+            expect(restart.error).toBeUndefined();
+            expect(restart.status).toBe(0);
+            const evidence = JSON.parse(restart.stdout.trim());
+            expect(evidence).toMatchObject({ tokenCalls: 0, surfaceCalls: 0 });
+            expect(evidence.pid).not.toBe(process.pid);
+            pids.push(evidence.pid);
+          }
+          expect(new Set(pids).size).toBe(2);
+          await saveGithubCapabilityObservation(pool, {
+            installationId: 1,
+            owner: OWNER,
+            repo: "r",
+            observation: { generation: 2, capabilities: availability },
+          });
+          await recordGithubCapabilityDenial(pool, {
+            installationId: 1,
+            owner: OWNER,
+            repo: "r",
+            generation: 1,
+            operation: "checksWrite",
+          });
+          expect(
+            (
+              await loadGithubCapabilityObservation(pool, {
+                installationId: 1,
+                owner: OWNER,
+                repo: "r",
+              })
+            )?.capabilities.checksWrite,
+          ).toBe("available");
+          await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
+          expect(
+            fake.controls.events.filter((event) => event.kind === "finishReviewCheck"),
+          ).toEqual([expect.objectContaining({ conclusion: "success" })]);
+          expect(finish).toHaveBeenLastCalledWith(
+            expect.objectContaining({ conclusion: "success", summary: "winner" }),
+          );
+          expect(
+            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+          ).not.toContain(id);
+          console.info("own-verdict-denial-restart-repair", {
+            processes: pids.length,
+            deniedTokenCalls: 0,
+            deniedSurfaceCalls: 0,
+            repaired: true,
+          });
+        } finally {
+          await pool.query(
+            "DELETE FROM github_repository_capabilities WHERE installation_id = 1 AND owner = $1 AND repo = 'r'",
+            [OWNER],
+          );
+        }
+      }
     },
   );
 

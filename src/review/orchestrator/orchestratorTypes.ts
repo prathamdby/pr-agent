@@ -30,6 +30,7 @@ export type SpecialistOutcome =
       readonly kind: "empty";
       readonly specialist: SpecialistId;
       readonly durationMs: number;
+      readonly report?: SpecialistReport;
     }
   | {
       readonly kind: "error";

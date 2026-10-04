@@ -86,9 +86,39 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.js", async (importOriginal) => ({
+  parseRepositoryInstallation: (await importOriginal<typeof import("../src/github/appAuth.js")>())
+    .parseRepositoryInstallation,
   mintInstallationAuth: vi.fn(),
+  mintScopedInstallationAuth: vi.fn(async (cfg, id) => {
+    const auth = await appAuth.mintInstallationAuth(cfg, id);
+    return { token: auth.token, expires_at: auth.expiresAt };
+  }),
+  lookupRepositoryInstallation: vi.fn(async () => ({
+    id: 42,
+    app_id: 1,
+    suspended_at: null,
+    repository_selection: "all",
+    permissions: {
+      contents: "read",
+      pull_requests: "write",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    },
+  })),
   getAppBotIdentity: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  changeGithubPreflightFailureCount: vi.fn(async () => 0),
+}));
+vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+  getSharedRateLimitCircuit: vi.fn(async () => null),
 }));
 
 const prSurfaceMocks = vi.hoisted(() => ({
@@ -122,6 +152,7 @@ import * as appAuth from "../src/github/appAuth.js";
 import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
+import { openLeasedExecution } from "../src/agentWork/leasedExecution.js";
 
 let installationSurface = openInstallationSurface();
 
@@ -216,7 +247,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue();
+  vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
@@ -244,6 +275,36 @@ describe("leased execution", () => {
     vi.clearAllMocks();
     defaultMocks();
   });
+  it.each([true, false])(
+    "preserves the acknowledged cancellation result while the lease is held (%s)",
+    async (changed) => {
+      const item = makeItem();
+      vi.mocked(repo.markWorkCancelled).mockResolvedValue(changed);
+      const execution = await openLeasedExecution({
+        cfg,
+        pool,
+        boss,
+        job: makeJob(),
+        type: "review",
+        core: coreOf(item),
+        prActorLease: { queue: "agent-work-review" },
+        runtime: createDurableRuntime({
+          transaction: vi.fn().mockImplementation(async (_pool, fn) => fn(pool)),
+          startLeaseRenewal: vi.fn(() => () => undefined),
+        }),
+      });
+      if (!execution) throw new Error("expected an owned execution");
+      try {
+        await expect(execution.cancelWhileOwned(item, "cancel")).resolves.toBe(changed);
+        expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, item.id, 1);
+        vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+        await expect(execution.cancelWhileOwned(item, "lost")).resolves.toBeNull();
+        expect(repo.markWorkCancelled).toHaveBeenCalledTimes(1);
+      } finally {
+        await execution.release();
+      }
+    },
+  );
   it("claims through the unified path and acquires the PR actor lease", async () => {
     const item = makeItem();
     mockFetchedItem(item);

@@ -60,19 +60,39 @@ A new comment is a new question, even with identical text in the same
 thread. The join lasts until the work item is purged by
 `AGENT_WORK_RETENTION_SECONDS`.
 
-| Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
-| ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                            |
-| `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                   |
-| `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                     |
-| `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                             |
-| `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual`   | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                                                                                              |
-| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`     | no             | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.                                                                      |
-| `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`    | no             | Posts `pr-agent/review` on the PR head. `pending` when the check starts. `success` or `failure` from published findings. `error` on cancel, supersede, stale head, crash, unpublished, or partial coverage. Usable in branch protection. |
-| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `true`     | no             | Allows `/describe` to rewrite the PR title using make-pr default title rules (imperative sentence case, no type prefix, no trailing period, at most 60 characters). Set `false` to keep the existing title.                              |
+| Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                                                                        |
+| ----------------------- | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                                                                       |
+| `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                                                              |
+| `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                                                                |
+| `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                                                                        |
+| `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual`   | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                                                                                                                                         |
+| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`     | no             | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.                                                                                                                 |
+| `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`    | no             | Posts `pr-agent/review` on the PR head. `pending` when admitted review work starts, independently of Checks access. `success` or `failure` from published findings. `error` on cancel, supersede, stale head, crash, unpublished, or partial coverage. Usable in branch protection. |
+| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `true`     | no             | Allows `/describe` to rewrite the PR title using make-pr default title rules (imperative sentence case, no type prefix, no trailing period, at most 60 characters). Set `false` to keep the existing title.                                                                         |
 
 Notes:
 
+- Each new review checks fresh App installation grants for its repository.
+  Missing essential reads or publication stops before checkout/model work.
+  Checks, statuses, Actions logs, labels, and reactions degrade independently,
+  without changing feature settings or other work types. Label denial also
+  stops category labels even when `FEATURE_REVIEW_LABELS=off`.
+  Contents write is needed for triage pushes, not reviews.
+  Unknown access checks retry without consuming model attempts.
+  Exact receipt-only completion does not need new publication permission.
+- A never-started optional verdict surface can be deliberately skipped.
+  Accepted or acceptance-uncertain pending surfaces remain applicable for repair
+  after restoration. Restoring grants and requesting a new review refreshes
+  eligible CI sources and repair; retained failures are not automatically reopened.
+- `REVIEW_RECOVERY_ENABLED` is separate operator tuning, default off, not a
+  ninth feature. Validated review artifacts can reduce repeated computation
+  after a restart; they never restore a transcript or bypass evidence and
+  publication gates. See [configuration.md](configuration.md) and [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+- A typed GitHub review-thread resolution denial stops verification rather than
+  claiming the thread was resolved. A reply accepted before that denial remains
+  accepted; the denial is not permission to repeat it. Confirm App permissions
+  and installation access before requesting a new `/verify`.
 - Recovering a run does not use another retry unless PR Agent starts another
   work attempt. Interrupted work attempts still count. Previously failed runs
   are not reopened automatically.
@@ -121,4 +141,5 @@ Description, verification, and triage share bounded submit repairs. If a repair
 hits its tool budget without submitting, the last validation error is retained
 for the next repair and the final diagnostic. Ask remains a direct session run.
 Session computation is in memory; durable work and publication recovery remain
-backed by work items, operation intents, and publish records.
+backed by work items, operation intents, and publish records. Optional validated
+review artifacts are a separate structured-output store, not session persistence.

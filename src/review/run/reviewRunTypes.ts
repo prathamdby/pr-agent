@@ -9,8 +9,10 @@ import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestr
 import type { RecordPublishStepWithCoordination } from "../publish/reviewSummaryComment.js";
 import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
+import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
 
 export type ReviewRunParams = {
+  readonly recovery?: ReviewRecovery;
   readonly cfg: Config;
   readonly prSurface: PrSurface;
   readonly owner: string;

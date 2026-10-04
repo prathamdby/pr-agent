@@ -32,6 +32,15 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
   if (isAppError(error) && error.code === "agent_work.attempts_exhausted") return "terminal";
   if (
     isAppError(error) &&
+    (error.code === "github.essential_access_denied" || error.code === "github.preflight_exhausted")
+  ) {
+    return "terminal";
+  }
+  if (isAppError(error) && error.code === "github.review_thread_resolution_denied") {
+    return "terminal";
+  }
+  if (
+    isAppError(error) &&
     error.code === "operation_intent.mutation_outcome_unknown" &&
     error.context.unknownResolution === "terminal"
   ) {

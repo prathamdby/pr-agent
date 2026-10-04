@@ -14,7 +14,11 @@ import {
 } from "../../src/agentWork/fakePublishStore.js";
 import { isRecord } from "../../src/util/typeGuards.js";
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { fork } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { PgBoss, type JobWithMetadata } from "pg-boss";
 import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
@@ -101,8 +105,104 @@ import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
 import { publishTriage, recoverTriagePublication } from "../../src/agent/triage/publishTriage.js";
+import {
+  openReviewArtifactStore,
+  REVIEW_ARTIFACT_BUDGET_BYTES,
+  REVIEW_SETTLEMENT_RESERVE_BYTES,
+} from "../../src/agentWork/reviewArtifactRepository.js";
+import {
+  createReviewArtifactBinding,
+  createReviewArtifactEnvelope,
+  reviewArtifactHash,
+} from "../../src/review/recovery/reviewArtifacts.js";
+import { reviewPayloadFromFindings } from "../../src/review/reviewSchema.js";
+import {
+  createEvidenceLedger,
+  recordDeliveredFileRead,
+  revalidateEvidenceDescriptors,
+} from "../../src/review/findings/evidenceLedger.js";
+
+describe("review artifact evidence descriptors", () => {
+  it("revalidates fresh governed reads rather than replaying response hashes as range hashes", async () => {
+    const original = createEvidenceLedger("head");
+    recordDeliveredFileRead(original, {
+      path: "./src/a.ts",
+      headSha: "head",
+      tool: "readWorkspaceFile",
+      startLine: 10,
+      endLine: 13,
+      content: "one\r\ntwo\r\nclamped\r\nfour",
+      clampedLines: [12],
+    });
+    expect(original.covers("src/a.ts", 10, 11)).toBe(true);
+    expect(original.covers("src/a.ts", 12, 12)).toBe(false);
+    const descriptors = original.snapshot().map((read) => read.descriptor);
+    expect(descriptors).toEqual([
+      expect.objectContaining({ version: 1, kind: "file_range", startLine: 10, endLine: 11 }),
+      expect.objectContaining({ version: 1, kind: "file_range", startLine: 13, endLine: 13 }),
+    ]);
+    const fresh = createEvidenceLedger("head");
+    const read = vi.fn(async (descriptor: { startLine: number; endLine: number }) => ({
+      path: "src/a.ts",
+      headSha: "head",
+      tool: "readWorkspaceFile",
+      startLine: descriptor.startLine,
+      endLine: descriptor.endLine,
+      content: descriptor.startLine === 10 ? "one\ntwo" : "four",
+    }));
+    expect(await revalidateEvidenceDescriptors(fresh, descriptors, read)).toBe(true);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(fresh.covers("src/a.ts", 10, 11)).toBe(true);
+    expect(fresh.covers("src/a.ts", 12, 12)).toBe(false);
+    const mismatch = createEvidenceLedger("head");
+    expect(
+      await revalidateEvidenceDescriptors(mismatch, descriptors, async (descriptor) => ({
+        path: descriptor.path,
+        headSha: "head",
+        tool: "readWorkspaceFile",
+        startLine: descriptor.startLine,
+        endLine: descriptor.endLine,
+        content: "different",
+      })),
+    ).toBe(false);
+    expect(mismatch.snapshot()).toEqual([]);
+    expect(
+      await revalidateEvidenceDescriptors(
+        mismatch,
+        original.snapshot().map(({ descriptor: _descriptor, ...legacy }) => legacy),
+        read,
+      ),
+    ).toBe(false);
+    expect(mismatch.snapshot()).toEqual([]);
+  });
+});
 
 describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () => {
+  beforeEach(() => {
+    const permissions = {
+      contents: "read",
+      pull_requests: "write",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    } as const;
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 42,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions,
+    });
+    vi.spyOn(appAuth, "mintScopedInstallationAuth").mockImplementation(async (cfg, id) => {
+      const auth = await appAuth.mintInstallationAuth(cfg, id);
+      return {
+        token: auth.token,
+        expires_at: auth.expiresAt ?? new Date(Date.now() + 3_600_000).toISOString(),
+        permissions,
+      };
+    });
+  });
   let pool: Pool;
 
   beforeAll(async () => {
@@ -116,6 +216,1067 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("recovers a SIGKILLed review in a separate process with exact receipts, a fresh session and the complete summary-only ledger", async () => {
+    // Process proof inventory: kill after the provider accepted but before its response;
+    // preserve all four validated reports; steal only this dead child's lease;
+    // restart the actual review entry with a newly admitted pinned reader; prove
+    // receipt recovery never publishes a second inline batch; retain summary-only
+    // source/reason/count/budget data; refuse unfinished work at cap; complete an
+    // already-published summary from its receipt without another view or model.
+    const root = fileURLToPath(new URL("../..", import.meta.url));
+    const artifactDir = join(root, "verify-artifacts/review-reliability");
+    await mkdir(artifactDir, { recursive: true });
+    const scriptPath = join(artifactDir, "recovery-child.mjs");
+    const sourceUrl = pathToFileURL(join(root, "src/")).href;
+    const sourceEntry = new URL("review/runReviewForWorkItem.ts", sourceUrl).href;
+    await writeFile(
+      scriptPath,
+      `
+import { Pool } from "pg";
+import { readFile, writeFile } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { registerHooks } from "node:module";
+const sourceUrl = ${JSON.stringify(sourceUrl)};
+const sourceEntry = ${JSON.stringify(sourceEntry)};
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const candidate = specifier.startsWith("file:") ? new URL(specifier) :
+      specifier.startsWith(".") && context.parentURL ? new URL(specifier, context.parentURL) : null;
+    if (candidate?.href.startsWith(sourceUrl) && candidate.pathname.endsWith(".js")) {
+      candidate.pathname = candidate.pathname.slice(0, -3) + ".ts";
+      return nextResolve(candidate.href, context);
+    }
+    return nextResolve(specifier, context);
+  },
+});
+const load = (path) => import(new URL(path, sourceUrl));
+const { runReviewForWorkItem } = await load("review/runReviewForWorkItem.js");
+const { createFakePrSurface } = await load("github/prSurface.js");
+const { createFeaturePiSession } = await load("agent/runtime/createFeatureSession.js");
+const { createFakePiSession } = await load("agent/runtime/fakePiSession.js");
+const { createPinnedRepositoryReader } = await load("prWorkspace/repositoryReader.js");
+const { createCachedPrDiffIndex, ingestListPullRequestFilesResult } = await load("review/placement/reviewDiffIndex.js");
+const { buildReviewPreflightMetadataFromWorkspace } = await load("review/placement/reviewPreflightFiles.js");
+const { acquirePrActorLease, releasePrActorLease, isPrActorLeaseHeld } = await load("agentWork/prActorLease.js");
+const { claimWorkForExecution, beginWorkAttempt, getWorkItem, shouldSkipWork } = await load("agentWork/workItemStateRepository.js");
+const { escalationForAttempt } = await load("agentWork/retryPolicy.js");
+const { publishOnce } = await load("agentWork/publishOnce.js");
+const { withPrSurfaceMutationBoundary } = await load("github/prSurfaceMutation.js");
+const { reviewPayloadFromFindings } = await load("review/reviewSchema.js");
+const { AppError } = await load("errors/appError.js");
+const { initEvlog } = await load("evlog.js");
+initEvlog("error", { silent: true, suppressDrainWarning: true });
+Math.random = () => 0;
+const [dir, stage] = process.argv.slice(2);
+const input = JSON.parse(await readFile(join(dir, "input.json"), "utf8"));
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+let effects = { inlineCalls: 0, batches: [], comments: [], upserts: [] };
+try { effects = JSON.parse(await readFile(join(dir, "remote.json"), "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
+const persistEffects = () => writeFile(join(dir, "remote.json"), JSON.stringify(effects, null, 2));
+const key = { resourceKey: input.resourceKey, workType: "review" };
+const lease = await acquirePrActorLease(pool, { ...key, workItemId: input.id, holderId: "proof-" + process.pid, ttlSeconds: 60 });
+if (!lease.acquired) throw new Error("proof lease unavailable");
+let claim = await claimWorkForExecution(pool, input.id, lease.leaseEpoch);
+const item = await getWorkItem(pool, input.id);
+const raw = createFakePrSurface({ owner: item.owner, repo: item.repo, prNumber: 1 }, { headSha: input.head });
+raw.controls.setPullRequestReviews(effects.batches);
+raw.controls.setReviewComments(effects.comments);
+raw.controls.setProgressComment("## PR Agent Review", effects.upserts.at(-1) ?? "Queued", 99);
+const originalUpsert = raw.surface.upsertProgressComment.bind(raw.surface);
+raw.surface.upsertProgressComment = async (...args) => {
+  const result = await originalUpsert(...args);
+  effects.upserts.push(args[0]);
+  await persistEffects();
+  if (stage === "summary-crash" && args[0].includes("Mergeability")) {
+    process.send?.({ kind: "boundary", pid: process.pid, leaseEpoch: lease.leaseEpoch, step: "summary", sourceEntry });
+    await new Promise(() => {});
+  }
+  return result;
+};
+raw.surface.publishThreadBatch = async (review) => {
+  effects.inlineCalls += 1;
+  const id = 700 + effects.inlineCalls;
+  effects.batches.push({ id, userId: 1, authorLogin: "pr-agent[bot]", body: review.body,
+    commitId: review.commitId, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#pullrequestreview-" + id });
+  for (const [index, comment] of (review.comments ?? []).entries()) effects.comments.push({
+    id: id * 10 + index, inReplyToId: null, pullRequestReviewId: id, userId: 1,
+    authorLogin: "pr-agent[bot]", body: comment.body, path: comment.path, line: comment.line,
+    originalLine: comment.line, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#discussion_r" + (id * 10 + index),
+  });
+  await persistEffects();
+  raw.controls.setPullRequestReviews(effects.batches);
+  raw.controls.setReviewComments(effects.comments);
+  if (stage === "crash") {
+    process.send?.({ kind: "boundary", pid: process.pid, leaseEpoch: lease.leaseEpoch, sourceEntry });
+    await new Promise(() => {});
+  }
+  return { reviewId: id, reviewUrl: effects.batches.at(-1).htmlUrl };
+};
+const signal = new AbortController().signal;
+const surface = withPrSurfaceMutationBoundary(raw.surface, {
+  signal, run: async (mutation, mutate) => {
+    if (!(await isPrActorLeaseHeld(pool, item.id, lease.leaseEpoch)) || await shouldSkipWork(pool, item))
+      throw new AppError({ domain: "agent_work", kind: "execution_aborted", message: "proof execution fenced" });
+    return publishOnce({ ...mutation, client: pool, workItemId: item.id, leaseEpoch: lease.leaseEpoch, mutate });
+  },
+});
+const finding = (source) => ({
+  severity: source === "correctness" ? "P1" : "P2", file: "src/a.ts",
+  startLine: source === "correctness" ? 2 : 3, endLine: source === "correctness" ? 2 : 3,
+  title: source === "correctness" ? "Null input dereference" : "Unhandled stale input",
+  detail: source === "correctness" ? "A null request dereferences its missing value before validation." :
+    "A stale request reaches the new branch and returns an invalid result.",
+  fixPrompt: "Guard this input before returning the result.",
+});
+const createSession = (params) => createFeaturePiSession({
+  ...params, eventSink: (event) => appendFileSync(join(dir, "sessions.jsonl"), JSON.stringify({
+    pid: process.pid, sessionId: event.sessionId, generationId: event.generationId,
+    kind: event.kind, role: event.role, phase: event.phase, specialist: event.specialistId, failureCode: event.failureCode,
+  }) + "\\n"),
+  createSession: (sessionParams) => createFakePiSession(sessionParams, async ({ prompt, opts }) => {
+    if (sessionParams.role === "specialist") {
+      const source = sessionParams.specialistId;
+      await sessionParams.executors.execute({ code: 'await tools.readWorkspaceFile({ path: "src/a.ts", startLine: 1, maxLines: 3 })' });
+      if (source === "quality") await new Promise((resolve) => setTimeout(resolve, 40));
+      await sessionParams.executors.submit_findings_report(
+        source === "correctness" || source === "quality" ?
+          { status: "findings", findings: [finding(source)] } : { status: "no_findings", findings: [] });
+    } else if (opts.phase === "recon") {
+      await sessionParams.executors.submit_specialist_brief({
+        prIntent: "Guard request inputs", architectureNotes: "One guarded request boundary", riskAreas: [],
+        fileMap: "src/a.ts", specialistFocus: { correctness: "Trace null input", security: "Trace trust",
+          quality: "Trace stale input", tests: "Trace regressions" },
+      });
+    } else if (opts.phase === "judgment") {
+      const source = prompt.match(/Judge the (correctness|security|quality|tests) specialist/)[1];
+      await sessionParams.executors.publish_thread({ findings: [finding(source)] });
+    } else if (opts.phase === "synthesis") {
+      await sessionParams.executors.publish_summary({ ...reviewPayloadFromFindings([]), size: "S" });
+    }
+    return { text: "Validated deterministic proof output", end: "completed" };
+  }).session,
+});
+let admissions = 0;
+let views = 0;
+let admission;
+const executionId = randomUUID();
+const env = {
+  job: { id: randomUUID(), data: { workItemId: item.id }, startedOn: new Date(), expireInSeconds: 120 },
+  prSurface: surface, headSha: input.head, pullRequest: {
+    title: "Guard request inputs", body: "Reject null and stale inputs", additions: 3, deletions: 0, changed_files: 1,
+    head: { sha: input.head, repo: { full_name: item.owner + "/" + item.repo } },
+    base: { sha: input.base, repo: { full_name: item.owner + "/" + item.repo } },
+  },
+  leaseEpoch: lease.leaseEpoch, signal,
+  beginAttempt: () => admission ??= (async () => {
+    admissions += 1;
+    const result = await beginWorkAttempt(pool, item.id, lease.leaseEpoch, 4);
+    if (result.kind !== "started") throw new AppError({ domain: "agent_work",
+      kind: result.kind === "exhausted" ? "attempts_exhausted" : "admission_unavailable", message: "proof admission refused" });
+    claim = { ...result.claim, resumed: claim.resumed };
+    return claim;
+  })(),
+  get claim() { return claim; },
+  get escalation() { return escalationForAttempt(claim.attemptCount, input.cfg); },
+  durability: { pool, workItemId: item.id, installationId: 42, owner: item.owner, repo: item.repo,
+    prNumber: 1, executionId, get attemptCount() { return claim.attemptCount; } },
+  shouldAbortPublish: async () => await shouldSkipWork(pool, item) || !(await isPrActorLeaseHeld(pool, item.id, lease.leaseEpoch)),
+  withAdmittedRepositoryView: async (_options, run) => {
+    await env.beginAttempt();
+    views += 1;
+    const files = { files: [{ filename: "src/a.ts", status: "modified", additions: 3, deletions: 0,
+      changes: 3, patch: "@@ -0,0 +1,3 @@\\n+export const handler = input => {\\n+  return input.value;\\n+};" }],
+      headSha: input.head, truncated: false, omittedCountLowerBound: 0, totalChanges: 3 };
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, files);
+    const changedFiles = [{ path: "src/a.ts", status: "modified" }];
+    const pinned = createPinnedRepositoryReader({
+      agentCwd: join(dir, "workspace"), privateGitDir: join(dir, "workspace/.git"), headSha: input.head,
+      checkoutPaths: new Set(["src/a.ts"]), sortedCheckoutPaths: ["src/a.ts"], checkoutMode: "full",
+      changedFiles, changedFileByPath: new Map([["src/a.ts", changedFiles[0]]]), diffIndex,
+      stats: { truncated: false, totalChanges: 3, fileCount: 1 },
+      patchByPath: new Map([["src/a.ts", files.files[0].patch]]), patchOmittedByCapPaths: new Set(), symbolIndex: null,
+    });
+    const workspace = { rootDir: join(dir, "workspace"), agentCwd: join(dir, "workspace"),
+      privateGitDir: join(dir, "workspace/.git"), reader: pinned.reader, cleanup: async () => pinned.dispose() };
+    try { return await run({ workspace, agentCwd: workspace.agentCwd, preflight: buildReviewPreflightMetadataFromWorkspace(workspace) }); }
+    finally { pinned.dispose(); }
+  },
+};
+try {
+  const result = await runReviewForWorkItem(item, env, {
+    cfg: input.cfg, pool, boss: { send: async () => null, sendDebounced: async () => randomUUID() },
+    getBotIdentity: async () => ({ userId: 1, login: "pr-agent[bot]" }), createSession,
+  });
+  process.send?.({ kind: "completed", result, pid: process.pid, executionId, admissions, views,
+    attemptCount: claim.attemptCount, leaseEpoch: lease.leaseEpoch });
+} catch (error) {
+  process.send?.({ kind: "failed", code: error.code, message: error.message, reason: error.context?.reason,
+    pid: process.pid, admissions, views });
+} finally {
+  await releasePrActorLease(pool, { ...key, leaseEpoch: lease.leaseEpoch });
+  await pool.end();
+  process.disconnect?.();
+}
+`,
+    );
+    const outcomes: Record<string, unknown>[] = [];
+    const children = new Set<ReturnType<typeof fork>>();
+    const cfg = makeTestConfig({
+      review: { recoveryEnabled: true, maxInlineComments: 1, maxThreadPublishCalls: 1 },
+      findingHistory: { enabled: false },
+      agentEvents: { enabled: false },
+      features: { reviewLabels: "off" },
+    });
+    const start = (dir: string, stage: string) => {
+      const child = fork(scriptPath, [dir, stage], {
+        cwd: root,
+        silent: true,
+        execArgv: ["--experimental-strip-types"],
+      });
+      children.add(child);
+      let output = "";
+      child.stdout?.on("data", (data: Buffer) => {
+        output += data.toString();
+      });
+      child.stderr?.on("data", (data: Buffer) => {
+        output += data.toString();
+      });
+      const message = new Promise<Record<string, unknown>>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error(`Proof child timeout: ${output}`));
+        }, 30_000);
+        child.on("message", (value: unknown) => {
+          if (!isRecord(value)) return;
+          clearTimeout(timer);
+          resolve(value);
+        });
+        child.on("error", reject);
+        child.on("exit", (code, signal) => {
+          clearTimeout(timer);
+          if (code !== 0 && signal !== "SIGKILL")
+            reject(new Error(`Proof child exited ${code}: ${output}`));
+        });
+      });
+      return { child, message, output: () => output };
+    };
+    const stop = (child: ReturnType<typeof fork>) =>
+      new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          resolve();
+          return;
+        }
+        child.once("exit", () => resolve());
+        child.kill("SIGKILL");
+      });
+    const fixtureIds: string[] = [];
+    try {
+      for (const { atCap, summaryCrash } of [
+        { atCap: false, summaryCrash: false },
+        { atCap: true, summaryCrash: false },
+        { atCap: false, summaryCrash: true },
+      ]) {
+        const id = randomUUID();
+        fixtureIds.push(id);
+        const resourceKey = `crash-it/r-${id}#1`;
+        const dir = join(artifactDir, id);
+        await mkdir(join(dir, "workspace/src"), { recursive: true });
+        await writeFile(
+          join(dir, "workspace/src/a.ts"),
+          "export const handler = input => {\n  return input.value;\n};\n",
+        );
+        await writeFile(
+          join(dir, "input.json"),
+          JSON.stringify({
+            id,
+            resourceKey,
+            head: "a".repeat(40),
+            base: "b".repeat(40),
+            cfg,
+          }),
+        );
+        await pool.query(
+          `INSERT INTO agent_work_items
+            (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens,
+             resource_key, payload, attempt_count)
+           VALUES ($1, 'review', 'slash', 'queued', 'crash-it', $2, 1, 42, $3, 'review', $4,
+             '{"source":"slash","mode":"review"}', 1)`,
+          [id, `r-${id}`, "a".repeat(40), resourceKey],
+        );
+        const initial = start(dir, summaryCrash ? "summary-crash" : "crash");
+        const boundary = await initial.message;
+        await writeFile(
+          join(dir, "initial-outcome.json"),
+          JSON.stringify({ boundary, output: initial.output() }, null, 2),
+        );
+        expect(boundary.kind).toBe("boundary");
+        expect(boundary.sourceEntry).toBe(sourceEntry);
+        for (let poll = 0; poll < 200; poll++) {
+          const { rows } = await pool.query<{ count: number }>(
+            "SELECT count(*)::int AS count FROM review_run_artifacts WHERE work_item_id = $1 AND kind = 'report'",
+            [id],
+          );
+          if (rows[0]?.count === 4) break;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        const before = await pool.query<{
+          logical_key: string;
+          payload_hash: string;
+          envelope: string;
+        }>(
+          "SELECT logical_key, payload_hash, envelope FROM review_run_artifacts WHERE work_item_id = $1 ORDER BY artifact_order",
+          [id],
+        );
+        expect(before.rows.filter((row) => row.logical_key.startsWith("report/"))).toHaveLength(4);
+        expect(before.rows.some((row) => row.logical_key === "decision/0/prepared")).toBe(true);
+        expect(before.rows.some((row) => row.logical_key === "decision/0/settled")).toBe(
+          summaryCrash,
+        );
+        if (summaryCrash) {
+          expect(before.rows.some((row) => row.logical_key === "final-summary")).toBe(true);
+          expect(before.rows.some((row) => row.logical_key === "decision/2/prepared")).toBe(true);
+          expect(before.rows.some((row) => row.logical_key === "decision/2/settled")).toBe(false);
+        }
+        await stop(initial.child);
+        expect(initial.child.signalCode).toBe("SIGKILL");
+        // This is the dead process's dedicated lease, not a shared queue or live holder.
+        await pool.query(
+          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
+          [id],
+        );
+        if (atCap)
+          await pool.query("UPDATE agent_work_items SET attempt_count = 4 WHERE id = $1", [id]);
+        const resumed = start(dir, "resume");
+        const resumedOutcome = await resumed.message;
+        await new Promise<void>((resolve) => {
+          if (resumed.child.exitCode !== null) resolve();
+          else resumed.child.once("exit", () => resolve());
+        });
+        const remote = JSON.parse(await readFile(join(dir, "remote.json"), "utf8"));
+        expect(remote.inlineCalls).toBe(1);
+        const after = await pool.query<{
+          logical_key: string;
+          payload_hash: string;
+          envelope: string;
+        }>(
+          "SELECT logical_key, payload_hash, envelope FROM review_run_artifacts WHERE work_item_id = $1 ORDER BY artifact_order",
+          [id],
+        );
+        await writeFile(join(dir, "artifacts-after.json"), JSON.stringify(after.rows, null, 2));
+        await writeFile(
+          join(dir, "resumed-outcome.json"),
+          JSON.stringify({ resumedOutcome, output: resumed.output() }, null, 2),
+        );
+        expect(resumedOutcome.kind).toBe(atCap ? "failed" : "completed");
+        expect(resumedOutcome.admissions).toBe(1);
+        expect(resumedOutcome.views).toBe(atCap ? 0 : 1);
+        for (const retained of before.rows)
+          expect(
+            after.rows.find((row) => row.logical_key === retained.logical_key)?.payload_hash,
+          ).toBe(retained.payload_hash);
+        if (atCap) {
+          expect(resumedOutcome.code).toBe("agent_work.attempts_exhausted");
+          expect(after.rows).toEqual(before.rows);
+        } else {
+          expect(resumedOutcome.attemptCount).toBe(3);
+          expect(resumedOutcome.leaseEpoch).not.toBe(boundary.leaseEpoch);
+          const summary = after.rows.find((row) => row.logical_key === "final-summary");
+          const envelope = summary ? JSON.parse(summary.envelope) : null;
+          expect(envelope?.artifact.inputs.ledger).toMatchObject({
+            postedInlineCount: 1,
+            threadCallCount: 2,
+            threadBudgetExhausted: true,
+            accepted: [
+              expect.objectContaining({ source: "correctness", kind: "posted" }),
+              expect.objectContaining({
+                source: "quality",
+                kind: "summary_only",
+                reason: "budget",
+              }),
+            ],
+          });
+          const sessions = (await readFile(join(dir, "sessions.jsonl"), "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line));
+          const originalIds = new Set(
+            sessions.filter((event) => event.pid === boundary.pid).map((event) => event.sessionId),
+          );
+          const newSessions = sessions.filter((event) => event.pid === resumedOutcome.pid);
+          if (summaryCrash) {
+            expect(newSessions).toEqual([]);
+            expect(
+              remote.upserts.filter((body: string) => body.includes("Mergeability")),
+            ).toHaveLength(1);
+          } else {
+            expect(newSessions.length).toBeGreaterThan(0);
+          }
+          expect(newSessions.every((event) => !originalIds.has(event.sessionId))).toBe(true);
+          expect(
+            newSessions.some((event) => event.role === "specialist" || event.phase === "recon"),
+          ).toBe(false);
+          expect(
+            newSessions.filter((event) => event.kind === "turn" && event.phase === "judgment"),
+          ).toHaveLength(summaryCrash ? 0 : 1);
+          const publish = await loadReviewExecutorPublishContext(pool, id, resourceKey, "review");
+          expect(publish.publishState.summaryPublished).toBe(true);
+          await pool.query("UPDATE agent_work_items SET attempt_count = 4 WHERE id = $1", [id]);
+          const receipt = start(dir, "receipt");
+          const receiptOutcome = await receipt.message;
+          await new Promise<void>((resolve) => {
+            if (receipt.child.exitCode !== null) resolve();
+            else receipt.child.once("exit", () => resolve());
+          });
+          await writeFile(
+            join(dir, "receipt-outcome.json"),
+            JSON.stringify({ receiptOutcome, output: receipt.output() }, null, 2),
+          );
+          expect(receiptOutcome.kind).toBe("completed");
+          expect(receiptOutcome.admissions).toBe(0);
+          expect(receiptOutcome.views).toBe(0);
+          outcomes.push({
+            boundary,
+            resumedOutcome,
+            receiptOutcome,
+            id,
+            ledger: envelope.artifact.inputs.ledger,
+            artifactKeys: after.rows.map((row) => row.logical_key),
+            independentSessionIds: [...new Set(newSessions.map((event) => event.sessionId))],
+            inlineCalls: remote.inlineCalls,
+            summaryRecoveredWithoutModel: summaryCrash,
+          });
+        }
+        if (atCap)
+          outcomes.push({
+            boundary,
+            resumedOutcome,
+            id,
+            inlineCalls: remote.inlineCalls,
+            artifactsUnchanged: true,
+          });
+      }
+      await writeFile(
+        join(artifactDir, "process-restart-proof.json"),
+        JSON.stringify(
+          {
+            command:
+              "DATABASE_URL=postgresql://pr_agent@127.0.0.1:32897/pr_agent_review_recovery_acceptance node_modules/.bin/vitest run -c vitest.integration.config.ts test/integration/publishRecordBatches.integration.test.ts -t SIGKILLed",
+            signal: "SIGKILL",
+            productionEntry: "runReviewForWorkItem",
+            sourceEntry,
+            runtime: "Node native TypeScript with source-only .js import resolution",
+            outcomes,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      for (const child of children) await stop(child);
+      for (const id of fixtureIds) {
+        await pool.query(
+          "DELETE FROM pr_actor_leases WHERE work_item_id = $1 OR resource_key = $2",
+          [id, `crash-it/r-${id}#1`],
+        );
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [id]);
+      }
+    }
+  }, 90_000);
+
+  describe("bounded private review artifacts", () => {
+    const brief = {
+      prIntent: "Review the change",
+      architectureNotes: "",
+      riskAreas: [],
+      fileMap: "",
+      specialistFocus: { correctness: "", security: "", quality: "", tests: "" },
+    };
+    let binding: ReturnType<typeof createReviewArtifactBinding>;
+    let store: ReturnType<typeof openReviewArtifactStore>;
+    beforeEach(async () => {
+      const id = randomUUID();
+      const resourceKey = `artifact-it/r-${id}#1`;
+      binding = createReviewArtifactBinding(
+        {
+          workItemId: id,
+          resourceKey,
+          owner: "artifact-it",
+          repo: `r-${id}`,
+          prNumber: 1,
+          installationId: 42,
+          baseSha: "base",
+          headSha: "head",
+          mode: "review",
+        },
+        "a".repeat(64),
+      );
+      await pool.query(
+        `INSERT INTO agent_work_items
+          (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload, execution_epoch)
+         VALUES ($1, 'review', 'auto', 'running', $2, $3, 1, 42, 'head', 'review', $4, '{}', 7)`,
+        [id, binding.owner, binding.repo, resourceKey],
+      );
+      await pool.query(
+        `INSERT INTO pr_actor_leases (resource_key, work_type, lease_epoch, work_item_id, holder_id, expires_at)
+         VALUES ($1, 'review', 7, $2, 'artifact-it', now() + interval '5 minutes')`,
+        [resourceKey, id],
+      );
+      store = openReviewArtifactStore(pool, binding, 7);
+    });
+    afterEach(async () => {
+      await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [
+        binding.resourceKey,
+      ]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [binding.workItemId]);
+    });
+
+    it("validates, redacts, binds immutable identity and handles identical retry", async () => {
+      const envelope = createReviewArtifactEnvelope(binding, {
+        kind: "brief",
+        brief: { ...brief, architectureNotes: "OPENAI_API_KEY=sk-secret-value" },
+      });
+      expect(await store.save(envelope)).toBe("stored");
+      expect(await store.save(envelope)).toBe("existing");
+      expect(await store.load("brief")).toEqual(envelope);
+      expect(JSON.stringify(await store.load("brief"))).not.toContain("sk-secret-value");
+      await expect(
+        store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "brief",
+            brief: { ...brief, prIntent: "Changed" },
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "publish_store.invalid_detail",
+        context: { reason: "artifact_conflict" },
+      });
+      const { inputFingerprint: _inputFingerprint, ...identity } = binding;
+      const other = createReviewArtifactBinding(
+        { ...identity, headSha: "another" },
+        "a".repeat(64),
+      );
+      expect(await openReviewArtifactStore(pool, other, 7).load("brief")).toBeNull();
+      await expect(
+        store.save(createReviewArtifactEnvelope(other, { kind: "brief", brief })),
+      ).rejects.toMatchObject({ code: "publish_store.invalid_detail" });
+      const changedInputs = createReviewArtifactBinding(identity, "b".repeat(64));
+      const changedStore = openReviewArtifactStore(pool, changedInputs, 7);
+      expect(await changedStore.load("brief")).toBeNull();
+      expect(
+        await changedStore.save(
+          createReviewArtifactEnvelope(changedInputs, { kind: "brief", brief }),
+        ),
+      ).toBe("incompatible");
+      expect(await store.load("brief")).toEqual(envelope);
+      await expect(
+        store.save({ ...envelope, artifact: { kind: "brief", brief, transcript: "forbidden" } }),
+      ).rejects.toMatchObject({ code: "publish_store.invalid_detail" });
+      const report = createReviewArtifactEnvelope(binding, {
+        kind: "report",
+        specialist: "correctness",
+        report: { status: "no_findings", findings: [] },
+        evidence: [],
+      });
+      await expect(
+        store.save({
+          ...report,
+          artifact: {
+            ...report.artifact,
+            evidence: [
+              {
+                version: 1,
+                kind: "file_range",
+                path: "src/a.ts",
+                startLine: 1,
+                endLine: 1,
+                contentHash: "a".repeat(64),
+                headSha: "different",
+              },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: "publish_store.invalid_detail" });
+      const plan = createReviewArtifactEnvelope(binding, {
+        kind: "publication_prepared",
+        decisionId: "one",
+        sequence: 0,
+        operationKey: "review:batch:one",
+        payload: reviewPayloadFromFindings([]),
+        dependencies: [],
+      });
+      await expect(
+        store.save({
+          ...plan,
+          artifact: { ...plan.artifact, operationKey: "token=secret-value" },
+        }),
+      ).rejects.toMatchObject({ code: "publish_store.invalid_detail" });
+    });
+
+    it.each(["stale", "null", "cancelled", "terminal", "wrong_execution"] as const)(
+      "rejects %s write authority",
+      async (state) => {
+        if (state === "cancelled")
+          await pool.query(
+            "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+            [binding.workItemId],
+          );
+        if (state === "terminal")
+          await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE id = $1", [
+            binding.workItemId,
+          ]);
+        if (state === "wrong_execution")
+          await pool.query("UPDATE agent_work_items SET execution_epoch = 8 WHERE id = $1", [
+            binding.workItemId,
+          ]);
+        const epoch = state === "stale" ? 6 : state === "null" ? null : 7;
+        await expect(
+          openReviewArtifactStore(pool, binding, epoch).save(
+            createReviewArtifactEnvelope(binding, { kind: "brief", brief }),
+          ),
+        ).rejects.toMatchObject({
+          code:
+            state === "cancelled" || state === "terminal"
+              ? "agent_work.execution_aborted"
+              : "agent_work.pr_actor_lease_lost",
+        });
+        expect(
+          (
+            await pool.query("SELECT * FROM review_run_artifacts WHERE work_item_id = $1", [
+              binding.workItemId,
+            ])
+          ).rows,
+        ).toEqual([]);
+      },
+    );
+
+    it("treats unknown versions and damaged hashes as cache misses", async () => {
+      const envelope = createReviewArtifactEnvelope(binding, { kind: "brief", brief });
+      await store.save(envelope);
+      await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
+        binding.workItemId,
+        JSON.stringify({ ...envelope, contractVersion: "future" }),
+      ]);
+      expect(await store.load("brief")).toBeNull();
+      expect(await store.save(envelope)).toBe("incompatible");
+      expect(
+        JSON.parse(
+          (
+            await pool.query<{ envelope: string }>(
+              "SELECT envelope FROM review_run_artifacts WHERE work_item_id = $1 AND logical_key = 'brief'",
+              [binding.workItemId],
+            )
+          ).rows[0].envelope,
+        ),
+      ).toMatchObject({ contractVersion: "future" });
+      await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
+        binding.workItemId,
+        JSON.stringify({ ...envelope, schemaVersion: 0 }),
+      ]);
+      expect(await store.load("brief")).toBeNull();
+      expect(await store.save(envelope)).toBe("incompatible");
+      await pool.query(
+        "UPDATE review_run_artifacts SET envelope = $2, payload_hash = repeat('0', 64) WHERE work_item_id = $1",
+        [binding.workItemId, JSON.stringify(envelope)],
+      );
+      expect(await store.load("brief")).toBeNull();
+      expect(await store.save(envelope)).toBe("incompatible");
+      expect(
+        (
+          await pool.query<{ payload_hash: string }>(
+            "SELECT payload_hash FROM review_run_artifacts WHERE work_item_id = $1 AND logical_key = 'brief'",
+            [binding.workItemId],
+          )
+        ).rows[0].payload_hash,
+      ).toBe("0".repeat(64));
+      await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
+        binding.workItemId,
+        JSON.stringify({
+          ...envelope,
+          artifact: { kind: "brief", brief: { ...brief, prIntent: "token=x ".repeat(249) } },
+        }),
+      ]);
+      expect(await store.load("brief")).toBeNull();
+    });
+
+    it("requires exact ordered dependencies and settles only the corresponding immutable decision", async () => {
+      const envelope = createReviewArtifactEnvelope(binding, { kind: "brief", brief });
+      await store.save(envelope);
+      const prepared = createReviewArtifactEnvelope(binding, {
+        kind: "publication_prepared",
+        decisionId: "decision-one",
+        sequence: 0,
+        operationKey: "review:batch:one",
+        payload: reviewPayloadFromFindings([]),
+        dependencies: [{ logicalKey: "brief", payloadHash: reviewArtifactHash(envelope) }],
+      });
+      expect(await store.save(prepared)).toBe("stored");
+      await expect(
+        store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "publication_settled",
+            decisionId: "unrelated",
+            sequence: 0,
+            preparedHash: reviewArtifactHash(prepared),
+            outcome: "accepted",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "publish_store.invalid_detail",
+        context: { reason: "prepared_decision_mismatch" },
+      });
+      await expect(
+        store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "publication_prepared",
+            decisionId: "decision-one",
+            sequence: 0,
+            operationKey: "review:batch:one",
+            payload: reviewPayloadFromFindings([]),
+            dependencies: [{ logicalKey: "brief", payloadHash: "0".repeat(64) }],
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "publish_store.invalid_detail" });
+      const settled = createReviewArtifactEnvelope(binding, {
+        kind: "publication_settled",
+        decisionId: "decision-one",
+        sequence: 0,
+        preparedHash: reviewArtifactHash(prepared),
+        outcome: "accepted",
+      });
+      expect(await store.save(settled)).toBe("stored");
+      expect(await store.save(settled)).toBe("existing");
+      await expect(
+        store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "publication_settled",
+            decisionId: "decision-one",
+            sequence: 0,
+            preparedHash: reviewArtifactHash(prepared),
+            outcome: "stopped",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "publish_store.invalid_detail",
+        context: { reason: "artifact_conflict" },
+      });
+      expect(await store.load("decision/0/prepared")).toEqual(prepared);
+      await expect(
+        store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "publication_settled",
+            decisionId: "decision-one",
+            sequence: 1,
+            preparedHash: reviewArtifactHash(prepared),
+            outcome: "accepted",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "publish_store.invalid_detail",
+        context: { reason: "prepared_decision_missing" },
+      });
+    });
+
+    it.each([
+      "hash",
+      "missing",
+      "version",
+      "identity",
+      "dependency_hash",
+      "duplicate",
+      "cycle",
+      "prepared_hash",
+      "prepared_identity",
+      "missing_prepared",
+      "missing_previous",
+    ] as const)(
+      "misses dependent artifacts after %s corruption without changing rows",
+      async (damage) => {
+        const original = createReviewArtifactEnvelope(binding, { kind: "brief", brief });
+        const first = createReviewArtifactEnvelope(binding, {
+          kind: "publication_prepared",
+          decisionId: "first",
+          sequence: 0,
+          operationKey: "review:batch:first",
+          payload: reviewPayloadFromFindings([]),
+          dependencies: [{ logicalKey: "brief", payloadHash: reviewArtifactHash(original) }],
+        });
+        const settled = createReviewArtifactEnvelope(binding, {
+          kind: "publication_settled",
+          decisionId: "first",
+          sequence: 0,
+          preparedHash: reviewArtifactHash(first),
+          outcome: "accepted",
+        });
+        const second = createReviewArtifactEnvelope(binding, {
+          kind: "publication_prepared",
+          decisionId: "second",
+          sequence: 1,
+          operationKey: "review:batch:second",
+          payload: reviewPayloadFromFindings([]),
+          dependencies: [],
+        });
+        const summary = createReviewArtifactEnvelope(binding, {
+          kind: "final_summary",
+          payload: reviewPayloadFromFindings([]),
+          dependencies: [
+            { logicalKey: second.logicalKey, payloadHash: reviewArtifactHash(second) },
+          ],
+        });
+        for (const envelope of [original, first, settled, second, summary])
+          expect(await store.save(envelope)).toBe("stored");
+        for (const envelope of [first, settled, second, summary])
+          expect(await store.load(envelope.logicalKey)).toEqual(envelope);
+
+        if (
+          damage === "missing" ||
+          damage === "missing_prepared" ||
+          damage === "missing_previous"
+        ) {
+          await pool.query(
+            "DELETE FROM review_run_artifacts WHERE work_item_id = $1 AND logical_key = $2",
+            [
+              binding.workItemId,
+              damage === "missing"
+                ? "brief"
+                : damage === "missing_prepared"
+                  ? first.logicalKey
+                  : settled.logicalKey,
+            ],
+          );
+        } else if (damage === "hash") {
+          await pool.query(
+            "UPDATE review_run_artifacts SET payload_hash = repeat('0', 64) WHERE work_item_id = $1 AND logical_key = 'brief'",
+            [binding.workItemId],
+          );
+        } else if (damage === "version") {
+          await pool.query(
+            "UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1 AND logical_key = 'brief'",
+            [binding.workItemId, JSON.stringify({ ...original, contractVersion: "future" })],
+          );
+        } else {
+          const corrupted =
+            damage === "identity"
+              ? { ...original, binding: { ...binding, headSha: "another" } }
+              : damage === "prepared_hash" || damage === "prepared_identity"
+                ? createReviewArtifactEnvelope(binding, {
+                    kind: "publication_settled",
+                    sequence: 0,
+                    outcome: "accepted",
+                    preparedHash:
+                      damage === "prepared_hash" ? "0".repeat(64) : reviewArtifactHash(first),
+                    decisionId: damage === "prepared_identity" ? "another" : "first",
+                  })
+                : createReviewArtifactEnvelope(binding, {
+                    kind: "publication_prepared",
+                    decisionId: "first",
+                    sequence: 0,
+                    operationKey: "review:batch:first",
+                    payload: reviewPayloadFromFindings([]),
+                    dependencies:
+                      damage === "duplicate"
+                        ? [
+                            { logicalKey: "brief", payloadHash: reviewArtifactHash(original) },
+                            { logicalKey: "brief", payloadHash: reviewArtifactHash(original) },
+                          ]
+                        : [
+                            {
+                              logicalKey: damage === "cycle" ? second.logicalKey : "brief",
+                              payloadHash:
+                                damage === "cycle" ? reviewArtifactHash(second) : "0".repeat(64),
+                            },
+                          ],
+                  });
+          // Keep the envelope's own hash valid so dependency/link checks, not decoding, reject it.
+          await pool.query(
+            "UPDATE review_run_artifacts SET envelope = $3, payload_hash = $4 WHERE work_item_id = $1 AND logical_key = $2",
+            [
+              binding.workItemId,
+              corrupted.logicalKey,
+              JSON.stringify(corrupted),
+              reviewArtifactHash(corrupted),
+            ],
+          );
+        }
+        const before = await pool.query(
+          "SELECT * FROM review_run_artifacts WHERE work_item_id = $1 ORDER BY logical_key",
+          [binding.workItemId],
+        );
+        expect(await store.load(second.logicalKey)).toBeNull();
+        expect(await store.load(summary.logicalKey)).toBeNull();
+        expect(await store.save(second)).toBe("incompatible");
+        expect(await store.save(summary)).toBe("incompatible");
+        if (damage !== "missing_previous") {
+          expect(await store.load(settled.logicalKey)).toBeNull();
+          if (damage !== "prepared_hash" && damage !== "prepared_identity")
+            expect(await store.load(first.logicalKey)).toBeNull();
+        }
+        expect(
+          (
+            await pool.query(
+              "SELECT * FROM review_run_artifacts WHERE work_item_id = $1 ORDER BY logical_key",
+              [binding.workItemId],
+            )
+          ).rows,
+        ).toEqual(before.rows);
+      },
+    );
+
+    it("serializes concurrent budget admission and reserves settlement before a plan", async () => {
+      const prepared = createReviewArtifactEnvelope(binding, {
+        kind: "publication_prepared",
+        decisionId: "last-plan",
+        sequence: 0,
+        operationKey: "review:batch:last",
+        payload: reviewPayloadFromFindings([]),
+        dependencies: [],
+      });
+      const envelopeBytes = Buffer.byteLength(JSON.stringify(prepared), "utf8");
+      const fillerBytes =
+        REVIEW_ARTIFACT_BUDGET_BYTES - envelopeBytes - REVIEW_SETTLEMENT_RESERVE_BYTES;
+      await pool.query(
+        `INSERT INTO review_run_artifacts (work_item_id, logical_key, artifact_order, kind, input_fingerprint, payload_hash, envelope)
+         VALUES ($1, 'fixture-filler', 999, 'brief', $2, repeat('f', 64), $3)`,
+        [
+          binding.workItemId,
+          binding.inputFingerprint,
+          `{"padding":"${"x".repeat(fillerBytes - 14)}"}`,
+        ],
+      );
+      expect(await store.save(prepared)).toBe("stored");
+      const reports = ["correctness", "security"] as const;
+      expect(
+        await Promise.all(
+          reports.map((specialist) =>
+            store.save(
+              createReviewArtifactEnvelope(binding, {
+                kind: "report",
+                specialist,
+                report: { status: "no_findings", findings: [] },
+                evidence: [],
+              }),
+            ),
+          ),
+        ),
+      ).toEqual(["capacity", "capacity"]);
+      expect(
+        await store.save(
+          createReviewArtifactEnvelope(binding, {
+            kind: "publication_settled",
+            decisionId: "last-plan",
+            sequence: 0,
+            preparedHash: reviewArtifactHash(prepared),
+            outcome: "recovered",
+          }),
+        ),
+      ).toBe("stored");
+      const usage = await pool.query<{ bytes: string }>(
+        "SELECT SUM(encoded_bytes + reserved_bytes) AS bytes FROM review_run_artifacts WHERE work_item_id = $1",
+        [binding.workItemId],
+      );
+      expect(Number(usage.rows[0]?.bytes)).toBeLessThanOrEqual(REVIEW_ARTIFACT_BUDGET_BYTES);
+    });
+
+    it("allows only one winner when concurrent writes each fit but their sum does not", async () => {
+      const envelope = createReviewArtifactEnvelope(binding, {
+        kind: "report",
+        specialist: "correctness",
+        report: { status: "no_findings", findings: [] },
+        evidence: [],
+      });
+      const bytes = Buffer.byteLength(JSON.stringify(envelope));
+      await pool.query(
+        `INSERT INTO review_run_artifacts (work_item_id, logical_key, artifact_order, kind, input_fingerprint, payload_hash, envelope)
+         VALUES ($1, 'fixture-filler', 999, 'brief', $2, repeat('f', 64), $3)`,
+        [
+          binding.workItemId,
+          binding.inputFingerprint,
+          `{"padding":"${"x".repeat(REVIEW_ARTIFACT_BUDGET_BYTES - bytes - 32 - 14)}"}`,
+        ],
+      );
+      const results = await Promise.all(
+        (["correctness", "security"] as const).map((specialist) =>
+          store.save(
+            createReviewArtifactEnvelope(binding, {
+              kind: "report",
+              specialist,
+              report: { status: "no_findings", findings: [] },
+              evidence: [],
+            }),
+          ),
+        ),
+      );
+      expect(results.toSorted()).toEqual(["capacity", "stored"]);
+      const usage = await pool.query<{ bytes: string }>(
+        "SELECT SUM(encoded_bytes + reserved_bytes) AS bytes FROM review_run_artifacts WHERE work_item_id = $1",
+        [binding.workItemId],
+      );
+      expect(Number(usage.rows[0]?.bytes)).toBeLessThanOrEqual(REVIEW_ARTIFACT_BUDGET_BYTES);
+    });
+
+    it("reports capacity when a fresh artifact's dependency walk exceeds the budget", async () => {
+      const evidence: {
+        version: 1;
+        kind: "file_range";
+        path: string;
+        startLine: number;
+        endLine: number;
+        headSha: string;
+        contentHash: string;
+      }[] = [];
+      const reportWith = () =>
+        createReviewArtifactEnvelope(binding, {
+          kind: "report",
+          specialist: "correctness",
+          report: { status: "no_findings", findings: [] },
+          evidence,
+        });
+      const maxBytes = REVIEW_ARTIFACT_BUDGET_BYTES - 64;
+      let bytes = Buffer.byteLength(JSON.stringify(reportWith()), "utf8");
+      for (let segments = 400; segments > 0;) {
+        const read = {
+          version: 1 as const,
+          kind: "file_range" as const,
+          path: `src/${evidence.length}/${"segment/".repeat(segments)}file.ts`,
+          startLine: 1,
+          endLine: 1,
+          headSha: binding.headSha,
+          contentHash: "a".repeat(64),
+        };
+        const added = Buffer.byteLength(JSON.stringify(read), "utf8") + (evidence.length ? 1 : 0);
+        if (bytes + added <= maxBytes) {
+          evidence.push(read);
+          bytes += added;
+        } else segments = Math.floor(segments / 2);
+      }
+      const report = reportWith();
+      expect(Buffer.byteLength(JSON.stringify(report), "utf8")).toBe(bytes);
+      expect(await store.save(report)).toBe("stored");
+      const prepared = createReviewArtifactEnvelope(binding, {
+        kind: "publication_prepared",
+        decisionId: "over-budget",
+        sequence: 0,
+        operationKey: "review:batch:over-budget",
+        payload: reviewPayloadFromFindings([]),
+        dependencies: [{ logicalKey: report.logicalKey, payloadHash: reviewArtifactHash(report) }],
+      });
+      expect(bytes + Buffer.byteLength(JSON.stringify(prepared), "utf8")).toBeGreaterThan(
+        REVIEW_ARTIFACT_BUDGET_BYTES,
+      );
+      expect(await store.save(prepared)).toBe("capacity");
+      expect(await store.load(report.logicalKey)).toEqual(report);
+      expect(
+        (
+          await pool.query("SELECT logical_key FROM review_run_artifacts WHERE work_item_id = $1", [
+            binding.workItemId,
+          ])
+        ).rows,
+      ).toEqual([{ logical_key: report.logicalKey }]);
+    });
   });
 
   it.each(["postgres", "fake"] as const)(

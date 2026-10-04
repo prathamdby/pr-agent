@@ -47,6 +47,28 @@ vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  loadGithubCapabilityObservation: vi.fn(async () => ({
+    generation: 1,
+    capabilities: {
+      pullRequestsRead: "available",
+      contentsRead: "available",
+      reviewWrite: "available",
+      commentsWrite: "available",
+      checksRead: "available",
+      checksWrite: "available",
+      statusesRead: "available",
+      statusesWrite: "available",
+      actionsRead: "available",
+      labelsRead: "available",
+      labelsWrite: "available",
+      reactionsWrite: "available",
+    },
+  })),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+}));
 
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
@@ -137,6 +159,17 @@ import {
   triageCancelledNotice,
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
+import {
+  availableInstallationCapabilities,
+  createReviewCapabilityPolicy,
+  unknownInstallationCapabilities,
+} from "../src/github/installationCapabilities.js";
+import {
+  loadGithubCapabilityObservation,
+  saveGithubCapabilityObservation,
+} from "../src/agentWork/githubCapabilityRepository.js";
+import { productionInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
@@ -161,6 +194,75 @@ describe("executeAckJob", () => {
     vi.clearAllMocks();
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
+  });
+
+  it("does not send denied acknowledgement reactions while leaving replies available", async () => {
+    const observation = availableInstallationCapabilities({
+      appId: cfg.github.appId,
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+    });
+    Object.assign(surfaceBundle.surface, {
+      capabilities: createReviewCapabilityPolicy({
+        ...observation,
+        availability: { ...observation.availability, reactionsWrite: "denied" },
+      }),
+    });
+    const reactions = vi.spyOn(surfaceBundle.surface, "setAcknowledgementReaction");
+    const reply = vi.spyOn(surfaceBundle.surface, "replyAt");
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "usage" },
+    });
+    expect(reactions).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalled();
+  });
+
+  it("refreshes a stored observation that never confirmed access", async () => {
+    const scope = { appId: cfg.github.appId, installationId: 42, owner: "o", repo: "r" };
+    vi.mocked(loadGithubCapabilityObservation).mockResolvedValueOnce({
+      generation: 1,
+      capabilities: unknownInstallationCapabilities(scope, "1").availability,
+    });
+    const observation = availableInstallationCapabilities(scope, "2");
+    const preflight = vi.spyOn(productionInstallationSurface, "preflight").mockResolvedValueOnce({
+      observation,
+      installation: { token: "fresh", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+    });
+    await executeAckJob(cfg, pool, ackData());
+    expect(preflight).toHaveBeenCalledTimes(1);
+    expect(saveGithubCapabilityObservation).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ observation }),
+    );
+    expect(
+      vi
+        .mocked(prSurfaceModule.createPrSurface)
+        .mock.calls.at(-1)?.[0]
+        .capabilities?.access("reactionsWrite"),
+    ).toBe("available");
+  });
+
+  it("still replies when an acknowledgement reaction fails", async () => {
+    vi.spyOn(surfaceBundle.surface, "setAcknowledgementReaction").mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "essential_access_denied",
+        message: "GitHub denied installation operation",
+      }),
+    );
+    await expect(
+      executeAckJob(cfg, pool, {
+        ...ackData(),
+        reply: { target: { kind: "prConversation", prNumber: 1 }, body: "help" },
+      }),
+    ).resolves.toBeUndefined();
+    expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toEqual(["help"]);
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_reaction_failed",
+      expect.objectContaining({ reaction: GITHUB_REACTION_EYES }),
+    );
   });
 
   it("posts eyes on every ack target", async () => {

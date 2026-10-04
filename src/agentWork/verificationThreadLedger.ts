@@ -2,6 +2,7 @@ import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
+import { isRecord } from "../util/typeGuards.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
 
@@ -18,6 +19,18 @@ export type VerificationThreadState = {
   readonly lastVerdict: VerificationThreadVerdict;
   readonly lastHeadSha?: string;
   readonly terminal?: boolean;
+  readonly completion?: VerificationThreadCompletion;
+};
+
+/** Resource-scoped history is not completion evidence without this exact attempt receipt. */
+export type VerificationThreadCompletion = {
+  readonly workItemId: string;
+  readonly operationKey: string;
+  readonly headSha: string;
+  readonly verdict: VerificationThreadVerdict;
+  readonly stubOutcome: "written" | "missing" | "not_required";
+  readonly stubCommentId?: number;
+  readonly resolutionOutcome: "resolved" | "not_required";
 };
 
 export type VerificationThreadLedger = {
@@ -67,6 +80,7 @@ function parseThreadState(value: unknown): VerificationThreadState | null {
   const stubCommentId = record.stubCommentId;
   const lastHeadSha = record.lastHeadSha;
   const terminal = record.terminal;
+  const completion = parseVerificationThreadCompletion(record.completion);
   return {
     lastVerdict: record.lastVerdict,
     ...(typeof stubCommentId === "number" && Number.isInteger(stubCommentId)
@@ -74,7 +88,71 @@ function parseThreadState(value: unknown): VerificationThreadState | null {
       : {}),
     ...(typeof lastHeadSha === "string" ? { lastHeadSha } : {}),
     ...(terminal === true ? { terminal: true } : {}),
+    ...(completion != null ? { completion } : {}),
   };
+}
+
+function parseVerificationThreadCompletion(value: unknown): VerificationThreadCompletion | null {
+  if (!isRecord(value)) return null;
+  const record = value;
+  if (
+    typeof record.workItemId !== "string" ||
+    record.workItemId.length === 0 ||
+    typeof record.operationKey !== "string" ||
+    !/^verification:thread:\d+$/.test(record.operationKey) ||
+    typeof record.headSha !== "string" ||
+    record.headSha.length === 0 ||
+    !isVerdict(record.verdict) ||
+    (record.stubOutcome !== "written" &&
+      record.stubOutcome !== "missing" &&
+      record.stubOutcome !== "not_required") ||
+    (record.resolutionOutcome !== "resolved" && record.resolutionOutcome !== "not_required")
+  )
+    return null;
+  const stubCommentId = record.stubCommentId;
+  if (
+    record.stubOutcome === "written" &&
+    (typeof stubCommentId !== "number" ||
+      !Number.isSafeInteger(stubCommentId) ||
+      stubCommentId <= 0)
+  )
+    return null;
+  return {
+    workItemId: record.workItemId,
+    operationKey: record.operationKey,
+    headSha: record.headSha,
+    verdict: record.verdict,
+    stubOutcome: record.stubOutcome,
+    ...(record.stubOutcome === "written" && typeof stubCommentId === "number"
+      ? { stubCommentId }
+      : {}),
+    resolutionOutcome: record.resolutionOutcome,
+  };
+}
+
+export function matchesVerificationThreadCompletion(
+  receipt: VerificationThreadCompletion | undefined,
+  expected: {
+    readonly workItemId: string;
+    readonly operationKey: string;
+    readonly headSha: unknown;
+    readonly verdict: unknown;
+    readonly requiresStub: unknown;
+  },
+): boolean {
+  if (receipt == null || typeof expected.requiresStub !== "boolean") return false;
+  return (
+    receipt.workItemId === expected.workItemId &&
+    receipt.operationKey === expected.operationKey &&
+    receipt.headSha === expected.headSha &&
+    receipt.verdict === expected.verdict &&
+    receipt.resolutionOutcome === (expected.verdict === "skipped" ? "not_required" : "resolved") &&
+    (expected.requiresStub
+      ? receipt.stubOutcome === "written" ||
+        ((expected.verdict === "fixed" || expected.verdict === "already-resolved") &&
+          receipt.stubOutcome === "missing")
+      : receipt.stubOutcome === "not_required")
+  );
 }
 
 function withParsedFailureSignal(

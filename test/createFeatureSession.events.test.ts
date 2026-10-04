@@ -57,6 +57,13 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { createPiSession } from "../src/agent/runtime/piSession.js";
 import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.js";
+import { captureWorkSpan } from "../src/analytics/workSpan.js";
+import { createFakePiSession } from "../src/agent/runtime/fakePiSession.js";
+
+vi.mock("../src/analytics/workSpan.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/analytics/workSpan.js")>()),
+  captureWorkSpan: vi.fn(),
+}));
 
 describe("createFeaturePiSession agent events", () => {
   beforeEach(() => {
@@ -101,6 +108,85 @@ describe("createFeaturePiSession agent events", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "captures each send with actual fallback identity independently of audit (%s)",
+    async (enabled) => {
+      const cfg = makeTestConfig({ agentEvents: { enabled } });
+      const createSession = (params: Parameters<typeof createFakePiSession>[0]) =>
+        createFakePiSession(params, () => "").session;
+      const first = await createFeaturePiSession({
+        createSession,
+        role: "specialist",
+        specialistId: "security",
+        cfg,
+        systemPrompt: "system",
+        tools: [],
+        executors: {},
+        attemptModel: { provider: "anthropic", model: "fallback" },
+        sessionContext: { ...sessionContext, executionId: "execution-1", attemptCount: 2 },
+      });
+      const second = await createFeaturePiSession({
+        createSession,
+        role: "specialist",
+        specialistId: "security",
+        cfg,
+        systemPrompt: "system",
+        tools: [],
+        executors: {},
+        sessionContext,
+      });
+      await first.send("private prompt", { phase: "specialist", checkpointId: "same" });
+      await first.send("private repair", { phase: "validation_repair", checkpointId: "same" });
+      await second.send("another work", { phase: "specialist", checkpointId: "same" });
+      const spans = vi.mocked(captureWorkSpan).mock.calls.map(([span]) => span);
+      expect(spans).toHaveLength(3);
+      expect(spans[0]).toMatchObject({
+        kind: "llm_generation",
+        provider: "anthropic",
+        model: "fallback",
+        specialistId: "security",
+        executionId: "execution-1",
+        attemptCount: 2,
+      });
+      expect(new Set(spans.map((span) => span.spanId)).size).toBe(3);
+      expect(spans[0]?.sessionId).toBe(spans[1]?.sessionId);
+      expect(spans[0]?.sessionId).not.toBe(spans[2]?.sessionId);
+      expect(spans[0]?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(spans[0]).not.toHaveProperty("inputTokens");
+      expect(appendAgentEvents.mock.calls.length > 0).toBe(enabled);
+      expect(JSON.stringify(spans)).not.toContain("private");
+    },
+  );
+
+  it("keeps failed sends observable without allowing a throwing observer to fail work", async () => {
+    const cfg = makeTestConfig({ agentEvents: { enabled: false } });
+    const events: Array<{ kind: string; generationId?: string }> = [];
+    const session = await createFeaturePiSession({
+      createSession: (params) =>
+        createFakePiSession(params, () => {
+          throw new Error("provider failed");
+        }).session,
+      role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      sessionContext,
+      eventSink: (event) => {
+        events.push(event);
+        throw new Error("observer down");
+      },
+    });
+    await expect(session.send("private", { phase: "ask", checkpointId: "ask" })).rejects.toThrow(
+      "provider failed",
+    );
+    expect(vi.mocked(captureWorkSpan)).toHaveBeenCalledTimes(1);
+    const span = vi.mocked(captureWorkSpan).mock.calls[0]?.[0];
+    expect(span?.isError).toBe(true);
+    expect(events.find((event) => event.kind === "turn")?.generationId).toBe(span?.spanId);
+    expect(events.find((event) => event.kind === "failure")?.generationId).toBe(span?.spanId);
   });
 
   it("does not throw when writer fails", async () => {

@@ -58,6 +58,19 @@ import { makeTestConfig } from "./helpers/config.js";
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 import type { PoolClient } from "pg";
+import { availableInstallationCapabilities } from "../src/github/installationCapabilities.js";
+
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+  changeGithubPreflightFailureCount: vi.fn(async () => 0),
+}));
+vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+  getSharedRateLimitCircuit: vi.fn(async () => null),
+}));
+import * as capabilitiesRepository from "../src/agentWork/githubCapabilityRepository.js";
+import { getSharedRateLimitCircuit } from "../src/github/sharedRateLimitCircuit.js";
 
 vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getWorkItem: vi.fn(),
@@ -202,6 +215,7 @@ function runReviewWorkItem(
     }),
     ...overrides,
     execute: async (item, env) => {
+      await env.ensureReviewAccess?.();
       await env.beginAttempt();
       return overrides.execute(item, env);
     },
@@ -240,7 +254,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue();
+  vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
@@ -251,6 +265,20 @@ function defaultMocks() {
     installationId: 42,
   } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
   installationSurface = openInstallationSurface();
+  vi.spyOn(installationSurface, "preflight").mockImplementation(async (params) => ({
+    observation: availableInstallationCapabilities(
+      {
+        appId: cfg.github.appId,
+        installationId: params.installationId,
+        owner: params.owner,
+        repo: params.repo,
+      },
+      "1",
+    ),
+    installation: await installationSurface.token(params.cfg, params.installationId),
+  }));
+  vi.mocked(capabilitiesRepository.changeGithubPreflightFailureCount).mockResolvedValue(0);
+  vi.mocked(getSharedRateLimitCircuit).mockResolvedValue(null);
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
@@ -262,6 +290,58 @@ describe("runDurableWorkItem", () => {
     vi.clearAllMocks();
     defaultMocks();
   });
+  it("uses a durable preflight budget across queue hops without charging model attempts", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(installationSurface.preflight).mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "preflight_unavailable",
+        message: "metadata timeout",
+      }),
+    );
+    vi.mocked(capabilitiesRepository.changeGithubPreflightFailureCount).mockResolvedValueOnce(1);
+    const execute = vi.fn().mockResolvedValue(completedResult());
+    await expect(runReviewWorkItem({ execute })).rejects.toMatchObject({
+      code: "github.preflight_unavailable",
+    });
+    expect(repo.beginWorkAttempt).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).toHaveBeenCalledTimes(1);
+    expect(execute).not.toHaveBeenCalled();
+    expect(capabilitiesRepository.changeGithubPreflightFailureCount).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      leaseEpoch: 1,
+    });
+
+    vi.mocked(capabilitiesRepository.changeGithubPreflightFailureCount).mockResolvedValueOnce(
+      cfg.queue.retryLimit + 1,
+    );
+    await runReviewWorkItem({ execute, job: makeJob(0) });
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ code: "github.preflight_exhausted" }),
+      1,
+    );
+    expect(repo.beginWorkAttempt).not.toHaveBeenCalled();
+  });
+
+  it("does not probe or spend the preflight budget during shared-circuit deferral", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(getSharedRateLimitCircuit).mockResolvedValue({
+      installationId: 42,
+      openUntil: new Date(Date.now() + 60_000),
+      lastErrorKind: "primary",
+    });
+    const execute = vi.fn().mockResolvedValue(completedResult());
+    await runReviewWorkItem({ execute });
+    expect(installationSurface.preflight).not.toHaveBeenCalled();
+    expect(capabilitiesRepository.changeGithubPreflightFailureCount).not.toHaveBeenCalled();
+    expect(repo.beginWorkAttempt).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).toHaveBeenCalledTimes(1);
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
     const item = makeItem();
     mockFetchedItem(item);
@@ -950,6 +1030,8 @@ describe("durable execution context policies", () => {
       owner: item.owner,
       repo: item.repo,
       prNumber: item.prNumber,
+      executionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      attemptCount: undefined,
     });
   });
 

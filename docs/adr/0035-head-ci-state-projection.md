@@ -55,13 +55,47 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 
 7. **Authoring lives on the projector.** A failing rollup runs one LLM turn per facts hash. The result is stored on `authored` and does not bump `version`. Publish does not wait or poll.
 
-8. **Shared-circuit deferral.** Before any GitHub read or write, the projector reads `github_installation_rate_limit_circuits`. If the circuit is open, it re-enqueues with `startAfter = open_until` and exits. That is the only REST gate for projection. The in-process circuit still short-circuits agent tools only.
+8. **Shared-circuit deferral.** Before any GitHub read or write, the projector reads
+   `github_installation_rate_limit_circuits`. An open circuit defers to
+   `open_until` without probing metadata. Installation-scoped capabilities
+   independently gate readable sources and optional writes.
 
 9. **Retired refresh lane.** `agent-work-ci-refresh` and `agent-work-ci-refresh-dead` are not live queues. Boot deletes both after a drain check (no queued, active, or deferred jobs). In-flight leftovers expire if the drain check refuses.
 
 10. **Verification failure is a projection input.** Activate and clear write `publish_records` step `verification_failure`, advance the head revision only on an effective transition, and enqueue projection in the same transaction. The projector injects or omits the failure block from the durable signal; it does not preserve an old block from a previous body. Shared heads keep one revision; each PR reevaluates its own verification record.
 
-11. **One-time legacy repair.** Migration `031` adds `projection_repair_pending` (existing rows true, new rows false). The worker diagnostics tick enqueues ordinary projection jobs for a bounded pending batch. The projector clears the flag only after every resolved PR is `current` or `updated`. Transient GitHub failures leave it pending and re-enqueue. Heads with no associated work are logged as unreachable and cleared; retention owns deletion. Roll out one worker/web build; do not mix projector versions. Rollback may leave the additive column and attrs in place.
+11. **One-time legacy repair.** Migration `031` adds `projection_repair_pending` (existing rows true, new rows false). The worker diagnostics tick enqueues ordinary projection jobs for a bounded pending batch. The projector clears the flag only after every resolved PR is `current` or `updated`. Transient GitHub failures leave it pending and re-enqueue. Heads with no associated work, or whose installation denies PR reads or comment writes, are logged as unreachable and cleared; retention owns deletion. Roll out one worker/web build; do not mix projector versions. Rollback may leave the additive column and attrs in place.
+
+12. **Installation-scoped source access.** Additive migration `038` stores latest
+    generation-ordered repository grants and installation/repository/head source
+    availability separately from `pr_head_ci_state.checks` and `rollup`.
+    This amends decisions 1, 3, and 4: terminal heads can list again after access
+    restoration, and source completeness is independent. Checks and legacy statuses have independent access and pagination
+    completeness. A denial is never an empty successful listing.
+
+    Every renderer joins the installation-scoped overlay. Known webhook and
+    listing failures stay visible with a partial-view notice. Denied, unknown,
+    incomplete, or restoration-awaiting sources cannot produce passing or
+    no-CI claims. Availability changes advance the existing shared head revision
+    atomically; denials themselves remain installation-scoped.
+
+    Grant changes invalidate scoped source observations in bounded head batches,
+    using the fact writers' head lock order. Restoration forces a listing even
+    for a previously terminal head. Only successful complete reads clear
+    listing-required state. A projector without a stored observation takes one
+    bounded scoped preflight. Established denials do not cause metadata or
+    denied-source/write polling; readable sources may still refresh. A fresh
+    review observation reopens eligible projection and repair. Retention uses
+    the durable-work horizon, with no historical network backfill.
+
+13. **Independent verdict applicability.** Immutable selected output keeps
+    configured check/status intent separately from current access. Each surface
+    is applied, skipped-for-this-run, blocked, or unresolved. A never-started
+    optional surface can be skipped without a fake ID or acceptance receipt.
+    Accepted and acceptance-uncertain pending surfaces remain applicable and
+    repairable after restoration. Status-only completion needs no Checks read.
+    Pending selections participate in repair; deliberately skipped surfaces do
+    not. Legacy selections and uncertain intents retain their readers.
 
 ## Consequences
 
@@ -71,7 +105,8 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 - A seeded head whose completed webhook never arrived recovers on the next eligible projection instead of staying pending forever.
 - Rollback leaves persisted observations that used GitHub timestamps; a later build that does not pending-refresh will not undo those writes.
 - A required own check reaches a terminal conclusion after cancel, supersede, stale head, crash, and retry exhaustion.
-- Operators still need Checks read on every install and Actions read for rich failure explanations.
+- Checks, statuses, and Actions are optional. Missing sources degrade the CI
+  view instead of claiming successful empty listings.
 
 ## Reversal
 

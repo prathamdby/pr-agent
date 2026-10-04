@@ -61,6 +61,7 @@ export type CodeModeSlice = {
 /** Specialist timeout plus the publish caps that are code constants, not env knobs. */
 export type ReviewSlice = {
   readonly specialistTimeoutMs: number;
+  readonly recoveryEnabled: boolean;
   readonly maxInlineComments: number;
   readonly maxThreadPublishCalls: number;
 };
@@ -133,6 +134,7 @@ export function readCodeModeSlice(): CodeModeSlice {
 
 export function readReviewSlice(): ReviewSlice {
   return {
+    recoveryEnabled: readStrictBoolean(ENV.REVIEW_RECOVERY_ENABLED, false),
     specialistTimeoutMs: readPositiveNumber(
       ENV.REVIEW_SPECIALIST_TIMEOUT_MS,
       DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,

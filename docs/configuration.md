@@ -68,6 +68,24 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Ops (deployment-varying tuning)
 
+`REVIEW_RECOVERY_ENABLED` defaults to `false` and maps to
+`cfg.review.recoveryEnabled` in `src/settings/slices/service.ts`. It accepts only
+`true` or `false`; empty uses the default, and `1`, `yes`, or `TRUE` fail startup.
+It is operator tuning, not another `FEATURE_*` mode. Migration 037 must be
+installed first. Keep it off until local crash/restart proof and rollout approval.
+See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
+[rollout](operations.md#review-reliability-rollout).
+
+Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
+`REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
+`REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
+that budget). They are not env settings. Work-item retention cascades deletion
+even with recovery off; disabling scheduled retention leaves artifacts retained.
+
+`AGENT_EVENTS_ENABLED` controls local metadata audit persistence only.
+`POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting enables
+review artifacts, and artifact retention is independent of the recovery flag.
+
 | Name                          | Env var                                   | Default                     | Notes                                                                                                                                                                                                                                |
 | ----------------------------- | ----------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider prompt timeout       | `PROVIDER_PROMPT_TIMEOUT_MS`              | `300000`                    | inactivity cap: abort if no provider activity this long                                                                                                                                                                              |
@@ -351,7 +369,36 @@ and defaults are unchanged. There is no separate unknown-resolution knob.
 
 Concurrent attempts to finish a review keep the first verdict, including acknowledgement and recovery. No new setting is required. A disabled commit status or an empty/deferred head needs no status write.
 
-Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. When `FEATURE_COMMIT_STATUS` is on, the same start posts `pr-agent/review` as `pending`. A remote run belongs to `(owner, repo, head SHA, name, external ID)`, where the external ID is the requesting work-item ID. Duplicate recovery adopts a run only when the provider returns exactly one run with that full identity. Every terminal path closes both surfaces through `reviewVerdict(...).close`. Full-coverage runs complete the check with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes the check as `neutral` and the commit status as `error`. Cancel, supersede, and stale-head reschedule complete the check as `cancelled` and the commit status as `error`. Crash and unpublished runs complete the check as `action_required` and the commit status as `error`. Commit status keys are per state (`review:commit_status:<resource>:<head>:<state>`). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
+Review check runs are configured on, but optional installation access determines
+their applicability for each run. When Checks write is available, the worker
+starts `PR Agent Review` as `in_progress`. Enabled `FEATURE_COMMIT_STATUS`
+independently starts `pr-agent/review` as `pending` when status write is available.
+A remote check belongs to `(owner, repo, head SHA, name, external ID)`, with the
+work-item ID as external ID. Duplicate recovery requires exactly one full-identity
+match. Every terminal path uses `reviewVerdict(...).close`.
+Full coverage concludes `failure` for P0–P2 and `success` for empty/P3-only
+findings. Partial coverage uses check `neutral` and status `error`.
+Cancellation, supersession, and stale-head replacement use check `cancelled`;
+crash/unpublished uses `action_required`. Their statuses use `error`.
+Commit-status keys remain per state (`review:commit_status:<resource>:<head>:<state>`).
+Selected output is immutable. Surface state separately records applied,
+skipped-for-this-run, blocked, or unresolved. Never-started optional surfaces
+can be skipped; accepted or acceptance-uncertain effects stay applicable for
+independent repair. Status recovery does not require a successful Checks read.
+
+Fresh repository-specific installation preflight needs PR/content reads and
+review/comment publication for new review work, not Contents write. Comments
+and labels accept Issues or Pull requests grants at their endpoint's level.
+Optional Checks/statuses reads and writes, Actions logs, all managed labels,
+and reactions are run-scoped. Unknown CI-source reads stop after three persisted
+failures per observation; a newer review observation reopens them. Repository
+observation fanout touches at most 100 existing scoped heads per transaction;
+projection repair discovers the remainder. A two-second total budget bounds metadata plus a
+required cold mint/refresh. Unknown failures use a separate lease-fenced durable
+`QUEUE_RETRY_LIMIT + 1` counter, reset after success, without model attempts or
+escalation. Shared-circuit deferral spends no probe count. No new environment
+flag is required. Receipt-only completion precedes new-output access checks.
+See [rollout](operations.md#review-reliability-rollout).
 
 Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
 
@@ -720,4 +767,5 @@ Private specialist orchestration constants (not exported from `src/settings/`): 
 `AGENT_RESUME_SNAPSHOT_KEY` and `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` are ignored.
 Sessions run in memory. Durable work, operation intents, and publish records
 still own retries and publication recovery. Migration 036 drops only the unread
-agent checkpoint and session snapshot tables.
+agent checkpoint and session snapshot tables. Migration 037 adds the separate
+validated review artifact store described in ADR 0044, not replacement sessions.
