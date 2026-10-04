@@ -27,15 +27,22 @@ function scopePath(tree, scope) {
   throw new Error(`unknown scope ${scope}`);
 }
 
+function assertRealScope(root) {
+  if (fs.lstatSync(root).isSymbolicLink()) {
+    throw new Error(`refusing to measure symlink scope ${root}`);
+  }
+}
+
 function countPattern(tree, row) {
   const root = scopePath(tree, row.scope);
   if (!fs.existsSync(root)) return 0;
+  assertRealScope(root);
   const flags = row.flags ? row.flags.split(" ").filter(Boolean) : [];
   let out = "";
   try {
     out = execFileSync(
       "rg",
-      ["--no-messages", "-o", "--no-filename", ...flags, "-e", row.pattern, root],
+      ["--no-messages", "--no-ignore", "--no-config", "-o", "--no-filename", ...flags, "-e", row.pattern, root],
       { encoding: "utf8" },
     );
   } catch (error) {
@@ -48,6 +55,7 @@ function countPattern(tree, row) {
 function countFiles(tree, row) {
   const root = scopePath(tree, row.scope);
   if (!fs.existsSync(root)) return 0;
+  assertRealScope(root);
   let count = 0;
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -69,8 +77,24 @@ function countOxRule(tree, row) {
     ".bin",
     process.platform === "win32" ? "oxlint.cmd" : "oxlint",
   );
-  const treeConfig = path.join(tree, ".oxlintrc.json");
-  const config = fs.existsSync(treeConfig) ? treeConfig : path.join(SCRIPT_ROOT, ".oxlintrc.json");
+  // Globs in the config are relative to the tree. The bytes always come from the
+  // script checkout, so a head .oxlintrc.json cannot turn a counted rule off.
+  const trusted = path.join(SCRIPT_ROOT, ".oxlintrc.json");
+  const local = path.join(tree, ".oxlintrc.json");
+  const measuringOtherTree = path.resolve(tree) !== path.resolve(SCRIPT_ROOT);
+  let restore = null;
+  if (measuringOtherTree) {
+    if (fs.existsSync(local) && fs.lstatSync(local).isSymbolicLink()) {
+      throw new Error(`refusing symlink oxlint config in ${tree}`);
+    }
+    const previous = fs.existsSync(local) ? fs.readFileSync(local) : null;
+    fs.copyFileSync(trusted, local);
+    restore = () => {
+      if (previous) fs.writeFileSync(local, previous);
+      else fs.rmSync(local, { force: true });
+    };
+  }
+  const config = measuringOtherTree ? local : trusted;
   let raw = "";
   try {
     raw = execFileSync(oxlint, ["--format", "json", "-c", config, "--deny", row.rule, root], {
@@ -84,6 +108,8 @@ function countOxRule(tree, row) {
       const stderr = typeof error.stderr === "string" ? error.stderr : "";
       throw new Error(`oxlint failed for ${row.id}: ${stderr || raw || error.message}`);
     }
+  } finally {
+    restore?.();
   }
   const trimmed = raw.trim();
   if (trimmed.length === 0) return 0;
@@ -137,9 +163,16 @@ const rows = readRows();
 const headTree = path.resolve(argValue("--head-tree") ?? SCRIPT_ROOT);
 const baseTreeArg = argValue("--base-tree");
 const baseSha = baseTreeArg ? undefined : mergeBase();
-const baseTree = baseTreeArg ? path.resolve(baseTreeArg) : archiveTree(baseSha);
-const headCounts = measure(headTree, rows);
-const baseCounts = measure(baseTree, rows);
+const archivedBase = baseTreeArg == null;
+const baseTree = archivedBase ? archiveTree(baseSha) : path.resolve(baseTreeArg);
+let headCounts;
+let baseCounts;
+try {
+  headCounts = measure(headTree, rows);
+  baseCounts = measure(baseTree, rows);
+} finally {
+  if (archivedBase) fs.rmSync(baseTree, { recursive: true, force: true });
+}
 
 let loosening = false;
 for (const row of rows) {
