@@ -2,11 +2,6 @@
   "id": "installation-octokit",
   "kind": "identifier",
   "identifier": "installationOctokit",
-  "allow": [
-    "src/github/",
-    "src/prWorkspace/"
-  ],
-  "mustCatch": [
-    "import { installationOctokit as gh } from \"../github/appAuth.js\";"
-  ]
+  "allow": ["src/github/", "src/prWorkspace/"],
+  "mustCatch": ["import { installationOctokit as gh } from \"../github/appAuth.js\";"]
 }

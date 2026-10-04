@@ -10,8 +10,5 @@
     "src/prWorkspace/repositoryReader.ts",
     "src/agentWork/durableJob.ts"
   ],
-  "mustCatch": [
-    "const value = process.env.FOO;",
-    "const value = process[\"env\"].FOO;"
-  ]
+  "mustCatch": ["const value = process.env.FOO;", "const value = process[\"env\"].FOO;"]
 }
