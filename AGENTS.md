@@ -32,9 +32,8 @@ nub run build
 
 PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD` over the PR range, and `nub run check:commit-messages` runs the same check locally.
 
-A red check is a finding about your code. Never weaken a rule, delete a
-lock, or grow a baseline count to merge. New `escape()` calls need a
-baseline bump plus maintainer review.
+A red check is a finding about your code. Never weaken a rule or delete a
+lock. A guard-count growth waits on guard-loosening approval.
 
 Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths. `nub run verify` proves the durable path on a disposable stack and leaves an artifact.
 
@@ -251,8 +250,7 @@ Concurrent own-verdict closes select the first output by CAS on the existing
 per-work-item check row. A verdict-only session try-lock spans check/status
 application, with autocommitted SQL and separate acceptance receipts. Pool
 admission retains a connection for leased surface queries; unsafe unlock
-destroys the client. Null and omitted epochs are terminal-only, including ack.
-Repair uses saved selection and exact child acceptance, never guessed success
+destroys the client. Repair uses saved selection and exact child acceptance, never guessed success
 from check creation. Unknown intents stay fail-closed. Upgrade affected workers
 together and preserve selections/intents on rollback
 ([recovery](docs/agent-work-ops.md#own-verdict-recovery)).
