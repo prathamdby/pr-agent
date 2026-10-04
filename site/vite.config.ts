@@ -1,4 +1,3 @@
-import { readFileSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,47 +7,10 @@ import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
 import { AGENT_INSTRUCTIONS, LANDING_PAGE_MARKDOWN } from "./lib/agentResources.js";
-import { renderLlmsTxt } from "./lib/llmsKnowledge.js";
+import { llmsTxtBuildPlugin, llmsTxtServePlugin } from "./lib/llmsTxtPlugins.js";
 import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/siteHttp.js";
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
-
-function emitLlmsTxt(): Plugin {
-  const committedPath = resolve(siteDir, "public/llms.txt");
-  // The build must not repair a stale commit. CI's parity test and this
-  // check both fail when the committed file disagrees with the renderer.
-  const assertCommitted = () => {
-    const rendered = renderLlmsTxt();
-    const onDisk = readFileSync(committedPath, "utf8");
-    if (onDisk !== rendered) {
-      throw new Error("site/public/llms.txt does not match renderLlmsTxt()");
-    }
-  };
-  const write = () => {
-    writeFileSync(committedPath, renderLlmsTxt());
-  };
-  // Dev still rewrites the file so a local edit of a watched module stays in sync.
-  const watched = [
-    resolve(siteDir, "lib/llmsKnowledge.ts"),
-    resolve(siteDir, "lib/agentResources.ts"),
-    resolve(siteDir, "lib/content.ts"),
-    resolve(siteDir, "lib/acceptLanguage.ts"),
-    resolve(siteDir, "lib/site.ts"),
-  ];
-  return {
-    name: "emit-llms-txt",
-    buildStart: assertCommitted,
-    configureServer(server) {
-      write();
-      server.watcher.add(watched);
-      server.watcher.on("change", (file) => {
-        if (watched.includes(file)) {
-          write();
-        }
-      });
-    },
-  };
-}
 
 /**
  * Serve the markdown routes in `vite dev`.
@@ -105,7 +67,8 @@ export default defineConfig({
     },
   },
   plugins: [
-    emitLlmsTxt(),
+    llmsTxtBuildPlugin(),
+    llmsTxtServePlugin(),
     serveMarkdownRoutesInDev(),
     tailwindcss(),
     tanstackStart({

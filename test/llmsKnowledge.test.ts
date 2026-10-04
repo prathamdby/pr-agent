@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  LLMS_TXT_MISMATCH,
+  llmsTxtBuildPlugin,
+  llmsTxtServePlugin,
+} from "../site/lib/llmsTxtPlugins.js";
 import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.js";
 import {
@@ -234,6 +239,75 @@ describe("offering layer documents", () => {
     expect(json.mode).toBe("hits");
     expect(json.matches.some((match) => match.id === "pricing")).toBe(true);
     expect(json.tokenEstimate).toBe(LLMS_TXT_TOKEN_ESTIMATE);
+  });
+
+  it("fails the build when committed llms.txt disagrees and does not rewrite it", () => {
+    const writeFileSync = vi.fn();
+    const plugin = llmsTxtBuildPlugin({
+      readFileSync: (() => "stale") as unknown as typeof fs.readFileSync,
+      writeFileSync,
+      render: () => "fresh",
+    });
+    expect(plugin.apply).toBe("build");
+    expect(plugin.configureServer).toBeUndefined();
+    const start = plugin.buildStart;
+    if (typeof start !== "function") {
+      throw new Error("buildStart missing");
+    }
+    expect(() => start.call({} as never, {} as never)).toThrow(LLMS_TXT_MISMATCH);
+    expect(writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("accepts a committed llms.txt that matches the renderer", () => {
+    const writeFileSync = vi.fn();
+    const plugin = llmsTxtBuildPlugin({
+      readFileSync: (() => "fresh") as unknown as typeof fs.readFileSync,
+      writeFileSync,
+      render: () => "fresh",
+    });
+    const start = plugin.buildStart;
+    if (typeof start !== "function") {
+      throw new Error("buildStart missing");
+    }
+    expect(() => start.call({} as never, {} as never)).not.toThrow();
+    expect(writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it("rewrites llms.txt in dev and stays off the production build", () => {
+    const writes: string[] = [];
+    const plugin = llmsTxtServePlugin({
+      writeFileSync: (_path, data) => {
+        writes.push(String(data));
+      },
+      render: () => "rendered",
+    });
+    expect(plugin.apply).toBe("serve");
+    expect(plugin.buildStart).toBeUndefined();
+    const configure = plugin.configureServer;
+    if (typeof configure !== "function") {
+      throw new Error("configureServer missing");
+    }
+    const watched: string[] = [];
+    const changes: Array<(file: string) => void> = [];
+    configure.call(
+      {} as never,
+      {
+        watcher: {
+          add(files: string | readonly string[]) {
+            watched.push(...(Array.isArray(files) ? files : [files]));
+          },
+          on(event: string, cb: (file: string) => void) {
+            if (event === "change") changes.push(cb);
+          },
+        },
+      } as never,
+    );
+    expect(writes).toEqual(["rendered"]);
+    expect(watched.length).toBeGreaterThan(0);
+    changes[0]?.(watched[0] ?? "");
+    expect(writes).toEqual(["rendered", "rendered"]);
+    changes[0]?.("/tmp/unrelated.ts");
+    expect(writes).toEqual(["rendered", "rendered"]);
   });
 
   it("emits an index payload when query is empty", () => {

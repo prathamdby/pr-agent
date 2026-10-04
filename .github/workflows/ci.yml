@@ -68,34 +68,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} commit-messages=${{ needs.commit-messages.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }} backend=${{ needs.changes.outputs.backend }} site_filter=${{ needs.changes.outputs.site }}"
-          if [ "${{ needs.changes.result }}" != "success" ]; then echo "gate: failing on changes=${{ needs.changes.result }}"; exit 1; fi
-          if [ "${{ needs.check.result }}" != "success" ]; then echo "gate: check must succeed, got ${{ needs.check.result }}"; exit 1; fi
-          case "${{ needs.commit-messages.result }}" in
-            success|skipped) ;;
-            *) echo "gate: failing on commit-messages=${{ needs.commit-messages.result }}"; exit 1 ;;
-          esac
-          require_selected() {
-            name="$1"
-            result="$2"
-            selected="$3"
-            if [ "$selected" = "true" ]; then
-              if [ "$result" != "success" ]; then
-                echo "gate: $name selected but result=$result"
-                exit 1
-              fi
-            else
-              case "$result" in
-                success|skipped) ;;
-                *) echo "gate: failing on $name=$result"; exit 1 ;;
-              esac
-            fi
-          }
-          require_selected integration "${{ needs.integration.result }}" "${{ needs.changes.outputs.backend }}"
-          require_selected docker "${{ needs.docker.result }}" "${{ needs.changes.outputs.backend }}"
-          require_selected site "${{ needs.site.result }}" "${{ needs.changes.outputs.site }}"
-          echo "gate green"
+      - run: bash scripts/ci-gate.sh
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          COMMIT_MESSAGES_RESULT: ${{ needs.commit-messages.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          SITE_RESULT: ${{ needs.site.result }}
+          BACKEND_SELECTED: ${{ needs.changes.outputs.backend }}
+          SITE_SELECTED: ${{ needs.changes.outputs.site }}
 
   check:
     needs: changes
