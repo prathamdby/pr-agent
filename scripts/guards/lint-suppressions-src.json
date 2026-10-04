@@ -1,0 +1,7 @@
+{
+  "id": "lint-suppressions-src",
+  "kind": "pattern",
+  "pattern": "(oxlint|eslint)-disable",
+  "scope": "src",
+  "flags": ""
+}

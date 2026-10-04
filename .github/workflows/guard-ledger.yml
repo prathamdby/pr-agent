@@ -1,0 +1,49 @@
+name: Guard ledger
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      loosening: ${{ steps.ledger.outputs.loosening }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - uses: nubjs/setup-nub@v0
+        with:
+          cache: true
+          node-version-file: .node-version
+      - run: nub ci --filter pr-agent...
+      - id: ledger
+        run: node scripts/check-guard-ledger.mjs --report --base-tree . --head-tree head
+
+  approve:
+    needs: detect
+    if: needs.detect.outputs.loosening == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: guard-loosening
+    steps:
+      - run: echo "maintainer approved a guard loosening"
+
+  verdict:
+    needs: [detect, approve]
+    if: always() && needs.detect.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "guard ledger verdict green"

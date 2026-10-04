@@ -1,0 +1,7 @@
+{
+  "id": "ts-expect-error",
+  "kind": "pattern",
+  "pattern": "@ts-expect-error",
+  "scope": "src",
+  "flags": "--fixed-strings"
+}
