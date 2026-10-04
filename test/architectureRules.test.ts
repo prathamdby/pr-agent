@@ -230,7 +230,8 @@ export function buildThing(
     const sql = rows.find((row) => row.id === "sql-status");
     expect(sql).toBeDefined();
     const hit = "const q = `UPDATE agent_work_items SET\n  status = 'failed' WHERE id = $1`;";
-    const miss = "const q = `UPDATE agent_work_items SET updated_at = now() WHERE status = 'failed'`;";
+    const miss =
+      "const q = `UPDATE agent_work_items SET updated_at = now() WHERE status = 'failed'`;";
     expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", hit)).toBe(true);
     expect(sourceMatchesCodeRow(sql!, "src/banned/probe.ts", miss)).toBe(false);
   });
