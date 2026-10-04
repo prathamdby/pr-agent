@@ -42,7 +42,17 @@ function countPattern(tree, row) {
   try {
     out = execFileSync(
       "rg",
-      ["--no-messages", "--no-ignore", "--no-config", "-o", "--no-filename", ...flags, "-e", row.pattern, root],
+      [
+        "--no-messages",
+        "--no-ignore",
+        "--no-config",
+        "-o",
+        "--no-filename",
+        ...flags,
+        "-e",
+        row.pattern,
+        root,
+      ],
       { encoding: "utf8" },
     );
   } catch (error) {
