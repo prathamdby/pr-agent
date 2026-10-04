@@ -14,6 +14,26 @@ function makeOctokitStub(pullsListFiles: ReturnType<typeof vi.fn>) {
         listFiles: pullsListFiles,
       },
     },
+    paginate: async (
+      route: (params: { page?: number; per_page?: number }) => Promise<{ data: unknown }>,
+      params: { page?: number; per_page?: number },
+      map: (response: { data: unknown }, done: () => void) => unknown,
+    ) => {
+      const perPage = params.per_page ?? 100;
+      const items: unknown[] = [];
+      for (let page = 1; page <= 20; page += 1) {
+        let stop = false;
+        const response = await route({ ...params, page });
+        const data = response.data;
+        const pageItems = await map({ ...response, data }, () => {
+          stop = true;
+        });
+        if (Array.isArray(pageItems)) items.push(...pageItems);
+        const length = Array.isArray(data) ? data.length : 0;
+        if (stop || length === 0 || length < perPage) break;
+      }
+      return items;
+    },
   } as unknown as ReturnType<typeof installationOctokit>;
 }
 

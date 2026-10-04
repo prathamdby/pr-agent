@@ -36,9 +36,16 @@ vi.mock("../src/github/appAuth.js", () => ({
     };
     return {
       rest,
-      paginate: async (fn: (...args: unknown[]) => unknown, opts: unknown) => {
+      paginate: async (
+        fn: (opts: unknown) => Promise<{ data?: unknown }>,
+        opts: unknown,
+        map?: (response: { data: unknown }, done: () => void) => unknown,
+      ) => {
         const result = await fn(opts);
-        return (result as { data: unknown[] }).data;
+        const raw = result?.data;
+        const data = Array.isArray(raw) ? raw : raw;
+        if (map) return map({ ...result, data }, () => undefined);
+        return data;
       },
     };
   },

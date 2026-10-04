@@ -16,6 +16,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(() => ({
+    paginate: async (
+      route: (params: unknown) => Promise<{ data?: unknown }>,
+      params: unknown,
+      map?: (response: { data: unknown }, done: () => void) => unknown,
+    ) => {
+      const response = await route(params);
+      const data = response?.data;
+      if (map) return map({ ...response, data }, () => undefined);
+      return data;
+    },
     rest: {
       pulls: {
         listReviews: mocks.listReviews,

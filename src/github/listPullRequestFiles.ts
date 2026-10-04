@@ -182,36 +182,41 @@ export async function listPullRequestFilesPaginated(
     }
   }
 
-  const fetchFilePage = async (page: number) =>
-    octokit.rest.pulls.listFiles({
+  const filesPerPage = 100;
+  const maxFilesToList = Math.min(limits.maxPrFilesListed, GITHUB_PULL_REQUEST_FILES_API_MAX_FILES);
+  let lastPageSize = 0;
+  let probingOverflow = false;
+  let overflowLength = 0;
+  await octokit.paginate(
+    octokit.rest.pulls.listFiles,
+    {
       owner,
       repo,
       pull_number: pullNumber,
-      per_page: 100,
-      page,
-    });
-
-  const filesPerPage = 100;
-  const maxFilesToList = Math.min(limits.maxPrFilesListed, GITHUB_PULL_REQUEST_FILES_API_MAX_FILES);
-  let page = 1;
-  let lastPageSize = 0;
-  while (files.length < maxFilesToList) {
-    const { data } = await fetchFilePage(page);
-    lastPageSize = data.length;
-    if (data.length === 0) break;
-    consumeFilePage(data);
-    page++;
-    if (data.length < filesPerPage) break;
-    if (files.length >= maxFilesToList) break;
-  }
+      per_page: filesPerPage,
+    },
+    (response, done) => {
+      const data = response.data;
+      if (probingOverflow) {
+        overflowLength = data.length;
+        done();
+        return data;
+      }
+      lastPageSize = data.length;
+      if (data.length === 0 || data.length < filesPerPage) {
+        consumeFilePage(data);
+        done();
+        return data;
+      }
+      consumeFilePage(data);
+      if (files.length >= maxFilesToList) probingOverflow = true;
+      return data;
+    },
+  );
 
   let omittedCountLowerBound = Math.max(0, pull.changed_files - files.length);
-  if (files.length >= maxFilesToList && lastPageSize === filesPerPage) {
-    const overflowResult = await fetchFilePage(page);
-    const overflowPage = overflowResult?.data;
-    if (overflowPage && overflowPage.length > 0) {
-      omittedCountLowerBound = Math.max(omittedCountLowerBound, overflowPage.length);
-    }
+  if (files.length >= maxFilesToList && lastPageSize === filesPerPage && overflowLength > 0) {
+    omittedCountLowerBound = Math.max(omittedCountLowerBound, overflowLength);
   }
   const truncated = omittedCountLowerBound > 0;
 

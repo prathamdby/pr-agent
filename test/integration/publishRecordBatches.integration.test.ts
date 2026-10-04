@@ -2999,13 +2999,28 @@ try {
           }),
         );
         if (matched) rows[CHECK_RUNS_PAGE_SIZE] = exact;
-        const list = vi.fn(async ({ page = 1 }: { page?: number }) => ({
-          data: {
-            check_runs: incomplete
-              ? rows.slice((page - 1) * CHECK_RUNS_PAGE_SIZE, page * CHECK_RUNS_PAGE_SIZE)
-              : [exact],
-          },
-        }));
+        const list = vi.fn(async (request: { url?: string; page?: number }) => {
+          const parsed = request.url == null ? null : new URL(request.url).searchParams.get("page");
+          const page = typeof request.page === "number" ? request.page : Number(parsed ?? "1");
+          const checkRuns = incomplete
+            ? rows.slice((page - 1) * CHECK_RUNS_PAGE_SIZE, page * CHECK_RUNS_PAGE_SIZE)
+            : [exact];
+          const more = incomplete && page * CHECK_RUNS_PAGE_SIZE < rows.length;
+          return {
+            status: 200,
+            url: request.url,
+            headers: {
+              link: more
+                ? `<https://api.github.com/repos/o/r/commits/abc1234/check-runs?page=${page + 1}>; rel="next"`
+                : "",
+            },
+            data: {
+              total_count: incomplete ? rows.length : checkRuns.length,
+              check_runs: checkRuns,
+            },
+          };
+        });
+        Object.assign(list, { endpoint: originalList.endpoint });
         Object.assign(client.rest.checks, { listForRef: list });
         const recoverySurface = {
           ...surface,

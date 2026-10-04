@@ -38,6 +38,40 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
 });
 
 import { installationOctokit } from "../src/github/appAuth.js";
+
+function pageData(raw: unknown): unknown {
+  if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
+  if ("check_runs" in raw) return raw.check_runs;
+  if ("workflow_runs" in raw) return raw.workflow_runs;
+  if ("jobs" in raw) return raw.jobs;
+  return raw;
+}
+
+async function paginateMock(
+  route: (params: unknown) => Promise<{ data?: unknown }>,
+  params: unknown,
+  map?: (response: { data: unknown }, done: () => void) => unknown,
+) {
+  if (!map) {
+    const response = await route(params);
+    return pageData(response?.data);
+  }
+  const base = params != null && typeof params === "object" ? params : {};
+  const perPage = "per_page" in base && typeof base.per_page === "number" ? base.per_page : 100;
+  const items: unknown[] = [];
+  for (let page = 1; page <= 20; page += 1) {
+    let stop = false;
+    const response = await route({ ...base, page });
+    const data = pageData(response?.data);
+    const pageItems = await map({ ...response, data }, () => {
+      stop = true;
+    });
+    if (Array.isArray(pageItems)) items.push(...pageItems);
+    const length = Array.isArray(data) ? data.length : 0;
+    if (stop || length === 0 || length < perPage) break;
+  }
+  return items;
+}
 import { mintInstallationToken } from "../src/github/installationToken.js";
 import { createReviewCheckRun, findReviewCheckRunByName } from "../src/github/reviewPublish.js";
 import { unfencedSurface } from "../src/agentWork/writeFence.js";
@@ -160,6 +194,7 @@ describe("PrSurface seam", () => {
       );
     vi.mocked(installationOctokit).mockReturnValue({
       rest: { actions: { listWorkflowRunsForRepo } },
+      paginate: paginateMock,
     } as never);
     const surface = createPrSurface({
       mutationBoundary: unfencedSurface(),
@@ -263,6 +298,7 @@ describe("PrSurface seam", () => {
           updateComment,
         },
       },
+      paginate: paginateMock,
     } as never);
 
     const expiresAtTs = Date.now() + 3_600_000;

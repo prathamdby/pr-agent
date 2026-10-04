@@ -26,7 +26,7 @@ import {
   upsertReviewSummaryComment,
 } from "./reviewPublish.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
+import { stopPaginatedPage } from "./paginateOctokit.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import type { ReplyTarget } from "../agentWork/types.js";
 import {
@@ -64,20 +64,19 @@ async function listConversationCommentsForPr(
   expiresAtTs?: number,
 ): Promise<readonly PrConversationComment[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const rows = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const commentPage = { page: 0, truncated: false };
+  const rows = await octokit.paginate(
+    octokit.rest.issues.listComments,
+    { owner, repo, issue_number: prNumber, per_page: COMMENTS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        commentPage,
+        response.data,
+        COMMENTS_PAGE_SIZE,
+        COMMENT_PAGINATION_MAX_PAGES,
+        done,
+      ),
+  );
   return rows.map((comment) => ({
     id: comment.id,
     inReplyToId:
@@ -97,20 +96,19 @@ async function listPushedCommitsForPr(
   expiresAtTs?: number,
 ) {
   const octokit = installationOctokit(token, expiresAtTs);
-  const commits = await paginateOctokitPages({
-    perPage: PR_COMMITS_PAGE_SIZE,
-    maxPages: PR_COMMITS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listCommits({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const commitPage = { page: 0, truncated: false };
+  const commits = await octokit.paginate(
+    octokit.rest.pulls.listCommits,
+    { owner, repo, pull_number: prNumber, per_page: PR_COMMITS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        commitPage,
+        response.data,
+        PR_COMMITS_PAGE_SIZE,
+        PR_COMMITS_MAX_PAGES,
+        done,
+      ),
+  );
   return commits.map((commit) => ({
     sha: commit.sha,
     subject: commit.commit.message.split("\n")[0] ?? "",
@@ -125,24 +123,20 @@ async function listReviewCommentsForPr(
   expiresAtTs?: number,
 ): Promise<ListReviewCommentsResult> {
   const octokit = installationOctokit(token, expiresAtTs);
-  let stoppedAtCap = false;
-  const rows = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      if (page >= COMMENT_PAGINATION_MAX_PAGES && data.length >= perPage) {
-        stoppedAtCap = true;
-      }
-      return data;
-    },
-  });
+  const reviewCommentPage = { page: 0, truncated: false };
+  const rows = await octokit.paginate(
+    octokit.rest.pulls.listReviewComments,
+    { owner, repo, pull_number: prNumber, per_page: COMMENTS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        reviewCommentPage,
+        response.data,
+        COMMENTS_PAGE_SIZE,
+        COMMENT_PAGINATION_MAX_PAGES,
+        done,
+      ),
+  );
+  const stoppedAtCap = reviewCommentPage.truncated;
   return {
     comments: rows.map((comment) => ({
       id: comment.id,
@@ -169,20 +163,19 @@ async function listPullRequestReviewsForPr(
   expiresAtTs?: number,
 ): Promise<readonly PrReview[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const reviews = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviews({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+  const reviewPage = { page: 0, truncated: false };
+  const reviews = await octokit.paginate(
+    octokit.rest.pulls.listReviews,
+    { owner, repo, pull_number: prNumber, per_page: COMMENTS_PAGE_SIZE },
+    (response, done) =>
+      stopPaginatedPage(
+        reviewPage,
+        response.data,
+        COMMENTS_PAGE_SIZE,
+        COMMENT_PAGINATION_MAX_PAGES,
+        done,
+      ),
+  );
   return reviews.map((review) => ({
     id: review.id,
     userId: review.user?.id ?? null,

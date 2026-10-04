@@ -1,7 +1,7 @@
 import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
+import { stopPaginatedPage } from "./paginateOctokit.js";
 import { isConfirmedCapabilityDenial } from "./installationCapabilities.js";
 
 const WORKFLOW_RUNS_PAGE_SIZE = 20;
@@ -41,39 +41,31 @@ export async function listFailingActionsJobsForHead(
 ): Promise<ListFailingActionsJobsResult> {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
-    const runs = await paginateOctokitPages({
-      perPage: WORKFLOW_RUNS_PAGE_SIZE,
-      maxPages: WORKFLOW_RUNS_MAX_PAGES,
-      fetchPage: async (page, perPage) => {
-        const { data } = await octokit.rest.actions.listWorkflowRunsForRepo({
-          owner,
-          repo,
-          head_sha: headSha,
-          per_page: perPage,
-          page,
-        });
-        return data.workflow_runs;
-      },
-    });
+    const runPage = { page: 0, truncated: false };
+    const runs = await octokit.paginate(
+      octokit.rest.actions.listWorkflowRunsForRepo,
+      { owner, repo, head_sha: headSha, per_page: WORKFLOW_RUNS_PAGE_SIZE },
+      (response, done) =>
+        stopPaginatedPage(
+          runPage,
+          response.data,
+          WORKFLOW_RUNS_PAGE_SIZE,
+          WORKFLOW_RUNS_MAX_PAGES,
+          done,
+        ),
+    );
 
     const jobs: ActionsJobSnapshot[] = [];
     const matchingRuns = runs.filter((run) => run.head_sha === headSha);
     for (const run of matchingRuns) {
       if (jobs.length >= REVIEW_CI_SUMMARY_LOG_MAX_JOBS) break;
-      const runJobs = await paginateOctokitPages({
-        perPage: JOBS_PAGE_SIZE,
-        maxPages: JOBS_MAX_PAGES,
-        fetchPage: async (page, perPage) => {
-          const { data } = await octokit.rest.actions.listJobsForWorkflowRun({
-            owner,
-            repo,
-            run_id: run.id,
-            per_page: perPage,
-            page,
-          });
-          return data.jobs;
-        },
-      });
+      const jobPage = { page: 0, truncated: false };
+      const runJobs = await octokit.paginate(
+        octokit.rest.actions.listJobsForWorkflowRun,
+        { owner, repo, run_id: run.id, per_page: JOBS_PAGE_SIZE },
+        (response, done) =>
+          stopPaginatedPage(jobPage, response.data, JOBS_PAGE_SIZE, JOBS_MAX_PAGES, done),
+      );
       for (const job of runJobs) {
         if (job.conclusion !== "failure" && job.conclusion !== "timed_out") continue;
         jobs.push({

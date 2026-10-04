@@ -71,6 +71,16 @@ function mockGithub(params: {
   readonly comments: readonly Record<string, unknown>[];
 }): void {
   vi.mocked(installationOctokit).mockReturnValue({
+    paginate: async (
+      route: (params: unknown) => Promise<{ data?: unknown }>,
+      params: unknown,
+      map?: (response: { data: unknown }, done: () => void) => unknown,
+    ) => {
+      const response = await route(params);
+      const data = response?.data;
+      if (map) return map({ ...response, data }, () => undefined);
+      return data;
+    },
     rest: {
       pulls: {
         listReviews: vi.fn(async () => ({

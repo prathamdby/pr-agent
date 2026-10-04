@@ -26,6 +26,35 @@ const {
   const createReview = vi.fn();
   const listReviews = vi.fn();
   const installationOctokit = vi.fn(() => ({
+    paginate: async (
+      route: (params: unknown) => Promise<{ data?: unknown }>,
+      params: unknown,
+      map?: (response: { data: unknown }, done: () => void) => unknown,
+    ) => {
+      const read = (raw: unknown): unknown => {
+        if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
+        if ("check_runs" in raw) return raw.check_runs;
+        if ("workflow_runs" in raw) return raw.workflow_runs;
+        if ("jobs" in raw) return raw.jobs;
+        return raw;
+      };
+      if (!map) return read((await route(params))?.data);
+      const base = params != null && typeof params === "object" ? params : {};
+      const perPage = "per_page" in base && typeof base.per_page === "number" ? base.per_page : 100;
+      const items: unknown[] = [];
+      for (let page = 1; page <= 20; page += 1) {
+        let stop = false;
+        const response = await route({ ...base, page });
+        const data = read(response?.data);
+        const pageItems = await map({ ...response, data }, () => {
+          stop = true;
+        });
+        if (Array.isArray(pageItems)) items.push(...pageItems);
+        const length = Array.isArray(data) ? data.length : 0;
+        if (stop || length === 0 || length < perPage) break;
+      }
+      return items;
+    },
     rest: {
       issues: {
         listComments,

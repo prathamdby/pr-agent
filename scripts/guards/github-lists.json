@@ -1,0 +1,6 @@
+{
+  "id": "github-lists",
+  "kind": "github-list",
+  "allow": [],
+  "mustCatch": ["await octokit.rest.checks.listForRef({ owner, repo, ref });"]
+}

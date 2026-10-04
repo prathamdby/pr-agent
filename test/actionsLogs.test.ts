@@ -10,6 +10,34 @@ const { listWorkflowRunsForRepo, listJobsForWorkflowRun, downloadJobLogsForWorkf
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(() => ({
+    paginate: async (
+      route: (params: { page?: number; per_page?: number }) => Promise<{ data?: unknown }>,
+      params: { page?: number; per_page?: number },
+      map?: (response: { data: unknown }, done: () => void) => unknown,
+    ) => {
+      const read = (raw: unknown): unknown => {
+        if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
+        if ("workflow_runs" in raw) return raw.workflow_runs;
+        if ("jobs" in raw) return raw.jobs;
+        if ("check_runs" in raw) return raw.check_runs;
+        return raw;
+      };
+      if (!map) return read((await route(params))?.data);
+      const perPage = params.per_page ?? 100;
+      const items: unknown[] = [];
+      for (let page = 1; page <= 20; page += 1) {
+        let stop = false;
+        const response = await route({ ...params, page });
+        const data = read(response?.data);
+        const pageItems = await map({ ...response, data }, () => {
+          stop = true;
+        });
+        if (Array.isArray(pageItems)) items.push(...pageItems);
+        const length = Array.isArray(data) ? data.length : 0;
+        if (stop || length === 0 || length < perPage) break;
+      }
+      return items;
+    },
     rest: {
       actions: {
         listWorkflowRunsForRepo,
