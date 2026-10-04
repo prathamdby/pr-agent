@@ -1,0 +1,7 @@
+{
+  "id": "ts-ignore",
+  "kind": "pattern",
+  "pattern": "@ts-ignore",
+  "scope": "src",
+  "flags": "--fixed-strings"
+}
