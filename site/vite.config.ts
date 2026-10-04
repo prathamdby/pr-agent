@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,37 +7,10 @@ import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
 import { AGENT_INSTRUCTIONS, LANDING_PAGE_MARKDOWN } from "./lib/agentResources.js";
-import { renderLlmsTxt } from "./lib/llmsKnowledge.js";
+import { llmsTxtBuildPlugin, llmsTxtServePlugin } from "./lib/llmsTxtPlugins.js";
 import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/siteHttp.js";
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
-
-function emitLlmsTxt(): Plugin {
-  const write = () => {
-    writeFileSync(resolve(siteDir, "public/llms.txt"), renderLlmsTxt());
-  };
-  // Every module renderLlmsTxt reads from, so a dev edit to any of them rewrites the committed file.
-  const watched = [
-    resolve(siteDir, "lib/llmsKnowledge.ts"),
-    resolve(siteDir, "lib/agentResources.ts"),
-    resolve(siteDir, "lib/content.ts"),
-    resolve(siteDir, "lib/acceptLanguage.ts"),
-    resolve(siteDir, "lib/site.ts"),
-  ];
-  return {
-    name: "emit-llms-txt",
-    buildStart: write,
-    configureServer(server) {
-      write();
-      server.watcher.add(watched);
-      server.watcher.on("change", (file) => {
-        if (watched.includes(file)) {
-          write();
-        }
-      });
-    },
-  };
-}
 
 /**
  * Serve the markdown routes in `vite dev`.
@@ -95,7 +67,8 @@ export default defineConfig({
     },
   },
   plugins: [
-    emitLlmsTxt(),
+    llmsTxtBuildPlugin(),
+    llmsTxtServePlugin(),
     serveMarkdownRoutesInDev(),
     tailwindcss(),
     tanstackStart({
