@@ -16,9 +16,18 @@ export type AgentInstructionFile = {
   readonly body: string;
 };
 
+export type AgentInstructionDrop = {
+  readonly filename: string;
+  readonly reason: string;
+};
+
 export type AgentInstructionFilesResult =
-  | { kind: "absent" }
-  | { kind: "ok"; files: readonly AgentInstructionFile[] };
+  | { kind: "absent"; drops?: readonly AgentInstructionDrop[] }
+  | {
+      kind: "ok";
+      files: readonly AgentInstructionFile[];
+      drops?: readonly AgentInstructionDrop[];
+    };
 
 type DiscoveredFile =
   | { readonly filename: AgentInstructionFilename; readonly kind: "loaded"; readonly body: string }
@@ -85,15 +94,18 @@ export async function loadAgentInstructionFiles(
   );
 
   const files: AgentInstructionFile[] = [];
+  const drops: AgentInstructionDrop[] = [];
   let aggregateBytes = 0;
 
   for (let i = 0; i < AGENT_INSTRUCTION_FILENAMES.length; i++) {
     const filename = AGENT_INSTRUCTION_FILENAMES[i];
     const outcome = settled[i];
     if (outcome.status === "rejected") {
+      const reason = errorMessage(outcome.reason);
+      drops.push({ filename, reason });
       logWarn("agent_instruction_file_skipped", {
         path: join(checkoutRoot, filename),
-        reason: errorMessage(outcome.reason),
+        reason,
       });
       continue;
     }
@@ -102,6 +114,7 @@ export async function loadAgentInstructionFiles(
     if (discovered == null) continue;
 
     if (discovered.kind === "skip") {
+      drops.push({ filename: discovered.filename, reason: discovered.reason });
       logWarn("agent_instruction_file_skipped", {
         path: join(checkoutRoot, discovered.filename),
         reason: discovered.reason,
@@ -111,6 +124,7 @@ export async function loadAgentInstructionFiles(
 
     const byteLength = Buffer.byteLength(discovered.body, "utf8");
     if (byteLength > MAX_AGENT_INSTRUCTION_FILE_BYTES) {
+      drops.push({ filename: discovered.filename, reason: "file exceeds size cap" });
       logWarn("agent_instruction_file_skipped", {
         path: join(checkoutRoot, discovered.filename),
         reason: "file exceeds size cap",
@@ -118,6 +132,7 @@ export async function loadAgentInstructionFiles(
       continue;
     }
     if (aggregateBytes + byteLength > maxBytes) {
+      drops.push({ filename: discovered.filename, reason: "aggregate size cap exceeded" });
       logWarn("agent_instruction_file_skipped", {
         path: join(checkoutRoot, discovered.filename),
         reason: "aggregate size cap exceeded",
@@ -130,9 +145,9 @@ export async function loadAgentInstructionFiles(
   }
 
   if (files.length === 0) {
-    return { kind: "absent" };
+    return { kind: "absent", drops };
   }
-  return { kind: "ok", files };
+  return { kind: "ok", files, drops };
 }
 
 /** True when head and base repo full_name match; missing metadata is untrusted. */

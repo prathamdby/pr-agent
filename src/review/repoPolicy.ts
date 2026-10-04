@@ -32,10 +32,16 @@ export type RepoPolicy = {
   readonly rules: readonly RepoPolicyRule[];
 };
 
+export type RepoPolicyDrop = {
+  readonly filename: string;
+  readonly reason: "body-cut" | "file-skipped";
+  readonly omittedChars?: number;
+};
+
 export type RepoPolicyResult =
-  | { kind: "absent" }
-  | { kind: "invalid"; reason: string }
-  | { kind: "ok"; policy: RepoPolicy };
+  | { kind: "absent"; drops?: readonly RepoPolicyDrop[] }
+  | { kind: "invalid"; reason: string; drops?: readonly RepoPolicyDrop[] }
+  | { kind: "ok"; policy: RepoPolicy; drops?: readonly RepoPolicyDrop[] };
 
 function matchesPathGlob(filename: string, pattern: string): boolean {
   const normalizedPattern = pattern.replace(/\\/g, "/");
@@ -140,7 +146,7 @@ export function candidatePolicyPairs<T extends { readonly file: string }>(params
 function parseMdcContent(
   raw: string,
 ):
-  | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string }
+  | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string; omittedChars: number }
   | { kind: "invalid"; reason: string } {
   const trimmed = raw.replace(/^\uFEFF/, "");
   let frontmatterRaw: string | undefined;
@@ -177,7 +183,8 @@ function parseMdcContent(
     globs = normalizeGlobs(validated.output.globs);
   }
 
-  const body = bodyRaw.trim().slice(0, MAX_REPO_POLICY_INSTRUCTION_CHARS);
+  const trimmedBody = bodyRaw.trim();
+  const body = trimmedBody.slice(0, MAX_REPO_POLICY_INSTRUCTION_CHARS);
   if (!body) {
     return { kind: "invalid", reason: "empty body" };
   }
@@ -187,6 +194,7 @@ function parseMdcContent(
     alwaysApply: effectiveAlwaysApply({ alwaysApply, globs }),
     globs,
     body,
+    omittedChars: trimmedBody.length - body.length,
   };
 }
 
@@ -231,13 +239,13 @@ export async function loadRepoPolicy(
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT") {
-      return { kind: "absent" };
+      return { kind: "absent", drops: [] };
     }
     if (code === "ENOTDIR") {
-      return { kind: "invalid", reason: "not a directory" };
+      return { kind: "invalid", reason: "not a directory", drops: [] };
     }
     const message = errorMessage(error);
-    return { kind: "invalid", reason: message };
+    return { kind: "invalid", reason: message, drops: [] };
   }
 
   const candidates = entries
@@ -249,11 +257,20 @@ export async function loadRepoPolicy(
     .toSorted();
 
   if (candidates.length === 0) {
-    return { kind: "absent" };
+    return { kind: "absent", drops: [] };
   }
 
   const rules: RepoPolicyRule[] = [];
+  const drops: RepoPolicyDrop[] = [];
   let aggregateBytes = 0;
+
+  for (const filename of candidates.slice(MAX_REPO_POLICY_FILES)) {
+    drops.push({ filename, reason: "file-skipped" });
+    logWarn("repo_policy_rule_skipped", {
+      path: join(policyDir, filename),
+      reason: "file cap exceeded",
+    });
+  }
 
   for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
     const absolutePath = join(policyDir, filename);
@@ -262,12 +279,14 @@ export async function loadRepoPolicy(
       raw = await readFile(absolutePath, "utf8");
     } catch (error) {
       const message = errorMessage(error);
+      drops.push({ filename, reason: "file-skipped" });
       logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
       continue;
     }
 
     const byteLength = Buffer.byteLength(raw, "utf8");
     if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
+      drops.push({ filename, reason: "file-skipped" });
       logWarn("repo_policy_rule_skipped", {
         path: absolutePath,
         reason: "file exceeds size cap",
@@ -275,6 +294,7 @@ export async function loadRepoPolicy(
       continue;
     }
     if (aggregateBytes + byteLength > maxBytes) {
+      drops.push({ filename, reason: "file-skipped" });
       logWarn("repo_policy_rule_skipped", {
         path: absolutePath,
         reason: "aggregate size cap exceeded",
@@ -284,8 +304,16 @@ export async function loadRepoPolicy(
 
     const parsed = parseMdcContent(raw);
     if (parsed.kind === "invalid") {
+      drops.push({ filename, reason: "file-skipped" });
       logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: parsed.reason });
       continue;
+    }
+    if (parsed.omittedChars > 0) {
+      drops.push({ filename, reason: "body-cut", omittedChars: parsed.omittedChars });
+      logWarn("repo_policy_body_cut", {
+        path: absolutePath,
+        omittedChars: parsed.omittedChars,
+      });
     }
 
     aggregateBytes += byteLength;
@@ -299,9 +327,9 @@ export async function loadRepoPolicy(
   }
 
   if (rules.length === 0) {
-    return { kind: "invalid", reason: "no usable .mdc rules" };
+    return { kind: "invalid", reason: "no usable .mdc rules", drops };
   }
-  return { kind: "ok", policy: { rules } };
+  return { kind: "ok", policy: { rules }, drops };
 }
 
 export function renderRepoPolicyBlock(params: {

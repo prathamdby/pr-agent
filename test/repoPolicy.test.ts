@@ -31,6 +31,7 @@ describe("loadRepoPolicy", () => {
     const root = await mkdtemp(join(tmpdir(), "repo-policy-absent-"));
     await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
       kind: "absent",
+      drops: [],
     });
   });
 
@@ -40,6 +41,7 @@ describe("loadRepoPolicy", () => {
     await writeFile(join(root, ".pr-agent", "readme.txt"), "ignore", "utf8");
     await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
       kind: "absent",
+      drops: [],
     });
   });
 
@@ -132,7 +134,14 @@ Always enforce this rule.
       "also-empty.mdc": '---\nglobs: "**"\n---\n\n   ',
     });
     const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
-    expect(result).toEqual({ kind: "invalid", reason: "no usable .mdc rules" });
+    expect(result).toEqual({
+      kind: "invalid",
+      reason: "no usable .mdc rules",
+      drops: [
+        { filename: "also-empty.mdc", reason: "file-skipped" },
+        { filename: "empty.mdc", reason: "file-skipped" },
+      ],
+    });
   });
 
   it("skips individual .mdc files exceeding per-file size cap", async () => {
@@ -145,6 +154,7 @@ Always enforce this rule.
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
     expect(result.policy.rules[0].filename).toBe("small.mdc");
+    expect(result.drops).toEqual([{ filename: "big.mdc", reason: "file-skipped" }]);
   });
 
   it("skips files that would exceed the aggregate byte cap", async () => {
@@ -157,6 +167,7 @@ Always enforce this rule.
     if (result.kind !== "ok") return;
     expect(result.policy.rules).toHaveLength(1);
     expect(result.policy.rules[0].filename).toBe("a.mdc");
+    expect(result.drops).toEqual([{ filename: "b.mdc", reason: "file-skipped" }]);
   });
 
   it("returns invalid when .pr-agent exists but is not a directory", async () => {
@@ -165,6 +176,7 @@ Always enforce this rule.
     await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
       kind: "invalid",
       reason: "not a directory",
+      drops: [],
     });
   });
 
@@ -173,7 +185,32 @@ Always enforce this rule.
     await writeFile(join(root, ".pr-agent.yml"), "version: 1\ntone: ignored\n", "utf8");
     await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
       kind: "absent",
+      drops: [],
     });
+  });
+
+  it("records a body cut without dropping the loaded prefix", async () => {
+    const root = await policyFixture({
+      "long.mdc": "A".repeat(MAX_REPO_POLICY_INSTRUCTION_CHARS + 40),
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules[0]?.body).toHaveLength(MAX_REPO_POLICY_INSTRUCTION_CHARS);
+    expect(result.drops).toEqual([{ filename: "long.mdc", reason: "body-cut", omittedChars: 40 }]);
+  });
+
+  it("loads this repository without cutting a policy body", async () => {
+    const result = await loadRepoPolicy(process.cwd(), MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const drops = result.drops ?? [];
+    expect(drops.filter((drop) => drop.reason === "body-cut")).toEqual([]);
+    expect(drops.filter((drop) => drop.reason === "file-skipped")).toEqual([]);
+    expect(result.policy.rules).toHaveLength(20);
+    for (const rule of result.policy.rules) {
+      expect(rule.body.length).toBeLessThanOrEqual(MAX_REPO_POLICY_INSTRUCTION_CHARS);
+    }
   });
 });
 
