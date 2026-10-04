@@ -42,6 +42,7 @@ import {
   type FindingHistoryOutcome,
 } from "../../agentWork/findingHistoryRepository.js";
 import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
+import { fenceForEpoch } from "../../agentWork/writeFence.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -373,6 +374,7 @@ async function withVerificationThreadOperation(
   let childAccepted = false;
   let resolutionDenied = false;
   const stubCommentId = await publishOnce<number | undefined>({
+    fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,

@@ -1,6 +1,11 @@
+import { isUnfencedSurface, type SurfaceFence } from "../agentWork/writeFence.js";
 import { createPrSurfaceImpl } from "./prSurfaceImpl.js";
 import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
 import type { CreatePrSurfaceParams, PrSurface } from "./prSurfaceTypes.js";
+
+export type FencedPrSurfaceParams = CreatePrSurfaceParams & {
+  readonly mutationBoundary: SurfaceFence;
+};
 
 export type {
   AcknowledgementTarget,
@@ -33,9 +38,13 @@ export type { FakePrSurfaceControls, FakePrSurfaceEvent } from "./fakePrSurface.
 export { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
 
 /** Production factory for the PR GitHub surface seam. */
-export function createPrSurface(params: CreatePrSurfaceParams): PrSurface {
-  const surface = createPrSurfaceImpl(params);
-  return params.mutationBoundary == null
+export function createPrSurface(params: FencedPrSurfaceParams): PrSurface {
+  const mutationBoundary = isUnfencedSurface(params.mutationBoundary)
+    ? undefined
+    : params.mutationBoundary;
+  const { mutationBoundary: _fence, ...rest } = params;
+  const surface = createPrSurfaceImpl(rest);
+  return mutationBoundary == null
     ? surface
-    : withPrSurfaceMutationBoundary(surface, params.mutationBoundary);
+    : withPrSurfaceMutationBoundary(surface, mutationBoundary);
 }

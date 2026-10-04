@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "../installationSurface.js";
+import { unfencedSurface } from "../writeFence.js";
 import { createPublishContext } from "../publishOnce.js";
 import {
   type Config,
@@ -712,6 +713,7 @@ export async function executeCiProjectionJob(
         prNumber,
         installation,
         capabilities: capabilityPolicy,
+        mutationBoundary: unfencedSurface(),
       });
     });
 

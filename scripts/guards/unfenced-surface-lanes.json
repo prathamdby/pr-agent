@@ -1,0 +1,12 @@
+{
+  "id": "unfenced-surface-lanes",
+  "kind": "call",
+  "identifier": "unfencedSurface",
+  "allow": [
+    "src/agentWork/executors/ackExecutor.ts",
+    "src/agentWork/executors/ciProjectionExecutor.ts",
+    "src/agentWork/lostRunningWork.ts",
+    "src/codeIndex/buildJob.ts"
+  ],
+  "mustCatch": ["unfencedSurface();"]
+}

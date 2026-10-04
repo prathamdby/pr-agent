@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import type { WorkSource } from "../review/reviewSchema.js";
 import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
 import { transition, type TransitionSelector } from "./workItemTransitions.js";
+import { unleasedFence } from "./writeFence.js";
 
 export type AutoWorkSupersedeTarget =
   | {
@@ -105,6 +106,7 @@ async function supersedeActiveAutoWork(
     from: ["queued"],
     to: "superseded",
     returning: ["id", "execution_epoch", "head_sha", "source"],
+    fence: unleasedFence(),
   });
   const running = await client.query<{
     id: string;

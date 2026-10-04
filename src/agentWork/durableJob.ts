@@ -28,6 +28,7 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
+import type { PrSurfaceMutationBoundary } from "../github/prSurfaceTypes.js";
 import {
   getWorkItem,
   getWorkItemCore,
@@ -332,6 +333,14 @@ function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  * Lease ordering and epoch-fenced status writes live in `leasedExecution.ts`.
  */
+/** Ask and pre-claim hooks have no lease boundary. The run calls the mutation and does not fence it. */
+function passthroughMutationBoundary(): PrSurfaceMutationBoundary {
+  return {
+    signal: new AbortController().signal,
+    run: (_mutation, mutate) => mutate(),
+  };
+}
+
 export async function runDurableWorkItem<T extends WorkType>(
   spec: DurableJobSpec<T>,
 ): Promise<void> {
@@ -370,7 +379,9 @@ export async function runDurableWorkItem<T extends WorkType>(
       installation: token,
       capabilities: reviewCapabilities,
       // Terminal hooks must still close the cancelled verdict.
-      mutationBoundary: lease?.mutationBoundary(workItemCore, { checkCancellation: false }),
+      mutationBoundary:
+        lease?.mutationBoundary(workItemCore, { checkCancellation: false }) ??
+        passthroughMutationBoundary(),
     });
   }
 
@@ -642,7 +653,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         prNumber: item.prNumber,
         installation: installationToken,
         capabilities: reviewCapabilities,
-        mutationBoundary: opened.mutationBoundary(item),
+        mutationBoundary: opened.mutationBoundary(item) ?? passthroughMutationBoundary(),
       });
       const resolvedHead = await spec.resolveHeadSha(prSurface, item);
       const headSha = resolvedHead.headSha;

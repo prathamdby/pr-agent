@@ -47,6 +47,7 @@ import type { WorkStatus } from "./types.js";
 import { errorMessage } from "../errors/errorMessage.js";
 import { getOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
 import { isRecord } from "../util/typeGuards.js";
+import { fenceForEpoch } from "./writeFence.js";
 
 function hasAccess(surface: PrSurface, operation: InstallationOperation): boolean {
   return surface.capabilities == null || surface.capabilities.access(operation) === "available";
@@ -231,6 +232,7 @@ async function createGithubCheckRunOnSurface(
     // The signal stays out of publishOnce: its after-mutate check would
     // drop the stash for a check GitHub already accepted.
     return await publishOnce<GithubCheckRunRef>({
+      fence: fenceForEpoch(params.leaseEpoch),
       client: pool,
       workItemId: params.workItemId,
       operationKey,
@@ -389,6 +391,7 @@ async function applyReviewCheckRunCompletion(
   let provenNoAcceptance = false;
   try {
     await publishOnce<void>({
+      fence: fenceForEpoch(params.leaseEpoch),
       client,
       workItemId: params.workItemId,
       operationKey,
@@ -672,6 +675,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
   };
   try {
     await publishOnce<void>({
+      fence: fenceForEpoch(params.leaseEpoch),
       client: params.pool,
       workItemId: params.workItemId,
       operationKey,

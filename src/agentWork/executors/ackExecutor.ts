@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "../installationSurface.js";
+import { unfencedSurface } from "../writeFence.js";
 import {
   type Config,
   DEFERRED_HEAD_SHA,
@@ -81,6 +82,7 @@ async function ackPrSurface(
     prNumber: data.prNumber,
     installation,
     capabilities,
+    mutationBoundary: unfencedSurface(),
   });
 }
 

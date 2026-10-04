@@ -135,7 +135,6 @@ export type CreatePrSurfaceParams = PrResource & {
   readonly installation?: InstallationToken;
   readonly capabilities?: ReviewCapabilityPolicy;
   readonly tokenResolver?: () => Promise<InstallationToken>;
-  readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
 /** Methods that cross the PR-surface mutation boundary. Keep this type exhaustive. */

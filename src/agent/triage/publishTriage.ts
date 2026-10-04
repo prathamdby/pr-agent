@@ -46,6 +46,7 @@ import {
   throwIfExecutionAborted,
 } from "../../agentWork/publishOnce.js";
 import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
+import { fenceForEpoch } from "../../agentWork/writeFence.js";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -335,6 +336,7 @@ async function upsertTriageReport(
   const operationKey = triageReportOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+    fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,
@@ -394,6 +396,7 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams): 
   const operationKey = triagePreviewOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+    fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,
@@ -803,6 +806,7 @@ async function publishTriageBody(
       const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
       const operationMarker = operationIntentMarker(operationKey, params.workItemId);
       await publishOnce<void>({
+        fence: fenceForEpoch(params.leaseEpoch),
         client: params.pool,
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
@@ -849,6 +853,7 @@ async function publishTriageBody(
     }
     const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
     await publishOnce<void>({
+      fence: fenceForEpoch(params.leaseEpoch),
       client: params.pool,
       workItemId: params.workItemId,
       leaseEpoch: params.leaseEpoch,

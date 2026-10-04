@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInstallationOctokitCache } from "../src/github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/settings/index.js";
 import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { unfencedSurface } from "../src/agentWork/writeFence.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 let installationOctokit = createInstallationOctokitCache();
@@ -337,6 +338,7 @@ describe("installationOctokit", () => {
       prNumber: 5,
       installation: result.installation,
       capabilities: createReviewCapabilityPolicy(result.observation),
+      mutationBoundary: unfencedSurface(),
     });
     const resolver = surface.mock.calls[0]?.[0]?.tokenResolver;
     expect((await resolver()).token).toBe("cached");

@@ -1,3 +1,4 @@
+import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.js";
 import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
@@ -240,6 +241,7 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { registerHooks } from "node:module";
+
 const sourceUrl = ${JSON.stringify(sourceUrl)};
 const sourceEntry = ${JSON.stringify(sourceEntry)};
 registerHooks({
@@ -265,6 +267,7 @@ const { acquirePrActorLease, releasePrActorLease, isPrActorLeaseHeld } = await l
 const { claimWorkForExecution, beginWorkAttempt, getWorkItem, shouldSkipWork } = await load("agentWork/workItemStateRepository.js");
 const { escalationForAttempt } = await load("agentWork/retryPolicy.js");
 const { publishOnce } = await load("agentWork/publishOnce.js");
+const { fenceForEpoch } = await load("agentWork/writeFence.js");
 const { withPrSurfaceMutationBoundary } = await load("github/prSurfaceMutation.js");
 const { reviewPayloadFromFindings } = await load("review/reviewSchema.js");
 const { AppError } = await load("errors/appError.js");
@@ -321,7 +324,14 @@ const surface = withPrSurfaceMutationBoundary(raw.surface, {
   signal, run: async (mutation, mutate) => {
     if (!(await isPrActorLeaseHeld(pool, item.id, lease.leaseEpoch)) || await shouldSkipWork(pool, item))
       throw new AppError({ domain: "agent_work", kind: "execution_aborted", message: "proof execution fenced" });
-    return publishOnce({ ...mutation, client: pool, workItemId: item.id, leaseEpoch: lease.leaseEpoch, mutate });
+    return publishOnce({
+      fence: fenceForEpoch(lease.leaseEpoch),
+      ...mutation,
+      client: pool,
+      workItemId: item.id,
+      leaseEpoch: lease.leaseEpoch,
+      mutate,
+    });
   },
 });
 const finding = (source) => ({
@@ -2470,6 +2480,7 @@ try {
               signal: new AbortController().signal,
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
                 publishOnce<T>({
+                  fence: fenceForEpoch(null),
                   client: pool,
                   workItemId,
                   operationKey: mutation.operationKey,
@@ -2570,6 +2581,7 @@ try {
               signal: new AbortController().signal,
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
                 publishOnce<T>({
+                  fence: fenceForEpoch(null),
                   client: pool,
                   workItemId,
                   operationKey: mutation.operationKey,
@@ -2623,6 +2635,7 @@ try {
             signal: new AbortController().signal,
             run: (mutation, mutate) =>
               publishOnce({
+                fence: fenceForEpoch(null),
                 client: pool,
                 workItemId,
                 operationKey: mutation.operationKey,
@@ -2808,6 +2821,7 @@ try {
             signal: new AbortController().signal,
             run: (mutation, mutate) =>
               publishOnce({
+                fence: fenceForEpoch(null),
                 client: pool,
                 workItemId,
                 operationKey: mutation.operationKey,
@@ -3003,6 +3017,7 @@ try {
           workItemId,
           operationKey,
           mutationKind: "github.pr_surface.startReviewCheck",
+          fence: fenceForEpoch(null),
           mutate,
           recover: (intent: intentRepository.OperationIntentRow) =>
             recoverPrSurfaceMutation<typeof check>(recoverySurface, intent),
@@ -3098,9 +3113,9 @@ try {
       controls.setHeadSha("abc1234");
       controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "Review in progress", 70);
       vi.spyOn(surfaceFactory, "createPrSurface").mockImplementation((params) =>
-        params.mutationBoundary
-          ? withPrSurfaceMutationBoundary(surface, params.mutationBoundary)
-          : surface,
+        isUnfencedSurface(params.mutationBoundary)
+          ? surface
+          : withPrSurfaceMutationBoundary(surface, params.mutationBoundary),
       );
       const job = {
         id: randomUUID(),
@@ -3232,6 +3247,7 @@ try {
             signal: job.signal,
             run: (mutation, mutate) =>
               publishOnce({
+                fence: fenceForEpoch(1),
                 client: pool,
                 workItemId,
                 leaseEpoch: 1,
@@ -3470,6 +3486,7 @@ try {
         workItemId,
         operationKey,
         mutationKind: "review_summary",
+        fence: fenceForEpoch(null),
         mutate,
         recover,
         allowsUndefinedResult: scenario === "void ledger",
@@ -3490,7 +3507,10 @@ try {
           Object.assign(new Error("provider rejected before acceptance"), { status: 422 }),
         );
         await expect(
-          publishOnce({ ...params, isKnownNoAcceptanceError: () => true }),
+          publishOnce({
+            ...params,
+            isKnownNoAcceptanceError: () => true,
+          }),
         ).rejects.toMatchObject({
           code: "operation_intent.mutation_failed",
         });

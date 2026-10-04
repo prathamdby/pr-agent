@@ -17,6 +17,7 @@ import { getSummaryCommentGithubId } from "./publishRecordRepository.js";
 import { shouldSkipWork } from "./workItemStateRepository.js";
 import type { AgentWorkItem } from "./types.js";
 import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
+import { fenceForEpoch } from "./writeFence.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -89,6 +90,7 @@ export async function tryLightweightAutoReviewCompletion(
     readonly id: number;
     readonly updated: boolean;
   }>({
+    fence: fenceForEpoch(params.leaseEpoch),
     client: pool,
     workItemId: params.item.id,
     operationKey,

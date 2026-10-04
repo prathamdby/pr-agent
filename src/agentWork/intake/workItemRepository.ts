@@ -19,6 +19,7 @@ import { prResourceKey, type PrRef } from "../types.js";
 import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 import { transition } from "../workItemTransitions.js";
+import { unleasedFence } from "../writeFence.js";
 
 /**
  * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
@@ -670,8 +671,13 @@ export async function cancelActiveReviews(
     payloadPatch,
     returning: ["id", "source", "head_sha", "created_at", "execution_epoch"],
   } as const;
-  const queued = await transition(client, { ...cancel, from: ["queued"] });
-  const running = await transition(client, { ...cancel, from: ["running"], requestCancel: true });
+  const queued = await transition(client, { ...cancel, from: ["queued"], fence: unleasedFence() });
+  const running = await transition(client, {
+    ...cancel,
+    from: ["running"],
+    requestCancel: true,
+    fence: unleasedFence(),
+  });
   const cancelled = [
     ...mapCancelledReviewRows(running.rows),
     ...mapCancelledReviewRows(queued.rows),
@@ -728,8 +734,13 @@ export async function cancelActiveTriage(
     payloadPatch,
     returning: ["id", "source", "head_sha", "created_at", "payload", "execution_epoch"],
   } as const;
-  const queued = await transition(client, { ...cancel, from: ["queued"] });
-  const running = await transition(client, { ...cancel, from: ["running"], requestCancel: true });
+  const queued = await transition(client, { ...cancel, from: ["queued"], fence: unleasedFence() });
+  const running = await transition(client, {
+    ...cancel,
+    from: ["running"],
+    requestCancel: true,
+    fence: unleasedFence(),
+  });
   const holders = [...running.rows, ...queued.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);

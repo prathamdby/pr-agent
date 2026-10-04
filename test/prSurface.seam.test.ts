@@ -40,6 +40,7 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
 import { installationOctokit } from "../src/github/appAuth.js";
 import { mintInstallationToken } from "../src/github/installationToken.js";
 import { createReviewCheckRun, findReviewCheckRunByName } from "../src/github/reviewPublish.js";
+import { unfencedSurface } from "../src/agentWork/writeFence.js";
 
 const SENTINEL = "<!-- pr-agent-progress -->";
 
@@ -80,6 +81,7 @@ describe("PrSurface seam", () => {
         rest: { repos: { getCombinedStatusForRef }, checks: { listForRef } },
       } as never);
       const surface = createPrSurface({
+        mutationBoundary: unfencedSurface(),
         cfg: makeTestConfig(),
         installationId: 42,
         owner: "o",
@@ -121,6 +123,7 @@ describe("PrSurface seam", () => {
       ttlMs: 3_600_000,
     }));
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 42,
       owner: "o",
@@ -159,6 +162,7 @@ describe("PrSurface seam", () => {
       rest: { actions: { listWorkflowRunsForRepo } },
     } as never);
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 42,
       owner: "o",
@@ -203,6 +207,7 @@ describe("PrSurface seam", () => {
     });
 
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 42,
       owner: "o",
@@ -262,6 +267,7 @@ describe("PrSurface seam", () => {
 
     const expiresAtTs = Date.now() + 3_600_000;
     const real = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",
@@ -298,6 +304,7 @@ describe("PrSurface seam", () => {
     });
 
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 42,
       owner: "o",
@@ -330,6 +337,7 @@ describe("PrSurface seam", () => {
       rest: { pulls: { get: pullsGet } },
     } as never);
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 42,
       owner: "o",
@@ -361,6 +369,7 @@ describe("PrSurface seam", () => {
     });
 
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",
@@ -402,6 +411,7 @@ describe("PrSurface seam", () => {
     vi.mocked(findReviewCheckRunByName).mockResolvedValue(null);
 
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",
@@ -430,6 +440,7 @@ describe("PrSurface seam", () => {
     vi.mocked(createReviewCheckRun).mockRejectedValue(validationError);
 
     const surface = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",
@@ -459,6 +470,7 @@ describe("PrSurface seam", () => {
       vi.mocked(createReviewCheckRun).mockRejectedValueOnce(error);
 
       const surface = createPrSurface({
+        mutationBoundary: unfencedSurface(),
         cfg: makeTestConfig(),
         installationId: 1,
         owner: "o",

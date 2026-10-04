@@ -34,6 +34,7 @@ import { getOperationIntent } from "../../agentWork/operationIntentRepository.js
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { createFindingLedger } from "../orchestrator/orchestratorTypes.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
+import { fenceForEpoch } from "../../agentWork/writeFence.js";
 
 export type PublishSummaryOnlyResult =
   | { readonly kind: "published"; readonly summaryCommentId: number }
@@ -240,6 +241,7 @@ export async function publishReviewSummaryOnly(
     summaryCoordination == null
       ? runSummaryUpsert()
       : publishOnce<{ readonly id: number; readonly updated: boolean }>({
+          fence: fenceForEpoch(summaryCoordination.leaseEpoch),
           client: summaryCoordination.pool,
           workItemId: summaryCoordination.workItemId,
           operationKey:
@@ -364,6 +366,7 @@ export async function publishReviewSummaryOnly(
           await publishLabels();
         } else {
           await publishOnce<void>({
+            fence: fenceForEpoch(summaryCoordination.leaseEpoch),
             client: summaryCoordination.pool,
             workItemId: summaryCoordination.workItemId,
             operationKey: reviewLabelsOperationKey(summaryCoordination.resourceKey),
