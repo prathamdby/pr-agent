@@ -34,6 +34,7 @@ import {
 } from "./workItemStateRepository.js";
 import { errorMessage } from "../errors/errorMessage.js";
 import type { WorkExecutionStopReason } from "../analytics/workCompleted.js";
+import { fenceForEpoch } from "./writeFence.js";
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
@@ -265,6 +266,7 @@ function createLeaseMutationBoundary(params: {
       await assertNotCancelled(mutation.operationKey);
       let mutationStarted = false;
       return publishOnce<T>({
+        fence: fenceForEpoch(params.leaseEpoch),
         client: params.pool,
         workItemId: params.workItemId,
         operationKey: mutation.operationKey,

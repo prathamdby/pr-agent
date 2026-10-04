@@ -37,6 +37,7 @@ import {
 import { createPrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.js";
+import { unfencedSurface } from "../src/agentWork/writeFence.js";
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {
@@ -82,6 +83,7 @@ function fetchBotFindingThreads(
 ) {
   return fetchBotFindingThreadsFromSurface(
     createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",

@@ -24,6 +24,10 @@ const CODE_KINDS = new Set([
   "escape-call",
   "sql-status",
   "console-call",
+  "call",
+  "member-call",
+  "optional-field",
+  "fence-literal",
 ]);
 
 function loadCodeRows(): CodeRow[] {

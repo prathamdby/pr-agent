@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "./installationSurface.js";
+import { unfencedSurface } from "./writeFence.js";
 import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import {
@@ -167,6 +168,7 @@ async function closeOpenOwnVerdict(params: {
     prNumber: core.prNumber,
     installation,
     capabilities,
+    mutationBoundary: unfencedSurface(),
   });
   await reviewVerdict({
     pool: params.pool,

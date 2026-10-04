@@ -972,7 +972,8 @@ describe("leased execution", () => {
     const execute = vi.fn(async (_item, env) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(env.signal.aborted).toBe(true);
-      expect(vi.mocked(prSurface.createPrSurface).mock.calls[0]?.[0].mutationBoundary?.signal).toBe(
+      const boundary = vi.mocked(prSurface.createPrSurface).mock.calls[0]?.[0].mutationBoundary;
+      expect(boundary != null && "signal" in boundary ? boundary.signal : undefined).toBe(
         env.signal,
       );
       return completedResult();

@@ -30,6 +30,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 }));
 
 import { installationOctokit } from "../src/github/appAuth.js";
+import { unfencedSurface } from "../src/agentWork/writeFence.js";
 
 function comment(
   partial: Partial<ReviewThreadComment> & Pick<ReviewThreadComment, "id">,
@@ -53,6 +54,7 @@ function fetchPriorInlineReviewFeedback(
 ) {
   return fetchPriorInlineFeedback(
     createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",

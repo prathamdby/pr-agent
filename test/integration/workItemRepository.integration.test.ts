@@ -14,6 +14,7 @@ import * as evlog from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
 import { publishOnce } from "../../src/agentWork/publishOnce.js";
+import { fenceForEpoch } from "../../src/agentWork/writeFence.js";
 import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
@@ -355,6 +356,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       workItemId: work.id,
       operationKey,
       mutationKind: "github.summary_comment",
+      fence: fenceForEpoch(null),
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
       mutate: () => summary.conclude({ body: `${REVIEW_SUMMARY_SENTINEL}\nwinner` }),
     };

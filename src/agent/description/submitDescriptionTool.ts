@@ -23,6 +23,7 @@ import {
   validateDescriptionVisuals,
 } from "./descriptionVisualSanitize.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
+import { fenceForEpoch } from "../../agentWork/writeFence.js";
 import {
   descriptionPrBodyOperationKey,
   operationIntentMarker,
@@ -191,6 +192,7 @@ export function buildSubmitDescriptionTool(params: {
       params.operationIntent == null
         ? await publish()
         : await publishOnce<DescriptionPublishResult>({
+            fence: fenceForEpoch(params.operationIntent.leaseEpoch),
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
             operationKey:

@@ -1,0 +1,6 @@
+{
+  "id": "fence-types",
+  "kind": "fence-literal",
+  "allow": ["src/agentWork/writeFence.ts"],
+  "mustCatch": ["const forged = { kind: \"unleased\" };", "const open = { kind: \"unfenced\" };"]
+}

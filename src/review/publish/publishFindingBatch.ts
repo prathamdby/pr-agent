@@ -43,6 +43,7 @@ import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/review
 import type { CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.js";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
+import { fenceForEpoch } from "../../agentWork/writeFence.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -414,6 +415,7 @@ export async function publishFindingBatch(
     : publishOnce<
         Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
       >({
+        fence: fenceForEpoch(session.operationIntent.leaseEpoch),
         client: session.operationIntent.client,
         workItemId: session.operationIntent.workItemId,
         operationKey,

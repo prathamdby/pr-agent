@@ -54,6 +54,7 @@ vi.mock("../src/github/httpStatus.js", () => ({
 }));
 
 import { createPrSurface } from "../src/github/prSurface.js";
+import { unfencedSurface } from "../src/agentWork/writeFence.js";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
@@ -68,6 +69,7 @@ const BOT_USER_ID = 999;
 
 function prSurface() {
   return createPrSurface({
+    mutationBoundary: unfencedSurface(),
     cfg: makeTestConfig(),
     installationId: 1,
     owner: "o",
@@ -316,6 +318,7 @@ describe("PrSurface acknowledgement reactions", () => {
       deny,
     );
     const gated = createPrSurface({
+      mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
       installationId: 1,
       owner: "o",

@@ -3,9 +3,22 @@ const EXPORT_DECLARATION =
 
 export type CodeRow = {
   id: string;
-  kind: "module" | "identifier" | "process-env" | "escape-call" | "sql-status" | "console-call";
+  kind:
+    | "module"
+    | "identifier"
+    | "process-env"
+    | "escape-call"
+    | "sql-status"
+    | "console-call"
+    | "call"
+    | "member-call"
+    | "optional-field"
+    | "fence-literal";
   specifierPrefix?: string;
   identifier?: string;
+  identifiers?: string[];
+  receiver?: string;
+  method?: string;
   skipTypeOnly?: boolean;
   allow: string[];
   mustCatch: string[];
@@ -143,6 +156,18 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
       }
       if (row.kind === "console-call" && word === "console") {
         if (/^\s*\.\s*(?:log|error|warn|info|debug|trace)\s*\(/.test(text.slice(i))) return true;
+      }
+      if (row.kind === "call" && word === row.identifier && lastWord !== "function") {
+        if (/^\s*\(/.test(text.slice(i))) return true;
+      }
+      if (row.kind === "member-call" && word === row.method && lastWord === row.receiver) {
+        if (/^\s*\(/.test(text.slice(i))) return true;
+      }
+      if (row.kind === "optional-field" && (row.identifiers ?? []).includes(word)) {
+        if (/^\s*\?/.test(text.slice(i))) return true;
+      }
+      if (row.kind === "fence-literal" && word === "kind") {
+        if (/^\s*:\s*["'](?:unleased|unfenced)["']/.test(text.slice(i))) return true;
       }
       lastWord = word;
       continue;

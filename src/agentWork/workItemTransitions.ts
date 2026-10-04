@@ -7,6 +7,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import type { WorkStatus, WorkType } from "./types.js";
+import type { WriteFence } from "./writeFence.js";
 
 /** Shared lost-running predicate; queued diagnostics deliberately use resource-wide leases. */
 export function lostRunningWorkLivenessSql(
@@ -60,14 +61,25 @@ type TransitionRow = {
 
 export type TransitionColumn = keyof TransitionRow;
 
-/** Each key present becomes one equality predicate; absent keys do not constrain. */
-export type TransitionSelector = {
-  readonly id?: string;
+type TransitionSelectorFields = {
   readonly resourceKey?: string;
   readonly type?: WorkType;
   readonly reviewLens?: string;
   readonly source?: WorkSource;
 };
+
+/**
+ * At least one identity is required. An empty selector matches every row.
+ * `lockPrior` still supplies the locked id; the caller repeats that id here.
+ */
+export type TransitionSelector =
+  | (TransitionSelectorFields & { readonly id: string })
+  | (TransitionSelectorFields & { readonly resourceKey: string; readonly type: WorkType })
+  | (TransitionSelectorFields & {
+      readonly resourceKey: string;
+      readonly reviewLens: string;
+      readonly source: WorkSource;
+    });
 
 export type TransitionSpec<K extends TransitionColumn> = {
   readonly selector: TransitionSelector;
@@ -77,10 +89,11 @@ export type TransitionSpec<K extends TransitionColumn> = {
   /** A recorded cancel request wins over every transition that carries this. */
   readonly unlessCancelRequested?: boolean;
   /**
-   * A numeric epoch lands the write only while that holder owns the lease row;
-   * null or omitted is an unleased writer.
+   * A lease fence lands the write only while that holder owns the lease row.
+   * An unleased fence leaves the predicate off, including a claim that only
+   * records `executionEpoch`.
    */
-  readonly leaseEpoch?: number | null;
+  readonly fence: WriteFence;
   /** Extra predicates, each led by `AND`. Bind values through the callback. */
   readonly where?: (bind: (value: unknown) => string) => string;
   readonly lastError?: string;
@@ -100,13 +113,33 @@ export type TransitionResult<K extends TransitionColumn> = {
   readonly rows: readonly Pick<TransitionRow, K>[];
 };
 
-const SELECTOR_COLUMNS: readonly (readonly [keyof TransitionSelector, string])[] = [
+const SELECTOR_COLUMNS = [
   ["id", "id"],
   ["resourceKey", "resource_key"],
   ["type", "type"],
   ["reviewLens", "review_lens"],
   ["source", "source"],
-];
+] as const;
+
+function selectorValue(
+  selector: TransitionSelector,
+  key: (typeof SELECTOR_COLUMNS)[number][0],
+): string | undefined {
+  switch (key) {
+    case "id":
+      return "id" in selector ? selector.id : undefined;
+    case "resourceKey":
+      return selector.resourceKey;
+    case "type":
+      return "type" in selector ? selector.type : undefined;
+    case "reviewLens":
+      return "reviewLens" in selector ? selector.reviewLens : undefined;
+    case "source":
+      return "source" in selector ? selector.source : undefined;
+    default:
+      return undefined;
+  }
+}
 
 const TARGET_STAMP: Record<WorkStatus, "started" | "completed" | "none"> = {
   queued: "none",
@@ -182,14 +215,19 @@ export async function transition<K extends TransitionColumn = never>(
     predicates.push("w.id = prior.id");
   }
   for (const [key, column] of SELECTOR_COLUMNS) {
-    const value = spec.selector[key];
-    if (value !== undefined) predicates.push(`w.${column} = ${bind(value)}`);
+    const value = selectorValue(spec.selector, key);
+    if (value === undefined) continue;
+    // Claim locks the id in `prior` and repeats it on the selector. One predicate.
+    if (spec.lockPrior != null && key === "id" && value === spec.lockPrior.id) continue;
+    predicates.push(`w.${column} = ${bind(value)}`);
   }
   predicates.push(statusPredicate(spec.from));
   if (spec.unlessCancelRequested) predicates.push("w.cancel_requested_at IS NULL");
   const extra = [
     spec.where?.(bind),
-    typeof spec.leaseEpoch === "number" ? leaseFenceSql("w.id", bind(spec.leaseEpoch)) : undefined,
+    spec.fence.kind === "lease" && spec.executionEpoch === undefined
+      ? leaseFenceSql("w.id", bind(spec.fence.epoch))
+      : undefined,
   ].filter((fragment) => fragment !== undefined);
 
   const returning = (spec.returning ?? []).map((column) =>

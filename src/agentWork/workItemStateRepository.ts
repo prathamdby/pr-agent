@@ -1,4 +1,5 @@
 import { fencedWrite } from "./fencedWrite.js";
+import { unleasedFence } from "./writeFence.js";
 import type { Pool, PoolClient } from "pg";
 import { inTransaction, queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
@@ -239,11 +240,12 @@ export async function claimWorkForExecution(
   leaseEpoch?: number | null,
 ): Promise<WorkClaim | null> {
   const claimed = await transition(db, {
-    selector: {},
+    selector: { id },
     lockPrior: { id },
     from: ["queued", "running"],
     to: "running",
     unlessCancelRequested: true,
+    fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
     executionEpoch: leaseEpoch ?? null,
     returning: ["created_at", "started_at", "attempt_count", "prior_status"],
   });
@@ -340,7 +342,7 @@ export async function markWorkCompleted(
     from: ["running"],
     to: "completed",
     unlessCancelRequested: true,
-    leaseEpoch,
+    fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
   return result.rowCount > 0;
 }
@@ -358,7 +360,7 @@ export async function forceMarkRescheduledParentCompleted(
     unlessCancelRequested: true,
     keepCompletedAt: true,
     where: () => `AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NOT NULL`,
-    leaseEpoch,
+    fence: { kind: "lease", epoch: leaseEpoch },
   });
   return result.rowCount > 0;
 }
@@ -438,6 +440,7 @@ export async function markLostRunningWorkFailed(
             AND w.started_at IS NOT NULL
             AND w.started_at < statement_timestamp() - (${bind(minAgeSeconds)} * interval '1 second')
             ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+        fence: unleasedFence(),
       });
       protectedQuery = false;
       return result.rowCount > 0;
@@ -468,7 +471,7 @@ export async function markWorkFailed(
     to: "failed",
     unlessCancelRequested: true,
     lastError: sanitizeWorkError(error),
-    leaseEpoch,
+    fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
   return result.rowCount > 0;
 }
@@ -481,10 +484,11 @@ export async function markQueuedWorkCancelled(
 ): Promise<boolean> {
   const cancel = {
     selector: { id },
-    to: "cancelled",
+    to: "cancelled" as const,
     requestCancel: true,
     lastError: sanitizeWorkError(error),
-  } as const;
+    fence: unleasedFence(),
+  };
   if ((await transition(pool, { ...cancel, from: ["queued"] })).rowCount > 0) return true;
 
   type CancellationTarget = { status: WorkStatus; execution_epoch: string | number | null };
@@ -500,6 +504,7 @@ export async function markQueuedWorkCancelled(
       ...cancel,
       from: ["queued"],
       where: (bind) => `AND w.execution_epoch IS NOT DISTINCT FROM ${bind(queuedEpoch)}::bigint`,
+      fence: unleasedFence(),
     });
     if (retry.rowCount > 0) return true;
     target = await queryOne<CancellationTarget>(pool, targetSql, [id]);
@@ -515,7 +520,7 @@ export async function markQueuedWorkCancelled(
       ...cancel,
       from: ["queued", "running"],
       where: (bind) => `AND w.execution_epoch = ${bind(epoch)}`,
-      leaseEpoch: epoch,
+      fence: { kind: "lease", epoch },
     });
     if (cancelled.rowCount > 0) return true;
     const current = await queryOne<CancellationTarget>(client, targetSql, [id]);
@@ -535,7 +540,7 @@ export async function markWorkRetrying(
     to: "queued",
     unlessCancelRequested: true,
     lastError: sanitizeWorkError(error),
-    leaseEpoch,
+    fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
   return result.rowCount > 0;
 }
@@ -549,7 +554,7 @@ export async function markWorkCancelled(
     selector: { id },
     from: ["queued", "running"],
     to: "cancelled",
-    leaseEpoch,
+    fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
   return result.rowCount > 0;
 }

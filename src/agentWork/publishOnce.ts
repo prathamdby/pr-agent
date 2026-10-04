@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { fencedWrite } from "./fencedWrite.js";
+import { fenceForEpoch, type WriteFence } from "./writeFence.js";
 import {
   ASK_PUBLISH_LENS,
   DESCRIPTION_PUBLISH_LENS,
@@ -69,6 +70,8 @@ export type PublishOnceParams<T> = {
   /** True only when the provider contract proves no mutation was accepted. */
   readonly isKnownNoAcceptanceError?: (error: unknown) => boolean;
   readonly leaseEpoch?: number | null;
+  /** Required. Agrees with `leaseEpoch`: a number is a lease fence, null is unleased. */
+  readonly fence: WriteFence;
   /** Aborted when the owning worker loses its lease or the job is cancelled. */
   readonly signal?: AbortSignal;
   /** Own-verdict delegation has a retryable local gate before any provider write. */
@@ -474,7 +477,15 @@ async function withRetainedDescriptionIdentity<T>(
   };
 }
 
+function assertFenceAgrees<T>(params: PublishOnceParams<T>): void {
+  const fenceEpoch = params.fence.kind === "lease" ? params.fence.epoch : null;
+  if (fenceEpoch !== (params.leaseEpoch ?? null)) {
+    throw new Error("publish fence does not match leaseEpoch");
+  }
+}
+
 export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<T> {
+  assertFenceAgrees(requested);
   const params = await withRetainedDescriptionIdentity(requested);
   if (params.delegation == null)
     return runInOperationIntentFrame(params.operationKey, () => publishOnceBody(params));
@@ -1030,13 +1041,17 @@ export function createPublishContext(
         operationKey,
       ),
     once: <T>(
-      params: Omit<PublishOnceParams<T>, "client" | "workItemId" | "leaseEpoch" | "store">,
+      params: Omit<
+        PublishOnceParams<T>,
+        "client" | "workItemId" | "leaseEpoch" | "fence" | "store"
+      >,
     ) =>
       publishOnce({
         ...params,
         client,
         workItemId: workItemId(),
         leaseEpoch: identity.leaseEpoch,
+        fence: fenceForEpoch(identity.leaseEpoch),
         store: identity.store,
       }),
     failClosed: async (intent: OperationIntentRow): Promise<never> => {
@@ -1046,6 +1061,7 @@ export function createPublishContext(
         operationKey: intent.operationKey,
         mutationKind: intent.mutationKind,
         leaseEpoch: identity.leaseEpoch,
+        fence: fenceForEpoch(identity.leaseEpoch),
         store: identity.store,
         mutate: async () => undefined,
       };

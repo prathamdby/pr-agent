@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "../agentWork/installationSurface.js";
+import { unfencedSurface } from "../agentWork/writeFence.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
@@ -140,6 +141,7 @@ export async function executeCodeIndexBuildJob(
     repo: data.repo,
     prNumber: data.prNumber,
     installation,
+    mutationBoundary: unfencedSurface(),
   });
   await withPrRepositoryView(
     {

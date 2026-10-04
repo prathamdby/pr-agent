@@ -72,6 +72,7 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { pgBossDb } from "../../src/db/postgres.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
+import { isUnfencedSurface } from "../../src/agentWork/writeFence.js";
 import {
   CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -2841,7 +2842,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         login: "pr-agent[bot]",
       });
       vi.spyOn(prSurface, "createPrSurface").mockImplementation((params) =>
-        params.mutationBoundary == null
+        isUnfencedSurface(params.mutationBoundary)
           ? fake.surface
           : prSurface.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );

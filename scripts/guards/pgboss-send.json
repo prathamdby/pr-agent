@@ -1,0 +1,14 @@
+{
+  "id": "pgboss-send",
+  "kind": "member-call",
+  "receiver": "boss",
+  "method": "send",
+  "allow": [
+    "src/agentWork/ciProjection.ts",
+    "src/agentWork/intake/queueing.ts",
+    "src/agentWork/prActorLease.ts",
+    "src/agentWork/reviewReschedule.ts",
+    "src/codeIndex/buildJob.ts"
+  ],
+  "mustCatch": ["await boss.send(queue, data);"]
+}

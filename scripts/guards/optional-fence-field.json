@@ -1,0 +1,10 @@
+{
+  "id": "optional-fence-field",
+  "kind": "optional-field",
+  "identifiers": ["fence", "mutationBoundary"],
+  "allow": ["src/github/fakePrSurface.ts"],
+  "mustCatch": [
+    "readonly fence?: WriteFence;",
+    "readonly mutationBoundary?: PrSurfaceMutationBoundary;"
+  ]
+}

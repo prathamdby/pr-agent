@@ -19,6 +19,7 @@ import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { getOperationIntent } from "../operationIntentRepository.js";
 import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "../publishOnce.js";
+import { fenceForEpoch } from "../writeFence.js";
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
@@ -248,6 +249,7 @@ async function finalizeAskReplyPublish(params: {
     operationKey: askReplyOperationKey(item.resourceKey, item.payload.commentId),
     mutationKind: "github.ask_reply",
     leaseEpoch,
+    fence: fenceForEpoch(leaseEpoch),
     detail: {
       step: "ask_reply",
       resourceKey: item.resourceKey,
@@ -408,6 +410,7 @@ export function createAskWorkExecution({
             const operationKey = askReplyOperationKey(item.resourceKey, payload.commentId);
             let selectedTargetKind = payload.replyTarget.kind;
             const posted = await publishOnce<{ readonly commentId: number }>({
+              fence: fenceForEpoch(env.leaseEpoch),
               client: pool,
               workItemId: item.id,
               operationKey,
@@ -515,6 +518,7 @@ export function createAskWorkExecution({
         workItemId: item.id,
         operationKey,
         mutationKind: "github.ask_failure_reply",
+        fence: fenceForEpoch(null),
         detail: {
           step: "ask_failure_reply",
           resourceKey: item.resourceKey,

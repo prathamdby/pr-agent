@@ -90,6 +90,7 @@ import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
 import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
 import { publishVerification } from "../../src/agent/verification/publishVerification.js";
 import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.js";
+import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.js";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -230,6 +231,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         signal: new AbortController().signal,
         run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>): Promise<T> => {
           const result = await publishOnce({
+            fence: fenceForEpoch(lease.leaseEpoch),
             client: pool,
             workItemId,
             leaseEpoch: lease.leaseEpoch,
@@ -837,7 +839,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         headSha: "h",
       });
       vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
-        params.mutationBoundary == null
+        isUnfencedSurface(params.mutationBoundary)
           ? fake.surface
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );
@@ -1020,7 +1022,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         { headSha: "h" },
       );
       vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
-        params.mutationBoundary == null
+        isUnfencedSurface(params.mutationBoundary)
           ? fake.surface
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );
@@ -1501,7 +1503,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         repositorySelection: "all",
       });
       vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
-        params.mutationBoundary == null
+        isUnfencedSurface(params.mutationBoundary)
           ? fake.surface
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );
@@ -1783,13 +1785,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           new Error("Synthetic ambiguous remote failure"),
         );
         surfaces.push(fake);
-        return params.mutationBoundary == null
+        return isUnfencedSurface(params.mutationBoundary)
           ? fake.surface
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary);
       }
       const fake = prSurfaceModule.createFakePrSurface(params, {
         headSha: "h",
-        mutationBoundary: params.mutationBoundary,
+        mutationBoundary: isUnfencedSurface(params.mutationBoundary)
+          ? undefined
+          : params.mutationBoundary,
       });
       surfaces.push(fake);
       return fake.surface;
@@ -2365,7 +2369,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         (params) =>
           prSurfaceModule.createFakePrSurface(params, {
             headSha: "h",
-            mutationBoundary: params.mutationBoundary,
+            mutationBoundary: isUnfencedSurface(params.mutationBoundary)
+              ? undefined
+              : params.mutationBoundary,
           }).surface,
       );
       vi.spyOn(evlog, "logWarn").mockImplementation((event: string) => {
@@ -3124,6 +3130,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
       await expect(
         publishOnce({
+          fence: fenceForEpoch(epoch),
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -3162,6 +3169,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
       await expect(
         publishOnce({
+          fence: fenceForEpoch(epoch),
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -3242,6 +3250,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       }
       const mutate = vi.fn(async () => undefined);
       const error = await publishOnce({
+        fence: fenceForEpoch(1),
         client: pool,
         workItemId,
         operationKey,
