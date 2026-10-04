@@ -38,28 +38,56 @@ function countPattern(tree, row) {
   if (!fs.existsSync(root)) return 0;
   assertRealScope(root);
   const flags = row.flags ? row.flags.split(" ").filter(Boolean) : [];
-  let out = "";
-  try {
-    out = execFileSync(
-      "rg",
-      [
-        "--no-messages",
-        "--no-ignore",
-        "--no-config",
-        "-o",
-        "--no-filename",
-        ...flags,
-        "-e",
-        row.pattern,
-        root,
-      ],
-      { encoding: "utf8" },
-    );
-  } catch (error) {
-    if (error && error.status === 1) return 0;
-    throw error;
+  const unknown = flags.filter((flag) => flag !== "--fixed-strings");
+  if (unknown.length > 0) {
+    throw new Error(`unsupported pattern flag ${unknown.join(" ")}`);
   }
-  return out.split("\n").filter((line) => line.length > 0).length;
+  const fixed = flags.includes("--fixed-strings");
+  const matchLine = fixed
+    ? (line) => countLiteral(line, row.pattern)
+    : (line) => countRegex(line, row.pattern);
+  let count = 0;
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === ".git" || entry.name === "node_modules") continue;
+        walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const bytes = fs.readFileSync(full);
+      if (bytes.includes(0)) continue;
+      for (const line of bytes.toString("utf8").split("\n")) count += matchLine(line);
+    }
+  };
+  walk(root);
+  return count;
+}
+
+function countRegex(line, pattern) {
+  const expression = new RegExp(pattern, "g");
+  let count = 0;
+  while (true) {
+    const match = expression.exec(line);
+    if (match == null) return count;
+    count += 1;
+    if (match[0].length === 0) expression.lastIndex += 1;
+  }
+}
+
+function countLiteral(line, needle) {
+  if (needle.length === 0) return 0;
+  let count = 0;
+  let from = 0;
+  while (from <= line.length) {
+    const at = line.indexOf(needle, from);
+    if (at === -1) return count;
+    count += 1;
+    from = at + needle.length;
+  }
+  return count;
 }
 
 function countFiles(tree, row) {
