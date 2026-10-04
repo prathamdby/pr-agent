@@ -23,7 +23,7 @@ async function checkoutWith(files: Record<string, string>): Promise<string> {
 describe("loadAgentInstructionFiles", () => {
   it("returns absent when none of the root files exist", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-instruction-absent-"));
-    await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent" });
+    await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent", drops: [] });
   });
 
   it("loads AGENTS.md, CLAUDE.md, and GEMINI.md in fixed order", async () => {
@@ -133,7 +133,7 @@ describe("loadAgentInstructionFiles", () => {
     const root = await mkdtemp(join(tmpdir(), "agent-instruction-nested-"));
     await mkdir(join(root, "docs"));
     await writeFile(join(root, "docs", "AGENTS.md"), "nested", "utf8");
-    await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent" });
+    await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent", drops: [] });
   });
 });
 
@@ -148,6 +148,7 @@ describe("pr-agent AGENTS.md trusted-context load", () => {
     const loaded = await loadAgentInstructionFiles(REPO_ROOT);
     expect(loaded.kind).toBe("ok");
     if (loaded.kind !== "ok") return;
+    expect(loaded.drops).toEqual([]);
     const agentsBody = loaded.files.find((file) => file.filename === "AGENTS.md")?.body ?? "";
     expect(agentsBody).toContain("docs/cursor-cloud.md");
     expect(agentsBody).not.toContain("fuse-overlayfs");
