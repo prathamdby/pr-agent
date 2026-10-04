@@ -650,7 +650,7 @@ Run these before calling a site change done. They are the checks the maintainer 
    nub run --node site:build
    ```
 
-   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin rewrites `site/public/llms.txt`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `nub run fmt` if the format check fails.
+   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin fails when `site/public/llms.txt` differs from `renderLlmsTxt()`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `nub run fmt` if the format check fails.
 
    `check:site-design` (`scripts/check-site-design.mjs`, also in the CI `site` job) scans `site/app` and `site/components` and fails when any rule's count rises above `scripts/baselines/site-design-baseline.json`. Most counts are zero. `raw-color`, `primitive-read`, and `arbitrary-value` carry today's stock and may only shrink.
 

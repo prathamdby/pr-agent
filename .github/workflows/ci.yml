@@ -58,11 +58,10 @@ jobs:
               - "scripts/baselines/site-design-baseline.json"
               - "site/**"
 
-  # Always-run aggregator so the required `gate` check reports on every PR,
-  # including docs-only PRs that skip the path-filtered jobs below. `changes`
-  # is in `needs` so a paths-filter failure cannot silently green the gate:
-  # with `if: always()`, jobs `needs` omits default to skipped, which the
-  # loop below treats as success.
+  # `check` always runs. A skipped check fails the gate. `integration`,
+  # `docker`, and `site` may skip only when their path filter did not select
+  # them. `commit-messages` skips on a push to main. `changes` is in `needs`
+  # so a paths-filter failure cannot silently green the gate.
   gate:
     needs: [changes, check, commit-messages, integration, docker, site]
     if: always()
@@ -70,16 +69,36 @@ jobs:
     timeout-minutes: 5
     steps:
       - run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} commit-messages=${{ needs.commit-messages.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} commit-messages=${{ needs.commit-messages.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }} backend=${{ needs.changes.outputs.backend }} site_filter=${{ needs.changes.outputs.site }}"
           if [ "${{ needs.changes.result }}" != "success" ]; then echo "gate: failing on changes=${{ needs.changes.result }}"; exit 1; fi
-          for r in "${{ needs.check.result }}" "${{ needs.commit-messages.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
-            case "$r" in success|skipped) ;; *) echo "gate: failing on $r"; exit 1;; esac
-          done
+          if [ "${{ needs.check.result }}" != "success" ]; then echo "gate: check must succeed, got ${{ needs.check.result }}"; exit 1; fi
+          case "${{ needs.commit-messages.result }}" in
+            success|skipped) ;;
+            *) echo "gate: failing on commit-messages=${{ needs.commit-messages.result }}"; exit 1 ;;
+          esac
+          require_selected() {
+            name="$1"
+            result="$2"
+            selected="$3"
+            if [ "$selected" = "true" ]; then
+              if [ "$result" != "success" ]; then
+                echo "gate: $name selected but result=$result"
+                exit 1
+              fi
+            else
+              case "$result" in
+                success|skipped) ;;
+                *) echo "gate: failing on $name=$result"; exit 1 ;;
+              esac
+            fi
+          }
+          require_selected integration "${{ needs.integration.result }}" "${{ needs.changes.outputs.backend }}"
+          require_selected docker "${{ needs.docker.result }}" "${{ needs.changes.outputs.backend }}"
+          require_selected site "${{ needs.site.result }}" "${{ needs.changes.outputs.site }}"
           echo "gate green"
 
   check:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

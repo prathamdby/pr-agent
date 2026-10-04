@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,10 +14,20 @@ import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/s
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
 
 function emitLlmsTxt(): Plugin {
-  const write = () => {
-    writeFileSync(resolve(siteDir, "public/llms.txt"), renderLlmsTxt());
+  const committedPath = resolve(siteDir, "public/llms.txt");
+  // The build must not repair a stale commit. CI's parity test and this
+  // check both fail when the committed file disagrees with the renderer.
+  const assertCommitted = () => {
+    const rendered = renderLlmsTxt();
+    const onDisk = readFileSync(committedPath, "utf8");
+    if (onDisk !== rendered) {
+      throw new Error("site/public/llms.txt does not match renderLlmsTxt()");
+    }
   };
-  // Every module renderLlmsTxt reads from, so a dev edit to any of them rewrites the committed file.
+  const write = () => {
+    writeFileSync(committedPath, renderLlmsTxt());
+  };
+  // Dev still rewrites the file so a local edit of a watched module stays in sync.
   const watched = [
     resolve(siteDir, "lib/llmsKnowledge.ts"),
     resolve(siteDir, "lib/agentResources.ts"),
@@ -27,7 +37,7 @@ function emitLlmsTxt(): Plugin {
   ];
   return {
     name: "emit-llms-txt",
-    buildStart: write,
+    buildStart: assertCommitted,
     configureServer(server) {
       write();
       server.watcher.add(watched);
