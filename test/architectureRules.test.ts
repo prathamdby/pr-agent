@@ -4,17 +4,12 @@ import { describe, expect, it } from "vitest";
 import {
   exportedSignatureTexts,
   forbiddenExportedParam,
-  hasForbiddenImportReference,
-  hasValueImportReference,
+  isCodeRowAllowed,
+  sourceMatchesCodeRow,
+  type CodeRow,
 } from "./architectureRulesHelpers.js";
 
 const SRC_ROOT = join(process.cwd(), "src");
-
-export type ImportRule = {
-  id: string;
-  forbiddenImports: string[];
-  allowedImporters: string[];
-};
 
 export type SourceRule = {
   id: string;
@@ -22,23 +17,22 @@ export type SourceRule = {
   allowedPaths: string[];
 };
 
-const IMPORT_RULES: ImportRule[] = [
-  {
-    id: "pi-sdk-under-runtime-only",
-    forbiddenImports: ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core"],
-    allowedImporters: ["src/agent/runtime/**"],
-  },
-  {
-    id: "octokit-under-github-only",
-    forbiddenImports: ["@octokit"],
-    allowedImporters: ["src/github/**"],
-  },
-  {
-    id: "pg-value-under-db-or-boss-only",
-    forbiddenImports: ["pg-value", "pg-boss-value"],
-    allowedImporters: ["src/db/**", "src/agentWork/boss.ts"],
-  },
-];
+const CODE_KINDS = new Set([
+  "module",
+  "identifier",
+  "process-env",
+  "escape-call",
+  "sql-status",
+  "console-call",
+]);
+
+function loadCodeRows(): CodeRow[] {
+  const dir = join(process.cwd(), "scripts", "guards");
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")) as CodeRow)
+    .filter((row) => CODE_KINDS.has(row.kind));
+}
 
 const SOURCE_RULES: SourceRule[] = [
   {
@@ -47,19 +41,6 @@ const SOURCE_RULES: SourceRule[] = [
     allowedPaths: [
       "src/review/publish/reviewSummaryComment.ts",
       "src/agent/triage/publishTriage.ts",
-    ],
-  },
-  {
-    id: "process-env-allowlist",
-    pattern: /\bprocess\.env\b/,
-    allowedPaths: [
-      "src/settings/envReaders.ts",
-      "src/evlog.ts",
-      "src/agent/runtime/modelsJsonCatalog.ts",
-      "src/github/appAuth.ts",
-      "src/github/installationToken.ts",
-      "src/prWorkspace/repositoryReader.ts",
-      "src/agentWork/durableJob.ts",
     ],
   },
 ];
@@ -78,33 +59,38 @@ function walkTsFiles(dir: string): string[] {
   return files;
 }
 
-function isAllowedImporter(rel: string, allowed: string[]): boolean {
-  return allowed.some((pattern) =>
-    pattern.endsWith("/**") ? rel.startsWith(pattern.slice(0, -3)) : rel === pattern,
-  );
-}
-
-function checkImportRule(rule: ImportRule): string[] {
+function codeRowViolations(row: CodeRow): string[] {
   const violations: string[] = [];
   for (const file of walkTsFiles(SRC_ROOT)) {
     const rel = relative(process.cwd(), file);
-    if (isAllowedImporter(rel, rule.allowedImporters)) continue;
+    if (isCodeRowAllowed(rel, row.allow)) continue;
     const text = readFileSync(file, "utf8");
-    for (const forbidden of rule.forbiddenImports) {
-      if (forbidden === "@octokit") {
-        if (hasForbiddenImportReference(text, "@octokit")) violations.push(`${rule.id}: ${rel}`);
-      } else if (
-        forbidden.startsWith("@earendil-works/")
-          ? /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(
-              text.replace(/^import\s+type\b[^;]*;/gm, ""),
-            )
-          : hasValueImportReference(text, forbidden)
-      ) {
-        violations.push(`${rule.id}: ${rel}`);
-      }
-    }
+    if (sourceMatchesCodeRow(row, file, text)) violations.push(`${row.id}: ${rel}`);
   }
   return violations;
+}
+
+function legacyOctokit(text: string): boolean {
+  const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, "");
+  return /\bfrom\s+["']@octokit\//.test(cleaned) || /\bimport\s+["']@octokit\//.test(cleaned);
+}
+
+function legacyValueImport(text: string, specifier: "pg" | "pg-boss"): boolean {
+  const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, "");
+  const quoted = `["']${specifier}["']`;
+  const clauses = cleaned.split(new RegExp(`\\bfrom\\s*${quoted}`));
+  for (let i = 0; i < clauses.length - 1; i += 1) {
+    const before = clauses.slice(0, i + 1).join(`from "${specifier}"`);
+    const head = before.match(/[\s\S]*\b(import|export)\b([\s\S]*)$/);
+    if (head == null) continue;
+    if (!/^\s*type\b/.test(head[2])) return true;
+  }
+  return new RegExp(`\\bimport\\s*\\(\\s*${quoted}\\s*\\)`).test(cleaned);
+}
+
+function legacyPi(text: string): boolean {
+  const stripped = text.replace(/^import\s+type\b[^;]*;/gm, "");
+  return /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(stripped);
 }
 
 function checkSourceRule(rule: SourceRule): string[] {
@@ -152,14 +138,60 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
 }
 
 describe("architecture rules", () => {
-  it("keeps banned imports inside their seams (ADR 0026 and boundary rows)", () => {
-    const violations = IMPORT_RULES.flatMap(checkImportRule);
+  it("keeps code rows inside their allowlists and catches each snippet", () => {
+    const rows = loadCodeRows();
+    expect(rows.length).toBeGreaterThan(0);
+    const violations = rows.flatMap(codeRowViolations);
     expect(violations).toEqual([]);
+    for (const row of rows) {
+      expect(row.mustCatch.length).toBeGreaterThan(0);
+      for (const snippet of row.mustCatch) {
+        expect([row.id, sourceMatchesCodeRow(row, "src/banned/probe.ts", snippet)]).toEqual([
+          row.id,
+          true,
+        ]);
+      }
+    }
+  });
+
+  it("sees every legacy module hit the regex walker saw", () => {
+    const rows = loadCodeRows();
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const checks: Array<{ id: string; hit: (text: string) => boolean }> = [
+      { id: "octokit", hit: legacyOctokit },
+      { id: "pi-sdk", hit: legacyPi },
+      { id: "pg", hit: (text) => legacyValueImport(text, "pg") },
+      { id: "pg-boss", hit: (text) => legacyValueImport(text, "pg-boss") },
+    ];
+    const missed: string[] = [];
+    for (const file of walkTsFiles(SRC_ROOT)) {
+      const rel = relative(process.cwd(), file);
+      const text = readFileSync(file, "utf8");
+      for (const check of checks) {
+        const row = byId.get(check.id);
+        if (row == null || isCodeRowAllowed(rel, row.allow)) continue;
+        if (check.hit(text) && !sourceMatchesCodeRow(row, file, text))
+          missed.push(`${check.id}: ${rel}`);
+      }
+    }
+    expect(missed).toEqual([]);
   });
 
   it("keeps process.env reads inside the allowlist", () => {
     const violations = SOURCE_RULES.flatMap(checkSourceRule);
     expect(violations).toEqual([]);
+  });
+
+  it("flags multi-line exported token parameters", () => {
+    const fixture = `
+export function buildThing(
+  owner: string,
+  token: string,
+): void {}
+`;
+    const signatures = exportedSignatureTexts(fixture);
+    expect(signatures).toHaveLength(1);
+    expect(forbiddenExportedParam(signatures[0])).toBe("token: string");
   });
 
   it("does not export installation-token parameters outside src/github/", () => {
@@ -176,16 +208,30 @@ describe("architecture rules", () => {
     expect(violations).toEqual([]);
   });
 
-  it("catches pg/pg-boss value imports in any layout, including multiline", () => {
-    expect(hasValueImportReference(`import { Pool } from "pg";`, "pg-value")).toBe(true);
-    expect(hasValueImportReference(`import {\n  Pool\n} from "pg";`, "pg-value")).toBe(true);
-    expect(hasValueImportReference(`export { Pool } from "pg";`, "pg-value")).toBe(true);
-    expect(hasValueImportReference(`const p = await import("pg");`, "pg-value")).toBe(true);
-    expect(hasValueImportReference(`import type { Pool } from "pg";`, "pg-value")).toBe(false);
-    expect(hasValueImportReference(`export type { Pool } from "pg";`, "pg-value")).toBe(false);
-    expect(hasValueImportReference(`// import { Pool } from "pg";\nconst x = 1;`, "pg-value")).toBe(
-      false,
-    );
+  it("ignores type-only pg imports and comment-only seam names", () => {
+    const rows = loadCodeRows();
+    const pg = rows.find((row) => row.id === "pg");
+    const octokit = rows.find((row) => row.id === "octokit");
+    const ident = rows.find((row) => row.id === "installation-octokit");
+    expect(pg).toBeDefined();
+    expect(octokit).toBeDefined();
+    expect(ident).toBeDefined();
+    expect(
+      sourceMatchesCodeRow(pg!, "src/banned/probe.ts", `import type { Pool } from "pg";`),
+    ).toBe(false);
+    const commented = `
+// installationOctokit is only used under src/github/
+const label = "installationOctokit";
+import { foo } from "../agent/foo.js";
+`;
+    expect(sourceMatchesCodeRow(ident!, "src/banned/probe.ts", commented)).toBe(false);
+    expect(
+      sourceMatchesCodeRow(
+        octokit!,
+        "src/banned/probe.ts",
+        `// import { Octokit } from "@octokit/rest";`,
+      ),
+    ).toBe(false);
   });
 
   it("keeps webhook server free of worker executors and orchestrator", () => {

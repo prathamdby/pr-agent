@@ -1,10 +1,46 @@
 const EXPORT_DECLARATION =
   /^export\s+(?:default\s+)?(?:async\s+)?(?:function|type|interface|const|class)\b/;
 
-/** Strip comments while preserving string literals (module specifiers stay intact). */
-export function stripComments(text: string): string {
-  let out = "";
+export type CodeRow = {
+  id: string;
+  kind: "module" | "identifier" | "process-env" | "escape-call" | "sql-status" | "console-call";
+  specifierPrefix?: string;
+  identifier?: string;
+  skipTypeOnly?: boolean;
+  allow: string[];
+  mustCatch: string[];
+};
+
+function specifierMatches(row: CodeRow, specifier: string): boolean {
+  return (
+    row.specifierPrefix != null &&
+    (specifier === row.specifierPrefix || specifier.startsWith(row.specifierPrefix))
+  );
+}
+
+function assignsWorkItemStatus(text: string): boolean {
+  if (!/update\s+agent_work_items/i.test(text)) return false;
+  const setAt = text.search(/\bset\b/i);
+  if (setAt < 0) return false;
+  const afterSet = text.slice(setAt);
+  const whereAt = afterSet.search(/\bwhere\b/i);
+  const clause = whereAt < 0 ? afterSet : afterSet.slice(0, whereAt);
+  return /\bstatus\s*=/.test(clause);
+}
+
+/** Walk source, skipping comments and string interiors, and record the forms a code row cares about. */
+export function sourceMatchesCodeRow(row: CodeRow, _fileName: string, text: string): boolean {
+  let typeOnlyStatement = false;
+  let lastWord = "";
+  let pendingSpecifier = false;
   let i = 0;
+
+  const hitSpecifier = (specifier: string): boolean => {
+    if (row.kind !== "module") return false;
+    if (row.skipTypeOnly && typeOnlyStatement) return false;
+    return specifierMatches(row, specifier);
+  };
+
   while (i < text.length) {
     const ch = text[i];
     const next = text[i + 1];
@@ -21,13 +57,12 @@ export function stripComments(text: string): string {
     }
     if (ch === '"' || ch === "'" || ch === "`") {
       const quote = ch;
-      out += ch;
       i += 1;
+      let body = "";
       while (i < text.length) {
         const c = text[i];
-        out += c;
         if (c === "\\") {
-          if (i + 1 < text.length) out += text[i + 1];
+          body += text[i + 1] ?? "";
           i += 2;
           continue;
         }
@@ -35,85 +70,68 @@ export function stripComments(text: string): string {
           i += 1;
           break;
         }
-        i += 1;
-      }
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
-/** Strip block comments, line comments, and string literals for identifier scans. */
-export function stripCommentsAndStringLiterals(text: string): string {
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    const next = text[i + 1];
-    if (ch === "/" && next === "/") {
-      i += 2;
-      while (i < text.length && text[i] !== "\n") i += 1;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      i += 2;
-      while (i < text.length - 1 && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
-      i += 2;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      i += 1;
-      while (i < text.length) {
-        if (text[i] === "\\") {
-          i += 2;
+        if (quote === "`" && c === "$" && text[i + 1] === "{") {
+          body += c;
+          i += 1;
           continue;
         }
-        if (text[i] === quote) {
-          i += 1;
-          break;
-        }
+        body += c;
         i += 1;
       }
-      out += " ";
+      if (pendingSpecifier && hitSpecifier(body)) return true;
+      if (row.kind === "sql-status" && assignsWorkItemStatus(body)) return true;
+      pendingSpecifier = false;
+      lastWord = "";
       continue;
     }
-    out += ch;
+    if (/\s/.test(ch)) {
+      if (ch === ";" || ch === "\n") {
+        /* keep */
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === ";") {
+      typeOnlyStatement = false;
+      pendingSpecifier = false;
+      lastWord = "";
+      i += 1;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(ch)) {
+      const start = i;
+      i += 1;
+      while (i < text.length && /[A-Za-z0-9_$]/.test(text[i])) i += 1;
+      const word = text.slice(start, i);
+      if ((word === "import" || word === "export") && text.slice(i).match(/^\s+type\b/)) {
+        typeOnlyStatement = true;
+      }
+      if (word === "from" || word === "require") pendingSpecifier = true;
+      if (word === "import") pendingSpecifier = true;
+      if (row.kind === "identifier" && word === row.identifier) return true;
+      if (row.kind === "process-env" && word === "process") {
+        const rest = text.slice(i);
+        if (/^\s*\.\s*env\b/.test(rest) || /^\s*\[\s*["']env["']\s*\]/.test(rest)) return true;
+      }
+      if (row.kind === "escape-call" && word === "escape" && lastWord !== "function") {
+        if (/^\s*(?:<[^;\n]*>)?\s*\(/.test(text.slice(i))) return true;
+      }
+      if (row.kind === "console-call" && word === "console") {
+        if (/^\s*\.\s*(?:log|error|warn|info|debug|trace)\s*\(/.test(text.slice(i))) return true;
+      }
+      lastWord = word;
+      continue;
+    }
+    if (ch === "(" && lastWord === "import") pendingSpecifier = true;
     i += 1;
-  }
-  return out;
-}
-
-export function hasForbiddenImportReference(text: string, identifier: string): boolean {
-  if (identifier === "@octokit") {
-    const cleaned = stripComments(text);
-    return /\bfrom\s+["']@octokit\//.test(cleaned) || /\bimport\s+["']@octokit\//.test(cleaned);
-  }
-  if (identifier === "installationOctokit") {
-    const stripped = stripCommentsAndStringLiterals(text);
-    return /\binstallationOctokit\b/.test(stripped);
   }
   return false;
 }
 
-/** Value (non-`import type` / non-`export type`) references to a module, any layout. */
-export function hasValueImportReference(text: string, module: string): boolean {
-  const cleaned = stripComments(text);
-  const specifier = module === "pg-value" ? "pg" : "pg-boss";
-  const quoted = `["']${specifier}["']`;
-  const clauses = cleaned.split(new RegExp(`\\bfrom\\s*${quoted}`));
-  // Every split point except the last is a `from "pg"` / `from "pg-boss"` site.
-  for (let i = 0; i < clauses.length - 1; i += 1) {
-    const before = clauses.slice(0, i + 1).join(`from "${specifier}"`);
-    const head = before.match(/[\s\S]*\b(import|export)\b([\s\S]*)$/);
-    if (!head) continue;
-    // head[2] is the clause after the import/export keyword; skip type-only clauses.
-    if (!/^\s*type\b/.test(head[2])) return true;
-  }
-  const dynamic = new RegExp(`\\bimport\\s*\\(\\s*${quoted}\\s*\\)`);
-  return dynamic.test(cleaned);
+export function isCodeRowAllowed(rel: string, allow: readonly string[]): boolean {
+  return allow.some((pattern) =>
+    pattern.endsWith("/") ? rel.startsWith(pattern) : rel === pattern,
+  );
 }
 
 /** Collect full exported declaration signatures, including multi-line parameter lists. */

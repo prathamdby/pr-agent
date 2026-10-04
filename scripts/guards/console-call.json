@@ -1,0 +1,10 @@
+{
+  "id": "console-call",
+  "kind": "console-call",
+  "allow": [
+    "src/index.ts"
+  ],
+  "mustCatch": [
+    "console.error(error);"
+  ]
+}

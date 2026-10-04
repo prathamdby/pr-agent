@@ -1,0 +1,9 @@
+{
+  "id": "escape-call",
+  "kind": "escape-call",
+  "allow": [],
+  "mustCatch": [
+    "escape<number>(reason, value);",
+    "escape(reason, value);"
+  ]
+}
