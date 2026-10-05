@@ -6,7 +6,6 @@
     "suspicious": "warn"
   },
   "rules": {
-    "typescript/no-unsafe-type-assertion": "off",
     "eslint/no-underscore-dangle": [
       "warn",
       {
@@ -23,6 +22,20 @@
     "typeCheck": false
   },
   "overrides": [
+    {
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "error",
+        "typescript/no-explicit-any": "error",
+        "typescript/no-non-null-assertion": "error"
+      }
+    },
+    {
+      "files": ["src/util/escape.ts"],
+      "rules": {
+        "typescript/no-unnecessary-type-parameters": "off"
+      }
+    },
     {
       "files": ["test/**/*.ts"],
       "env": { "vitest": true },

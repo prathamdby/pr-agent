@@ -1,11 +1,19 @@
 {
   "no-unsafe-type-assertion(src)": {
-    "count": 78,
+    "count": 0,
     "scope": "src/**"
   },
   "no-unsafe-type-assertion(test)": {
-    "count": 0,
+    "count": 546,
     "scope": "test/**"
+  },
+  "explicit-any(src)": {
+    "count": 0,
+    "scope": "src/**"
+  },
+  "non-null-assertion(src)": {
+    "count": 0,
+    "scope": "src/**"
   },
   "no-console(src)": {
     "count": 1,
