@@ -332,6 +332,7 @@ client. CI projection and direct comment edits do not share this lock.
 
 - Put complexity at boundaries. Keep domain decisions in small, testable functions.
 - Prefer inferred TypeScript types and narrow domain types. Avoid `any`, broad casts, and duplicated representations.
+- Narrow from runtime evidence and check own literal keys. Backend lint locks this discipline ([ADR 0045](docs/adr/0045-type-narrowing-discipline.md)).
 - Keep external parsing and validation at the boundary. Trust validated internal values.
 - Make operations idempotent. Assume a webhook, queue delivery, lease renewal, or publish step can run twice or stop halfway.
 - Keep call chains short. A wrapper must hide a real policy or adaptation or it should not exist.

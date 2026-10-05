@@ -44,7 +44,7 @@ const OPERATION_INTENT_MARKER_RE = /<!-- pr-agent:operation-intent [a-f0-9]{24} 
 export function isPrSurfaceMutationMethod(
   property: unknown,
 ): property is keyof PrSurfaceMutationMethods {
-  return typeof property === "string" && property in PR_SURFACE_WIRE_NAMES;
+  return typeof property === "string" && Object.hasOwn(PR_SURFACE_WIRE_NAMES, property);
 }
 
 function firstOperationIntentMarker(text: string): string | undefined {
@@ -242,10 +242,10 @@ async function recoverMarkedComment(
  * a check run cannot prove this attempt landed. Their absent recovery ends
  * in a bounded terminal decision at the intent boundary, never remutation.
  */
-export async function recoverPrSurfaceMutation<T>(
+export async function recoverPrSurfaceMutation(
   surface: PrSurface,
   intent: OperationIntentRow,
-): Promise<OperationIntentRecovery<T>> {
+): Promise<OperationIntentRecovery<unknown>> {
   const method = methodFromWireName(intent.detail.surfaceMethod);
   if (method == null) return { kind: "absent" };
 
@@ -329,5 +329,5 @@ export async function recoverPrSurfaceMutation<T>(
       return exhaustive;
     }
   }
-  return recovery as OperationIntentRecovery<T>;
+  return recovery;
 }

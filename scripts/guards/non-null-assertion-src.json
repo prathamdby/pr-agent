@@ -1,0 +1,7 @@
+{
+  "id": "non-null-assertion-src",
+  "kind": "oxlint-deny",
+  "rule": "typescript/no-non-null-assertion",
+  "lintCode": "typescript(no-non-null-assertion)",
+  "scope": "src"
+}

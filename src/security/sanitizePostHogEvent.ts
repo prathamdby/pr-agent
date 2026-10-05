@@ -1,4 +1,9 @@
 import { sanitizeTelemetryValue } from "./sanitizeTelemetryValue.js";
+import { isRecord } from "../util/typeGuards.js";
+
+function isPostHogEventMessage(value: unknown): value is PostHogEventMessage {
+  return isRecord(value) && (value.properties == null || isRecord(value.properties));
+}
 
 /** Structural subset of posthog-node EventMessage used by before_send (no SDK import). */
 export type PostHogEventMessage = {
@@ -11,8 +16,8 @@ export function sanitizePostHogEvent(
 ): PostHogEventMessage | null {
   if (event == null) return null;
   const sanitized = sanitizeTelemetryValue(event);
-  if (typeof sanitized !== "object" || sanitized === null || Array.isArray(sanitized)) {
+  if (!isPostHogEventMessage(sanitized)) {
     return { properties: {} };
   }
-  return sanitized as PostHogEventMessage;
+  return sanitized;
 }

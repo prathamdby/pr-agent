@@ -11,6 +11,7 @@ import {
 } from "../../review/findings/evidenceLedger.js";
 import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
 import { utf8ByteLength } from "./json.js";
+import { isRecord } from "../../util/typeGuards.js";
 
 export type TruncationInfo = {
   readonly truncated: true;
@@ -95,9 +96,8 @@ function boundInner(
       value: items,
     };
   }
-  const record = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(record)) {
+  for (const [key, entry] of Object.entries(value)) {
     if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
     out[key] = boundInner(entry, depth + 1, seen, options, truncation);
   }
@@ -158,9 +158,9 @@ export function toGuestCapabilityResult(
   truncation: TruncationInfo | null,
   coverage?: unknown,
 ): CapabilityGuestResult {
-  if (bounded !== null && typeof bounded === "object" && !Array.isArray(bounded)) {
+  if (isRecord(bounded)) {
     return {
-      ...(bounded as Record<string, unknown>),
+      ...bounded,
       ...(coverage !== undefined ? { coverage } : {}),
       truncation,
     };
@@ -181,8 +181,8 @@ export function recordMarshalledEvidence(
   },
 ): void {
   if (!params.ledger || !params.headSha) return;
-  if (!delivered || typeof delivered !== "object") return;
-  const row = delivered as Record<string, unknown>;
+  if (!isRecord(delivered)) return;
+  const row = delivered;
   if (typeof row.path === "string" && typeof row.content === "string") {
     // Missing clamp entries cannot authorize lines omitted by the governed reader.
     if (row.clampedLines != null && !Array.isArray(row.clampedLines)) return;

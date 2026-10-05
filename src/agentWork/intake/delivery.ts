@@ -569,7 +569,9 @@ async function applyReviewApprovedIntake(
     targets.map((ref) => [prResourceKey(ref.owner, ref.repo, ref.prNumber), ref]),
   );
   const admitted: PrRef[] = [];
-  for (const resourceKey of [...refs.keys()].toSorted()) {
+  for (const [resourceKey, ref] of [...refs.entries()].toSorted(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
     await tx.withReviewIntake(resourceKey, async (lifecycle) => {
       if (lifecycle != null && lifecycle.state !== "open") return;
       if (
@@ -579,7 +581,7 @@ async function applyReviewApprovedIntake(
           signal.kind === "workflow_run" ? signal.headSha : undefined,
         )
       )
-        admitted.push(refs.get(resourceKey)!);
+        admitted.push(ref);
     });
   }
   const decision = admitted.length > 0 ? REVIEW_APPROVED : IGNORED_REVIEW_APPROVAL_NOT_AWAITING;

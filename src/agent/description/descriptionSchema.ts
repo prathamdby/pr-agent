@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { fixDoubleEscapedString } from "../tools/fixDoubleEscapedString.js";
 import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../../settings/index.js";
+import { isRecord } from "../../util/typeGuards.js";
 
 const descriptionPrTypeSchema = v.picklist([
   "Bug fix",
@@ -116,8 +117,8 @@ function coercePrTypes(
 function coerceVisuals(value: unknown): DescriptionVisual[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const visuals = value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
+    if (!isRecord(item)) return [];
+    const row = item;
     const kind = trimString(row.kind);
     const content = trimString(row.content);
     if (!kind || !content) return [];
@@ -141,8 +142,8 @@ function coerceVisuals(value: unknown): DescriptionVisual[] | undefined {
 function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const files = value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const row = item as Record<string, unknown>;
+    if (!isRecord(item)) return [];
+    const row = item;
     const filename = trimString(row.filename ?? row.file);
     const changesTitle = trimString(row.changesTitle ?? row.changes_title ?? row.reason);
     if (!filename || !changesTitle) return [];
@@ -167,8 +168,8 @@ export function coerceDescriptionPayloadInput(
   let source = raw;
   for (const key of envelopeKeys) {
     const nested = raw[key];
-    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      source = nested as Record<string, unknown>;
+    if (isRecord(nested)) {
+      source = nested;
       break;
     }
   }

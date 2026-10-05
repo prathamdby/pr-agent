@@ -117,6 +117,7 @@ export type PrSurfaceMutation = {
     publishRecordId: string | null,
   ) => Promise<OperationIntentRecovery<unknown>>;
   readonly allowsUndefinedResult?: boolean;
+  readonly decodeResult: (value: unknown) => unknown;
 };
 
 /**
@@ -125,7 +126,7 @@ export type PrSurfaceMutation = {
  */
 export type PrSurfaceMutationBoundary = {
   readonly signal: AbortSignal;
-  readonly run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => Promise<T>;
+  readonly run: (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => Promise<unknown>;
 };
 
 export type CreatePrSurfaceParams = PrResource & {

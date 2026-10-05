@@ -1,9 +1,10 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.js";
-import { logInfo, tryUseLogger } from "../../evlog.js";
+import { logInfo, tryUseLogger, type RequestLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
 
 const MAX_RECENT_TOOL_ERRORS = 3;
+const metricsByLogger = new WeakMap<RequestLogger, MutableReviewRunMetrics>();
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
@@ -242,11 +243,11 @@ function getOrInitMetrics(meta?: {
 }): MutableReviewRunMetrics | null {
   const logger = tryUseLogger();
   if (!logger) return null;
-  const ctx = logger.getContext();
-  const existing = ctx.reviewRunMetrics as MutableReviewRunMetrics | undefined;
+  const existing = metricsByLogger.get(logger);
   if (existing) return existing;
   if (!meta) return null;
   const created = createEmptyMetrics(meta);
+  metricsByLogger.set(logger, created);
   logger.set({ reviewRunMetrics: created });
   return created;
 }
@@ -441,9 +442,11 @@ export function initReviewRunMetrics(meta: {
 }): void {
   const logger = tryUseLogger();
   if (!logger) return;
-  const existing = logger.getContext().reviewRunMetrics as MutableReviewRunMetrics | undefined;
+  const existing = metricsByLogger.get(logger);
   if (existing) return;
-  logger.set({ reviewRunMetrics: createEmptyMetrics(meta) });
+  const created = createEmptyMetrics(meta);
+  metricsByLogger.set(logger, created);
+  logger.set({ reviewRunMetrics: created });
 }
 
 export function setReviewRunMetricFields(

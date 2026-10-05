@@ -1,7 +1,5 @@
 {
   "id": "escape-calls",
-  "kind": "pattern",
-  "pattern": "\\bescape\\s*\\(",
-  "scope": "src",
-  "flags": ""
+  "kind": "escape-calls",
+  "scope": "src"
 }

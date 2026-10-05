@@ -3,7 +3,7 @@ import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.js";
 
 function objectValue(value: unknown, key: string): unknown {
   if (typeof value !== "object" || value == null) return undefined;
-  return (value as Record<string, unknown>)[key];
+  return Reflect.get(value, key);
 }
 
 function numericValue(value: unknown): number | null {

@@ -13,6 +13,7 @@ import type {
   PrSurfaceMutation,
   PrSurfaceMutationBoundary,
 } from "./prSurfaceTypes.js";
+import { decodePrSurfaceMutationResult } from "./prSurfaceResults.js";
 
 type WrappedSurface = {
   readonly boundary: PrSurfaceMutationBoundary;
@@ -75,12 +76,11 @@ function stableEncode(
       .join(",")}]`;
   }
 
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
+  return `{${Object.keys(value)
     .toSorted()
     .map(
       (key) =>
-        `${JSON.stringify(key)}:${stableEncode(record[key], nextAncestors, `${path}.${key}`)}`,
+        `${JSON.stringify(key)}:${stableEncode(Reflect.get(value, key), nextAncestors, `${path}.${key}`)}`,
     )
     .join(",")}}`;
 }
@@ -135,6 +135,7 @@ function mutation(
       ...extractPrSurfaceRecoverDetail(method, args),
     },
     recover: (intent) => recoverPrSurfaceMutation(surface, intent),
+    decodeResult: (value) => decodePrSurfaceMutationResult(method, value),
     ...(voidPrSurfaceMutationMethod(method) ? { allowsUndefinedResult: true } : {}),
   };
 }
@@ -164,16 +165,19 @@ export function withPrSurfaceMutationBoundary(
   const cached = wrappedSurfaces.get(surface);
   if (cached?.boundary === boundary) return cached.surface;
 
-  const run = <T>(
+  const run = (
     method: keyof PrSurfaceMutationMethods,
     input: unknown,
-    mutate: () => Promise<T>,
-  ): Promise<T> => {
+    mutate: () => Promise<unknown>,
+  ): Promise<unknown> => {
     throwIfAborted(boundary.signal);
-    return boundary.run(mutation(method, input, surface), async () => {
-      throwIfAborted(boundary.signal);
-      return mutate();
-    });
+    const selected = mutation(method, input, surface);
+    return boundary
+      .run(selected, async () => {
+        throwIfAborted(boundary.signal);
+        return mutate();
+      })
+      .then(selected.decodeResult);
   };
 
   const wrapped = new Proxy(surface, {

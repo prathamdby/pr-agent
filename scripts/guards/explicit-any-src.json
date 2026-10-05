@@ -1,0 +1,7 @@
+{
+  "id": "explicit-any-src",
+  "kind": "oxlint-deny",
+  "rule": "typescript/no-explicit-any",
+  "lintCode": "typescript(no-explicit-any)",
+  "scope": "src"
+}

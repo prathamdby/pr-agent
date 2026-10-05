@@ -1,3 +1,4 @@
+import { decodeProgressComment } from "../github/prSurfaceResults.js";
 import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -90,6 +91,7 @@ export async function tryLightweightAutoReviewCompletion(
     readonly id: number;
     readonly updated: boolean;
   }>({
+    decodeResult: decodeProgressComment,
     fence: fenceForEpoch(params.leaseEpoch),
     client: pool,
     workItemId: params.item.id,

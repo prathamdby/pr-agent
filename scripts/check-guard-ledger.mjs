@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { countEscapeCalls } from "./count-escape-calls.mjs";
 
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROWS_DIR = path.join(SCRIPT_ROOT, "scripts", "guards");
@@ -117,22 +119,12 @@ function countOxRule(tree, row) {
   );
   // Globs in the config are relative to the tree. The bytes always come from the
   // script checkout, so a head .oxlintrc.json cannot turn a counted rule off.
-  const trusted = path.join(SCRIPT_ROOT, ".oxlintrc.json");
-  const local = path.join(tree, ".oxlintrc.json");
-  const measuringOtherTree = path.resolve(tree) !== path.resolve(SCRIPT_ROOT);
-  let restore = null;
-  if (measuringOtherTree) {
-    if (fs.existsSync(local) && fs.lstatSync(local).isSymbolicLink()) {
-      throw new Error(`refusing symlink oxlint config in ${tree}`);
-    }
-    const previous = fs.existsSync(local) ? fs.readFileSync(local) : null;
-    fs.copyFileSync(trusted, local);
-    restore = () => {
-      if (previous) fs.writeFileSync(local, previous);
-      else fs.rmSync(local, { force: true });
-    };
+  const forced = JSON.parse(fs.readFileSync(path.join(SCRIPT_ROOT, ".oxlintrc.json"), "utf8"));
+  for (const override of forced.overrides ?? []) {
+    if (override.rules) delete override.rules[row.rule];
   }
-  const config = measuringOtherTree ? local : trusted;
+  const config = path.join(tree, `.guard-oxlint-${process.pid}-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(config, JSON.stringify(forced), { flag: "wx" });
   let raw = "";
   try {
     raw = execFileSync(oxlint, ["--format", "json", "-c", config, "--deny", row.rule, root], {
@@ -149,7 +141,7 @@ function countOxRule(tree, row) {
       });
     }
   } finally {
-    restore?.();
+    fs.unlinkSync(config);
   }
   const trimmed = raw.trim();
   if (trimmed.length === 0) return 0;
@@ -163,13 +155,14 @@ function countOxRule(tree, row) {
   return diagnostics.filter((item) => item.code === row.lintCode).length;
 }
 
-const COUNT_KINDS = new Set(["pattern", "files", "oxlint-deny"]);
+const COUNT_KINDS = new Set(["pattern", "files", "oxlint-deny", "escape-calls"]);
 
 function measure(tree, rows) {
   const counts = {};
   for (const row of rows) {
     if (!COUNT_KINDS.has(row.kind)) continue;
-    if (row.kind === "pattern") counts[row.id] = countPattern(tree, row);
+    if (row.kind === "escape-calls") counts[row.id] = countEscapeCalls(scopePath(tree, row.scope));
+    else if (row.kind === "pattern") counts[row.id] = countPattern(tree, row);
     else if (row.kind === "files") counts[row.id] = countFiles(tree, row);
     else counts[row.id] = countOxRule(tree, row);
   }

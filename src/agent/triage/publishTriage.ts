@@ -1,3 +1,4 @@
+import { decodeProgressComment } from "../../github/prSurfaceResults.js";
 import { isRecord } from "../../util/typeGuards.js";
 import { isDeepStrictEqual } from "node:util";
 import { assertPrActorLeaseHeld } from "../../agentWork/prActorLease.js";
@@ -139,8 +140,8 @@ export type StoredTriagePreviewDetail = {
 };
 
 export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePreviewDetail | null {
-  if (typeof detail !== "object" || detail == null) return null;
-  const entry = detail as Record<string, unknown>;
+  if (!isRecord(detail)) return null;
+  const entry = detail;
   if (typeof entry.headSha !== "string" || entry.headSha.length === 0) return null;
   if (!Array.isArray(entry.threadRootCommentIds) || !Array.isArray(entry.hunks)) return null;
   const payload = v.safeParse(TriagePayloadSchema, entry.payload);
@@ -152,8 +153,8 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
   }
   const hunks: TriagePreviewHunk[] = [];
   for (const raw of entry.hunks) {
-    if (typeof raw !== "object" || raw == null) return null;
-    const hunk = raw as Record<string, unknown>;
+    if (!isRecord(raw)) return null;
+    const hunk = raw;
     if (
       typeof hunk.threadRootCommentId !== "number" ||
       !Number.isInteger(hunk.threadRootCommentId) ||
@@ -173,8 +174,8 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
 }
 
 function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
-  if (typeof value !== "object" || value == null) return null;
-  const entry = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const entry = value;
   return typeof entry.sha === "string" &&
     typeof entry.subject === "string" &&
     typeof entry.diff === "string"
@@ -192,13 +193,16 @@ function inferStoredPushOutcome(
 }
 
 export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
-  if (typeof detail !== "object" || detail == null) return null;
-  const entry = detail as Record<string, unknown>;
+  if (!isRecord(detail)) return null;
+  const entry = detail;
   const payload = v.safeParse(TriagePayloadSchema, entry.payload);
   if (!payload.success || !Array.isArray(entry.commits)) return null;
-  const commits = entry.commits.map(parseStoredCommit);
-  if (commits.some((commit) => commit == null)) return null;
-  const parsedCommits = commits as TriageCommittedDetail[];
+  const parsedCommits: TriageCommittedDetail[] = [];
+  for (const raw of entry.commits) {
+    const commit = parseStoredCommit(raw);
+    if (commit === null) return null;
+    parsedCommits.push(commit);
+  }
   return {
     payload: payload.output,
     commits: parsedCommits,
@@ -336,6 +340,7 @@ async function upsertTriageReport(
   const operationKey = triageReportOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+    decodeResult: decodeProgressComment,
     fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,
@@ -396,6 +401,7 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams): 
   const operationKey = triagePreviewOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
+    decodeResult: decodeProgressComment,
     fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,

@@ -1,4 +1,4 @@
-import { PostHog, type EventMessage } from "posthog-node";
+import { PostHog } from "posthog-node";
 import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.js";
 import { ANALYTICS_SHUTDOWN_TIMEOUT_MS } from "../settings/index.js";
 import type { AnalyticsSink } from "./types.js";
@@ -10,7 +10,16 @@ export function createPostHogSink(opts: {
   const client = new PostHog(opts.projectToken, {
     ...(opts.host ? { host: opts.host } : {}),
     enableExceptionAutocapture: true,
-    before_send: (event) => sanitizePostHogEvent(event) as EventMessage | null,
+    before_send: (event) => {
+      const sanitized = sanitizePostHogEvent(event);
+      if (sanitized === event) return event;
+      if (sanitized == null || typeof sanitized.event !== "string") return null;
+      return {
+        ...sanitized,
+        event: sanitized.event,
+        properties: sanitized.properties ?? undefined,
+      };
+    },
   });
 
   return {

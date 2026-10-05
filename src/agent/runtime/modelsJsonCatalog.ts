@@ -27,8 +27,6 @@ const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite"]);
 
 const COMPAT_KEYS = new Set(["supportsDeveloperRole", "supportsReasoningEffort"]);
 
-const INPUT_KINDS = new Set(["text", "image"]);
-
 export type ModelsJsonCompat = {
   readonly supportsDeveloperRole?: boolean;
   readonly supportsReasoningEffort?: boolean;
@@ -181,10 +179,10 @@ function parseInput(value: unknown, label: string): ReadonlyArray<"text" | "imag
   }
   const input: Array<"text" | "image"> = [];
   for (const entry of value) {
-    if (typeof entry !== "string" || !INPUT_KINDS.has(entry)) {
+    if (entry !== "text" && entry !== "image") {
       throw invalidSchema(`${label} entries must be "text" or "image"`);
     }
-    input.push(entry as "text" | "image");
+    input.push(entry);
   }
   return input;
 }

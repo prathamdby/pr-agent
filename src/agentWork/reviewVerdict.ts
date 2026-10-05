@@ -1,3 +1,4 @@
+import { decodeCheckRef } from "../github/prSurfaceResults.js";
 import type { Pool, PoolClient } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
@@ -232,6 +233,7 @@ async function createGithubCheckRunOnSurface(
     // The signal stays out of publishOnce: its after-mutate check would
     // drop the stash for a check GitHub already accepted.
     return await publishOnce<GithubCheckRunRef>({
+      decodeResult: decodeCheckRef,
       fence: fenceForEpoch(params.leaseEpoch),
       client: pool,
       workItemId: params.workItemId,

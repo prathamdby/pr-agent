@@ -1,19 +1,23 @@
 import { execFileSync, execSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { countEscapeCalls } from "./count-escape-calls.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE_PATH = path.join(ROOT, "scripts", "baselines", "static-baseline.json");
 const BOOTSTRAP = process.argv.includes("--bootstrap");
 
-function countOxRule(rule, scope) {
+function countOxRule(rule, lintCode, scope) {
   // NOTE: --deny makes oxlint exit 1 on hits, and --format json emits
   // JSONL (one object per line) instead of a JSON document. Handle both.
-  const extraDeny =
-    rule === "typescript(no-unsafe-type-assertion)"
-      ? ["--deny", "typescript/no-unsafe-type-assertion"]
-      : [];
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, ".oxlintrc.json"), "utf8"));
+  for (const override of config.overrides ?? []) {
+    if (override.rules) delete override.rules[rule];
+  }
+  const configPath = path.join(ROOT, `.oxlint-count-${process.pid}-${crypto.randomUUID()}.json`);
+  fs.writeFileSync(configPath, JSON.stringify(config), { flag: "wx" });
   let raw;
   try {
     raw = execFileSync(
@@ -23,7 +27,7 @@ function countOxRule(rule, scope) {
         ".bin",
         process.platform === "win32" ? "oxlint.cmd" : "oxlint",
       ),
-      ["--format", "json", ...extraDeny, ...scopeRoots(scope)],
+      ["--format", "json", "-c", configPath, "--deny", rule, ...scopeRoots(scope)],
       { cwd: ROOT, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
     );
   } catch (e) {
@@ -32,6 +36,8 @@ function countOxRule(rule, scope) {
     const stdout = e.stdout ?? "";
     if (typeof stdout !== "string" || stdout.trim().length === 0) throw e;
     raw = stdout;
+  } finally {
+    fs.unlinkSync(configPath);
   }
   let diagnostics;
   const trimmed = raw.trim();
@@ -47,7 +53,7 @@ function countOxRule(rule, scope) {
       .filter((line) => line.trim().length > 0)
       .map((line) => JSON.parse(line));
   }
-  return diagnostics.filter((d) => d.code === rule).length;
+  return diagnostics.filter((d) => d.code === lintCode).length;
 }
 
 function scopeRoots(scope) {
@@ -75,14 +81,30 @@ const RULES = [
   {
     id: "no-unsafe-type-assertion(src)",
     kind: "oxlint-deny",
-    rule: "typescript(no-unsafe-type-assertion)",
+    rule: "typescript/no-unsafe-type-assertion",
+    lintCode: "typescript(no-unsafe-type-assertion)",
     scope: "src/**",
   },
   {
     id: "no-unsafe-type-assertion(test)",
     kind: "oxlint-deny",
-    rule: "typescript(no-unsafe-type-assertion)",
+    rule: "typescript/no-unsafe-type-assertion",
+    lintCode: "typescript(no-unsafe-type-assertion)",
     scope: "test/**",
+  },
+  {
+    id: "explicit-any(src)",
+    kind: "oxlint-deny",
+    rule: "typescript/no-explicit-any",
+    lintCode: "typescript(no-explicit-any)",
+    scope: "src/**",
+  },
+  {
+    id: "non-null-assertion(src)",
+    kind: "oxlint-deny",
+    rule: "typescript/no-non-null-assertion",
+    lintCode: "typescript(no-non-null-assertion)",
+    scope: "src/**",
   },
   {
     id: "no-console(src)",
@@ -105,7 +127,11 @@ const RULES = [
     scope: "test/**",
     flags: "",
   },
-  { id: "escape-calls", kind: "pattern", pattern: "\\bescape\\s*\\(", scope: "src/**", flags: "" },
+  {
+    id: "escape-calls",
+    kind: "escape-calls",
+    scope: "src/**",
+  },
   { id: "as-any", kind: "pattern", pattern: "\\bas\\s+any\\b", scope: "src/**", flags: "" },
   {
     id: "ts-ignore",
@@ -127,9 +153,11 @@ function currentCounts() {
   const counts = {};
   for (const row of RULES) {
     counts[row.id] =
-      row.kind === "oxlint-deny"
-        ? countOxRule(row.rule, row.scope)
-        : countPattern(row.pattern, row.scope, row.flags);
+      row.kind === "escape-calls"
+        ? countEscapeCalls(path.join(ROOT, "src"))
+        : row.kind === "oxlint-deny"
+          ? countOxRule(row.rule, row.lintCode, row.scope)
+          : countPattern(row.pattern, row.scope, row.flags);
   }
   return counts;
 }

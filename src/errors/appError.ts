@@ -1,4 +1,5 @@
 import { appErrorCode, type AppErrorCode, type AppErrorShape } from "./appErrorCodes.js";
+import { isRecord } from "../util/typeGuards.js";
 import {
   sanitizeTelemetryString,
   sanitizeTelemetryValue,
@@ -137,8 +138,7 @@ function serializeCause(
 
 function sanitizedContext(value: unknown): AppErrorContext {
   const context = sanitizeTelemetryValue(value);
-  if (typeof context !== "object" || context === null || Array.isArray(context)) return {};
-  return context as AppErrorContext;
+  return isRecord(context) ? context : {};
 }
 
 function serializeAppErrorInternal(
@@ -209,8 +209,8 @@ export function sanitizeErrorForTelemetry(error: unknown): Error {
 
   if (error instanceof Error) {
     const sanitized = sanitizeTelemetryValue(error);
-    if (typeof sanitized === "object" && sanitized !== null && !Array.isArray(sanitized)) {
-      for (const [key, value] of Object.entries(sanitized as Record<string, unknown>)) {
+    if (isRecord(sanitized)) {
+      for (const [key, value] of Object.entries(sanitized)) {
         if (key === "name" || key === "message") continue;
         setSafeProperty(safe, key, value);
       }

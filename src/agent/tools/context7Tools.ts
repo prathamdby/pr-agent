@@ -1,6 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toJsonSchema } from "@valibot/to-json-schema";
 
 import { AppError } from "../../errors/appError.js";
 import {
@@ -20,7 +19,8 @@ import {
   redactContext7Response,
 } from "../../security/context7OutboundPolicy.js";
 import { capTextOutput } from "./toolOutputBudget.js";
-import { toExecutor } from "./defineWorkspaceTool.js";
+import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import { isRecord } from "../../util/typeGuards.js";
 import type { AgentToolCallContext } from "../providers/interface.js";
 
 const resolveLibraryIdSchema = v.object({
@@ -76,12 +76,7 @@ type Context7Body = { kind: "json"; value: unknown } | { kind: "text"; text: str
 type Context7ResultsBody = { results: unknown[] } & Record<string, unknown>;
 
 function isContext7ResultsBody(value: unknown): value is Context7ResultsBody {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Array.isArray((value as { results?: unknown }).results)
-  );
+  return isRecord(value) && Array.isArray(value.results);
 }
 
 export function fitContext7Json(
@@ -154,23 +149,28 @@ export function fitContext7Json(
   return { content, omittedResults: results.length - low };
 }
 
-type ReviewTool = {
+type ReviewTool = Pick<LocalTool, "description" | "schema"> & {
+  readonly bind: (apiKey: string, maxResponseBytes: number) => LocalTool<Context7ToolResponse>;
+};
+
+function defineReviewTool<TSchema extends v.GenericSchema>(tool: {
   readonly description: string;
-  readonly schema: v.GenericSchema;
+  readonly schema: TSchema;
   readonly run: (
-    parsed: any,
+    parsed: v.InferOutput<TSchema>,
     apiKey: string,
     maxResponseBytes: number,
   ) => Promise<Context7ToolResponse>;
-};
-
-function toPiTool(name: string, t: ReviewTool): PiTool {
+}): ReviewTool {
   return {
-    name,
-    description: t.description,
-    parameters: toJsonSchema(t.schema, {
-      errorMode: "ignore",
-    }),
+    description: tool.description,
+    schema: tool.schema,
+    bind: (apiKey, maxResponseBytes) =>
+      defineLocalTool({
+        description: tool.description,
+        schema: tool.schema,
+        run: (parsed) => tool.run(parsed, apiKey, maxResponseBytes),
+      }),
   };
 }
 
@@ -206,8 +206,15 @@ async function context7Get(
     try {
       const rawBody = await res.text();
       try {
-        const body = JSON.parse(rawBody) as { error?: string; message?: string };
-        detail = body.error ?? body.message ?? "";
+        const body: unknown = JSON.parse(rawBody);
+        if (isRecord(body)) {
+          detail =
+            typeof body.error === "string"
+              ? body.error
+              : typeof body.message === "string"
+                ? body.message
+                : "";
+        }
       } catch {
         detail = rawBody;
       }
@@ -253,7 +260,7 @@ function presentContext7Body(body: Context7Body, maxResponseBytes: number): Cont
 }
 
 const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
-  resolveLibraryId: {
+  resolveLibraryId: defineReviewTool({
     description:
       "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the query when truncated. omittedResults counts dropped JSON result entries.",
     schema: resolveLibraryIdSchema,
@@ -270,8 +277,8 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
       );
       return presentContext7Body(text, maxResponseBytes);
     },
-  },
-  getLibraryDocs: {
+  }),
+  getLibraryDocs: defineReviewTool({
     description:
       "Fetch current documentation for a validated third-party library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the topic when truncated.",
     schema: getLibraryDocsSchema,
@@ -286,7 +293,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
       const text = await context7Get("/v2/context", params, apiKey);
       return presentContext7Body(text, maxResponseBytes);
     },
-  },
+  }),
 };
 
 const CONTEXT7_TOOL_ENTRIES = Object.entries(CONTEXT7_TOOLS);
@@ -315,12 +322,7 @@ export function buildContext7Tools({
     piTools: [...CONTEXT7_PI_TOOLS],
     executors: Object.fromEntries(
       CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => {
-        const execute = toExecutor(name, {
-          description: tool.description,
-          schema: tool.schema,
-          run: (parsed) => tool.run(parsed, apiKey, maxResponseBytes),
-        });
-        return [name, async (args, ctx?) => (await execute(args, ctx)) as Context7ToolResponse];
+        return [name, toExecutor(name, tool.bind(apiKey, maxResponseBytes))];
       }),
     ),
   };

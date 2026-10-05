@@ -229,7 +229,19 @@ function extractBotTitleSnippet(body: string): string {
 
 function extractBotSeverity(body: string): BotFindingThread["severity"] {
   const match = /\bP([0-3])\b/.exec(body);
-  return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
+  if (!match) return null;
+  switch (match[1]) {
+    case "0":
+      return "P0";
+    case "1":
+      return "P1";
+    case "2":
+      return "P2";
+    case "3":
+      return "P3";
+    default:
+      return null;
+  }
 }
 
 function findVerificationStubCommentId(

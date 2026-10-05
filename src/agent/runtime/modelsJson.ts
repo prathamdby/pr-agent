@@ -20,7 +20,6 @@ import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.l
 import { piMessagesApi } from "@earendil-works/pi-ai/api/pi-messages.lazy";
 import {
   builtinModels,
-  getBuiltinModel,
   getBuiltinModels,
   getBuiltinProviders,
 } from "@earendil-works/pi-ai/providers/all";
@@ -162,13 +161,11 @@ export async function overlayCatalog(
 }
 
 function builtinPiApi(piProvider: string, piModel: string): string {
-  try {
-    const model = getBuiltinModel(piProvider as never, piModel as never);
-    if (model?.api) return model.api;
-  } catch {
-    // Provider or model is not in the generated catalog.
-  }
-  const fallback = getBuiltinModels(piProvider as never)[0];
+  const provider = getBuiltinProviders().find((candidate) => candidate === piProvider);
+  const models: readonly Model<Api>[] = provider === undefined ? [] : getBuiltinModels(provider);
+  const model = models.find((candidate) => candidate.id === piModel);
+  if (model?.api) return model.api;
+  const fallback = models[0];
   if (fallback?.api) return fallback.api;
   throw new AppError({
     domain: "settings",
@@ -192,7 +189,7 @@ export async function assertPiModelSelection(options: {
   const { modelsJsonPath, piProvider, piModel } = options;
 
   if (!modelsJsonPath) {
-    const providers = getBuiltinProviders() as readonly string[];
+    const providers: readonly string[] = getBuiltinProviders();
     if (!providers.includes(piProvider)) {
       const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
       throw new AppError({

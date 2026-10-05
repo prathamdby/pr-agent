@@ -5,31 +5,47 @@ import type { TurnEnd } from "../providers/usageMetadata.js";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
-const SESSION_ROLES = new Set<AgentSessionRole>([
-  "orchestrator",
-  "specialist",
-  "ask",
-  "description",
-  "triage",
-  "verification",
-  "ci_summary",
-]);
+const SESSION_ROLES = {
+  orchestrator: true,
+  specialist: true,
+  ask: true,
+  description: true,
+  triage: true,
+  verification: true,
+  ci_summary: true,
+} satisfies Record<AgentSessionRole, true>;
 
-const SESSION_PHASES = new Set<AgentSessionPhase>([
-  "recon",
-  "specialist",
-  "judgment",
-  "synthesis",
-  "validation_repair",
-  "publish_recovery",
-  "ask",
-  "description",
-  "triage",
-  "verification",
-  "ci_summary",
-]);
+const SESSION_PHASES = {
+  recon: true,
+  specialist: true,
+  judgment: true,
+  synthesis: true,
+  validation_repair: true,
+  publish_recovery: true,
+  ask: true,
+  description: true,
+  triage: true,
+  verification: true,
+  ci_summary: true,
+} satisfies Record<AgentSessionPhase, true>;
 
-const TURN_ENDS = new Set<TurnEnd>(["completed", "output_limit", "tool_budget"]);
+const TURN_ENDS = {
+  completed: true,
+  output_limit: true,
+  tool_budget: true,
+} satisfies Record<TurnEnd, true>;
+
+function isAgentSessionRole(value: string): value is AgentSessionRole {
+  return Object.hasOwn(SESSION_ROLES, value);
+}
+
+function isAgentSessionPhase(value: string): value is AgentSessionPhase {
+  return Object.hasOwn(SESSION_PHASES, value);
+}
+
+function isTurnEnd(value: string): value is TurnEnd {
+  return Object.hasOwn(TURN_ENDS, value);
+}
 
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
@@ -119,18 +135,15 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
   if (!kind || !isAgentLifecycleEventKind(kind)) return null;
 
   const role = asString(raw.role);
-  if (!role || !SESSION_ROLES.has(role as AgentSessionRole)) return null;
-  const typedRole = role as AgentSessionRole;
+  if (!role || !isAgentSessionRole(role)) return null;
+  const typedRole = role;
 
   const provider = asString(raw.provider);
   const model = asString(raw.model);
   if (!provider || !model) return null;
 
   const phaseRaw = asString(raw.phase);
-  const phase =
-    phaseRaw && SESSION_PHASES.has(phaseRaw as AgentSessionPhase)
-      ? (phaseRaw as AgentSessionPhase)
-      : undefined;
+  const phase = phaseRaw && isAgentSessionPhase(phaseRaw) ? phaseRaw : undefined;
   const checkpointId = asString(raw.checkpointId);
 
   switch (kind) {
@@ -194,7 +207,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         provider,
         model,
         ok: true,
-        ...(end && TURN_ENDS.has(end as TurnEnd) ? { end: end as TurnEnd } : {}),
+        ...(end && isTurnEnd(end) ? { end } : {}),
         ...tokenAndDurationFields(raw),
       };
     }
