@@ -30,7 +30,7 @@ export function createPgPool(cfg: Pick<Config, "runtime">): Pool {
   // without a listener that is an uncaught exception and the process exits.
   pool.on("error", (error) => {
     logWarn("postgres_idle_client_error", {
-      code: (error as { code?: string }).code,
+      code: "code" in error && typeof error.code === "string" ? error.code : undefined,
       message: error.message,
     });
   });

@@ -14,18 +14,26 @@ export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
     return true;
   }
   if (typeof error !== "object" || error == null) return false;
-  const value = error as Record<string, unknown>;
-  if (value.accepted === false || value.mutationAccepted === false) return true;
-  const response = value.response;
+  if (
+    ("accepted" in error && error.accepted === false) ||
+    ("mutationAccepted" in error && error.mutationAccepted === false)
+  )
+    return true;
+  const response: unknown = "response" in error ? error.response : undefined;
   if (typeof response === "object" && response != null) {
-    const responseValue = response as Record<string, unknown>;
-    if (responseValue.accepted === false || responseValue.mutationAccepted === false) {
+    if (
+      ("accepted" in response && response.accepted === false) ||
+      ("mutationAccepted" in response && response.mutationAccepted === false)
+    ) {
       return true;
     }
-    const data = responseValue.data;
+    const data: unknown = "data" in response ? response.data : undefined;
     if (typeof data === "object" && data != null) {
-      const dataValue = data as Record<string, unknown>;
-      if (dataValue.accepted === false || dataValue.mutationAccepted === false) return true;
+      if (
+        ("accepted" in data && data.accepted === false) ||
+        ("mutationAccepted" in data && data.mutationAccepted === false)
+      )
+        return true;
     }
   }
   const status = httpStatus(error);

@@ -1,7 +1,10 @@
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../errors/appError.js";
+import * as v from "valibot";
+import { isRecord } from "../util/typeGuards.js";
 import {
   applyCiCheckFact,
+  ciCheckFactSchema,
   classifySnapshot,
   isCheckFactPending,
   mergeGithubSnapshotIntoChecks,
@@ -115,9 +118,12 @@ function asRollup(value: unknown): CiRollup {
   }
 }
 
+const checkMapSchema = v.record(v.string(), ciCheckFactSchema);
+
 function asCheckMap(value: unknown): Record<string, CiCheckFact> {
-  if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, CiCheckFact>;
+  if (!isRecord(value)) return {};
+  v.assert(checkMapSchema, value);
+  return value;
 }
 
 export async function applyPrHeadCiFact(

@@ -91,17 +91,19 @@ export type CiFactSource = "check_run" | "status";
 /** Derived rollup stored on `pr_head_ci_state`. */
 export type CiRollup = "pending" | "passing" | "failing" | "none" | "unknown";
 
-export type CiCheckFact = {
-  readonly name: string;
-  readonly source: CiFactSource;
-  readonly status: string;
-  readonly conclusion: string | null;
-  readonly url: string | null;
-  readonly external_id: string | null;
-  readonly app_id: number | null;
-  readonly check_run_id: number | null;
-  readonly observed_at: string;
-};
+export const ciCheckFactSchema = v.object({
+  name: v.string(),
+  source: v.picklist(["check_run", "status"]),
+  status: v.string(),
+  conclusion: v.nullable(v.string()),
+  url: v.nullable(v.string()),
+  external_id: v.nullable(v.string()),
+  app_id: v.nullable(v.number()),
+  check_run_id: v.nullable(v.number()),
+  observed_at: v.string(),
+});
+
+export type CiCheckFact = Readonly<v.InferOutput<typeof ciCheckFactSchema>>;
 
 /** Identity for the installation's own check. Name prefixes are not identity. */
 export type OwnCheckIdentity = {

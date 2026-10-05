@@ -1,4 +1,5 @@
 import { redactOutboundSecrets } from "./redactOutboundSecrets.js";
+import { isRecord } from "../util/typeGuards.js";
 
 const CIRCULAR_VALUE = "[circular]";
 const UNSUPPORTED_VALUE = "[unsupported]";
@@ -53,7 +54,7 @@ function readProperty(
 ): { readonly present: boolean; readonly value?: unknown } {
   try {
     if (!(key in value)) return { present: false };
-    return { present: true, value: (value as Record<string, unknown>)[key] };
+    return { present: true, value: Reflect.get(value, key) };
   } catch {
     return { present: true, value: UNSUPPORTED_VALUE };
   }
@@ -121,12 +122,7 @@ function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number):
         setProperty(next, key, "[redacted]");
         continue;
       }
-      setProperty(
-        next,
-        key,
-        sanitizeValue((error as unknown as Record<string, unknown>)[key], ancestors, depth + 1)
-          .value,
-      );
+      setProperty(next, key, sanitizeValue(Reflect.get(error, key), ancestors, depth + 1).value);
     }
     return { value: next, changed: true };
   } catch {
@@ -179,11 +175,7 @@ function sanitizeObject(object: object, ancestors: WeakSet<object>, depth: numbe
         changed = true;
         continue;
       }
-      const sanitized = sanitizeValue(
-        (object as Record<string, unknown>)[key],
-        ancestors,
-        depth + 1,
-      );
+      const sanitized = sanitizeValue(Reflect.get(object, key), ancestors, depth + 1);
       setProperty(next, key, sanitized.value);
       changed ||= sanitized.changed;
     }
@@ -235,6 +227,5 @@ export function sanitizeTelemetryRecord(
 ): Record<string, unknown> | undefined {
   if (value === undefined) return undefined;
   const sanitized = sanitizeTelemetryValue(value);
-  if (typeof sanitized !== "object" || sanitized === null || Array.isArray(sanitized)) return {};
-  return sanitized as Record<string, unknown>;
+  return isRecord(sanitized) ? sanitized : {};
 }

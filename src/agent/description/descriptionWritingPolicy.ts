@@ -161,8 +161,9 @@ export function enforceDescriptionMapPayload(
 
   const raw = payload.prFiles ?? [];
   let files = raw;
-  if (opts.knownPaths && opts.knownPaths.size > 0) {
-    files = files.filter((file) => opts.knownPaths!.has(file.filename));
+  const knownPaths = opts.knownPaths;
+  if (knownPaths && knownPaths.size > 0) {
+    files = files.filter((file) => knownPaths.has(file.filename));
   }
   const cappedFrom = files.length > maxEntries ? files.length : undefined;
   if (files.length > maxEntries) {

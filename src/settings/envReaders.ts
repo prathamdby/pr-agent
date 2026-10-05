@@ -75,15 +75,14 @@ export function readEnum<T extends string>(
   defaultValue: T,
 ): T {
   const value = optionalEnv(name, defaultValue);
-  if (!allowed.includes(value as T)) {
-    throw new AppError({
-      domain: "config",
-      kind: "invalid_enum",
-      message: `${name} must be one of ${allowed.join(", ")}`,
-      context: { name, allowed },
-    });
-  }
-  return value as T;
+  const member = allowed.find((candidate) => candidate === value);
+  if (member !== undefined) return member;
+  throw new AppError({
+    domain: "config",
+    kind: "invalid_enum",
+    message: `${name} must be one of ${allowed.join(", ")}`,
+    context: { name, allowed },
+  });
 }
 
 /**

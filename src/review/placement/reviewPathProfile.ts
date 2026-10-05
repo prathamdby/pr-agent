@@ -9,7 +9,10 @@ export type ReviewPathProfile = {
 
 export function buildReviewPathProfile(changedFiles: readonly string[]): ReviewPathProfile {
   const found = new Set<ReviewPathRiskCategory>();
-  const categories = Object.keys(REVIEW_RISK_PATH_PATTERNS) as ReviewPathRiskCategory[];
+  const categories = Object.keys(REVIEW_RISK_PATH_PATTERNS).filter(
+    (category): category is ReviewPathRiskCategory =>
+      Object.hasOwn(REVIEW_RISK_PATH_PATTERNS, category),
+  );
   for (const file of changedFiles) {
     for (const category of categories) {
       if (

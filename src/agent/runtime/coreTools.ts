@@ -9,6 +9,7 @@ import {
 } from "../providers/interface.js";
 import { toolExecutionMode } from "./toolExecutionMode.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import { isRecord } from "../../util/typeGuards.js";
 
 const TERMINAL_SUBMIT_TOOLS: ReadonlySet<string> = new Set([
   "submit_findings_report",
@@ -41,16 +42,15 @@ function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0])
 }
 
 function asToolArgs(args: unknown): Record<string, unknown> {
-  if (args !== null && typeof args === "object" && !Array.isArray(args)) {
-    return args as Record<string, unknown>;
+  if (isRecord(args)) {
+    return args;
   }
   return {};
 }
 
 function isAcceptedTerminalResult(result: unknown): boolean {
-  if (result === null || typeof result !== "object" || Array.isArray(result)) return false;
-  const record = result as Record<string, unknown>;
-  return record.accepted === true || record.ok === true;
+  if (!isRecord(result)) return false;
+  return result.accepted === true || result.ok === true;
 }
 
 export function toCoreTool(
@@ -102,9 +102,9 @@ export function toCoreTool(
           resultBytes: size.resultBytes,
           resultCharacters: size.resultCharacters,
         });
-        const payload: AgentToolResult<Record<string, unknown>> = {
+        const payload: AgentToolResult<unknown> = {
           content: [{ type: "text", text: toolResultToText(result) }],
-          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+          details: result && typeof result === "object" ? result : {},
           ...(TERMINAL_SUBMIT_TOOLS.has(tool.name) && isAcceptedTerminalResult(result)
             ? { terminate: true }
             : {}),

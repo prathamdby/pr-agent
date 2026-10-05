@@ -7,7 +7,7 @@ import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { CodeModeHostHalt, hostCancelHalt } from "../execution/hostHalt.js";
 import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.js";
-import type { CodeModeCapabilityExecutors, CodeModeWorkspaceToolName } from "./types.js";
+import { CODE_MODE_WORKSPACE_TOOL_NAMES, type CodeModeCapabilityExecutors } from "./types.js";
 import {
   recordMarshalledEvidence,
   toGuestCapabilityResult,
@@ -125,7 +125,8 @@ export function createCodeModeCapabilityBridge(params: {
     if (signal.aborted) {
       throw hostCancelHalt();
     }
-    const executor = params.capabilities[name as CodeModeWorkspaceToolName];
+    const toolName = CODE_MODE_WORKSPACE_TOOL_NAMES.find((candidate) => candidate === name);
+    const executor = toolName === undefined ? undefined : params.capabilities[toolName];
     if (!executor) {
       throw new AppError({
         domain: "codemode",
@@ -161,16 +162,11 @@ export function createCodeModeCapabilityBridge(params: {
         model: params.model,
       });
       const raw =
-        output &&
-        typeof output === "object" &&
-        "truncated" in output &&
-        (output as { truncated?: boolean }).truncated === true
-          ? { ...(output as Record<string, unknown>), failureKind: "SEARCH_TRUNCATED" }
+        output && typeof output === "object" && "truncated" in output && output.truncated === true
+          ? { ...output, failureKind: "SEARCH_TRUNCATED" }
           : output;
       const coverage =
-        raw && typeof raw === "object" && "coverage" in raw
-          ? (raw as { coverage?: unknown }).coverage
-          : undefined;
+        raw && typeof raw === "object" && "coverage" in raw ? raw.coverage : undefined;
       const bounded = boundJsonValue(raw);
       const guest = toGuestCapabilityResult(bounded.value, bounded.truncation, coverage);
       recordMarshalledEvidence(guest, {

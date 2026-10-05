@@ -9,6 +9,7 @@ import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { toIntakeCommand } from "../../webhook/intakeCommand.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { toError, errorMessage } from "../../errors/errorMessage.js";
+import { isRecord } from "../../util/typeGuards.js";
 
 function webhookDuplicateReason(
   intakeLog: RequestLogger,
@@ -16,10 +17,10 @@ function webhookDuplicateReason(
   const events = intakeLog.getContext().events;
   if (!Array.isArray(events)) return undefined;
   for (const entry of events) {
-    if (typeof entry !== "object" || entry == null) continue;
-    const event = (entry as { event?: unknown }).event;
+    if (!isRecord(entry)) continue;
+    const event = entry.event;
     if (event !== "deduped_delivery") continue;
-    const key = (entry as { dedupeKey?: unknown }).dedupeKey;
+    const key = entry.dedupeKey;
     const keyText = typeof key === "string" ? key : "";
     return keyText.startsWith("body:") ? "body_duplicate" : "delivery_duplicate";
   }
@@ -143,7 +144,9 @@ export function processWebhookPostRequestEffect(
 
     let payload: Record<string, unknown>;
     try {
-      payload = JSON.parse(req.rawBody.toString("utf8")) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(req.rawBody.toString("utf8"));
+      if (!isRecord(parsed)) throw new Error("webhook payload must be an object");
+      payload = parsed;
     } catch {
       recordEvent(intakeLog, "invalid_json", undefined, "warn");
       const response = {
@@ -332,8 +335,8 @@ export function processWebhookPostRequestEffect(
     Effect.ensuring(
       Effect.gen(function* () {
         if (intakeLog.getContext().emitted === true) return;
-        const webhook = intakeLog.getContext().webhook as { status?: number } | undefined;
-        if (webhook?.status === 200) return;
+        const webhook: unknown = intakeLog.getContext().webhook;
+        if (isRecord(webhook) && webhook.status === 200) return;
         const lastEvent = intakeLog.getContext().lastEvent;
         yield* Effect.promise(() =>
           emitOperationLogger(intakeLog, {

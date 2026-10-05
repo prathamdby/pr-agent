@@ -60,8 +60,8 @@ function parseFailureSurface(value: unknown): VerificationFailureSurface | null 
 }
 
 function parseFailureSignal(value: unknown): VerificationFailureSignal | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const record = value;
   const surface = parseFailureSurface(record.surface);
   if (surface == null) return undefined;
   if (typeof record.headSha !== "string" || record.headSha.length === 0) return undefined;
@@ -74,8 +74,8 @@ function parseFailureSignal(value: unknown): VerificationFailureSignal | undefin
 }
 
 function parseThreadState(value: unknown): VerificationThreadState | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
+  if (!isRecord(value)) return null;
+  const record = value;
   if (!isVerdict(record.lastVerdict)) return null;
   const stubCommentId = record.stubCommentId;
   const lastHeadSha = record.lastHeadSha;
@@ -164,13 +164,13 @@ function withParsedFailureSignal(
 }
 
 export function parseVerificationThreadLedger(detail: unknown): VerificationThreadLedger {
-  if (!detail || typeof detail !== "object") {
+  if (!isRecord(detail)) {
     return { threads: {} };
   }
-  const record = detail as Record<string, unknown>;
-  if (record.threads && typeof record.threads === "object" && !Array.isArray(record.threads)) {
+  const record = detail;
+  if (isRecord(record.threads)) {
     const threads: Record<string, VerificationThreadState> = {};
-    for (const [key, value] of Object.entries(record.threads as Record<string, unknown>)) {
+    for (const [key, value] of Object.entries(record.threads)) {
       const parsed = parseThreadState(value);
       if (parsed) threads[key] = parsed;
     }

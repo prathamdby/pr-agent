@@ -166,19 +166,20 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
     const segments = path === "" ? [] : path.split(".");
     const target = resolveRepairTarget(candidate, segments);
     if (target === null) continue;
-    const value =
-      target.parent === null ? candidate : (target.parent as Record<string, unknown>)[target.key];
+    const value = target.parent === null ? candidate : Reflect.get(target.parent, target.key);
     const repair = repairAt(node, value);
     if (repair === null) continue;
     if (repair.kind === "null_optional_dropped") {
       // Deleting a key only makes sense on an object parent; a null array
       // item is never spliced out from under the model's ordering.
-      if (!isPlainObject(target.parent)) continue;
-      delete target.parent[target.key as string];
+      if (typeof target.key !== "string") continue;
+      delete target.parent[target.key];
     } else if (target.parent === null) {
       candidate = repair.value;
+    } else if (typeof target.key === "number") {
+      target.parent[target.key] = repair.value;
     } else {
-      (target.parent as Record<string, unknown>)[target.key] = repair.value;
+      target.parent[target.key] = repair.value;
     }
     repairs.push(repair.kind);
   }

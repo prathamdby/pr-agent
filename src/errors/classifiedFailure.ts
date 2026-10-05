@@ -295,9 +295,11 @@ function projectClassifiedFailure(
   naming: "logKey" | "posthogKey",
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const source of Object.keys(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS) as Array<
-    keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS
-  >) {
+  const sources = Object.keys(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS).filter(
+    (source): source is keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS =>
+      Object.hasOwn(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS, source),
+  );
+  for (const source of sources) {
     const descriptor: ClassifiedFailureFieldDescriptor =
       CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
     if (naming === "posthogKey" && descriptor.omitFromPostHog === true) {

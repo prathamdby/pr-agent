@@ -11,6 +11,7 @@ import { captureException, isAnalyticsEnabled } from "./analytics/index.js";
 import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "./errors/appError.js";
 import type { Config } from "./settings/index.js";
 import { sanitizeTelemetryRecord } from "./security/sanitizeTelemetryValue.js";
+import { isRecord } from "./util/typeGuards.js";
 
 export type { RequestLogger };
 
@@ -47,23 +48,27 @@ export function tryUseLogger(): RequestLogger | undefined {
 }
 
 function eventsArray(logger: RequestLogger): Array<Record<string, unknown>> {
-  const ctx = logger.getContext();
-  if (!Array.isArray(ctx.events)) {
-    logger.set({ events: [] });
-  }
-  return logger.getContext().events as Array<Record<string, unknown>>;
+  const existing: unknown = logger.getContext().events;
+  if (Array.isArray(existing) && existing.every(isRecord)) return existing;
+  const events: Array<Record<string, unknown>> = [];
+  logger.set({ events });
+  return events;
 }
 
 function filterEventsInPlace(logger: RequestLogger): void {
   const events = eventsArray(logger);
   let write = 0;
   for (const entry of events) {
-    const level = (entry.level as WideEventLevel | undefined) ?? "info";
+    const level = isWideEventLevel(entry.level) ? entry.level : "info";
     if (!isLevelEnabled(level)) continue;
     events[write] = entry;
     write++;
   }
   events.length = write;
+}
+
+function isWideEventLevel(value: unknown): value is WideEventLevel {
+  return typeof value === "string" && Object.hasOwn(LEVEL_RANK, value);
 }
 
 /** Append a named sub-event while accumulating one wide event per operation. */
