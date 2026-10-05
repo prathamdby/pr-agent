@@ -3,7 +3,7 @@ import * as v from "valibot";
 import type { CodeModeExecutorKind } from "../../settings/index.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { type LocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 import {
   createExecutionSessionStore,
   type ExecutionSessionStore,
@@ -31,7 +31,7 @@ export function buildCodeModeExecuteTool(params: {
   readonly executor: AgentRunnerToolExecutor;
 } {
   const session = params.session ?? createExecutionSessionStore();
-  const tool: LocalTool = {
+  const tool = defineLocalTool({
     description: renderExecuteDescription(params.capabilities),
     schema: v.object({
       code: v.pipe(v.string(), v.minLength(1)),
@@ -50,7 +50,7 @@ export function buildCodeModeExecuteTool(params: {
         provider: ctx?.provider,
         model: ctx?.model,
       }),
-  };
+  });
   return {
     piTool: toPiTool(CODE_MODE_EXECUTE_NAME, tool),
     executor: toExecutor(CODE_MODE_EXECUTE_NAME, tool),

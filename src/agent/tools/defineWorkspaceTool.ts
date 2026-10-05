@@ -5,21 +5,42 @@ import { AppError } from "../../errors/appError.js";
 import { type AgentRunnerToolExecutor, type AgentToolCallContext } from "../providers/interface.js";
 import { parseToolInput } from "./parseToolInput.js";
 
-export type LocalTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
+export type LocalTool<TResult = unknown> = {
   readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: any, ctx?: AgentToolCallContext) => Promise<unknown>;
+  readonly schema: v.GenericSchema;
+  readonly execute: (name: string, raw: unknown, ctx?: AgentToolCallContext) => Promise<TResult>;
 };
 
-export function defineLocalTool<TSchema extends v.GenericSchema>(tool: {
+export function defineLocalTool<TSchema extends v.GenericSchema, TResult>(tool: {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: v.InferOutput<TSchema>, ctx?: AgentToolCallContext) => Promise<unknown>;
-}): LocalTool<TSchema> {
-  return tool;
+  readonly run: (parsed: v.InferOutput<TSchema>, ctx?: AgentToolCallContext) => Promise<TResult>;
+}): LocalTool<TResult> {
+  return {
+    description: tool.description,
+    schema: tool.schema,
+    execute: async (name, raw, ctx) => {
+      const parsed = parseToolInput(tool.schema, raw, {
+        toolName: name,
+        errorTitle: `${name} validation failed:`,
+      });
+      if (!parsed.ok) {
+        throw new AppError({
+          domain: "tool",
+          kind: "input_validation_failed",
+          message: parsed.error,
+          context: { toolName: name },
+        });
+      }
+      return ctx != null ? tool.run(parsed.value, ctx) : tool.run(parsed.value);
+    },
+  };
 }
 
-export function toPiTool(name: string, t: LocalTool): PiTool {
+export function toPiTool(
+  name: string,
+  t: Pick<LocalTool, "description" | "schema"> & { readonly run?: unknown },
+): PiTool {
   return {
     name,
     description: t.description,
@@ -29,20 +50,9 @@ export function toPiTool(name: string, t: LocalTool): PiTool {
   };
 }
 
-export function toExecutor(name: string, t: LocalTool): AgentRunnerToolExecutor {
-  return async (args, ctx) => {
-    const parsed = parseToolInput(t.schema, args, {
-      toolName: name,
-      errorTitle: `${name} validation failed:`,
-    });
-    if (!parsed.ok) {
-      throw new AppError({
-        domain: "tool",
-        kind: "input_validation_failed",
-        message: parsed.error,
-        context: { toolName: name },
-      });
-    }
-    return ctx != null ? t.run(parsed.value, ctx) : t.run(parsed.value);
-  };
+export function toExecutor<TResult>(
+  name: string,
+  t: LocalTool<TResult>,
+): (args: Parameters<AgentRunnerToolExecutor>[0], ctx?: AgentToolCallContext) => Promise<TResult> {
+  return (args, ctx) => t.execute(name, args, ctx);
 }

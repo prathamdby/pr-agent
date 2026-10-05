@@ -7,7 +7,7 @@ import { assertPathAllowedForAsk, pathAllowedForAsk, type AskPathGate } from "..
 import { type LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { CODE_INDEX_MAX_RESULTS } from "../../settings/index.js";
-import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import {
   searchCodeIndexFts,
   previewForChunk,
@@ -65,59 +65,63 @@ export function buildCodeIndexTools(params: {
     }
   }
 
-  return toCodeIndexBundle({
-    description: SEARCH_CODE_INDEX_DESCRIPTION,
-    schema: searchCodeIndexSchema,
-    run: async ({ query, limit }): Promise<CodeIndexSearchResult> => {
-      const rows = await searchCodeIndexFts(
-        params.pool,
-        params.snapshotId,
-        query,
-        limit,
-        allowedPaths,
-      );
-      // One read per path: hints often cluster on the same file, and the
-      // old per-row read re-read and re-split it for every hint.
-      const linesByPath = new Map<string, Promise<string[] | null>>();
-      const linesForPath = (path: string): Promise<string[] | null> => {
-        const cached = linesByPath.get(path);
-        if (cached) return cached;
-        const pending = linesForChunkVerification(params.workspace, path);
-        linesByPath.set(path, pending);
-        return pending;
-      };
-      const verifiedRows = await Promise.all(
-        rows.map(async (row) => {
-          try {
-            assertPathAllowedForAsk(row.path, params.pathGate);
-            const lines = await linesForPath(row.path);
-            if (lines == null) return { row, hashOk: false };
-            const slice = lines.slice(row.start_line - 1, row.end_line).join("\n");
-            const hashOk = createHash("sha256").update(slice).digest().equals(row.content_hash);
-            return { row, hashOk };
-          } catch {
-            return { row, hashOk: false };
-          }
-        }),
-      );
-      const hints = verifiedRows.map(({ row, hashOk }) => ({
-        path: row.path,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        ...(hashOk ? { preview: previewForChunk(row.content) } : {}),
-      }));
-      return { hints };
-    },
-  });
+  return toCodeIndexBundle(
+    defineLocalTool({
+      description: SEARCH_CODE_INDEX_DESCRIPTION,
+      schema: searchCodeIndexSchema,
+      run: async ({ query, limit }): Promise<CodeIndexSearchResult> => {
+        const rows = await searchCodeIndexFts(
+          params.pool,
+          params.snapshotId,
+          query,
+          limit,
+          allowedPaths,
+        );
+        // One read per path: hints often cluster on the same file, and the
+        // old per-row read re-read and re-split it for every hint.
+        const linesByPath = new Map<string, Promise<string[] | null>>();
+        const linesForPath = (path: string): Promise<string[] | null> => {
+          const cached = linesByPath.get(path);
+          if (cached) return cached;
+          const pending = linesForChunkVerification(params.workspace, path);
+          linesByPath.set(path, pending);
+          return pending;
+        };
+        const verifiedRows = await Promise.all(
+          rows.map(async (row) => {
+            try {
+              assertPathAllowedForAsk(row.path, params.pathGate);
+              const lines = await linesForPath(row.path);
+              if (lines == null) return { row, hashOk: false };
+              const slice = lines.slice(row.start_line - 1, row.end_line).join("\n");
+              const hashOk = createHash("sha256").update(slice).digest().equals(row.content_hash);
+              return { row, hashOk };
+            } catch {
+              return { row, hashOk: false };
+            }
+          }),
+        );
+        const hints = verifiedRows.map(({ row, hashOk }) => ({
+          path: row.path,
+          startLine: row.start_line,
+          endLine: row.end_line,
+          ...(hashOk ? { preview: previewForChunk(row.content) } : {}),
+        }));
+        return { hints };
+      },
+    }),
+  );
 }
 
 export function buildUnavailableCodeIndexTools(): {
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  return toCodeIndexBundle({
-    description: SEARCH_CODE_INDEX_DESCRIPTION,
-    schema: searchCodeIndexSchema,
-    run: async (): Promise<CodeIndexSearchResult> => ({ unavailable: true }),
-  });
+  return toCodeIndexBundle(
+    defineLocalTool({
+      description: SEARCH_CODE_INDEX_DESCRIPTION,
+      schema: searchCodeIndexSchema,
+      run: async (): Promise<CodeIndexSearchResult> => ({ unavailable: true }),
+    }),
+  );
 }
