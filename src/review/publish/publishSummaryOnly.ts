@@ -1,3 +1,4 @@
+import { decodeProgressComment } from "../../github/prSurfaceResults.js";
 import { emitWorkSpan } from "../../agent/runtime/agentEventSink.js";
 import { publishSpanFromContext } from "../../analytics/workSpan.js";
 import { AppError } from "../../errors/appError.js";
@@ -241,6 +242,7 @@ export async function publishReviewSummaryOnly(
     summaryCoordination == null
       ? runSummaryUpsert()
       : publishOnce<{ readonly id: number; readonly updated: boolean }>({
+          decodeResult: decodeProgressComment,
           fence: fenceForEpoch(summaryCoordination.leaseEpoch),
           client: summaryCoordination.pool,
           workItemId: summaryCoordination.workItemId,

@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
+import * as v from "valibot";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -31,11 +32,12 @@ import {
   publishOnce,
 } from "../../agentWork/publishOnce.js";
 
-type DescriptionPublishResult = {
-  readonly prNumber: number;
-  readonly bodyUpdated: boolean;
-  readonly titleUpdated?: boolean;
-};
+const descriptionPublishResultSchema = v.object({
+  prNumber: v.number(),
+  bodyUpdated: v.boolean(),
+  titleUpdated: v.optional(v.boolean()),
+});
+type DescriptionPublishResult = Readonly<v.InferOutput<typeof descriptionPublishResultSchema>>;
 
 export type SubmitDescriptionState = {
   published: boolean;
@@ -192,6 +194,10 @@ export function buildSubmitDescriptionTool(params: {
       params.operationIntent == null
         ? await publish()
         : await publishOnce<DescriptionPublishResult>({
+            decodeResult: (value) => {
+              v.assert(descriptionPublishResultSchema, value);
+              return value;
+            },
             fence: fenceForEpoch(params.operationIntent.leaseEpoch),
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,

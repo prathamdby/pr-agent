@@ -229,7 +229,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const resolve = vi.spyOn(fake.surface, "resolveInlineReviewThread").mockRejectedValue(denial);
       const surface = withPrSurfaceMutationBoundary(fake.surface, {
         signal: new AbortController().signal,
-        run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>): Promise<T> => {
+        run: async (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => {
           const result = await publishOnce({
             fence: fenceForEpoch(lease.leaseEpoch),
             client: pool,
@@ -238,7 +238,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             ...mutation,
             mutate,
           });
-          return result as T;
+          return result;
         },
       });
       const params = {

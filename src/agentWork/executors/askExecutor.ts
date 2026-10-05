@@ -1,3 +1,4 @@
+import { decodePostedReply } from "../../github/prSurfaceResults.js";
 import type { BotIdentity } from "../../github/appAuth.js";
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 import { productionInstallationSurface } from "../installationSurface.js";
@@ -410,6 +411,7 @@ export function createAskWorkExecution({
             const operationKey = askReplyOperationKey(item.resourceKey, payload.commentId);
             let selectedTargetKind = payload.replyTarget.kind;
             const posted = await publishOnce<{ readonly commentId: number }>({
+              decodeResult: decodePostedReply,
               fence: fenceForEpoch(env.leaseEpoch),
               client: pool,
               workItemId: item.id,

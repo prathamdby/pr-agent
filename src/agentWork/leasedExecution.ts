@@ -16,7 +16,7 @@ import {
   renewPrActorLease,
   type PrActorLeaseKey,
 } from "./prActorLease.js";
-import { publishOnce, type PublishOnceParams } from "./publishOnce.js";
+import { publishOnce } from "./publishOnce.js";
 import { installationGroupId, type AgentWorkItemCore, type WorkType } from "./types.js";
 import {
   beginWorkAttempt,
@@ -262,10 +262,10 @@ function createLeaseMutationBoundary(params: {
 
   return {
     signal: params.signal,
-    run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => {
+    run: async (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => {
       await assertNotCancelled(mutation.operationKey);
       let mutationStarted = false;
-      return publishOnce<T>({
+      return publishOnce({
         fence: fenceForEpoch(params.leaseEpoch),
         client: params.pool,
         workItemId: params.workItemId,
@@ -279,7 +279,8 @@ function createLeaseMutationBoundary(params: {
           leaseEpoch: params.leaseEpoch,
           surfaceMutation: true,
         },
-        recover: mutation.recover as PublishOnceParams<T>["recover"],
+        recover: mutation.recover,
+        decodeResult: mutation.decodeResult,
         allowsUndefinedResult: mutation.allowsUndefinedResult,
         // The local gate can fail before any request reaches the surface.
         isKnownNoAcceptanceError: (error) =>

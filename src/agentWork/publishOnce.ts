@@ -52,6 +52,8 @@ export type PublishOnceParams<T> = {
   /** Selected attempt evidence; saved with the in-flight marker only after the owner permits delegation. */
   readonly mutationDetail?: Record<string, unknown>;
   readonly mutate: () => Promise<T>;
+  /** Validate replayed evidence before exposing a typed mutation result. */
+  readonly decodeResult?: (value: unknown) => T;
   readonly publishRecordId?: string | null;
   readonly reconcileDetail?: Record<string, unknown> | ((result: T) => Record<string, unknown>);
   /**
@@ -61,7 +63,7 @@ export type PublishOnceParams<T> = {
   readonly recover?: (
     intent: OperationIntentRow,
     publishRecordId: string | null,
-  ) => Promise<OperationIntentRecovery<T>>;
+  ) => Promise<OperationIntentRecovery<unknown>>;
   /**
    * True when `undefined` is a valid success (void mutate, or `T | undefined`).
    * Typed recoveries stay outcome_unknown when they cannot rebuild T.
@@ -191,20 +193,40 @@ export function operationIntentMarker(operationKey: string, operationInstance: s
 
 function resolveReconcileDetail<T>(
   params: PublishOnceParams<T>,
-  result: T,
-  hasResult: boolean,
+  result?: { readonly value: unknown },
 ): Record<string, unknown> {
-  if (!hasResult && typeof params.reconcileDetail === "function") return {};
-  return typeof params.reconcileDetail === "function"
-    ? params.reconcileDetail(result)
-    : (params.reconcileDetail ?? {});
+  if (typeof params.reconcileDetail !== "function") return params.reconcileDetail ?? {};
+  if (result === undefined) return {};
+  if (params.decodeResult === undefined)
+    throw new Error("A result-dependent reconciliation requires a result decoder");
+  return params.reconcileDetail(
+    decodePublishResult({ ...params, decodeResult: params.decodeResult }, result.value),
+  );
+}
+
+function decodePublishResult<T>(
+  params: PublishOnceParams<T> & { readonly decodeResult: (value: unknown) => T },
+  value: unknown,
+): T;
+function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown): unknown;
+function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown): unknown {
+  if (params.decodeResult === undefined) return value;
+  try {
+    return params.decodeResult(value);
+  } catch (error) {
+    throw unknownOutcomeError(
+      params,
+      "Mutation result failed validation; remutate forbidden",
+      true,
+      error,
+    );
+  }
 }
 
 function isRemoteMutationError(error: unknown): boolean {
   if (httpStatus(error) != null) return true;
   if (typeof error !== "object" || error == null) return false;
-  const value = error as Record<string, unknown>;
-  return typeof value.response === "object" && value.response != null;
+  return "response" in error && typeof error.response === "object" && error.response != null;
 }
 
 function hasStashedResult(detail: Record<string, unknown>): boolean {
@@ -230,7 +252,8 @@ function allowsUndefinedSuccess<T>(params: PublishOnceParams<T>): boolean {
 async function finishWithStashedResult<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
-): Promise<T> {
+): Promise<unknown> {
+  const value = decodePublishResult(params, stashedResultValue(intent.detail));
   if (intent.status !== "reconciled") {
     await assertMutationReady(params);
     await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
@@ -240,23 +263,25 @@ async function finishWithStashedResult<T>(
       publishRecordId: params.publishRecordId,
       ...leaseEpochDetail(params),
       detail: {
-        ...resolveReconcileDetail(params, undefined as T, false),
+        ...resolveReconcileDetail(params),
         [OPERATION_INTENT_RESULT_KEY]: intent.detail[OPERATION_INTENT_RESULT_KEY],
       },
     });
   }
-  return stashedResultValue(intent.detail) as T;
+  return value;
 }
 
-type RecoveryAttempt<T> = { readonly found: true; readonly value: T } | { readonly found: false };
+type RecoveryAttempt =
+  | { readonly found: true; readonly value: unknown }
+  | { readonly found: false };
 
 async function recoverByExactEvidence<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
   publishRecordId: string | null,
-): Promise<RecoveryAttempt<T>> {
+): Promise<RecoveryAttempt> {
   if (params.recover == null) return { found: false };
-  let recovery: OperationIntentRecovery<T>;
+  let recovery: OperationIntentRecovery<unknown>;
   try {
     recovery = await params.recover(intent, publishRecordId);
   } catch (error) {
@@ -275,12 +300,12 @@ async function recoverByExactEvidence<T>(
   }
   await assertMutationReady(params);
   if (recovery.kind !== "reconciled") return { found: false };
+  const value = decodePublishResult(params, recovery.value);
 
   const resultDetail = {
-    ...resolveReconcileDetail(params, recovery.value, true),
+    ...resolveReconcileDetail(params, { value }),
     ...recovery.detail,
-    [OPERATION_INTENT_RESULT_KEY]:
-      recovery.value === undefined ? null : (recovery.value as unknown),
+    [OPERATION_INTENT_RESULT_KEY]: recovery.value === undefined ? null : recovery.value,
   };
   await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
     workItemId: params.workItemId,
@@ -290,14 +315,15 @@ async function recoverByExactEvidence<T>(
     ...leaseEpochDetail(params),
     detail: resultDetail,
   });
-  return { found: true, value: recovery.value };
+  return { found: true, value };
 }
 
 async function finishVoidSuccess<T>(
   params: PublishOnceParams<T>,
   extraDetail: Record<string, unknown>,
   publishRecordId?: string | null,
-): Promise<T> {
+): Promise<unknown> {
+  const value = decodePublishResult(params, undefined);
   await assertMutationReady(params);
   await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
     workItemId: params.workItemId,
@@ -306,12 +332,12 @@ async function finishVoidSuccess<T>(
     publishRecordId: publishRecordId ?? params.publishRecordId,
     ...leaseEpochDetail(params),
     detail: {
-      ...resolveReconcileDetail(params, undefined as T, false),
+      ...resolveReconcileDetail(params),
       ...extraDetail,
       [OPERATION_INTENT_RESULT_KEY]: null,
     },
   });
-  return undefined as T;
+  return value;
 }
 
 const UNKNOWN_MUTATION_MESSAGE =
@@ -340,7 +366,7 @@ function unknownOutcomeError<T>(
 async function recoverAfterMutatingWithoutResult<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
-): Promise<T> {
+): Promise<unknown> {
   let publishRecordId: string | null;
   try {
     publishRecordId = await findCompletedPublishRecordId(params.client, params.workItemId, intent);
@@ -357,7 +383,7 @@ async function recoverAfterMutatingWithoutResult<T>(
       },
     });
   }
-  let recovered: RecoveryAttempt<T> = { found: false };
+  let recovered: RecoveryAttempt = { found: false };
   let observationError: AppError | undefined;
   try {
     recovered = await recoverByExactEvidence(params, intent, publishRecordId);
@@ -389,7 +415,7 @@ async function recoverAfterMutatingWithoutResult<T>(
       status: "outcome_unknown",
       ...leaseEpochDetail(params),
       detail: {
-        ...resolveReconcileDetail(params, undefined as T, false),
+        ...resolveReconcileDetail(params),
         [OPERATION_INTENT_MUTATING_KEY]: false,
         ...(observationError == null ? { unknownResolution: "terminal" } : {}),
         errorCode: "operation_intent.mutation_outcome_unknown" satisfies AppErrorCode,
@@ -484,7 +510,11 @@ function assertFenceAgrees<T>(params: PublishOnceParams<T>): void {
   }
 }
 
-export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<T> {
+export function publishOnce<T>(
+  requested: PublishOnceParams<T> & { readonly decodeResult: (value: unknown) => T },
+): Promise<T>;
+export function publishOnce<T>(requested: PublishOnceParams<T>): Promise<unknown>;
+export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<unknown> {
   assertFenceAgrees(requested);
   const params = await withRetainedDescriptionIdentity(requested);
   if (params.delegation == null)
@@ -546,7 +576,7 @@ export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<T
   );
 }
 
-async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<T> {
+async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown> {
   await assertMutationReady(params);
   const intent = await (params.store ?? postgresPublishStore).persistOperationIntent(
     params.client,
@@ -615,13 +645,14 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<T> {
     await assertMutationReady(params);
     const result = await params.mutate();
     mutateSucceeded = true;
+    decodePublishResult(params, result);
     // A lease can be lost while GitHub is processing the request. Do not let a
     // stale worker persist completion after that ambiguous remote outcome.
     await assertMutationReady(params);
     // Always stash __result (null = void) so redelivery is idempotent without remutate.
     const resultDetail = {
-      ...resolveReconcileDetail(params, result, true),
-      [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : (result as unknown),
+      ...resolveReconcileDetail(params, { value: result }),
+      [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : result,
     };
     await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(params.client, {
       workItemId: params.workItemId,
@@ -663,7 +694,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<T> {
         status: knownNoAcceptance ? "failed" : "outcome_unknown",
         ...leaseEpochDetail(params),
         detail: {
-          ...resolveReconcileDetail(params, undefined as T, false),
+          ...resolveReconcileDetail(params),
           // Clear marker only when the provider proved that no mutation landed.
           [OPERATION_INTENT_MUTATING_KEY]: false,
           errorCode: knownNoAcceptance

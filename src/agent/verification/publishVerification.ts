@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import type { Pool } from "pg";
 import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
@@ -374,6 +375,10 @@ async function withVerificationThreadOperation(
   let childAccepted = false;
   let resolutionDenied = false;
   const stubCommentId = await publishOnce<number | undefined>({
+    decodeResult: (value) => {
+      v.assert(v.optional(v.number()), value);
+      return value;
+    },
     fence: fenceForEpoch(params.leaseEpoch),
     client: params.pool,
     workItemId: params.workItemId,

@@ -85,7 +85,6 @@ import {
   runInOperationIntentFrame,
   publishOnce,
   operationIntentMarker,
-  type PublishOnceParams,
   askReplyOperationKey,
   askFailureReplyOperationKey,
   descriptionPrBodyOperationKey,
@@ -2486,7 +2485,7 @@ try {
                   operationKey: mutation.operationKey,
                   mutationKind: mutation.mutationKind,
                   detail: mutation.detail,
-                  recover: (intent) => recoverPrSurfaceMutation<T>(surface, intent),
+                  recover: (intent) => recoverPrSurfaceMutation(surface, intent),
                   mutate,
                 }),
             },
@@ -2587,7 +2586,7 @@ try {
                   operationKey: mutation.operationKey,
                   mutationKind: mutation.mutationKind,
                   detail: mutation.detail,
-                  recover: (intent) => recoverPrSurfaceMutation<T>(surface, intent),
+                  recover: (intent) => recoverPrSurfaceMutation(surface, intent),
                   mutate,
                 }),
             },
@@ -2827,9 +2826,7 @@ try {
                 operationKey: mutation.operationKey,
                 mutationKind: mutation.mutationKind,
                 detail: mutation.detail,
-                recover: mutation.recover as PublishOnceParams<
-                  Awaited<ReturnType<typeof mutate>>
-                >["recover"],
+                recover: mutation.recover,
                 allowsUndefinedResult: mutation.allowsUndefinedResult,
                 mutate,
               }),
@@ -3035,7 +3032,7 @@ try {
           fence: fenceForEpoch(null),
           mutate,
           recover: (intent: intentRepository.OperationIntentRow) =>
-            recoverPrSurfaceMutation<typeof check>(recoverySurface, intent),
+            recoverPrSurfaceMutation(recoverySurface, intent),
         };
         const failure = await publishOnce(params).catch((error: unknown) => error);
         expect(failure).toMatchObject({
@@ -3270,9 +3267,7 @@ try {
                 mutationKind: mutation.mutationKind,
                 detail: mutation.detail,
                 mutate,
-                recover: mutation.recover as PublishOnceParams<
-                  Awaited<ReturnType<typeof mutate>>
-                >["recover"],
+                recover: mutation.recover,
                 allowsUndefinedResult: mutation.allowsUndefinedResult,
               }),
           });

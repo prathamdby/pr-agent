@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import * as v from "valibot";
 import {
   type FingerprintedInlinePlacement,
   reviewFindingPlacementKey,
@@ -15,7 +16,7 @@ import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
-import type { ReviewFinding } from "../reviewSchema.js";
+import { reviewFindingEntries, type ReviewFinding } from "../reviewSchema.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
@@ -44,6 +45,20 @@ import type { CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.j
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
+
+const publishedPlacementSchema = v.object({
+  finding: v.object(reviewFindingEntries),
+  inlineLine: v.nullable(v.number()),
+  inlinePosted: v.boolean(),
+  inlineCommentUrl: v.optional(v.string()),
+  inlineFingerprint: v.string(),
+});
+const inlineResultSchema = v.object({
+  review: v.optional(v.object({ id: v.number(), url: v.string() })),
+  postedPlacements: v.array(publishedPlacementSchema),
+  anchorDroppedPlacements: v.array(publishedPlacementSchema),
+  lineResolutionFallback: v.boolean(),
+});
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -415,6 +430,10 @@ export async function publishFindingBatch(
     : publishOnce<
         Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
       >({
+        decodeResult: (value) => {
+          v.assert(inlineResultSchema, value);
+          return value;
+        },
         fence: fenceForEpoch(session.operationIntent.leaseEpoch),
         client: session.operationIntent.client,
         workItemId: session.operationIntent.workItemId,
