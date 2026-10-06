@@ -61,8 +61,11 @@ all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-a
 
 Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
 `src/traces/recorder.ts` owns bounded best-effort local recording and execution
-AsyncLocalStorage. `src/agent/runtime/sessionTrace.ts` projects Pi events into
-session, per-call generation, tool and compaction children. SQL and retention
+AsyncLocalStorage; execution counters and recorder state stay private.
+`src/agent/runtime/sessionTrace.ts` projects Pi events into session, per-call
+generation, tool and compaction children behind an always-present, nonthrowing
+observer. `AgentWorkExecutionsLive(cfg)` owns the injected dedicated trace pool
+and its bounded drain and socket cleanup. SQL and retention
 belong to `src/agentWork/agentTraceRepository.ts`; credential-only content redaction
 belongs to `src/traces/content.ts`. Traces never authorize recovery or publishing.
 See [ADR 0046](adr/0046-agent-traces.md).

@@ -10,7 +10,6 @@ import {
 } from "@earendil-works/pi-agent-core";
 import { contentText, normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 import type { SessionTrace } from "./sessionTrace.js";
-import { observeTrace } from "../../traces/recorder.js";
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Preserve the user's task, current phase, accepted findings, pending questions, and artifact references.";
@@ -117,7 +116,7 @@ async function summarizeMessages(
     model.maxTokens > 0 ? model.maxTokens : 16_384,
   );
   try {
-    observeTrace(() => trace?.beginCompaction(SUMMARIZATION_SYSTEM_PROMPT, promptText));
+    trace?.beginCompaction(SUMMARIZATION_SYSTEM_PROMPT, promptText);
     const stream = await streamFn(
       model,
       normalizeContext({
@@ -133,14 +132,14 @@ async function summarizeMessages(
       { maxTokens, cacheRetention: "none", signal },
     );
     const response = await stream.result();
-    observeTrace(() => trace?.endCompaction(response));
+    trace?.endCompaction(response);
     if (response.stopReason === "error" || response.stopReason === "aborted") {
       return undefined;
     }
     const text = contentText(response.content).trim();
     return text.length > 0 ? text : undefined;
   } catch {
-    observeTrace(() => trace?.endCompaction(undefined));
+    trace?.endCompaction(undefined);
     return undefined;
   }
 }

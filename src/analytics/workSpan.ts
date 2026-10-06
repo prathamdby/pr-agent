@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { captureEvent } from "./index.js";
 import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.js";
 import { installationDistinctId } from "./workCompleted.js";
-import { currentTrace } from "../traces/recorder.js";
+import { currentTraceSpanId } from "../traces/recorder.js";
 
 export type WorkSpanContext = {
   readonly workItemId: string;
@@ -81,7 +81,7 @@ export function newSpanId(): string {
 }
 
 function sharedPostHogProperties(span: WorkSpan): Record<string, string | number | boolean | null> {
-  const traceSpanId = span.traceSpanId ?? currentTrace()?.execution.span.id;
+  const traceSpanId = span.traceSpanId ?? currentTraceSpanId();
   return {
     $ai_trace_id: span.workItemId,
     ...(traceSpanId != null ? { trace_span_id: traceSpanId } : {}),

@@ -90,7 +90,8 @@ even with recovery off; disabling scheduled retention leaves artifacts retained.
 review artifacts, and artifact retention is independent of the recovery flag.
 
 Local traces are independent of both settings. Migration 039 installs the span,
-blob and part tables. The worker's recorder has its own two-connection pool.
+blob and part tables. The worker execution layer owns a two-connection trace pool
+and injects it into recording.
 It flushes up to 200 spans every 500 ms. Content is capped at 64 KiB per part,
 256 KiB and 128 parts per span, with `content_truncated` marking omissions.
 These limits are private constants in `src/traces/recorder.ts`, not env knobs.

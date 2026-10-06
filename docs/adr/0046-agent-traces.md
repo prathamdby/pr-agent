@@ -34,6 +34,15 @@ awaits a trace write. Failed or overflowed spans are lost, counted and logged.
 One metadata-only `trace_spans_dropped` event reports each execution's losses.
 Shutdown uses the existing bounded reserve alongside analytics.
 
+The worker execution layer creates and owns the dedicated pool and injects it
+into recording. Its finalizer drains recording, ends the pool and closes any
+checked-out trace sockets left at the cutoff. The durable work pool is separate.
+Pi callers receive an always-present, nonthrowing observer. Disabled recording
+uses an inert observer; failure isolation stays inside that module. Execution
+counters and mutable recorder state stay private, and analytics reads only a
+scalar correlation identifier. No interchangeable storage interface is needed
+for the single Postgres implementation.
+
 Content parts are credential-redacted and content-addressed. Generations retain
 only input changes since their previous turn; compaction resets that input basis.
 Oversized content is explicitly truncated. Dumps use dynamically sized untrusted
@@ -88,3 +97,12 @@ Artifacts remain local under `verify-artifacts/`: `traces-runtime-proof.json`,
 compaction and its adopted assistant input, unknown costs, credential redaction,
 repair and budget signals, off mode, bounded pending content, overflow counts,
 deduplication, referenced-blob retention, cascades and denied trace writes.
+
+The architecture rework was checked through the worker execution layer and its
+session observer with disposable Postgres. `traces-design-runtime-proof.json`
+records metadata/content sessions for four concurrent specialists, safe observer
+failures, compaction and off mode. A blocked insert reached the 5,009 ms drain
+cutoff; process-owned database sockets fell from three to the two proof sockets,
+while the held work connection stayed usable. Postgres can retain a waiting
+backend until the lock wait wakes; it disappeared after the proof released its
+lock. This probe uses synthetic Pi events, not live-provider measurements.

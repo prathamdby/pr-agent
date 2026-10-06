@@ -32,7 +32,6 @@ import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promp
 import { createSessionModels } from "./sessionModels.js";
 import { createSessionStreamFn } from "./sessionStream.js";
 import { createSessionTrace } from "./sessionTrace.js";
-import { observeTrace } from "../../traces/recorder.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import { createSendActivity } from "./sendActivity.js";
 import { createTurnToolBudget } from "./turnToolBudget.js";
@@ -124,15 +123,13 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     maxRetries: params.cfg.provider.retryMax,
     maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
   });
-  const trace = observeTrace(() => createSessionTrace(params, model, sessionId, getAttempts));
+  const trace = createSessionTrace(params, model, sessionId, getAttempts);
   const tools = toCoreTools(
     params.tools,
     params.executors,
     params.hostSignal,
     params.refreshBeforeTool,
-    (id, event) => {
-      observeTrace(() => trace?.toolMetadata(id, event));
-    },
+    trace.toolMetadata,
   );
 
   let abortPromise: Promise<void> | undefined;
@@ -155,7 +152,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     primary: params.primary,
     async send(prompt, opts) {
       traceSpanId = undefined;
-      observeTrace(() => trace?.beginSend(opts));
+      trace.beginSend(opts);
       if (abortPromise) {
         throw new AppError({
           domain: "agent",
@@ -210,7 +207,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         getApiKey: async (provider) => {
           try {
             const auth = await models.getAuth(provider);
-            observeTrace(() => trace?.addSecret(auth?.auth.apiKey));
+            trace.addSecret(auth?.auth.apiKey);
             return auth?.auth.apiKey;
           } catch {
             return undefined;
@@ -246,7 +243,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       };
 
       const handleEvent = (event: AgentEvent) => {
-        observeTrace(() => trace?.event(event));
+        trace.event(event);
         if (
           event.type === "message_update" ||
           event.type === "tool_execution_start" ||
@@ -379,7 +376,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           : lastAssistant(sessionMessages)?.stopReason === "length"
             ? "output_limit"
             : "completed";
-        traceSpanId = observeTrace(() => trace?.endSend(end));
+        traceSpanId = trace.endSend(end);
         emit({
           kind: "completion",
           role: params.role,
@@ -405,11 +402,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           ? { text: finalText, end, prompt: promptMeta, usage: aggregatedUsage }
           : { text: finalText, end, prompt: promptMeta };
       } catch (error) {
-        traceSpanId = observeTrace(() =>
-          trace?.endSend(
-            "failed",
-            error instanceof AppError ? error.code : "runtime.session_send_failed",
-          ),
+        traceSpanId = trace.endSend(
+          "failed",
+          error instanceof AppError ? error.code : "runtime.session_send_failed",
         );
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
         emit({
@@ -454,7 +449,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     abort,
     async dispose() {
       sessionAbort.abort();
-      observeTrace(() => trace?.dispose());
+      trace.dispose();
     },
   };
 

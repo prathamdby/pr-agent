@@ -2,25 +2,24 @@ import { createHmac, randomUUID } from "node:crypto";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { isPlainObject } from "../../util/typeGuards.js";
-import { sessionTraceContext } from "../../traces/recorder.js";
+import { openTraceSession } from "../../traces/recorder.js";
+import { logWarn } from "../../evlog.js";
 import type { TracePartKind, TraceSpan } from "../../traces/traceTypes.js";
 import type { PiSessionCreateParams, PiSessionSendOptions } from "./types.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import { exactUsageFromProviderUsage } from "../providers/usageMetadata.js";
 
-export function createSessionTrace(
+function createRecording(
   params: PiSessionCreateParams,
   model: Model<Api>,
   sessionId: string,
   getAttempts: () => number,
 ) {
-  const ctx =
-    params.cfg.traces.mode === "off" ? undefined : sessionTraceContext(params.traceWorkItemId);
-  if (!ctx) return undefined;
-  const { recorder, execution } = ctx;
+  const recording =
+    params.cfg.traces.mode === "off" ? undefined : openTraceSession(params.traceWorkItemId);
+  if (!recording) return undefined;
+  const recorder = recording;
   const identity = {
-    executionId: execution.span.executionId,
-    workItemId: execution.span.workItemId,
     role: params.traceRole ?? params.role,
     provider: model.provider,
     model: model.id,
@@ -30,9 +29,8 @@ export function createSessionTrace(
     ...identity,
     id: sessionId,
     kind: "session",
-    parentId: execution.span.id,
+    parentId: recorder.parentId,
   });
-  recorder.openSession(execution);
   const tools = new Map<string, TraceSpan>();
   const fingerprintKey = randomUUID();
   let generation: TraceSpan | undefined;
@@ -117,15 +115,14 @@ export function createSessionTrace(
     generation.attrs.provider_attempts = getAttempts() - attemptStart;
     // Pi's provider-client retries have no per-attempt agent events.
     generation.attrs.retry_folded = params.cfg.provider.retryMax > 0;
-    recorder.finish(generation, execution);
+    recorder.finish(generation);
     lastGeneration = generation;
     generation = undefined;
   }
 
   return {
-    sessionId: session.id,
     addSecret: (secret: string | undefined) => recorder.addSecret(secret),
-    beginSend(send: PiSessionSendOptions): void {
+    beginSend: (send: PiSessionSendOptions): void => {
       opts = send;
       session.phase = send.phase;
       session.attrs.sends = Number(session.attrs.sends ?? 0) + 1;
@@ -134,7 +131,7 @@ export function createSessionTrace(
           Number(session.attrs.schema_validation_retries ?? 0) + 1;
       }
     },
-    event(event: AgentEvent): void {
+    event: (event: AgentEvent): void => {
       if (disposed) return;
       if (event.type === "turn_start") {
         attemptStart = getAttempts();
@@ -252,11 +249,11 @@ export function createSessionTrace(
         session.attrs.completed_host_calls =
           Number(session.attrs.completed_host_calls ?? 0) +
           Number(tool.attrs.completed_host_calls ?? 0);
-        recorder.finish(tool, execution);
+        recorder.finish(tool);
         tools.delete(event.toolCallId);
       }
     },
-    toolMetadata(toolCallId: string, event: AgentLifecycleEvent): void {
+    toolMetadata: (toolCallId: string, event: AgentLifecycleEvent): void => {
       if (event.kind !== "execution") return;
       const tool = tools.get(toolCallId);
       if (!tool) return;
@@ -265,7 +262,7 @@ export function createSessionTrace(
       tool.attrs.termination_reason = event.terminationReason;
       tool.attrs.code_mode_budget_hit = event.outcome === "budget";
     },
-    endSend(end: string, errorCode?: string): string | undefined {
+    endSend: (end: string, errorCode?: string): string | undefined => {
       if (generation) {
         generation.status = "error";
         generation.errorCode = errorCode ?? "interrupted";
@@ -279,12 +276,11 @@ export function createSessionTrace(
       if (errorCode) {
         session.status = errorCode === "agent.session_aborted" ? "cancelled" : "error";
         session.errorCode = errorCode;
-        execution.span.status = session.status;
-        execution.span.errorCode = errorCode;
+        recorder.fail(session.status, errorCode);
       }
       return lastGeneration?.id;
     },
-    beginCompaction(system: string, prompt: string): void {
+    beginCompaction: (system: string, prompt: string): void => {
       compactionAttemptStart = getAttempts();
       compaction = recorder.span({
         ...identity,
@@ -296,7 +292,7 @@ export function createSessionTrace(
       recorder.part(compaction, "user", prompt);
       session.attrs.compactions = Number(session.attrs.compactions ?? 0) + 1;
     },
-    endCompaction(message: AssistantMessage | undefined): void {
+    endCompaction: (message: AssistantMessage | undefined): void => {
       if (!compaction) return;
       if (message) usage(compaction, message);
       else {
@@ -305,13 +301,13 @@ export function createSessionTrace(
       }
       compaction.attrs.provider_attempts = getAttempts() - compactionAttemptStart;
       compaction.attrs.retry_folded = params.cfg.provider.retryMax > 0;
-      recorder.finish(compaction, execution);
+      recorder.finish(compaction);
       compaction = undefined;
       // The next input after compaction contains a new summary. Core emits no
       // user event for it; sessionCompaction supplies the adopted transcript.
       attemptStart = getAttempts();
     },
-    compacted(messages: readonly AgentMessage[]): void {
+    compacted: (messages: readonly AgentMessage[]): void => {
       if (params.cfg.traces.mode !== "content") return;
       input = emptyInput();
       inputReset = true;
@@ -325,7 +321,7 @@ export function createSessionTrace(
         }
       }
     },
-    dispose(): void {
+    dispose: (): void => {
       if (disposed) return;
       disposed = true;
       if (generation) {
@@ -336,20 +332,64 @@ export function createSessionTrace(
       if (compaction) {
         compaction.status = "cancelled";
         compaction.errorCode = "interrupted";
-        recorder.finish(compaction, execution);
+        recorder.finish(compaction);
         compaction = undefined;
       }
       for (const tool of tools.values()) {
         tool.status = "cancelled";
         tool.errorCode = "interrupted";
-        recorder.finish(tool, execution);
+        recorder.finish(tool);
       }
       tools.clear();
-      recorder.finish(session, execution);
-      recorder.closeSession(execution);
-      if ("standalone" in ctx) recorder.finishExecution(execution);
+      recorder.close(session);
     },
   };
 }
 
-export type SessionTrace = ReturnType<typeof createSessionTrace>;
+export type SessionTrace = NonNullable<ReturnType<typeof createRecording>>;
+
+function observe<T>(run: () => T): T | undefined {
+  try {
+    return run();
+  } catch {
+    logWarn("agent_trace_observer_failed");
+    return undefined;
+  }
+}
+
+function protect<Args extends unknown[], Result>(record: (...args: Args) => Result) {
+  return (...args: Args) => observe(() => record(...args));
+}
+
+const noTrace: SessionTrace = {
+  addSecret: () => undefined,
+  beginSend: () => undefined,
+  event: () => undefined,
+  toolMetadata: () => undefined,
+  endSend: () => undefined,
+  beginCompaction: () => undefined,
+  endCompaction: () => undefined,
+  compacted: () => undefined,
+  dispose: () => undefined,
+};
+
+export function createSessionTrace(
+  params: PiSessionCreateParams,
+  model: Model<Api>,
+  sessionId: string,
+  getAttempts: () => number,
+): SessionTrace {
+  const recording = observe(() => createRecording(params, model, sessionId, getAttempts));
+  if (!recording) return noTrace;
+  return {
+    addSecret: protect(recording.addSecret),
+    beginSend: protect(recording.beginSend),
+    event: protect(recording.event),
+    toolMetadata: protect(recording.toolMetadata),
+    endSend: protect(recording.endSend),
+    beginCompaction: protect(recording.beginCompaction),
+    endCompaction: protect(recording.endCompaction),
+    compacted: protect(recording.compacted),
+    dispose: protect(recording.dispose),
+  };
+}

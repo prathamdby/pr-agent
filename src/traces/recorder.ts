@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import type { Config } from "../settings/index.js";
 import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
-import { createPgPool } from "../db/postgres.js";
 import { appendTraceSpans } from "../agentWork/agentTraceRepository.js";
 import { appendAgentEvents } from "../agentWork/agentEventsRepository.js";
 import { logWarn } from "../evlog.js";
@@ -15,6 +14,10 @@ const BATCH_SPANS = 200;
 const BUFFER_BYTES = 8 * 1024 * 1024;
 const SPAN_BYTES = 256 * 1024;
 const PART_BYTES = 64 * 1024;
+type SpanIdentity = Pick<TraceSpan, "kind"> &
+  Partial<
+    Pick<TraceSpan, "id" | "parentId" | "role" | "phase" | "provider" | "model" | "specialist">
+  >;
 type ExecutionTrace = {
   readonly span: TraceSpan;
   dropped: number;
@@ -25,7 +28,7 @@ type ExecutionTrace = {
 };
 const context = new AsyncLocalStorage<ExecutionTrace>();
 
-export class TraceRecorder {
+class TraceRecorder {
   private readonly redactor;
   private readonly queue: { span: TraceSpan; execution: ExecutionTrace }[] = [];
   private queuedBytes = 0;
@@ -60,12 +63,7 @@ export class TraceRecorder {
     return execution;
   }
 
-  span(
-    input: Pick<TraceSpan, "executionId" | "workItemId" | "kind"> &
-      Partial<
-        Pick<TraceSpan, "id" | "parentId" | "role" | "phase" | "provider" | "model" | "specialist">
-      >,
-  ): TraceSpan {
+  span(input: SpanIdentity & Pick<TraceSpan, "executionId" | "workItemId">): TraceSpan {
     const now = new Date();
     return {
       ...input,
@@ -219,7 +217,6 @@ export class TraceRecorder {
         (async () => {
           await this.flushing;
           while (this.queue.length > 0 || this.reports.length > 0) await this.flush();
-          await this.pool.end();
         })(),
         new Promise<void>((resolve) => {
           timeout = setTimeout(() => {
@@ -236,7 +233,7 @@ export class TraceRecorder {
 
 let recorder: TraceRecorder | undefined;
 
-export function observeTrace<T>(observe: () => T): T | undefined {
+function observeTrace<T>(observe: () => T): T | undefined {
   try {
     return observe();
   } catch {
@@ -245,27 +242,58 @@ export function observeTrace<T>(observe: () => T): T | undefined {
   }
 }
 
-export function initTraces(cfg: Config): void {
-  if (cfg.runtime.role !== "worker" || cfg.traces.mode === "off" || recorder) return;
+export function initTraces(pool: Pool, cfg: Config): () => Promise<void> {
+  let active: TraceRecorder | undefined;
   try {
-    recorder = new TraceRecorder(createPgPool(cfg, 2), cfg);
+    if (cfg.runtime.role === "worker" && cfg.traces.mode !== "off" && !recorder) {
+      active = new TraceRecorder(pool, cfg);
+      recorder = active;
+    }
   } catch {
     logWarn("agent_trace_init_failed");
   }
+  return async () => {
+    if (recorder === active) recorder = undefined;
+    await active?.drain().catch(() => logWarn("agent_trace_drain_failed"));
+  };
 }
 
-export function currentTrace(): { recorder: TraceRecorder; execution: ExecutionTrace } | undefined {
-  const execution = context.getStore();
-  return recorder && execution ? { recorder, execution } : undefined;
+export function currentTraceSpanId(): string | undefined {
+  return recorder ? context.getStore()?.span.id : undefined;
 }
 
-export function sessionTraceContext(workItemId?: string) {
-  const current = currentTrace();
-  if (current || !recorder) return current;
+export function openTraceSession(workItemId?: string) {
+  const active = recorder;
+  if (!active) return undefined;
+  const current = context.getStore();
+  const execution = current ?? active.execution(randomUUID(), workItemId ?? null);
+  active.openSession(execution);
+  let closed = false;
   return {
-    recorder,
-    execution: recorder.execution(randomUUID(), workItemId ?? null),
-    standalone: true,
+    parentId: execution.span.id,
+    span: (input: SpanIdentity) =>
+      active.span({
+        ...input,
+        executionId: execution.span.executionId,
+        workItemId: execution.span.workItemId,
+      }),
+    part: (span: TraceSpan, kind: TracePartKind, value: unknown) => active.part(span, kind, value),
+    finish: (span: TraceSpan) => active.finish(span, execution),
+    addSecret: (value: string | undefined) => active.addSecret(value),
+    fail: (status: TraceSpan["status"], errorCode: string) => {
+      execution.span.status = status;
+      execution.span.errorCode = errorCode;
+    },
+    close: (session: TraceSpan) => {
+      if (closed) return;
+      closed = true;
+      try {
+        active.finish(session, execution);
+      } finally {
+        active.closeSession(execution);
+        if (!current) active.finishExecution(execution);
+      }
+    },
   };
 }
 
@@ -289,10 +317,4 @@ export async function startWorkTrace<T>(
       observeTrace(() => active.finishExecution(execution));
     }
   });
-}
-
-export async function drainTraces(): Promise<void> {
-  const active = recorder;
-  recorder = undefined;
-  await active?.drain().catch(() => logWarn("agent_trace_drain_failed"));
 }

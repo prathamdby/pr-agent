@@ -7,7 +7,6 @@ import {
 } from "./transcriptCompaction.js";
 import type { CompactionPolicy } from "./types.js";
 import type { SessionTrace } from "./sessionTrace.js";
-import { observeTrace } from "../../traces/recorder.js";
 
 type SessionCompactionRuntime = {
   readonly model: AgentLoopConfig["model"];
@@ -32,7 +31,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
     rt.onCompaction("window");
     context.messages.length = 0;
     context.messages.push(...compacted);
-    observeTrace(() => rt.trace?.compacted(compacted));
+    rt.trace?.compacted(compacted);
     return { context };
   };
   return {
@@ -52,7 +51,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
       rt.onCompaction("overflow");
       messages.length = 0;
       messages.push(...compacted);
-      observeTrace(() => rt.trace?.compacted(compacted));
+      rt.trace?.compacted(compacted);
       return true;
     },
   };

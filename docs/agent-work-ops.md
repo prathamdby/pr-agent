@@ -81,6 +81,8 @@ diagnostics, not findings or proof that a model is worse.
 span count. `agent_trace_flush_failed`, `agent_trace_content_failed` and
 `agent_trace_shutdown_incomplete` logs identify gaps. Tracing never retries agent
 work. A crash can lose buffered spans. `content_truncated` marks content caps.
+The worker execution layer owns the dedicated pool. It drains recording within
+the shutdown reserve, then closes trace sockets still checked out at the cutoff.
 
 `TRACES_RETENTION_SECONDS` defaults to 14 days and cannot exceed work retention.
 Parts cascade with spans and work items; only unreferenced aged blobs expire.
