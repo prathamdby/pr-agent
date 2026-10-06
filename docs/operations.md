@@ -32,6 +32,12 @@ and return `503`.
 
 ## Behaviour and semantics
 
+- **Terminal watchdog deliveries:** queued/running leased work seeds recovery
+  before acquire-and-claim. Completed/failed deliveries complete without seeding,
+  acquiring a lease, executing, or publishing. An already-in-flight active
+  snapshot can leave residual copies, whose terminal reads stop. Cancellation,
+  supersession, unleased ask, and terminal review verdict repair are unchanged.
+  No schema, queue policy, retry budget, or setting changes.
 - **Work retries:** recovering a run does not use another retry unless PR Agent
   admits fresh feature work. The total remains `QUEUE_RETRY_LIMIT + 1`.
   Workspace preparation and bulk patch replay count, as does an admitted attempt
@@ -150,6 +156,32 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 - **Worker:** [`agentWorkWorkerLive`](../src/agentWork/worker.ts) consumes acknowledgement, review, ask, description, triage, verification, CI-projection, code-index-build, and retention queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
 - **Shutdown:** SIGTERM closes intake (`offWork` and the health server), then pg-boss drains for at most `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`. In-flight queue handlers settle for at most `SHUTDOWN_SETTLE_TIMEOUT_MS`; review, ask, description, triage, and verification dispatches then get one more `SHUTDOWN_SETTLE_TIMEOUT_MS` window, concurrent with the bounded `ANALYTICS_SHUTDOWN_TIMEOUT_MS` analytics flush, so a pending terminal work-item mark can still land before the Postgres pool ends. The cutoff ends the wait, not the dispatch: it logs `agent_worker_shutdown_incomplete`, and when the dispatch later resumes, its terminal write fails against the ended pool and the row stays `running` until a later worker recovers it through the watchdog chain or the lost-running sweep. These are bounds on the drain, settle, and flush waits, not a hard deadline for the whole process. Compose sets `stop_grace_period: 40s` on web and worker.
 - **PR actor lease cutover:** skip this on a first install. Fresh boot runs migrations before pg-boss. Migration 023 sees no `pgboss.queue` and creates `standard` queues. There are no old workers to drain. The drain matters only when an existing deployment still has `key_strict_fifo` rows. Stop those old workers, let in-flight jobs finish or expire, then deploy. Mixed old and new workers are unsafe if fifo workers still exist. Boot logs `agent_queue_policy_mismatch` if a leased queue was not flipped. See [ADR 0030](adr/0030-pr-actor-lease.md).
+
+### Terminal watchdog rollout
+
+Deployment is a separately approved operation. Record every worker's image/revision
+and a fixed cohort of terminal items with live deliveries before changing workers.
+Check readiness, oldest due jobs, and database headroom with bounded read-only
+queries. Drain/stop all affected replicas, then restart them on the same corrected
+revision. One upgraded replica does not stop older replicas from extending chains.
+Do not run a local experimental worker on the production queue.
+
+If shutdown reaches its existing cutoff, keep work and lease data for normal
+recovery. Never force terminal states or clear holders. Follow the cohort's
+`created`, `retry`, and `active` jobs until they drain as due times and capacity
+allow. After outstanding handlers settle, check that no new jobs appear over
+several watchdog intervals and again after five minutes. New completions can
+leave temporary copies; those must drain without recurring generations. Readiness
+and active work must remain healthy without growing lost-running or publication
+errors. Job state is the authority; skip logs only corroborate it.
+
+Coordinated rollback preserves work, leases, intents, and publish records. Older
+code can restart surviving terminal chains and create new ones, so rollback is
+not a cure. No automatic deletion or failed-item reopening is part of the fix.
+Historical job maintenance is separate from application retention; inspect
+effective deletion settings and supervisor health rather than promising a
+seven-day purge. Queries and maintenance checks:
+[the queue runbook](agent-work-ops.md#terminal-watchdog-deliveries).
 
 ### Local development edge cases
 

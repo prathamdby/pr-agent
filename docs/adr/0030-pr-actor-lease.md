@@ -58,14 +58,35 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    relies on per-item markers tolerating a live sibling; the marker protocol
    itself is unchanged).
 
+8. **Seed only active leased cores.** After the existing cancellation/supersession
+   check, only `queued` or `running` cores enter the seed/acquire path.
+   Completed/failed deliveries log `agent_work_terminal_delivery_skipped`
+   with type, work-item ID, and observed status, then return normally so pg-boss
+   completes them. They do not acquire a lease, execute, publish, or run hooks.
+   The guard does not change `shouldSkipWork` or unleased ask. An active snapshot
+   read before completion can still seed and take the existing claim-null release
+   path. Its successors reread terminal state and stop; no extra lock, foreign
+   lease clear, or pending-job cancellation is needed. Concurrent pending slots
+   remain valid. Terminal review verdict repair keeps its separate diagnostics lane.
+
 ## Consequences
 
 - Lost-running detection and its conditional failure write share the same no-live-lease and no-live-job predicates. Failure now runs in an explicitly READ COMMITTED transaction: lock the lease key first (SHARE-lock its table if missing), recursively SHARE-lock `pgboss.job`, then lock the item and issue the conditional UPDATE as a later statement. NOWAIT acquisition and transaction-local 1,000 ms query/idle limits keep contended or slow recovery from retaining queue locks under the pool's longer budgets. Contention or protected-query cancellation rolls back without marking work; later passes retry. The job lock also covers insertion phantoms, but can briefly delay unrelated lanes and may defer recovery under sustained traffic. A revival committed before protection is visible; later writers serialize after the decision. Only a committed mark authorizes a candidate's verdict close. Queued diagnostics retain their resource-wide lease check; the sweeper still treats `active` jobs as live, unlike watchdog successor proof.
 - Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and resumes the still-`running` item. Another fresh feature admission spends another attempt; the limit remains `QUEUE_RETRY_LIMIT + 1`. Recovery-only completion stays reachable at the cap, but fresh admission at the cap selects the existing failed path. Claims and blocked hops alone cannot exhaust work retries.
 - Queue state can never block intake, because intake never inspects it; a terminal work item's leftover job no-ops at execution.
+- Terminal-chain convergence requires all affected workers on the corrected
+  revision. Drain/stop them together; an older worker can continue seeding terminal
+  deliveries. Residual jobs drain as due times and queue capacity allow, not on a
+  fixed deadline or with exactly one skip log. Inspect a fixed cohort's live jobs,
+  including active deliveries, rather than a moving global count.
 - Cutover is not safe with mixed old and new workers: old workers fence on queue policy while new workers fence on the lease. Drain only when an existing deployment still has fifo workers. A first install creates `standard` queues and has nothing to drain. See [docs/operations.md](../operations.md). The policy flip itself is carried by migration 023, not by hand.
 - The slot world's `review_queued_stale` diagnostic is replaced by a lease-aware `agent_work_queued_stale` warn that fires when a leased-type item sits queued past `STALE_QUEUED_WORK_GRACE_SECONDS` with no live lease row and no live pg-boss job. A waiter behind worker or group concurrency still has a `created` job and is not a dead chain. Lease health is otherwise observable through `pr_actor_lease_unavailable`, `pr_actor_lease_lost`, `pr_actor_lease_renewal_failed`, and `agent_work.lease_watchdog_arm_failed`.
 
 ## Reversal
 
-Restore `key_strict_fifo` policies and the deleted slot/reaper modules, revert fencing to `execution_epoch`, and drop `pr_actor_leases`. Queued-behind deferrals armed before the revert complete as no-ops under either model.
+Rolling back the terminal-admission guard requires coordinated workers and
+preserves work, lease, intent, and publish records. Older code can restart
+surviving terminal chains and leak new ones; rollback is not a cure.
+Do not reopen failed work, clear leases, or delete jobs as rollback cleanup.
+Reversing the original lease architecture is a separate migration design,
+not part of this code-only rollback.

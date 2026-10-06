@@ -37,6 +37,72 @@ those checks at its existing tool/commit/push checkpoints without sharing a
 read-only checkout. Verification applies them before both empty completion and
 late publication; lost ownership cannot clear the verification failure signal.
 
+## Terminal watchdog deliveries
+
+Only active leased cores seed recovery. Completed/failed deliveries stop before
+seeding, acquiring, auth, execution, publication, or hooks; work, attempts, epochs,
+payloads, terminal timestamps, publication evidence, and foreign holders stay
+unchanged. Cancellation/supersession and missing-item exits are unchanged.
+Terminal review verdict repair remains a separate diagnostics lane.
+
+For a separately approved rollout, record all worker image/revisions and a fixed,
+bounded cohort of already-terminal items with live deliveries. Drain/stop all
+affected replicas and restart them on the same corrected revision. Old replicas
+can extend chains; upgrading one replica does not prove convergence. Preserve
+work and lease data if shutdown reaches its cutoff and allow normal recovery.
+
+Use a read-only role and replace the sample cohort with its recorded queue/item
+pairs. This query returns live metadata only, never casts arbitrary payloads to
+UUID, and limits query time and returned rows:
+
+```sql
+BEGIN READ ONLY;
+SET LOCAL statement_timeout = '2s';
+WITH cohort(queue, work_item_id) AS (
+  VALUES ('agent-work-review', '<recorded-work-item-id>')
+)
+SELECT j.name, j.id, j.state, j.created_on, j.start_after,
+       j.started_on, j.data->>'workItemId' AS work_item_id
+FROM pgboss.job j
+JOIN cohort c ON j.name = c.queue AND j.data->>'workItemId' = c.work_item_id
+WHERE j.state IN ('created', 'retry', 'active')
+ORDER BY j.start_after, j.id
+LIMIT 100;
+COMMIT;
+```
+
+Keep the original cohort, not a moving global total. Its live jobs must drain as
+due times and queue capacity allow. After outstanding handlers settle, confirm
+no new generations across several watchdog intervals and again after five
+minutes. Multiple pending slots are allowed. New legitimate completions may
+leave temporary deliveries, but their terminal reads must not recur. Check
+worker readiness, oldest due jobs, database headroom, and lost-running/publication
+errors too. Job state is authoritative; skip logs only corroborate it. Do not
+promise a fixed drain time or exactly one log per item.
+
+Also record the cohort's job IDs and newest `created_on`. With the same queue/item
+filters, timeout, and row limit, inspect jobs created after that watermark across
+all states. This catches successors that completed between live-state samples.
+Do not scan unrelated completed history; retain the watermark and observed IDs.
+
+No production deletion is needed. Check effective stored queue settings with
+`SELECT name, retention_seconds, deletion_seconds FROM pgboss.queue` filtered
+to the affected queue names, and inspect a bounded sample of retained cohort
+jobs' `completed_on`, `keep_until`, and `deletion_seconds` under the same query
+timeout. Per-job values can differ from queue defaults; deletion can be disabled.
+The worker role owns pg-boss supervision. Verify supervisor health and that
+eligible old rows decrease after maintenance before predicting cleanup.
+Application `agent-work-retention` is separate; successful application-retention
+logs do not prove pg-boss job deletion. Avoid repeated scans of completed history.
+SQL deletion does not promise immediate disk-space reclamation.
+
+Reconfirm retention health before changing it. A prior nullable-job observation
+alone does not reproduce a defect in the current correlation function; retain
+evidence for a separate follow-up, not a speculative null fix or blind purge.
+Coordinated rollback preserves work, leases, intents, and publish records, but
+older code can restart surviving chains and create new ones. Rollback is not a
+cure and does not authorize cleanup or failed-item reopening.
+
 ## Local agent traces
 
 Migration 039 adds local `agent_trace_spans`, `agent_trace_parts` and
@@ -622,7 +688,7 @@ or schema reversal.
 - The durable runner emits one `"work completed"` envelope (`work_type`, `outcome`, `reason`, `duration_ms`, `attempt_count`, `owner`, `repo`, `pr_number`, `head_sha`). Terminal failure is `outcome=failed` with classified `failure_domain` / `error_kind`, a sanitized `error_message`, and optional `http_status` / `request_path` when a GitHub call supplied them. `"work item retried"` fires when an acknowledged admitted work attempt returns to the queue, carrying `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds`, and those classified failure fields. `cause_chain` stays on evlog. Executors return closed completion metadata, including the review profile measured over its original executor interval. Capture runs only after the completion mark wins; a rejected mark or observed cancellation/supersession emits no completion event. A completed work item with a partial publish is `outcome=degraded`. Superseded publish and cancelled lightweight review retain `outcome=superseded` or `lightweight` only when the durable completion mark wins. Telemetry errors cannot retry or fail completed work. Already-published replay, stale-head replacement, no-open-findings short-circuit, emit no completion envelope. Committed intake cancellation/supersession emits separate lifecycle terminals only after commit; execution-stop metadata alone is nonterminal. No telemetry backfill is performed.
 - Review check-run recovery uses the exact remote identity `(owner, repo, head SHA, name, external ID)`, with the requesting work-item ID as `external ID`. The worker recovers only from a structured duplicate-creation error and adopts exactly one provider match. A missing external ID, mismatch, multiple matches, or unrelated validation error stays unresolved; the per-work-item `check_run` publish record is not reassigned.
 - Single-actor exclusion for review, description, triage, and verification lives on the `pr_actor_leases` table (one row per `(resource_key, work_type)`), not on pg-boss queue policies; all work queues use the `standard` policy. The worker acquires the lease and claims the work item in one transaction (a waiting item stays `queued`, so the progress comment's queue rank among queued reviews for the same pull request keeps its meaning; a crash between acquire and claim rolls back, so no held lease ever parks on a queued row), recording the acquired epoch on the item row (`execution_epoch`) in the same statement, renews it on `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS` only while that work item still holds the epoch, and releases it on completion, terminal failure, retry handoff, a failed claim, or a rejected payload load. A holder-clear from intake cancel or supersede fails the next renew without bumping `lease_epoch`. During leased execute, one observer watches durable skip or hold-loss and aborts the host signal; do not shrink the 120s renew interval to chase cancel. Slash `/review force`, `/cancel`, pull-request close cancel, auto supersede, and triage close cancel all clear the affected lease holder on exact (id, epoch) pairs in the same intake transaction, so a sole replacement can acquire and claim without waiting for that worker to exit or for `PR_ACTOR_LEASE_TTL_SECONDS`; a predecessor cancel never clears a newer epoch when a replacement reuses a cancelled identifier, and unknown epochs fail closed to TTL. If a worker-side SQL release fails after renewal has stopped, the row stays held until `PR_ACTOR_LEASE_TTL_SECONDS` elapses and the watchdog hop steals it. Every blocked delivery — whether the holder is a different item or this item's own crashed execution — completes as a no-op after arming one throttled redelivery (`singletonKey` = work item, `singletonSeconds`/`startAfter`: `PR_ACTOR_LEASE_DEFER_SECONDS`), so the chain re-checks the lease every defer interval until it frees or lapses.
-- Crash recovery is self-healing on that watchdog chain, seeded by every leased delivery before the atomic acquire-and-claim (so any crash that commits a held lease always has a chain; a crash before the commit holds nothing and the next delivery acquires immediately): a worker that dies mid-run leaves its lease held, the armed copy keeps re-arming every `PR_ACTOR_LEASE_DEFER_SECONDS`, and once the lease lapses (`PR_ACTOR_LEASE_TTL_SECONDS` after the last renewal) the next hop steals it with a fresh `lease_epoch` and re-executes the still-`running` item. Recovery time is bounded by the lease TTL plus one hop, independent of pg-boss job expiry. Durable writes and every leased `PrSurface` mutation are fenced on the lease epoch, so a stale holder that wakes up after losing the lease logs `agent_work_stale_execution_skipped`, aborts its mutation signal, and exits without touching the work item or PR. Operation intents and publish records retain the epoch for recovery of an ambiguous remote outcome. A renewal failure logs `pr_actor_lease_lost` / `pr_actor_lease_renewal_failed` at warn and the holder stops at its next fencing checkpoint; it does not mark the item failed. Ask remains unleased and keeps its publish-record idempotency path. The ask terminal-failure hook posts only when that record and delivered-reply recovery do not confirm an answer; the failure reply uses the `ask:failure_reply` operation-intent key so an `outcome_unknown` answer mutation cannot silence or remutate the thread.
+- Crash recovery is self-healing on that watchdog chain, seeded only by queued/running leased cores before the atomic acquire-and-claim (so any crash that commits a held lease always has a chain; a crash before the commit holds nothing and the next delivery acquires immediately). Completed/failed deliveries log `agent_work_terminal_delivery_skipped` and complete without seeding or acquiring. Already-in-flight active snapshots can leave residual copies; their terminal reads stop without successors. A worker that dies mid-run leaves its lease held, the armed copy keeps re-arming every `PR_ACTOR_LEASE_DEFER_SECONDS`, and once the lease lapses (`PR_ACTOR_LEASE_TTL_SECONDS` after the last renewal) the next hop steals it with a fresh `lease_epoch` and re-executes the still-`running` item. Recovery time is bounded by the lease TTL plus one hop when storage and worker scheduling are healthy, independent of pg-boss job expiry. Durable writes and every leased `PrSurface` mutation are fenced on the lease epoch, so a stale holder that wakes up after losing the lease logs `agent_work_stale_execution_skipped`, aborts its mutation signal, and exits without touching the work item or PR. Operation intents and publish records retain the epoch for recovery of an ambiguous remote outcome. A renewal failure logs `pr_actor_lease_lost` / `pr_actor_lease_renewal_failed` at warn and the holder stops at its next fencing checkpoint; it does not mark the item failed. Ask remains unleased and keeps its publish-record idempotency path. The ask terminal-failure hook posts only when that record and delivered-reply recovery do not confirm an answer; the failure reply uses the `ask:failure_reply` operation-intent key so an `outcome_unknown` answer mutation cannot silence or remutate the thread.
 - If a leased-type work item sits `queued` past `STALE_QUEUED_WORK_GRACE_SECONDS` with no live lease row for its `(resource_key, work_type)` and no `created`/`active`/`retry` pg-boss job for that item, its delivery chain is dead; the diagnostics tick logs `agent_work_queued_stale`. A waiting intake job or deferred watchdog hop is not stale.
 - A suppressed watchdog send counts as armed only when a `created` or `retry` successor exists. An `active` job may be the firing delivery and cannot prove a future hop. Retained completed or failed jobs are history, not recovery. When those jobs block the current/next throttle slots with no pending successor, the worker clears only their observed candidate-slot metadata and retries the same singleton-guarded send once. Active rows stay intact, and the sweeper still counts `created`, `active`, and `retry` jobs as live. Terminal state, payload, output, retention, and unrelated slots stay intact. This adds no intentional delay to the 15-second cadence. A real enqueue or storage failure remains a failure. This repairs future arming attempts, not already-dead delivery chains; use the manual recovery guidance below rather than deleting retained jobs or changing the singleton index.
 - If a leased-type work item sits `running` past `PR_ACTOR_LEASE_TTL_SECONDS + STALE_QUEUED_WORK_GRACE_SECONDS` with a lapsed lease and no `created`/`active`/`retry` pg-boss job for that item, the diagnostics tick logs `agent_work_running_lost`. Detection is advisory: the failure transaction excludes lease/job writes before a fresh READ COMMITTED statement rechecks age and liveness. A revived candidate stays running; only a committed mark writes `failed` with reason `worker_lost` and permits closing that candidate's review **own verdict** as crashed (`action_required` on `PR Agent Review`, `error` on `pr-agent/review` when the flag is on). A snapshot warning alone does not mean work failed. The same tick separately retries close for a terminal review whose recorded check is still open (`detail.status` is `in_progress` or `detail.conclusion` is missing); snapshot candidates skipped during this tick are eligible on a later tick once terminal. Failed rows close as crashed. Completed rows with a `summary_comment` close as published or partial. Completed rows without a summary close as unpublished. Cancelled and superseded rows keep those kinds. A live job or a still-valid lease is not lost.
