@@ -50,7 +50,49 @@ describe("loadConfig validation", () => {
     expect(cfg.ask.providerBudgetTokens).toBe(0);
     expect(cfg.ask.providerReservationTokens).toBe(16_384);
     expect(cfg.codeMode.executorKind).toBe("in_process");
+    expect(cfg.traces).toEqual({
+      mode: "metadata",
+      retentionSeconds: 1_209_600,
+      bufferMaxSpans: 400,
+    });
   });
+
+  it.each(["off", "metadata", "content"])("accepts trace mode %s", async (mode) => {
+    expect((await load({ TRACES_MODE: mode })).traces.mode).toBe(mode);
+  });
+
+  it.each(["Content", "invalid"])("rejects trace mode %s", async (mode) => {
+    await expect(load({ TRACES_MODE: mode })).rejects.toMatchObject({
+      code: "config.invalid_enum",
+      context: { name: "TRACES_MODE" },
+    });
+  });
+
+  it.each(["0", "-1", "1.5", "invalid"])("rejects trace buffer %s", async (value) => {
+    await expect(load({ TRACES_BUFFER_MAX_SPANS: value })).rejects.toMatchObject({
+      code: "config.invalid_number",
+    });
+  });
+
+  it.each(["1209599", "1209600"])(
+    "allows trace retention %s within work retention",
+    async (value) => {
+      const cfg = await load({
+        AGENT_WORK_RETENTION_SECONDS: "1209600",
+        TRACES_RETENTION_SECONDS: value,
+      });
+      expect(cfg.traces.retentionSeconds).toBe(Number(value));
+    },
+  );
+
+  it.each(["1209601", "2592000"])(
+    "rejects trace retention %s above work retention",
+    async (value) => {
+      await expect(
+        load({ AGENT_WORK_RETENTION_SECONDS: "1209600", TRACES_RETENTION_SECONDS: value }),
+      ).rejects.toMatchObject({ code: "config.invalid_number" });
+    },
+  );
 
   it("rejects a non-numeric positive knob", async () => {
     await expect(load({ PROVIDER_PROMPT_TIMEOUT_MS: "abc" })).rejects.toThrow(

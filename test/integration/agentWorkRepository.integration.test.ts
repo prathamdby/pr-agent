@@ -1,5 +1,7 @@
 import { createPublishContext } from "../../src/agentWork/publishOnce.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { Effect } from "effect";
+import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
@@ -23,6 +25,13 @@ import {
 } from "../../src/agentWork/workItemStateRepository.js";
 import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
+import { AgentWorkExecutionsLive } from "../../src/agentWork/runtime.js";
+import { createSessionTrace } from "../../src/agent/runtime/sessionTrace.js";
+import { DEFAULT_THINKING_POLICY, DEFAULT_TOOL_POLICY } from "../../src/agent/runtime/types.js";
+import { initTraces, openTraceSession, startWorkTrace } from "../../src/traces/recorder.js";
+import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../../src/settings/index.js";
+import * as evlog from "../../src/evlog.js";
+import { makeTestConfig } from "../helpers/config.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "repo-it";
@@ -82,6 +91,461 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     );
     return id;
   }
+
+  describe("agent traces", () => {
+    it("stores only redacted multiline, overlapping, dynamic and regex credentials with post-redaction hashes", async () => {
+      const id = await insertWorkItem();
+      const privateKey = "-----BEGIN PRIVATE KEY-----\ntrace-key\n-----END PRIVATE KEY-----";
+      const cfg = makeTestConfig({
+        runtime: { role: "worker", databaseUrl: "trace-database-credential" },
+        github: { privateKey },
+        webhook: { secret: "trace-overlap" },
+        models: { providerKeys: { openai: "trace-overlap-provider" } },
+        context7: { apiKey: "trace-context7" },
+        posthog: { projectToken: "trace-posthog" },
+        traces: { mode: "content" },
+      });
+      const values = [
+        privateKey,
+        JSON.stringify(privateKey).slice(1, -1),
+        cfg.webhook.secret,
+        cfg.models.providerKeys.openai,
+        cfg.runtime.databaseUrl,
+        cfg.context7.apiKey,
+        cfg.posthog.projectToken,
+        "trace-installation-token",
+        "ghp_first",
+        "ghp_second",
+        "github_pat_fake",
+        "sk-fake-token",
+        "AKIA1234567890123456",
+        "xoxb-fake-token",
+        "-----BEGIN RSA PRIVATE KEY-----\nunconfigured-key\n-----END RSA PRIVATE KEY-----",
+      ];
+      const drain = initTraces(pool, cfg);
+      try {
+        await startWorkTrace(randomUUID(), id, async () => {
+          const recording = openTraceSession();
+          expect(recording).toBeDefined();
+          if (!recording) throw new Error("trace recording was not initialized");
+          recording.addSecret("trace-installation-token");
+          const session = recording.span({ kind: "session", parentId: recording.parentId });
+          recording.part(session, "user", `é ${values.join(" | ")}`);
+          recording.close(session);
+        });
+      } finally {
+        await drain();
+      }
+      const { rows } = await pool.query<{
+        body: string;
+        sha256: string;
+        bytes: number;
+        redactions: number;
+      }>(
+        `SELECT b.body, b.sha256, b.bytes, p.redactions
+         FROM agent_trace_parts p JOIN agent_trace_blobs b ON b.sha256 = p.blob_sha
+         JOIN agent_trace_spans s ON s.id = p.span_id WHERE s.work_item_id = $1`,
+        [id],
+      );
+      const expected = `é ${values.map(() => "[redacted]").join(" | ")}`;
+      expect(rows).toEqual([
+        {
+          body: expected,
+          sha256: createHash("sha256").update(expected).digest("hex"),
+          bytes: Buffer.byteLength(expected),
+          redactions: values.length,
+        },
+      ]);
+    });
+
+    it.each(["metadata", "content", "off"] as const)(
+      "persists Pi prompts, thinking and tool content only in content mode, not %s",
+      async (mode) => {
+        const id = await insertWorkItem();
+        const cfg = makeTestConfig({ runtime: { role: "worker" }, traces: { mode } });
+        const model: Model<"openai-responses"> = {
+          id: "trace-model",
+          name: "trace-model",
+          provider: "openai",
+          api: "openai-responses",
+          baseUrl: "http://localhost",
+          reasoning: true,
+          input: ["text"],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 10000,
+          maxTokens: 1000,
+        };
+        const message: AssistantMessage = {
+          role: "assistant",
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          content: [
+            { type: "text", text: "trace-answer" },
+            { type: "thinking", thinking: "trace-thinking" },
+          ],
+          usage: {
+            input: 10,
+            output: 5,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 15,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: Date.now(),
+        };
+        const drain = initTraces(pool, cfg);
+        try {
+          await startWorkTrace(randomUUID(), id, async () => {
+            const trace = createSessionTrace(
+              {
+                cfg,
+                role: "ask",
+                primary: { provider: model.provider, model: model.id },
+                thinkingPolicy: DEFAULT_THINKING_POLICY,
+                toolPolicy: DEFAULT_TOOL_POLICY,
+                compactionPolicy: { enabled: false },
+                promptCachePolicy: { retention: "short" },
+                systemPrompt: "trace-system",
+                tools: [],
+                executors: {},
+                eventSink: () => undefined,
+              },
+              model,
+              randomUUID(),
+              () => 1,
+            );
+            trace.beginSend({ phase: "ask", checkpointId: "trace-checkpoint" });
+            trace.event({
+              type: "message_start",
+              message: {
+                role: "user",
+                content: "trace-user",
+                timestamp: Date.now(),
+              },
+            });
+            trace.event({ type: "turn_start" });
+            trace.event({ type: "message_end", message });
+            trace.event({
+              type: "tool_execution_start",
+              toolCallId: "trace-call",
+              toolName: "trace-tool",
+              args: { prompt: "trace-args" },
+            });
+            trace.event({
+              type: "tool_execution_end",
+              toolCallId: "trace-call",
+              toolName: "trace-tool",
+              result: { text: "trace-result" },
+              isError: false,
+            });
+            trace.endSend("complete");
+            trace.dispose();
+          });
+        } finally {
+          await drain();
+        }
+        const spans = await pool.query<{ kind: string }>(
+          "SELECT kind FROM agent_trace_spans WHERE work_item_id = $1",
+          [id],
+        );
+        const parts = await pool.query<{ part_kind: string; body: string }>(
+          `SELECT p.part_kind, b.body FROM agent_trace_parts p
+           JOIN agent_trace_spans s ON s.id = p.span_id
+           JOIN agent_trace_blobs b ON b.sha256 = p.blob_sha WHERE s.work_item_id = $1`,
+          [id],
+        );
+        expect(spans.rows.map((row) => row.kind).toSorted((a, b) => a.localeCompare(b))).toEqual(
+          mode === "off" ? [] : ["execution", "generation", "session", "tool"],
+        );
+        if (mode === "content") {
+          expect(
+            parts.rows.map((row) => row.part_kind).toSorted((a, b) => a.localeCompare(b)),
+          ).toEqual(["assistant_text", "system", "thinking", "tool_args", "tool_result", "user"]);
+        } else {
+          expect(parts.rows).toEqual([]);
+        }
+      },
+    );
+
+    it("counts dropped spans once per execution at the queue limit and after a failed append", async () => {
+      for (const failAppend of [false, true]) {
+        const id = await insertWorkItem();
+        const drain = initTraces(
+          pool,
+          makeTestConfig({
+            runtime: { role: "worker" },
+            traces: { bufferMaxSpans: 2 },
+          }),
+        );
+        try {
+          await startWorkTrace(randomUUID(), id, async () => {
+            const recording = openTraceSession();
+            if (!recording) throw new Error("trace recording was not initialized");
+            const session = recording.span({ kind: "session", parentId: recording.parentId });
+            for (let index = 0; index < 3; index += 1) {
+              const generation = recording.span({ kind: "generation", parentId: session.id });
+              recording.finish(
+                failAppend ? { ...generation, workItemId: randomUUID() } : generation,
+              );
+            }
+            recording.close(session);
+            recording.close(session);
+          });
+        } finally {
+          await drain();
+        }
+        const spans = await pool.query("SELECT id FROM agent_trace_spans WHERE work_item_id = $1", [
+          id,
+        ]);
+        const reports = await pool.query<{ detail: { count: number } }>(
+          "SELECT detail FROM agent_events WHERE work_item_id = $1 AND event_kind = 'trace_spans_dropped'",
+          [id],
+        );
+        expect(spans.rows).toHaveLength(failAppend ? 0 : 2);
+        expect(reports.rows).toHaveLength(1);
+        expect(reports.rows[0].detail.count).toBe(failAppend ? 5 : 3);
+      }
+    });
+
+    it("bounds content parts and eight MiB across queued and in-flight writes", async () => {
+      const id = await insertWorkItem();
+      const application = `trace-bytes-${randomUUID()}`;
+      const tracePool = new Pool({ ...pool.options, max: 1, application_name: application });
+      const blocker = await pool.connect();
+      const drain = initTraces(
+        tracePool,
+        makeTestConfig({
+          runtime: { role: "worker" },
+          traces: { mode: "content" },
+        }),
+      );
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query("LOCK TABLE agent_trace_spans IN ACCESS EXCLUSIVE MODE");
+        await startWorkTrace(randomUUID(), id, async () => {
+          const recording = openTraceSession();
+          if (!recording) throw new Error("trace recording was not initialized");
+          const session = recording.span({ kind: "session", parentId: recording.parentId });
+          for (let index = 0; index < 40; index += 1) {
+            const generation = recording.span({ kind: "generation", parentId: session.id });
+            for (let part = 0; part < 5; part += 1)
+              recording.part(generation, "user", "x".repeat(64 * 1024));
+            recording.finish(generation);
+            if (index === 0) {
+              await vi.waitFor(
+                async () => {
+                  const { rows } = await pool.query(
+                    "SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event_type = 'Lock'",
+                    [application],
+                  );
+                  expect(rows).toHaveLength(1);
+                },
+                { timeout: 3000 },
+              );
+            }
+          }
+          recording.close(session);
+        });
+      } finally {
+        await blocker.query("ROLLBACK");
+        blocker.release();
+        await drain();
+        await tracePool.end();
+      }
+      const { rows } = await pool.query<{ parts: number; bytes: string; truncated: boolean }>(
+        `SELECT count(p.seq)::int AS parts, sum(b.bytes)::text AS bytes,
+         (s.attrs->>'content_truncated')::boolean AS truncated FROM agent_trace_spans s
+         JOIN agent_trace_parts p ON p.span_id = s.id
+         JOIN agent_trace_blobs b ON b.sha256 = p.blob_sha
+         WHERE s.work_item_id = $1 GROUP BY s.id`,
+        [id],
+      );
+      expect(rows).toHaveLength(31);
+      expect(
+        rows.every((row) => row.parts === 4 && Number(row.bytes) === 256 * 1024 && row.truncated),
+      ).toBe(true);
+      const reports = await pool.query(
+        "SELECT detail FROM agent_events WHERE work_item_id = $1 AND event_kind = 'trace_spans_dropped'",
+        [id],
+      );
+      expect(reports.rows).toHaveLength(1);
+      expect(reports.rows[0].detail.count).toBe(9);
+    });
+
+    it("keeps overlapping execution, session, generation and tool lineage isolated", async () => {
+      const ids = await Promise.all([insertWorkItem(), insertWorkItem()]);
+      let arrived = 0;
+      let release: () => void = () => undefined;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const drain = initTraces(pool, makeTestConfig({ runtime: { role: "worker" } }));
+      const executions = ids.map(() => randomUUID());
+      try {
+        await Promise.all(
+          ids.map((id, index) =>
+            startWorkTrace(executions[index], id, async () => {
+              const recording = openTraceSession();
+              if (!recording) throw new Error("trace recording was not initialized");
+              const session = recording.span({ kind: "session", parentId: recording.parentId });
+              arrived += 1;
+              if (arrived === 2) release();
+              await ready;
+              const generation = recording.span({ kind: "generation", parentId: session.id });
+              await Promise.resolve();
+              const tool = recording.span({ kind: "tool", parentId: generation.id });
+              recording.finish(tool);
+              recording.finish(generation);
+              recording.close(session);
+            }),
+          ),
+        );
+      } finally {
+        await drain();
+      }
+      const { rows } = await pool.query<{
+        id: string;
+        parent_id: string | null;
+        execution_id: string;
+        work_item_id: string;
+        kind: string;
+      }>(
+        "SELECT id, parent_id, execution_id, work_item_id, kind FROM agent_trace_spans WHERE work_item_id = ANY($1::uuid[])",
+        [ids],
+      );
+      expect(rows).toHaveLength(8);
+      for (const [index, id] of ids.entries()) {
+        const own = rows.filter((row) => row.work_item_id === id);
+        expect(own.map((row) => row.kind).toSorted((a, b) => a.localeCompare(b))).toEqual([
+          "execution",
+          "generation",
+          "session",
+          "tool",
+        ]);
+        expect(own.every((row) => row.execution_id === executions[index])).toBe(true);
+        const root = own.find((row) => row.kind === "execution");
+        const session = own.find((row) => row.kind === "session");
+        const generation = own.find((row) => row.kind === "generation");
+        const tool = own.find((row) => row.kind === "tool");
+        expect(root?.parent_id).toBeNull();
+        expect(session?.parent_id).toBe(root?.id);
+        expect(generation?.parent_id).toBe(session?.id);
+        expect(tool?.parent_id).toBe(generation?.id);
+      }
+    });
+
+    it("reports a late session as dropped and refuses its content once draining starts", async () => {
+      const id = await insertWorkItem();
+      const blocker = await pool.connect();
+      const drain = initTraces(
+        pool,
+        makeTestConfig({ runtime: { role: "worker" }, traces: { mode: "content" } }),
+      );
+      let draining: Promise<void> | undefined;
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query("LOCK TABLE agent_trace_spans IN ACCESS EXCLUSIVE MODE");
+        let recording: ReturnType<typeof openTraceSession>;
+        await startWorkTrace(randomUUID(), id, async () => {
+          recording = openTraceSession();
+        });
+        if (!recording) throw new Error("trace recording was not initialized");
+        const late = recording.span({ kind: "session", parentId: recording.parentId });
+        draining = drain();
+        recording.part(late, "user", "late-sensitive-content");
+        recording.close(late);
+      } finally {
+        await blocker.query("ROLLBACK");
+        blocker.release();
+        await (draining ?? drain());
+      }
+      expect(
+        (await pool.query("SELECT kind FROM agent_trace_spans WHERE work_item_id = $1", [id])).rows,
+      ).toEqual([{ kind: "execution" }]);
+      const reports = await pool.query(
+        "SELECT detail FROM agent_events WHERE work_item_id = $1 AND event_kind = 'trace_spans_dropped'",
+        [id],
+      );
+      expect(reports.rows).toHaveLength(1);
+      expect(reports.rows[0].detail.count).toBe(1);
+    });
+
+    it("cuts off a blocked trace write, warns, and refuses late content without ending the work pool", async () => {
+      const id = await insertWorkItem();
+      const blocker = await pool.connect();
+      const cfg = makeTestConfig({
+        runtime: { role: "worker", databaseUrl: pool.options.connectionString },
+        traces: { mode: "content" },
+      });
+      const warning = vi.spyOn(evlog, "logWarn");
+      let recording: ReturnType<typeof openTraceSession>;
+      let late: ReturnType<NonNullable<typeof recording>["span"]> | undefined;
+      let tracePid: number | undefined;
+      let disconnected: Promise<void> | undefined;
+      const createPool = postgres.createPgPool;
+      vi.spyOn(postgres, "createPgPool").mockImplementation((settings, max) => {
+        const tracePool = createPool(settings, max);
+        tracePool.on("connect", (client) => {
+          disconnected = new Promise<void>((resolve) => client.once("end", resolve));
+        });
+        return tracePool;
+      });
+      let started = 0;
+      try {
+        await blocker.query("BEGIN");
+        await blocker.query("LOCK TABLE agent_trace_spans IN ACCESS EXCLUSIVE MODE");
+        await Effect.runPromise(
+          Effect.scoped(
+            Effect.promise(async () => {
+              await startWorkTrace(randomUUID(), id, async () => {
+                recording = openTraceSession();
+                if (!recording) throw new Error("trace recording was not initialized");
+                late = recording.span({ kind: "session", parentId: recording.parentId });
+              });
+              await vi.waitFor(
+                async () => {
+                  const { rows } = await pool.query<{ pid: number }>(
+                    "SELECT pid FROM pg_stat_activity WHERE application_name = 'pr-agent-worker' AND wait_event_type = 'Lock'",
+                  );
+                  expect(rows).toHaveLength(1);
+                  tracePid = rows[0].pid;
+                },
+                { timeout: 3000 },
+              );
+              started = Date.now();
+            }).pipe(Effect.provide(AgentWorkExecutionsLive(cfg))),
+          ),
+        );
+        expect(Date.now() - started).toBeGreaterThanOrEqual(SHUTDOWN_SETTLE_TIMEOUT_MS - 100);
+        expect(Date.now() - started).toBeLessThan(SHUTDOWN_SETTLE_TIMEOUT_MS + 2500);
+        expect(warning).toHaveBeenCalledWith(
+          "agent_trace_shutdown_incomplete",
+          expect.objectContaining({ queued: expect.any(Number) }),
+        );
+        expect(disconnected).toBeDefined();
+        await disconnected;
+        expect(openTraceSession()).toBeUndefined();
+        if (!recording || !late) throw new Error("late session was not created");
+        recording.part(late, "user", "late-sensitive-content");
+        expect(late.parts).toEqual([]);
+        recording.close(late);
+        expect((await pool.query("SELECT 1 AS healthy")).rows[0].healthy).toBe(1);
+      } finally {
+        await blocker.query("ROLLBACK");
+        blocker.release();
+      }
+      await vi.waitFor(async () => {
+        expect(
+          (await pool.query("SELECT pid FROM pg_stat_activity WHERE pid = $1", [tracePid])).rows,
+        ).toEqual([]);
+      });
+      expect(
+        (await pool.query("SELECT id FROM agent_trace_spans WHERE work_item_id = $1", [id])).rows,
+      ).toEqual([]);
+    });
+  });
 
   async function insertAskWorkItem(resourceKey: string): Promise<string> {
     const id = randomUUID();
