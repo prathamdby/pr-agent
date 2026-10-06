@@ -7,6 +7,7 @@ import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
 import { deleteExpiredReviewApprovals } from "./intake/reviewApprovals.js";
 import { deleteExpiredGithubCapabilities } from "./githubCapabilityRepository.js";
+import { deleteExpiredTraces } from "./agentTraceRepository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -19,6 +20,7 @@ export type RetentionResult = {
   readonly askQuotaBucketsDeleted: number;
   readonly prHeadCiStateDeleted: number;
   readonly reviewApprovalsDeleted: number;
+  readonly traceSpansDeleted: number;
 };
 
 /**
@@ -27,7 +29,7 @@ export type RetentionResult = {
  */
 export async function runRetention(
   pool: Pool,
-  cfg: Pick<Config, "retention" | "agentEvents" | "codeIndex">,
+  cfg: Pick<Config, "retention" | "agentEvents" | "codeIndex" | "traces">,
 ): Promise<RetentionResult> {
   const [
     workItemsDeleted,
@@ -123,6 +125,11 @@ export async function runRetention(
     deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
   ]);
   await deleteExpiredGithubCapabilities(pool, cfg.retention.agentWorkSeconds);
+  const traceSpansDeleted = await deleteExpiredTraces(
+    pool,
+    cfg.traces.retentionSeconds,
+    RETENTION_DELETE_BATCH_SIZE,
+  );
   return {
     workItemsDeleted,
     webhookEventsDeleted,
@@ -132,6 +139,7 @@ export async function runRetention(
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,
+    traceSpansDeleted,
   };
 }
 

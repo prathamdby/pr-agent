@@ -43,6 +43,7 @@ function attachSessionAbort(session: PiSession, sessionAbort: AbortController): 
 export async function createFeaturePiSession(params: {
   readonly createSession?: (params: PiSessionCreateParams) => PiSession | Promise<PiSession>;
   readonly role: AgentSessionRole;
+  readonly traceRole?: "judge";
   readonly specialistId?: string;
   readonly cfg: Config;
   readonly systemPrompt: string;
@@ -81,7 +82,10 @@ export async function createFeaturePiSession(params: {
       execute(args, {
         signal: combineAbortSignals([ctx?.signal, sessionAbort.signal, params.hostSignal]),
         toolCallId: ctx?.toolCallId ?? CODE_MODE_EXECUTE_NAME,
-        emit: eventSink,
+        emit: (event) => {
+          ctx?.emit?.(event);
+          eventSink(event);
+        },
         role: params.role,
         provider: primary.provider,
         model: primary.model,
@@ -89,6 +93,8 @@ export async function createFeaturePiSession(params: {
   }
   const session = await (params.createSession ?? createPiSession)({
     role: params.role,
+    traceWorkItemId: params.sessionContext?.workItemId,
+    traceRole: params.traceRole,
     ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary,
     thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.models.thinkingCeiling),

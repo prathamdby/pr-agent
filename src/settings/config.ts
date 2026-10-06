@@ -1,4 +1,5 @@
 import type { Features } from "./featureModes.js";
+import { readTracesSlice, type TracesSlice } from "./slices/traces.js";
 import { readAskSlice, type AskSlice } from "./slices/ask.js";
 import { readFeatures } from "./slices/features.js";
 import {
@@ -54,6 +55,7 @@ export type Config = {
   readonly models: ModelsSlice;
   readonly provider: ProviderSlice;
   readonly agentEvents: AgentEventsSlice;
+  readonly traces: TracesSlice;
   readonly findingHistory: FindingHistorySlice;
   readonly codeIndex: CodeIndexSlice;
   readonly codeMode: CodeModeSlice;
@@ -73,6 +75,7 @@ export async function loadConfig(): Promise<Config> {
   const webhook = readWebhookSlice();
   const models = await readModelsSlice(runtime.role);
   const provider = readProviderSlice();
+  const retention = readRetentionSlice();
   return {
     runtime,
     github,
@@ -82,6 +85,7 @@ export async function loadConfig(): Promise<Config> {
     models,
     provider,
     agentEvents: readAgentEventsSlice(),
+    traces: readTracesSlice(retention.agentWorkSeconds),
     findingHistory: readFindingHistorySlice(),
     codeIndex: readCodeIndexSlice(),
     codeMode: readCodeModeSlice(),
@@ -89,7 +93,7 @@ export async function loadConfig(): Promise<Config> {
     concurrency: readConcurrencySlice(),
     ask: readAskSlice(),
     queue: readQueueSlice(),
-    retention: readRetentionSlice(),
+    retention,
     context7: readContext7Slice(),
     posthog: readPosthogSlice(),
     logging: readLoggingSlice(),

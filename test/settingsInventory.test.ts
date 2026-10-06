@@ -46,7 +46,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("CODE_INDEX_MODE");
     expect(envValues).toContain("CODE_INDEX_WAIT_MS");
     expect(envValues).toContain("CODE_INDEX_RETENTION_SECONDS");
-    expect(envValues.length).toBe(77);
+    expect(envValues.length).toBe(80);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

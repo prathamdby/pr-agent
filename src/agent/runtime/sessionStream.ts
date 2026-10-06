@@ -32,6 +32,7 @@ export type SessionStreamDefaults = {
 export type SessionStream = {
   readonly streamFn: StreamFn;
   readonly getLastOptions: () => SimpleStreamOptions | undefined;
+  readonly getAttempts: () => number;
 };
 
 function failureMessage(
@@ -69,7 +70,9 @@ export function createSessionStreamFn(
   defaults: SessionStreamDefaults,
 ): SessionStream {
   let lastOptions: SimpleStreamOptions | undefined;
+  let attempts = 0;
   const streamFn: StreamFn = (model, context: Context, options) => {
+    attempts += 1;
     const merged: SimpleStreamOptions = {
       ...defaults,
       ...options,
@@ -87,5 +90,6 @@ export function createSessionStreamFn(
   return {
     streamFn,
     getLastOptions: () => lastOptions,
+    getAttempts: () => attempts,
   };
 }

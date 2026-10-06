@@ -60,6 +60,12 @@ settlement refers to them and never substitutes for exact remote receipts.
 all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
 
 Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
+`src/traces/recorder.ts` owns bounded best-effort local recording and execution
+AsyncLocalStorage. `src/agent/runtime/sessionTrace.ts` projects Pi events into
+session, per-call generation, tool and compaction children. SQL and retention
+belong to `src/agentWork/agentTraceRepository.ts`; credential-only content redaction
+belongs to `src/traces/content.ts`. Traces never authorize recovery or publishing.
+See [ADR 0046](adr/0046-agent-traces.md).
 `agentEventSink.ts` fans out independently to optional local audit and PostHog;
 missing generation usage remains absent. Specialist schema/validation/run spans
 are non-generation stages emitted as they settle. Durable terminal capture follows
@@ -121,7 +127,7 @@ and releases all acquired timers when that send finishes. The existing
 `createPiSession.test.ts` and seam/compaction suites exercise this through the
 unchanged public adapter.
 
-`Config` is nested slices (`runtime`, `github`, `webhook`, `associations`, `features`, `models`, `provider`, `agentEvents`, `findingHistory`, `codeIndex`, `codeMode`, `review`, `concurrency`, `ask`, `queue`, `retention`, `context7`, `posthog`, `logging`). Each slice reader lives in `src/settings/slices/` and uses the typed readers in `src/settings/envReaders.ts`, the only `NODE_ENV` read. `src/settings/config.ts` composes them and its `loadConfig` stays the single entry; the settings barrel exports it. A module takes the slice it needs (`Config["ask"]`, `Pick<Config, "features">`). Code Mode receives `executorKind` as a parameter from `cfg.codeMode.executorKind`; nothing reads `VITEST`. Tests build slices with `makeTestConfig({ review: { maxInlineComments: 1 } })` and pass them in; settings are never module-mocked. The Pi model catalog (`modelsJson*`) lives in `src/agent/runtime/`; the worker-role models slice loads it with a dynamic import so web never loads the Pi SDK.
+`Config` is nested slices (`runtime`, `github`, `webhook`, `associations`, `features`, `models`, `provider`, `agentEvents`, `traces`, `findingHistory`, `codeIndex`, `codeMode`, `review`, `concurrency`, `ask`, `queue`, `retention`, `context7`, `posthog`, `logging`). Each slice reader lives in `src/settings/slices/` and uses the typed readers in `src/settings/envReaders.ts`, the only `NODE_ENV` read. `src/settings/config.ts` composes them and its `loadConfig` stays the single entry; the settings barrel exports it. A module takes the slice it needs (`Config["ask"]`, `Pick<Config, "features">`). Code Mode receives `executorKind` as a parameter from `cfg.codeMode.executorKind`; nothing reads `VITEST`. Tests build slices with `makeTestConfig({ review: { maxInlineComments: 1 } })` and pass them in; settings are never module-mocked. The Pi model catalog (`modelsJson*`) lives in `src/agent/runtime/`; the worker-role models slice loads it with a dynamic import so web never loads the Pi SDK.
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 

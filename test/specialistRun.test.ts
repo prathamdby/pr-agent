@@ -408,16 +408,19 @@ describe("runSpecialist", () => {
     const repairOptions = runnerMocks.sessions[0]?.send.mock.calls.slice(1).map((call) => call[1]);
     expect(repairOptions).toEqual([
       {
+        traceValidationRepair: true,
         maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
         phase: "specialist",
         checkpointId: "specialist:specialist",
       },
       {
+        traceValidationRepair: true,
         maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
         phase: "specialist",
         checkpointId: "specialist:specialist",
       },
       {
+        traceValidationRepair: true,
         maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
         phase: "specialist",
         checkpointId: "specialist:specialist",

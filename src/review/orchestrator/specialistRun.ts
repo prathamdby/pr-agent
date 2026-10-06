@@ -317,7 +317,7 @@ async function runAttempt(
   const send = async (
     activeSession: PiSession,
     prompt: string,
-    opts?: { readonly maxToolRounds?: number },
+    opts?: { readonly maxToolRounds?: number; readonly traceValidationRepair?: boolean },
   ): Promise<AgentRunnerTurn> => {
     const turn = await runWithinDeadline({
       run: () =>
@@ -362,7 +362,8 @@ async function runAttempt(
               validationError,
               "Fix the report and call submit_findings_report now. Do not use any other tools.",
             ].join("\n\n"),
-            send,
+            (active, prompt, options) =>
+              send(active, prompt, { ...options, traceValidationRepair: true }),
           );
           if (!state.report && !state.validationError) {
             state.validationError = MISSING_REPORT_ERROR;

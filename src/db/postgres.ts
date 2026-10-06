@@ -13,10 +13,10 @@ import {
 import { logWarn } from "../evlog.js";
 import { errorMessage } from "../errors/errorMessage.js";
 
-export function createPgPool(cfg: Pick<Config, "runtime">): Pool {
+export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_MAX): Pool {
   const pool = new Pool({
     connectionString: cfg.runtime.databaseUrl,
-    max: POSTGRES_POOL_MAX,
+    max,
     idleTimeoutMillis: POSTGRES_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: POSTGRES_CONNECTION_TIMEOUT_MS,
     statement_timeout: POSTGRES_STATEMENT_TIMEOUT_MS,

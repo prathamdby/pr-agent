@@ -469,6 +469,23 @@ can include sanitized, bounded error messages; raw error payloads are not sent.
 
 </details>
 
+<details>
+<summary>Local agent traces</summary>
+
+`TRACES_MODE=metadata` records session, model-turn and tool timing, tokens, and
+known cost in your Postgres database, including all four specialists.
+`off` disables tracing. `content` opts into credential-redacted prompts,
+reasoning, tool arguments and results. Repository text can still be sensitive.
+None of this content goes to PostHog.
+
+Traces expire after 14 days by default, no later than work-item retention.
+`RETENTION_ENABLED=false` leaves them unpurged. Agents can read model reports
+and fenced transcripts with `nub run traces-report --signals` and
+`nub run traces-dump --execution <UUID>`. See
+[trace inspection](docs/agent-work-ops.md#local-agent-traces).
+
+</details>
+
 ## Documentation
 
 | Document                                             | What it covers                                |

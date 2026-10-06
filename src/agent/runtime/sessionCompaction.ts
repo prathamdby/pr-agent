@@ -6,12 +6,15 @@ import {
   dropTrailingErrorAssistant,
 } from "./transcriptCompaction.js";
 import type { CompactionPolicy } from "./types.js";
+import type { SessionTrace } from "./sessionTrace.js";
+import { observeTrace } from "../../traces/recorder.js";
 
 type SessionCompactionRuntime = {
   readonly model: AgentLoopConfig["model"];
   readonly streamFn: StreamFn;
   readonly signal: AbortSignal;
   readonly onCompaction: (reason: "window" | "overflow") => void;
+  readonly trace?: SessionTrace;
 };
 
 /** Window compaction is role-controlled; overflow recovery has an independent cap. */
@@ -23,11 +26,13 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
       model: rt.model,
       streamFn: rt.streamFn,
       signal: rt.signal,
+      trace: rt.trace,
     });
     if (!compacted) return undefined;
     rt.onCompaction("window");
     context.messages.length = 0;
     context.messages.push(...compacted);
+    observeTrace(() => rt.trace?.compacted(compacted));
     return { context };
   };
   return {
@@ -40,12 +45,14 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
         model: rt.model,
         streamFn: rt.streamFn,
         signal: rt.signal,
+        trace: rt.trace,
       });
       if (!compacted) return false;
       overflowCompacts += 1;
       rt.onCompaction("overflow");
       messages.length = 0;
       messages.push(...compacted);
+      observeTrace(() => rt.trace?.compacted(compacted));
       return true;
     },
   };

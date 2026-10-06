@@ -53,6 +53,7 @@ export type ToolPolicy = {
 };
 
 export type PiSessionSendOptions = {
+  readonly traceValidationRepair?: boolean;
   readonly phase: AgentSessionPhase;
   readonly maxToolRounds?: number;
   readonly reservedTerminalTool?: string;
@@ -61,6 +62,8 @@ export type PiSessionSendOptions = {
 };
 
 export type PiSessionCreateParams = {
+  readonly traceRole?: "judge";
+  readonly traceWorkItemId?: string;
   readonly role: AgentSessionRole;
   /** Specialist persona for lifecycle correlation and the unchanged cache identity. */
   readonly specialistId?: string;

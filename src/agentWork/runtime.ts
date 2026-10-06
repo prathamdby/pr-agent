@@ -5,6 +5,7 @@ import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
 import { shutdownAnalytics } from "../analytics/index.js";
+import { drainTraces, initTraces } from "../traces/recorder.js";
 import { logWarn } from "../evlog.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
@@ -34,6 +35,7 @@ export const AgentWorkExecutionsLive = Layer.effect(
           ...(await Promise.allSettled([
             tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS, { durableOnly: true }),
             shutdownAnalytics(),
+            drainTraces(),
           ])),
         );
         const remaining = await tracker.settle(0);
@@ -59,6 +61,7 @@ export const AgentWorkPoolLive = (cfg: Config) =>
         try: async () => {
           const pool = createPgPool(cfg);
           await runMigrations(pool);
+          initTraces(cfg);
           return pool;
         },
         catch: (e) => toError(e),
