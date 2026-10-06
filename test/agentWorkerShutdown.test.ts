@@ -113,7 +113,9 @@ describe("in-flight handler settle", () => {
             ),
           );
           yield* Effect.never;
-        }).pipe(Effect.provide(AgentWorkExecutionsLive)),
+        }).pipe(
+          Effect.provide(AgentWorkExecutionsLive(makeTestConfig({ traces: { mode: "off" } }))),
+        ),
       ),
     );
 
@@ -158,7 +160,9 @@ describe("in-flight handler settle", () => {
             void executions.track(() => handler);
           });
           yield* Effect.promise(() => holdScope);
-        }).pipe(Effect.provide(AgentWorkExecutionsLive)),
+        }).pipe(
+          Effect.provide(AgentWorkExecutionsLive(makeTestConfig({ traces: { mode: "off" } }))),
+        ),
       ),
     );
 

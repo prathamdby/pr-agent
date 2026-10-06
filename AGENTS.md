@@ -319,6 +319,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
+- Local traces: `src/traces/`. Owners and limits: [ADR 0046](docs/adr/0046-agent-traces.md).
 - `src/security/` owns outbound, log, and analytics redaction.
 - `src/errors/` owns closed `AppError` codes and classification.
 - `src/prWorkspace/` owns checkout lifecycle. `repositoryReader.ts` owns pinned and writable repository readers, path policy, and hardened Git execution. `src/agent/tools/workspaceToolset.ts` owns the ordered read-tool profiles; triage retains its write tools and final mutation guards.

@@ -103,7 +103,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.js");
-    const cfg = makeTestConfig({ runtime: { role: "worker" } });
+    const cfg = makeTestConfig({ runtime: { role: "worker" }, traces: { mode: "off" } });
 
     const Worker = Context.Service<"Worker", void>("Worker");
     // Same provide order as worker.ts: Boss, executions, then Pool → pool.end last.
@@ -120,7 +120,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkExecutionsLive(cfg)),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -143,7 +143,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.js");
-    const cfg = makeTestConfig({ runtime: { role: "worker" } });
+    const cfg = makeTestConfig({ runtime: { role: "worker" }, traces: { mode: "off" } });
 
     let durableResolved = false;
     let releaseDurable: () => void = () => undefined;
@@ -172,7 +172,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkExecutionsLive(cfg)),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -214,7 +214,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.js");
-    const cfg = makeTestConfig({ runtime: { role: "worker" } });
+    const cfg = makeTestConfig({ runtime: { role: "worker" }, traces: { mode: "off" } });
     const analyticsError = new Error("analytics shutdown failed");
     runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -240,7 +240,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkExecutionsLive(cfg)),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -278,7 +278,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.warnings.length = 0;
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.js");
-    const cfg = makeTestConfig({ runtime: { role: "worker" } });
+    const cfg = makeTestConfig({ runtime: { role: "worker" }, traces: { mode: "off" } });
 
     let releaseDurable: () => void = () => undefined;
     const durable = new Promise<void>((resolve) => {
@@ -297,7 +297,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkExecutionsLive(cfg)),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 

@@ -10,6 +10,7 @@ import {
 import { toolExecutionMode } from "./toolExecutionMode.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 import { isRecord } from "../../util/typeGuards.js";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 
 const TERMINAL_SUBMIT_TOOLS: ReadonlySet<string> = new Set([
   "submit_findings_report",
@@ -58,6 +59,7 @@ export function toCoreTool(
   executor: AgentRunnerToolExecutor | undefined,
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
+  observe?: (toolCallId: string, event: AgentLifecycleEvent) => void,
 ): AgentTool {
   const executionMode = toolExecutionMode(tool.name);
   return {
@@ -91,6 +93,7 @@ export function toCoreTool(
         const ctx: AgentToolCallContext = {
           signal: combineAbortSignals([loopSignal, hostSignal]),
           toolCallId,
+          ...(observe ? { emit: (event: AgentLifecycleEvent) => observe(toolCallId, event) } : {}),
         };
         const result = await executor(asToolArgs(params), ctx);
         const size = toolResultSize(result);
@@ -129,6 +132,9 @@ export function toCoreTools(
   executors: Record<string, AgentRunnerToolExecutor>,
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
+  observe?: (toolCallId: string, event: AgentLifecycleEvent) => void,
 ): AgentTool[] {
-  return tools.map((tool) => toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool));
+  return tools.map((tool) =>
+    toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool, observe),
+  );
 }

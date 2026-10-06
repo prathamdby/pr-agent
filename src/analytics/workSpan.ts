@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { captureEvent } from "./index.js";
 import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.js";
 import { installationDistinctId } from "./workCompleted.js";
+import { currentTraceSpanId } from "../traces/recorder.js";
 
 export type WorkSpanContext = {
   readonly workItemId: string;
@@ -20,6 +21,7 @@ export type WorkSpanKind =
   | "specialist_span";
 
 type WorkSpanBase = {
+  readonly traceSpanId?: string;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner: string;
@@ -79,8 +81,10 @@ export function newSpanId(): string {
 }
 
 function sharedPostHogProperties(span: WorkSpan): Record<string, string | number | boolean | null> {
+  const traceSpanId = span.traceSpanId ?? currentTraceSpanId();
   return {
     $ai_trace_id: span.workItemId,
+    ...(traceSpanId != null ? { trace_span_id: traceSpanId } : {}),
     $ai_span_id: span.spanId,
     $ai_span_name: span.spanName,
     ...(span.parentSpanId != null ? { $ai_parent_id: span.parentSpanId } : {}),
@@ -274,6 +278,7 @@ export function captureWorkSpan(span: WorkSpan): void {
 }
 
 export function llmSpanFromSession(input: {
+  readonly traceSpanId?: string;
   readonly context: WorkSpanContext;
   readonly phase: string;
   readonly sessionRole?: string;
@@ -295,6 +300,7 @@ export function llmSpanFromSession(input: {
 }): LlmWorkSpan {
   return {
     kind: "llm_generation",
+    ...(input.traceSpanId != null ? { traceSpanId: input.traceSpanId } : {}),
     workItemId: input.context.workItemId,
     installationId: input.context.installationId,
     owner: input.context.owner,

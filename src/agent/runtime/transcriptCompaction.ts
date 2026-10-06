@@ -9,6 +9,7 @@ import {
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { contentText, normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
+import type { SessionTrace } from "./sessionTrace.js";
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Preserve the user's task, current phase, accepted findings, pending questions, and artifact references.";
@@ -105,6 +106,7 @@ async function summarizeMessages(
   model: Model<Api>,
   streamFn: StreamFn,
   signal: AbortSignal | undefined,
+  trace?: SessionTrace,
 ): Promise<string | undefined> {
   const conversationText = serializeForSummary(messages);
   if (conversationText.length === 0) return undefined;
@@ -114,6 +116,7 @@ async function summarizeMessages(
     model.maxTokens > 0 ? model.maxTokens : 16_384,
   );
   try {
+    trace?.beginCompaction(SUMMARIZATION_SYSTEM_PROMPT, promptText);
     const stream = await streamFn(
       model,
       normalizeContext({
@@ -129,17 +132,20 @@ async function summarizeMessages(
       { maxTokens, cacheRetention: "none", signal },
     );
     const response = await stream.result();
+    trace?.endCompaction(response);
     if (response.stopReason === "error" || response.stopReason === "aborted") {
       return undefined;
     }
     const text = contentText(response.content).trim();
     return text.length > 0 ? text : undefined;
   } catch {
+    trace?.endCompaction(undefined);
     return undefined;
   }
 }
 
 export async function compactAgentMessages(params: {
+  readonly trace?: SessionTrace;
   readonly messages: readonly AgentMessage[];
   readonly model: Model<Api>;
   readonly streamFn: StreamFn;
@@ -161,7 +167,13 @@ export async function compactAgentMessages(params: {
   if (cut <= 0) return undefined;
   const summarized = rest.slice(0, cut);
   const retained = rest.slice(cut);
-  const summary = await summarizeMessages(summarized, params.model, params.streamFn, params.signal);
+  const summary = await summarizeMessages(
+    summarized,
+    params.model,
+    params.streamFn,
+    params.signal,
+    params.trace,
+  );
   if (!summary) return undefined;
   const summaryMessage: AgentMessage = {
     role: "user",
@@ -172,6 +184,7 @@ export async function compactAgentMessages(params: {
 }
 
 export async function compactIfNeeded(params: {
+  readonly trace?: SessionTrace;
   readonly messages: readonly AgentMessage[];
   readonly model: Model<Api>;
   readonly streamFn: StreamFn;

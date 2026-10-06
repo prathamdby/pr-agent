@@ -211,6 +211,7 @@ export function createDurableLifecycleEventSink(
       context,
       cfg,
       llmSpanFromSession({
+        traceSpanId: event.traceSpanId,
         context,
         phase: event.phase,
         sessionRole: event.role,

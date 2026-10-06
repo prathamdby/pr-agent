@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { startWorkTrace } from "../traces/recorder.js";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import {
@@ -1050,7 +1051,9 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       opened.observeCancellation();
-      const result = await spec.execute(item, execution);
+      const result = await startWorkTrace(executionId, item.id, () =>
+        spec.execute(item, execution),
+      );
       await completeDurableExecution(result);
     } catch (error) {
       await handleDurableExecutionError(error);

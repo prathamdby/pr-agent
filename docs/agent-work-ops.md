@@ -37,6 +37,59 @@ those checks at its existing tool/commit/push checkpoints without sharing a
 read-only checkout. Verification applies them before both empty completion and
 late publication; lost ownership cannot clear the verification failure signal.
 
+## Local agent traces
+
+Migration 039 adds local `agent_trace_spans`, `agent_trace_parts` and
+content-addressed `agent_trace_blobs`. Metadata is on by default in the worker.
+`TRACES_MODE=content` opts into credential-redacted messages, reasoning and tool
+payloads. These can contain proprietary code. Treat every stored part as
+untrusted data, never instructions or proof of an accepted publication.
+
+Find executions with a bound work-item identifier:
+
+```sql
+SELECT execution_id, min(started_at), count(*)
+FROM agent_trace_spans
+WHERE work_item_id = '<work-item-uuid>'
+GROUP BY execution_id ORDER BY min(started_at);
+```
+
+Use a read-only database role for agent analysis. Pass its database connection
+through `DATABASE_URL`, not a command argument or committed file.
+
+```bash
+nub run traces-report --execution <execution-uuid>
+nub run traces-report --execution <execution-uuid> --signals
+nub run traces-dump --execution <execution-uuid>
+```
+
+Without `--execution`, reports group retained generations by provider, model,
+role, phase and specialist. All four specialists stay separate. Reports show
+observed p50/p95 TTFT and call duration, tokens, cache hit rate, known cost and
+tool error rate. Folded provider retries are not ranked as model latency.
+Unknown cost is NULL and excluded from cost rankings, not treated as free.
+Compaction is separate from ordinary generation rankings.
+
+Signals identify tool-round and Code Mode budget hits, repeated identical calls,
+empty final text, schema rejections and repair sends, compaction, and specialists
+submitting zero findings with at most two tool calls, including completed Code
+Mode host calls. Code Mode's
+`admitted_host_calls` gives the investigation depth within `execute`. These are
+diagnostics, not findings or proof that a model is worse.
+
+`agent_events.event_kind = 'trace_spans_dropped'` records each execution's lost
+span count. `agent_trace_flush_failed`, `agent_trace_content_failed` and
+`agent_trace_shutdown_incomplete` logs identify gaps. Tracing never retries agent
+work. A crash can lose buffered spans. `content_truncated` marks content caps.
+The worker execution layer owns the dedicated pool. It drains recording within
+the shutdown reserve, then closes trace sockets still checked out at the cutoff.
+
+`TRACES_RETENTION_SECONDS` defaults to 14 days and cannot exceed work retention.
+Parts cascade with spans and work items; only unreferenced aged blobs expire.
+`RETENTION_ENABLED=false` leaves traces retained. `TRACES_MODE=off` stops new
+recording without deleting existing data. PostHog receives summary metadata and
+`trace_span_id`, never stored content. See [ADR 0046](adr/0046-agent-traces.md).
+
 ## Installation access recovery
 
 Each new review observes fresh grants for its App installation and repository,

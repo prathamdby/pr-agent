@@ -339,6 +339,6 @@ export const agentWorkWorkerLive = (cfg: Config) =>
     }),
   ).pipe(
     Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-    Layer.provide(AgentWorkExecutionsLive),
+    Layer.provide(AgentWorkExecutionsLive(cfg)),
     Layer.provide(AgentWorkPoolLive(cfg)),
   );

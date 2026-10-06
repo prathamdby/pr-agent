@@ -2302,8 +2302,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         };
       });
       const realCreatePgPool = postgres.createPgPool;
-      vi.spyOn(postgres, "createPgPool").mockImplementation((poolCfg) => {
-        const executionPool = realCreatePgPool(poolCfg);
+      vi.spyOn(postgres, "createPgPool").mockImplementation((poolCfg, max) => {
+        const executionPool = realCreatePgPool(poolCfg, max);
+        if (max !== undefined) return executionPool;
         const realEnd = executionPool.end.bind(executionPool);
         executionPool.end = async () => {
           await realEnd();

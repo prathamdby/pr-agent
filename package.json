@@ -35,7 +35,9 @@
     "gen:feature-map": "node scripts/gen-feature-map.mjs",
     "gen:migration": "node scripts/gen-migration.mjs",
     "verify": "node scripts/verify.mjs",
-    "dump-prompt": "nub scripts/dump-prompt.ts"
+    "dump-prompt": "nub scripts/dump-prompt.ts",
+    "traces-dump": "nub scripts/traces-dump.ts",
+    "traces-report": "nub scripts/traces-report.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.87.0",

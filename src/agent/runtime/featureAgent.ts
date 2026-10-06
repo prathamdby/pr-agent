@@ -124,7 +124,12 @@ export async function runFeatureAgent<P>(
         spec.state.lastValidationError = error;
       },
       repair: async (error) => {
-        lastText = (await session.send(spec.repairPrompt(error), spec.finalize)).text;
+        lastText = (
+          await session.send(spec.repairPrompt(error), {
+            ...spec.finalize,
+            traceValidationRepair: true,
+          })
+        ).text;
       },
     });
   try {

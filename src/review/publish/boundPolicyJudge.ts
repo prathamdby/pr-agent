@@ -232,6 +232,7 @@ export function createBoundPolicyJudge(cfg: Config): BoundPolicyJudge {
     const askedIds = new Set(pairs.map((pair) => pair.id));
     const session = await createFeaturePiSession({
       role: "ci_summary",
+      traceRole: "judge",
       cfg,
       systemPrompt: BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
       tools: [],
