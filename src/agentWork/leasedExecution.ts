@@ -389,6 +389,14 @@ export async function openLeasedExecution(
   let stopReason: WorkExecutionStopReason | undefined;
 
   if (params.prActorLease) {
+    if (core.status !== "queued" && core.status !== "running") {
+      logInfo("agent_work_terminal_delivery_skipped", {
+        type,
+        workItemId: core.id,
+        status: core.status,
+      });
+      return undefined;
+    }
     const key: PrActorLeaseKey = { resourceKey: core.resourceKey, workType: type };
     // Seed one throttled watchdog hop before the transaction so any crash that
     // commits a held lease always has a chain to steal it after TTL.

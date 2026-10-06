@@ -15,12 +15,16 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import { PgBoss } from "pg-boss";
+import { PgBoss, type WorkOptions } from "pg-boss";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import * as postgres from "../../src/db/postgres.js";
 import * as bossModule from "../../src/agentWork/boss.js";
 import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
 import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
+import * as descriptionExecutorModule from "../../src/agentWork/executors/descriptionExecutor.js";
+import * as triageExecutorModule from "../../src/agentWork/executors/triageExecutor.js";
+import * as verificationExecutorModule from "../../src/agentWork/executors/verificationExecutor.js";
+import * as askExecutorModule from "../../src/agentWork/executors/askExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
 import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
@@ -68,7 +72,11 @@ import {
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
 } from "../../src/agentWork/reviewReschedule.js";
-import { installationGroupId, type ReviewWorkItem } from "../../src/agentWork/types.js";
+import {
+  installationGroupId,
+  WORK_QUEUES,
+  type ReviewWorkItem,
+} from "../../src/agentWork/types.js";
 import {
   cancelActiveReviews,
   cancelActiveTriage,
@@ -189,6 +197,479 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   }
 
   const surfaceParams = { owner: "o", repo: "r", prNumber: 1 };
+
+  it.each(
+    (["review", "description", "triage", "verification", "ask"] as const).flatMap((type) =>
+      (["completed", "failed"] as const).flatMap((status) =>
+        (type === "ask" ? (["absent"] as const) : (["absent", "free", "foreign"] as const)).map(
+          (leaseState) => ({
+            type,
+            status,
+            leaseState,
+          }),
+        ),
+      ),
+    ),
+  )(
+    "drains terminal watchdogs ($type, $status, $leaseState lease)",
+    async ({ type, status, leaseState }) => {
+      const resourceKey = `${OWNER}/terminal-drain-${randomUUID()}#1`;
+      let workItemId: string;
+      if (type === "ask") {
+        workItemId = await insertRunningWorkItem(resourceKey);
+      } else if (type === "triage") {
+        workItemId = await insertTriageQueued(resourceKey);
+      } else {
+        workItemId = await insertAutoQueued(resourceKey, type);
+      }
+      if (type === "ask")
+        await pool.query(
+          `UPDATE agent_work_items SET type = 'ask', source = 'slash', review_lens = NULL,
+         payload = '{"source":"slash","question":"synthetic question","commentId":1,"replyTarget":{"kind":"prConversation","prNumber":1}}'::jsonb
+       WHERE id = $1`,
+          [workItemId],
+        );
+      await claimWorkForExecution(pool, workItemId);
+      if (status === "completed") await markWorkCompleted(pool, workItemId, null);
+      else await markWorkFailed(pool, workItemId, new Error("synthetic terminal failure"));
+      await recordReviewCheckRun(pool, {
+        workItemId,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 123,
+        detail: { headSha: "h", status: "in_progress" },
+      });
+      if (leaseState !== "absent" && type !== "ask") {
+        const holderId =
+          type === "triage"
+            ? await insertTriageQueued(resourceKey)
+            : await insertAutoQueued(resourceKey, type);
+        const holder = await acquireFor(resourceKey, type, holderId);
+        if (!holder.acquired) throw new Error("expected fixture lease");
+        await claimWorkForExecution(pool, holderId, holder.leaseEpoch);
+        if (leaseState === "free") {
+          await releasePrActorLease(pool, {
+            resourceKey,
+            workType: type,
+            leaseEpoch: holder.leaseEpoch,
+          });
+        }
+      }
+      const beforeWork = await pool.query(
+        "SELECT * FROM agent_work_items WHERE resource_key = $1 ORDER BY id",
+        [resourceKey],
+      );
+      const beforeLease = await pool.query(
+        "SELECT * FROM pr_actor_leases WHERE resource_key = $1",
+        [resourceKey],
+      );
+      const beforePublication = await pool.query(
+        "SELECT * FROM publish_records WHERE work_item_id = $1 ORDER BY id",
+        [workItemId],
+      );
+      const cfg = makeTestConfig({
+        runtime: { databaseUrl: process.env.DATABASE_URL!, role: "web" },
+      });
+      const boss = await createStartedBoss(cfg);
+      await ensureAgentQueues(boss, cfg);
+      const execute = vi.fn(async () => ({ kind: "completed" as const }));
+      const onTerminalFailure = vi.fn(async () => {});
+      const onCancelled = vi.fn(async () => {});
+      const execution = { execute, onTerminalFailure, onCancelled };
+      vi.spyOn(reviewExecutorModule, "createReviewWorkExecution").mockReturnValue(execution);
+      vi.spyOn(descriptionExecutorModule, "createDescriptionWorkExecution").mockReturnValue(
+        execution,
+      );
+      vi.spyOn(triageExecutorModule, "createTriageWorkExecution").mockReturnValue(execution);
+      vi.spyOn(verificationExecutorModule, "createVerificationWorkExecution").mockReturnValue(
+        execution,
+      );
+      vi.spyOn(askExecutorModule, "createAskWorkExecution").mockReturnValue(execution);
+      const token = vi.spyOn(appAuth, "mintInstallationAuth");
+      const surface = vi.spyOn(prSurfaceModule, "createPrSurface");
+      const createSession = vi.fn();
+      const payload = vi.spyOn(workRepository, "getWorkItemPayload");
+      const transaction = vi.spyOn(postgres, "inTransaction");
+      const renewal = vi.fn(() => () => {});
+      const observe = vi.fn(() => () => {});
+      const definitions = createWorkDefinitions({
+        cfg,
+        pool,
+        boss,
+        createSession,
+        runtime: createDurableRuntime({
+          startLeaseRenewal: renewal,
+          startCancelObserve: observe,
+        }),
+      });
+      const queue = WORK_QUEUES[type];
+      const handled: string[] = [];
+      try {
+        if (type === "ask") {
+          await boss.send(queue, { workItemId });
+        } else {
+          await armLeaseWatchdogHop(boss, {
+            queue,
+            data: { workItemId },
+            singletonKey: workItemId,
+            workItemId,
+            groupId: installationGroupId(1),
+            onSendFailure: "throw",
+          });
+        }
+        for (let copy = 0; copy < 2; copy++) {
+          await boss.send(queue, { workItemId }, { singletonKey: workItemId });
+        }
+        const seeded = await pool.query<{ id: string }>(
+          "SELECT id FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2",
+          [queue, workItemId],
+        );
+        expect(seeded.rows).toHaveLength(3);
+        await pool.query(
+          "UPDATE pgboss.job SET start_after = now() WHERE name = $1 AND data->>'workItemId' = $2",
+          [queue, workItemId],
+        );
+        await boss.work<{ workItemId: string }, void, WorkOptions & { includeMetadata: true }>(
+          queue,
+          { includeMetadata: true, pollingIntervalSeconds: 0.5, localConcurrency: 3 },
+          async ([job]) => {
+            await definitions[type].dispatch(job);
+            handled.push(job.id);
+          },
+        );
+        await vi.waitFor(
+          async () => {
+            const jobs = await pool.query<{ id: string; state: string }>(
+              "SELECT id, state FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2 ORDER BY id",
+              [queue, workItemId],
+            );
+            expect(jobs.rows.map((job) => job.id)).toEqual(
+              seeded.rows.map((job) => job.id).toSorted(),
+            );
+            expect(jobs.rows.every((job) => job.state === "completed")).toBe(true);
+          },
+          { timeout: 10_000 },
+        );
+        await boss.offWork(queue);
+        expect(handled).toHaveLength(3);
+        expect(
+          (
+            await pool.query("SELECT * FROM agent_work_items WHERE resource_key = $1 ORDER BY id", [
+              resourceKey,
+            ])
+          ).rows,
+        ).toEqual(beforeWork.rows);
+        expect(
+          (await pool.query("SELECT * FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]))
+            .rows,
+        ).toEqual(beforeLease.rows);
+        expect(
+          (
+            await pool.query("SELECT * FROM publish_records WHERE work_item_id = $1 ORDER BY id", [
+              workItemId,
+            ])
+          ).rows,
+        ).toEqual(beforePublication.rows);
+        for (const call of [
+          token,
+          surface,
+          createSession,
+          payload,
+          transaction,
+          renewal,
+          observe,
+          execute,
+          onTerminalFailure,
+          onCancelled,
+        ])
+          expect(call).not.toHaveBeenCalled();
+        console.info(
+          "terminal-watchdog-evidence",
+          JSON.stringify({
+            type,
+            status,
+            leaseState,
+            completedJobs: handled.length,
+            liveJobs: 0,
+            unchangedWork: true,
+            unchangedLease: true,
+            unchangedPublication: true,
+            externalCalls: 0,
+          }),
+        );
+      } finally {
+        await stopBoss(boss, 5_000);
+        await pool.query("DELETE FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2", [
+          queue,
+          workItemId,
+        ]);
+      }
+    },
+  );
+
+  it.each(["queued", "blocked", "running"] as const)(
+    "preserves runner watchdog recovery for %s work",
+    async (mode) => {
+      const resourceKey = `${OWNER}/watchdog-recovery-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "description");
+      let previousEpoch = 0;
+      if (mode !== "queued") {
+        const holderId =
+          mode === "running" ? workItemId : await insertAutoQueued(resourceKey, "description");
+        const holder = await acquireFor(resourceKey, "description", holderId);
+        if (!holder.acquired) throw new Error("expected recovery fixture lease");
+        previousEpoch = holder.leaseEpoch;
+        await claimWorkForExecution(pool, holderId, holder.leaseEpoch);
+        if (mode === "running") {
+          await pool.query(
+            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+            [resourceKey],
+          );
+        }
+      }
+      const cfg = makeTestConfig({
+        runtime: { databaseUrl: process.env.DATABASE_URL!, role: "web" },
+      });
+      const boss = await createStartedBoss(cfg);
+      await ensureAgentQueues(boss, cfg);
+      const fake = createFakePrSurface(surfaceParams, { headSha: "h" });
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        permissions: {},
+        repositorySelection: "all",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      });
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockReturnValue(fake.surface);
+      vi.spyOn(prWorkspaceModule, "withPrRepositoryView").mockImplementation(async (_params, run) =>
+        run({
+          agentCwd: "/tmp/pr-agent",
+          workspace: mockLocalPrWorkspace(),
+          preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+        }),
+      );
+      const run = vi
+        .spyOn(descriptionRun, "runFullPrDescription")
+        .mockImplementation(async (params) => {
+          await params.recordPublishStep?.({ syntheticAcceptance: true });
+          return {
+            published: true,
+            publishSuperseded: false,
+            lastAssistant: assistantFromText(cfg, "", cfg.models.provider),
+          };
+        });
+      const acquisition = leaseRepository.acquirePrActorLease;
+      const seedProof: string[] = [];
+      vi.spyOn(leaseRepository, "acquirePrActorLease").mockImplementation(async (...args) => {
+        const pending = await pool.query<{ state: string; start_after: Date }>(
+          `SELECT state, start_after FROM pgboss.job
+            WHERE name = $1 AND data->>'workItemId' = $2 AND state IN ('created', 'retry')`,
+          [WORK_QUEUES.description, workItemId],
+        );
+        expect(pending.rows.some((job) => job.start_after.getTime() > Date.now())).toBe(true);
+        seedProof.push((await getWorkItem(pool, workItemId))!.status);
+        return acquisition(...args);
+      });
+      const definitions = createWorkDefinitions({
+        cfg,
+        pool,
+        boss,
+        installationSurface: openInstallationSurface(),
+      });
+      let handled = 0;
+      try {
+        await boss.send(WORK_QUEUES.description, { workItemId });
+        await boss.work<{ workItemId: string }, void, WorkOptions & { includeMetadata: true }>(
+          WORK_QUEUES.description,
+          { includeMetadata: true, pollingIntervalSeconds: 0.5 },
+          async ([job]) => {
+            await definitions.description.dispatch(job);
+            handled++;
+          },
+        );
+        await vi.waitFor(() => expect(handled).toBe(1), { timeout: 10_000 });
+        await boss.offWork(WORK_QUEUES.description);
+        if (mode === "blocked") {
+          expect(await getWorkItem(pool, workItemId)).toMatchObject({
+            status: "queued",
+            attemptCount: 0,
+          });
+          expect(
+            (
+              await pool.query("SELECT execution_epoch::int FROM agent_work_items WHERE id = $1", [
+                workItemId,
+              ])
+            ).rows[0].execution_epoch,
+          ).toBe(0);
+          expect(run).not.toHaveBeenCalled();
+          const successor = await pool.query<{ start_after: Date }>(
+            `SELECT start_after FROM pgboss.job WHERE name = $1
+              AND data->>'workItemId' = $2 AND state IN ('created', 'retry')`,
+            [WORK_QUEUES.description, workItemId],
+          );
+          expect(successor.rows.length).toBeGreaterThan(0);
+          expect(successor.rows.every((job) => job.start_after.getTime() > Date.now())).toBe(true);
+          await pool.query(
+            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+            [resourceKey],
+          );
+          await pool.query(
+            "UPDATE pgboss.job SET start_after = now() WHERE name = $1 AND data->>'workItemId' = $2 AND state IN ('created', 'retry')",
+            [WORK_QUEUES.description, workItemId],
+          );
+          await boss.work<{ workItemId: string }, void, WorkOptions & { includeMetadata: true }>(
+            WORK_QUEUES.description,
+            { includeMetadata: true, pollingIntervalSeconds: 0.5 },
+            async ([job]) => {
+              await definitions.description.dispatch(job);
+              handled++;
+            },
+          );
+          await vi.waitFor(
+            async () => {
+              expect((await getWorkItem(pool, workItemId))?.status).toBe("completed");
+            },
+            { timeout: 10_000 },
+          );
+          await boss.offWork(WORK_QUEUES.description);
+        }
+        const completed = await getWorkItem(pool, workItemId);
+        expect(completed).toMatchObject({ status: "completed", attemptCount: 1 });
+        const epoch = await pool.query<{ execution_epoch: number }>(
+          "SELECT execution_epoch::int FROM agent_work_items WHERE id = $1",
+          [workItemId],
+        );
+        expect(epoch.rows[0].execution_epoch).toBeGreaterThan(previousEpoch);
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(seedProof).toEqual(mode === "blocked" ? ["queued", "queued"] : [mode]);
+        console.info(
+          "watchdog-recovery-evidence",
+          JSON.stringify({
+            mode,
+            seededBeforeAcquire: seedProof,
+            status: completed?.status,
+            attemptCount: completed?.attemptCount,
+            featureCalls: run.mock.calls.length,
+          }),
+        );
+      } finally {
+        await stopBoss(boss, 5_000);
+        await pool.query("DELETE FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2", [
+          WORK_QUEUES.description,
+          workItemId,
+        ]);
+      }
+    },
+  );
+
+  it("drains concurrent stale active snapshots after the holder completes", async () => {
+    const resourceKey = `${OWNER}/watchdog-completion-race-${randomUUID()}#1`;
+    const workItemId = await insertAutoQueued(resourceKey, "description");
+    const holder = await acquireFor(resourceKey, "description", workItemId);
+    if (!holder.acquired) throw new Error("expected race holder");
+    await claimWorkForExecution(pool, workItemId, holder.leaseEpoch);
+    const cfg = makeTestConfig({
+      runtime: { databaseUrl: process.env.DATABASE_URL!, role: "web" },
+    });
+    const boss = await createStartedBoss(cfg);
+    await ensureAgentQueues(boss, cfg);
+    const readCore = workRepository.getWorkItemCore;
+    let snapshots = 0;
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    vi.spyOn(workRepository, "getWorkItemCore").mockImplementation(async (...args) => {
+      const core = await readCore(...args);
+      if (core?.id === workItemId && core.status === "running") {
+        snapshots++;
+        await gate;
+      }
+      return core;
+    });
+    const payload = vi.spyOn(workRepository, "getWorkItemPayload");
+    const token = vi.spyOn(appAuth, "mintInstallationAuth");
+    const definitions = createWorkDefinitions({ cfg, pool, boss });
+    let handled = 0;
+    try {
+      for (let copy = 0; copy < 2; copy++) await boss.send(WORK_QUEUES.description, { workItemId });
+      await boss.work<{ workItemId: string }, void, WorkOptions & { includeMetadata: true }>(
+        WORK_QUEUES.description,
+        { includeMetadata: true, pollingIntervalSeconds: 0.5, localConcurrency: 2 },
+        async ([job]) => {
+          await definitions.description.dispatch(job);
+          handled++;
+        },
+      );
+      await vi.waitFor(() => expect(snapshots).toBe(2), { timeout: 10_000 });
+      expect(await markWorkCompleted(pool, workItemId, holder.leaseEpoch)).toBe(true);
+      await releasePrActorLease(pool, {
+        resourceKey,
+        workType: "description",
+        leaseEpoch: holder.leaseEpoch,
+      });
+      const completed = await getWorkItem(pool, workItemId);
+      resume();
+      await vi.waitFor(() => expect(handled).toBe(2), { timeout: 10_000 });
+      await boss.offWork(WORK_QUEUES.description);
+      const residual = await pool.query<{ id: string; state: string }>(
+        "SELECT id, state FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2 ORDER BY id",
+        [WORK_QUEUES.description, workItemId],
+      );
+      expect(residual.rows.some((job) => job.state === "created")).toBe(true);
+      const leaseAfterRace = await getLeaseRowFor(resourceKey, "description");
+      expect(leaseAfterRace).toMatchObject({ work_item_id: null, holder_id: null });
+      await pool.query(
+        "UPDATE pgboss.job SET start_after = now() WHERE name = $1 AND data->>'workItemId' = $2 AND state IN ('created', 'retry')",
+        [WORK_QUEUES.description, workItemId],
+      );
+      await boss.work<{ workItemId: string }, void, WorkOptions & { includeMetadata: true }>(
+        WORK_QUEUES.description,
+        { includeMetadata: true, pollingIntervalSeconds: 0.5, localConcurrency: 2 },
+        async ([job]) => {
+          await definitions.description.dispatch(job);
+          handled++;
+        },
+      );
+      await vi.waitFor(
+        async () => {
+          const jobs = await pool.query<{ id: string; state: string }>(
+            "SELECT id, state FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2 ORDER BY id",
+            [WORK_QUEUES.description, workItemId],
+          );
+          expect(jobs.rows.map((job) => job.id)).toEqual(residual.rows.map((job) => job.id));
+          expect(jobs.rows.every((job) => job.state === "completed")).toBe(true);
+        },
+        { timeout: 10_000 },
+      );
+      await boss.offWork(WORK_QUEUES.description);
+      expect(await getWorkItem(pool, workItemId)).toEqual(completed);
+      expect(await getLeaseRowFor(resourceKey, "description")).toEqual(leaseAfterRace);
+      expect(payload).not.toHaveBeenCalled();
+      expect(token).not.toHaveBeenCalled();
+      console.info(
+        "watchdog-race-evidence",
+        JSON.stringify({
+          staleSnapshots: snapshots,
+          completedJobs: handled,
+          liveJobs: 0,
+          terminalSuccessors: 0,
+          unchangedWork: true,
+          externalCalls: 0,
+        }),
+      );
+    } finally {
+      resume();
+      await stopBoss(boss, 5_000);
+      await pool.query("DELETE FROM pgboss.job WHERE name = $1 AND data->>'workItemId' = $2", [
+        WORK_QUEUES.description,
+        workItemId,
+      ]);
+    }
+  });
 
   it.each(["dismiss-create", "dismiss-edit", "fixed-edit"])(
     "recovers verification partial acceptance from exact child receipts without duplicating stubs (%s)",
