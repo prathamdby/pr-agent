@@ -146,7 +146,8 @@ it("renders one concise optional-capability notice without changing review outpu
   });
   const body = bundle.upsertProgressComment.mock.calls[0]?.[0] ?? "";
   expect(body).toContain("review output");
-  expect(body).toContain("Unavailable for this review: Checks read/write, Actions logs, labels.");
+  expect(body).toContain("<summary>Limited permissions</summary>");
+  expect(body).toContain("- Checks read/write\n- Actions logs\n- labels\n");
   expect(body.match(/Unavailable for this review:/g)).toHaveLength(1);
 });
 
