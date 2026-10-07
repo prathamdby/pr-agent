@@ -44,7 +44,17 @@ function capabilityNotice(policy: ReviewCapabilityPolicy | undefined): string | 
   if (unavailable("actionsRead")) surfaces.push("Actions logs");
   if (unavailable("labelsRead") || unavailable("labelsWrite")) surfaces.push("labels");
   if (unavailable("reactionsWrite")) surfaces.push("reactions");
-  return surfaces.length ? `Unavailable for this review: ${surfaces.join(", ")}.` : null;
+  if (!surfaces.length) return null;
+  return [
+    "<details>",
+    "<summary>Limited permissions</summary>",
+    "",
+    "Unavailable for this review:",
+    "",
+    ...surfaces.map((surface) => `- ${surface}`),
+    "",
+    "</details>",
+  ].join("\n");
 }
 
 export type SummaryCommentCoordination = {
