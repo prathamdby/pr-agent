@@ -42,7 +42,9 @@ Request profile:
   other roles keep per-phase levels; each runs in its own session.
 - `rawStopReason === "refusal"` stops the retry loop and raises
   `provider.refusal`. No empty-text nudge follows it, and the specialist and
-  orchestrator send retries stop on it too.
+  orchestrator send retries stop on it too. A refused orchestrator session is
+  retired, so the run publishes its deterministic fallback with no repair or
+  recovery sends.
 - PR Agent does not pass `maxTokens`; Pi clamps the model default.
 
 History:

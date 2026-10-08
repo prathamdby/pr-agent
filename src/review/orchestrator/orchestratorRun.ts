@@ -784,7 +784,12 @@ export async function runOrchestratedPrReview(
           await stopFromGateResult(await params.gate.check());
           return { kind: "failed", error: appError };
         }
-        if (isProviderRefusalError(appError)) break;
+        if (isProviderRefusalError(appError)) {
+          // Repair and recovery turns would resend the declined context, so the
+          // run falls back to deterministic output with no further model sends.
+          await retireSession();
+          break;
+        }
         const failure = classifyFailure(appError, { phase });
         recordClassifiedFailure(failure);
         logWarn("review_orchestrator_send_retry", {
