@@ -149,7 +149,7 @@ describe("triage run", () => {
     const finalizeCall = send.mock.calls.find(
       (call) =>
         typeof call[0] === "string" &&
-        call[0].includes("You replied with text only") &&
+        call[0].includes("Your last reply was text only") &&
         call[0].includes("call commitFix") &&
         call[0].includes("call submitTriage once"),
     );
@@ -206,7 +206,7 @@ describe("triage run", () => {
     providerState.createSession.mockImplementation(async (params) => ({
       role: "triage",
       send: vi.fn(async (prompt: string) => {
-        if (typeof prompt === "string" && prompt.includes("You replied with text only")) {
+        if (typeof prompt === "string" && prompt.includes("Your last reply was text only")) {
           submitAttempts += 1;
           try {
             await params.executors.submitTriage({
@@ -280,7 +280,7 @@ describe("triage run", () => {
     providerState.createSession.mockImplementation(async (params) => ({
       role: "triage",
       send: vi.fn(async (prompt: string) => {
-        if (typeof prompt === "string" && prompt.includes("You replied with text only")) {
+        if (typeof prompt === "string" && prompt.includes("Your last reply was text only")) {
           await params.executors.commitFix({
             threadRootCommentId: 1,
             files: ["src/app.ts"],

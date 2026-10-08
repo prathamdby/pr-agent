@@ -8,9 +8,9 @@ function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string
     `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as theme summaries.`,
     `Each bullet is one short sentence of at most ${policy.maxWordsPerBullet} words.`,
     technicalDepthRule(policy.technicalDepth),
-    "Ground every bullet in the diff. Do not invent behaviour.",
-    "Prefer the low end of the bullet range. Put structural shape in visuals[], not long prose.",
-    "Do not narrate a flow, tree, contract, or module interaction in bullets when a visual already shows it.",
+    "Every bullet states something the diff shows.",
+    "Use the fewest bullets in the range that cover the themes, and put structural shape in visuals[] rather than long prose.",
+    "A flow, tree, contract, or module interaction that a visual shows stays out of the bullets.",
     visualsHardRule(policy),
   ].join(" ");
 }
@@ -22,18 +22,18 @@ function visualsHardRule(policy: DescriptionWritingPolicy): string {
       : policy.bodyScale === "M"
         ? "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear."
         : "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear; then add further views when one fence leaves a contract, data path, or module boundary unclear.";
-  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Omit visuals only when the inspected diff has no sketchable shape.`;
+  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Leave visuals out only when the inspected diff has no sketchable shape.`;
 }
 
 function mapHardRule(policy: DescriptionWritingPolicy): string {
   if (policy.mapMode === "omit") {
-    return "Hard rule (map mode: omit): do not emit prFiles. Publish type, short description bullets, and visuals. No review map.";
+    return "Hard rule (map mode: omit): no review map, so the payload has no prFiles. Publish type, short description bullets, and visuals.";
   }
   return [
-    "Hard rule (map mode: read_first): emit prFiles with 1–5 entries only.",
+    "Hard rule (map mode: read_first): prFiles has 1–5 entries, the files to open first.",
     "Order by review risk (auth, data, migrations, core API before tests/docs/chore).",
-    "Each entry: filename + changesTitle (one clause why open first).",
-    "Do not restate top description bullets, list every file, group by PR-type labels, or emit changesSummary/label.",
+    "Each entry is filename + changesTitle (one clause: why open first), with no changesSummary or label.",
+    "The map points to files rather than restating the description bullets.",
   ].join(" ");
 }
 
@@ -79,6 +79,6 @@ export function buildDescriptionUserContent(params: {
     formatDescriptionBodyHardRule(policy),
     mapHardRule(policy),
     "",
-    "Inspect the changed files and diff, then call submitDescription once with a complete DescriptionPayload.",
+    "Inspect the changed files and diff, then call submitDescription with a complete DescriptionPayload.",
   ].join("\n");
 }

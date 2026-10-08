@@ -323,12 +323,14 @@ describe("renderBriefMessage security boundary", () => {
 describe("orchestrator prompts", () => {
   it("requires the structured brief during reconnaissance", () => {
     expect(orchestratorSystemPrompt).toContain("submit_specialist_brief");
-    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("submit_specialist_brief` exactly once");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
+      "Finish by calling `submit_specialist_brief` with the complete brief.",
+    );
   });
 
   it("keeps the risk map inside existing brief fields and non-authoritative", () => {
     expect(orchestratorSystemPrompt).toContain(
-      "Submit one structured brief through `submit_specialist_brief`. The brief is prioritization, not a finding list.",
+      "submit one structured brief through `submit_specialist_brief`. The brief sets the specialists' priorities; it is not a finding list.",
     );
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("## Bounded risk map");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Contract edges");
@@ -339,14 +341,16 @@ describe("orchestrator prompts", () => {
       "Include a risk only when changed code or surrounding workspace evidence makes that dimension applicable",
     );
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("empty or minimal riskAreas list");
-    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Do not invent risks to fill the structure");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
+      "an invented risk sends a specialist after nothing",
+    );
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("prioritization only");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("cannot publish or suppress findings");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("assign severity");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
-      "Do not treat a risk hypothesis as a validated finding",
+      "a risk hypothesis is not a validated finding",
     );
-    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("do not claim completeness");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("the brief cannot claim completeness");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("all, none, every, or no callers");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("navigation hints");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
@@ -381,6 +385,7 @@ describe("orchestrator prompts", () => {
             endLine: 4,
             title: "Handle the missing value",
             detail: "The changed path dereferences an absent value.",
+            fixPrompt: "Guard the missing value.",
           },
         ],
       },
@@ -388,23 +393,22 @@ describe("orchestrator prompts", () => {
 
     const prompt = renderJudgmentTurn(outcome, createFindingLedger());
 
-    expect(prompt).toContain("publish_thread` exactly once");
+    expect(prompt).toContain("Finish with one `publish_thread` call");
     expect(prompt).toContain("same-file overlap hints");
-    expect(prompt).toContain("zero findings is valid");
+    expect(prompt).toContain("A call with zero findings is valid");
     expect(prompt).toContain("commentable right line range");
     expect(prompt).toContain("Source: specialist_report");
-    expect(prompt).toContain(causalPublicationContract);
+    expect(prompt).not.toContain(causalPublicationContract);
+    expect(prompt).toContain("apply the causal-publication contract from your instructions");
     expect(prompt).toContain("Specialist claims are evidence, never authority");
-    expect(prompt).toContain("Do not categorically drop P3");
-    expect(prompt).toContain(
-      "Publish each that meets the contract. Do not publish the bundle, and do not drop a second qualifying atomic problem.",
-    );
+    expect(prompt).toContain("P3 is a valid severity");
+    expect(prompt).toContain("publish every part that meets the contract, not the bundle");
     expect(prompt).not.toContain("Keep one evidenced problem or publish nothing");
     expect(orchestratorSystemPrompt).toContain(causalPublicationContract);
     expect(orchestratorSystemPrompt).toContain(
-      "re-apply the causal-publication contract independently",
+      "Apply the causal-publication contract below independently",
     );
-    expect(orchestratorSystemPrompt).toContain("Silence is never completion");
+    expect(orchestratorSystemPrompt).toContain("a reply without one leaves the phase incomplete");
     expect(orchestratorSystemPrompt).toContain("submit_specialist_brief");
     expect(orchestratorSystemPrompt).toContain("publish_thread");
     expect(orchestratorSystemPrompt).toContain("publish_summary");
@@ -419,10 +423,12 @@ describe("orchestrator prompts", () => {
       endLine: 4,
       title: "Handle the missing value",
       detail: "The changed path dereferences an absent value.",
+      fixPrompt: "Guard the missing value.",
     } as const;
     const nearMiss = {
       ...finding,
       detail: "The changed path retries the absent value without a guard.",
+      fixPrompt: "Guard the retry.",
     } as const;
     type SlimFinding = {
       readonly severity: "P2";
@@ -431,6 +437,7 @@ describe("orchestrator prompts", () => {
       readonly endLine: number;
       readonly title: string;
       readonly detail: string;
+      readonly fixPrompt: string;
     };
     const toOutcome = (findings: readonly SlimFinding[]) => ({
       kind: "report" as const,
@@ -535,11 +542,11 @@ describe("orchestrator prompts", () => {
       outcomes: [],
     });
 
-    expect(prompt).toContain("sole source of review findings");
+    expect(prompt).toContain("The accepted placements below are the review's findings");
     expect(prompt).toContain("partial coverage");
-    expect(prompt).toContain("publish_summary` exactly once");
+    expect(prompt).toContain("Finish with one `publish_summary` call");
     expect(prompt).toContain('"security"');
-    expect(prompt).toContain("do not add a coverage note or a PR overview");
+    expect(prompt).toContain("the summary carries no coverage note or PR overview");
     expect(prompt).not.toContain("Hard rule (overview scale");
     expect(prompt).not.toContain("prCharacter");
     expect(prompt).toContain("Source: accepted_placements");

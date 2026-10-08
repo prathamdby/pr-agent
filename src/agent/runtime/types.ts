@@ -98,13 +98,13 @@ export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
       case "recon":
       case "specialist":
       case "judgment":
+      case "ask":
+      case "triage":
         return "medium";
       case "synthesis":
       case "validation_repair":
       case "publish_recovery":
-      case "ask":
       case "description":
-      case "triage":
       case "verification":
       case "ci_summary":
         return "low";

@@ -288,10 +288,10 @@ describe("resolveBoundPolicyFooters", () => {
 
 describe("bound policy judge prompt contract", () => {
   it("tells the judge most always-apply pairs are no", () => {
+    expect(BOUND_POLICY_JUDGE_SYSTEM_PROMPT).toContain("Most findings do not violate a given rule");
     expect(BOUND_POLICY_JUDGE_SYSTEM_PROMPT).toContain(
-      "Most findings do not violate a given always-apply rule",
+      "When the evidence leaves the violation unclear, the id stays out",
     );
-    expect(BOUND_POLICY_JUDGE_SYSTEM_PROMPT).toContain("Default no");
     expect(BOUND_POLICY_JUDGE_SYSTEM_PROMPT).not.toContain("violatedRule");
   });
 });

@@ -14,27 +14,27 @@ export type GuestCapabilitySpec = {
 const GUEST_CAPABILITY_SPEC_BY_NAME = {
   listChangedFiles: {
     call: "await tools.listChangedFiles()",
-    rule: "Start here. Path, status, checkout presence. Honor truncated.",
+    rule: "Changed paths with status and checkout presence; other calls take paths from it. `truncated` means the list is incomplete.",
   },
   readWorkspaceFile: {
     call: "await tools.readWorkspaceFile({ path, startLine?, maxLines? })",
-    rule: "Repo-relative. Byte-capped. On truncated, narrow the window. Do not retry unchanged.",
+    rule: "Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes.",
   },
   searchWorkspace: {
     call: "await tools.searchWorkspace({ query, maxResults? })",
-    rule: "Literal git grep, not regex. On truncated, narrow the query.",
+    rule: "Literal git grep, not regex. On truncation, search for more specific text.",
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",
-    rule: "PR unified diff after listing changes. Byte-capped.",
+    rule: "PR unified diff for one path; cheaper than reading the whole file.",
   },
   getWorkspaceBlame: {
     call: "await tools.getWorkspaceBlame({ path })",
-    rule: "Authorship only. Rare.",
+    rule: "Whole-file blame. Use when who changed a line, or when, decides the question.",
   },
   resolveSymbol: {
     call: "await tools.resolveSymbol({ name, maxResults? })",
-    rule: "Hint only. Confirm with readWorkspaceFile before citing.",
+    rule: "Definition hints, not evidence. Confirm with readWorkspaceFile before citing.",
   },
 } as const satisfies Record<
   CodeModeWorkspaceToolName,
@@ -164,15 +164,11 @@ export function renderExecuteDescription(capabilities: CodeModeCapabilityExecuto
   const catalogue = renderGuestCatalogue(specs);
   const example = renderFanOutExample(specs);
   const parts = [
-    "Run one QuickJS cell against the PR head checkout.",
-    "Fresh context each call. Locals and functions die after the cell.",
-    "Author JavaScript only. The last expression is the return value.",
-    "`state` is JSON investigation data that persists across cells in this session. No functions, promises, or open resources.",
-    `Host calls: only the installed \`tools.*\` names below. At most ${CODE_MODE_MAX_TOOL_CALLS} host calls per cell. \`Promise.all\` overlaps independent reads; the host admits ${CODE_MODE_HOST_IN_FLIGHT} in flight.`,
-    "Each host result keeps declared fields plus `coverage` and `truncation`. Truncated strings stay strings. Omitted bytes live in `truncation`. A truncated or refused result cannot prove absence.",
-    "`fetch`, `require`, `import`, `process`, `fs`, and timers are unavailable.",
-    "Return compact summaries. Do not dump raw search or file contents unless a finding needs a specific excerpt.",
-    "Submit, publish, and the final ask reply stay on sibling native tools or the next assistant message. Do not submit or publish from this script.",
+    "Run one QuickJS cell of JavaScript against the PR head checkout. Each call starts a fresh context: locals and functions end with the cell, and the last expression is the return value. `state` is JSON investigation data that persists across cells in this session, so it holds plain data only, no functions, promises, or open resources.",
+    `Host calls are the installed \`tools.*\` names below, at most ${CODE_MODE_MAX_TOOL_CALLS} per cell. \`Promise.all\` overlaps independent reads; the host admits ${CODE_MODE_HOST_IN_FLIGHT} in flight. \`fetch\`, \`require\`, \`import\`, \`process\`, \`fs\`, and timers are unavailable.`,
+    'Each host result keeps its declared fields plus `coverage` and `truncation`. Truncated strings stay strings, and the omitted bytes are described in `truncation`. `failureKind: "SEARCH_TRUNCATED"` marks any result the host cut short, including file reads and diffs, not only searches. A truncated or refused result cannot prove absence.',
+    "The cell's return value enters your context, so return compact summaries and only the excerpts a conclusion needs.",
+    "Submitting, publishing, and the final ask reply happen through sibling native tools or the next assistant message, never from the cell.",
   ];
   if (catalogue.length > 0) {
     parts.push(`Installed host capabilities:\n${catalogue}`);
@@ -180,7 +176,7 @@ export function renderExecuteDescription(capabilities: CodeModeCapabilityExecuto
   if (example.length > 0) {
     parts.push(`Example: one cell, many host calls.\n\`\`\`js\n${example}\n\`\`\``);
   }
-  return parts.join(" ");
+  return parts.join("\n\n");
 }
 
 function capabilityNameSet(

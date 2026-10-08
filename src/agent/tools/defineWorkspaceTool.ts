@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "./toolParams.js";
 import { AppError } from "../../errors/appError.js";
 import { type AgentRunnerToolExecutor, type AgentToolCallContext } from "../providers/interface.js";
 import { parseToolInput } from "./parseToolInput.js";
@@ -44,9 +44,7 @@ export function toPiTool(
   return {
     name,
     description: t.description,
-    parameters: toJsonSchema(t.schema, {
-      errorMode: "ignore",
-    }),
+    parameters: toToolParameters(t.schema),
   };
 }
 

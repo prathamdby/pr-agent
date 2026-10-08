@@ -280,7 +280,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   }),
   getLibraryDocs: defineReviewTool({
     description:
-      "Fetch current documentation for a validated third-party library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the topic when truncated.",
+      "Fetch current documentation for a validated third-party library ID. Returns documentation text, or JSON when the service answers in JSON. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the topic when truncated. omittedResults counts dropped JSON result entries.",
     schema: getLibraryDocsSchema,
     run: async ({ libraryId, topic }, apiKey, maxResponseBytes) => {
       const safeLibraryId = assertContext7LibraryId(libraryId);

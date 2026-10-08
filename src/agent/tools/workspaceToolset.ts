@@ -28,6 +28,13 @@ import {
 } from "./readWorkspaceTextFile.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 import {
+  literalQueryParam,
+  maxLinesParam,
+  maxResultsParam,
+  repoPathParam,
+  startLineParam,
+} from "./toolParams.js";
+import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
   LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY,
@@ -282,7 +289,7 @@ function buildInvestigationTools(
 
   const listChangedFiles = defineLocalTool({
     description:
-      "Start here: list files changed in this pull request (path, status, presence in the PR head checkout).",
+      "List the files this pull request changes: path, previous path for renames, status, and whether the file exists in the PR head checkout. The other tools take paths from this list. `truncated: true` means the change set is larger than the list.",
     schema: v.object({}),
     run: async () => ({
       files: workspace.changedFiles.map((file) => ({
@@ -298,11 +305,11 @@ function buildInvestigationTools(
 
   const readWorkspaceFile = defineLocalTool({
     description:
-      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; oversized reads spill to a session file and return a tail with `spilled: true` — the spill file is not read evidence, so re-read the source path with explicit startLine/maxLines before citing any line. On truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
+      "Read a text file from the PR head checkout. Use startLine and maxLines to read the region you need, including callers, types, and config outside the diff. Lines this tool returns are the evidence a finding can cite. Each response has a byte budget: `truncated: true` means read a narrower range. `spilled: true` means the response holds only the tail of a large read, and the spill file is not evidence, so read the source path again with startLine and maxLines before citing a line. A missing path returns the reason and may list `similarPaths`. An empty file or a window past the end returns a note; the same call returns the same note.",
     schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
-      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      path: repoPathParam,
+      startLine: startLineParam,
+      maxLines: maxLinesParam,
     }),
     run: async ({ path, startLine, maxLines }) => {
       const normalized = normalizeEvidencePath(path);
@@ -406,10 +413,10 @@ function buildInvestigationTools(
 
   const searchWorkspace = defineLocalTool({
     description:
-      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
+      "Search every readable file in the PR head checkout for literal text with git grep. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
     schema: v.object({
-      query: v.pipe(v.string(), v.minLength(1)),
-      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
+      query: literalQueryParam,
+      maxResults: v.optional(maxResultsParam, 20),
     }),
     run: async ({ query, maxResults }) => {
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) => policy.allows(path));
@@ -453,8 +460,8 @@ function buildInvestigationTools(
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+      "Return the pull request's unified diff for one changed file. The diff shows what changed, so it is the cheapest first read for a file; open the whole file only for context the hunks lack. Take the path from listChangedFiles. `truncated: true` means the diff exceeded the byte budget; read the remaining region with readWorkspaceFile.",
+    schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const normalized = normalizeEvidencePath(path);
       policy.assertDiff(normalized);
@@ -480,10 +487,10 @@ function buildInvestigationTools(
 
   const getWorkspaceBlame = defineLocalTool({
     description:
-      "Best-effort local git blame at PR head. Use only when authorship genuinely decides a finding. Responses are byte-capped; prefer startLine/maxLines on readWorkspaceFile for focused follow-up context.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+      "Return git blame for a whole file at the PR head, as far as local history reaches. Use it when who changed a line, or when, decides a finding; for code context, readWorkspaceFile with startLine and maxLines is cheaper. The response has a byte budget.",
+    schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = normalizeEvidencePath(path);
       policy.assertDiff(normalized);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
@@ -526,13 +533,14 @@ function buildInvestigationTools(
 
   const resolveSymbol = defineLocalTool({
     description:
-      "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
+      "Find where a symbol is defined, using a heuristic index built for this run over TypeScript, JavaScript, and Python. Matches are navigation hints, not evidence: read the matching lines with readWorkspaceFile before citing a path or line.",
     schema: v.object({
-      name: v.pipe(v.string(), v.minLength(1)),
-      maxResults: v.optional(
-        v.pipe(v.number(), v.integer(), v.gtValue(0)),
-        LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
+      name: v.pipe(
+        v.string(),
+        v.minLength(1),
+        v.description("Symbol name as written in code, for example `parseConfig`."),
       ),
+      maxResults: v.optional(maxResultsParam, LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
     }),
     run: async ({ name, maxResults }) => {
       const status = workspace.getSymbolIndexStatus();
@@ -586,11 +594,12 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
   const root = workspace.agentCwd;
   const policy = createPathPolicy(root, { kind: "verification" });
   const readWorkspaceFile = defineLocalTool({
-    description: "Read a text file from the PR repository view. Path is repo-relative.",
+    description:
+      "Read a text file from the pull request's repository view. Use startLine and maxLines for long files. Sensitive and control paths return `refused` with a reason.",
     schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
-      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      path: repoPathParam,
+      startLine: startLineParam,
+      maxLines: maxLinesParam,
     }),
     run: async ({ path, startLine, maxLines }) => {
       const result = await workspace.readFile(path, policy, {
@@ -606,10 +615,11 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
   });
 
   const searchWorkspace = defineLocalTool({
-    description: "Search the PR repository view with git grep for a literal string.",
+    description:
+      "Search the pull request's repository view for literal text with git grep. Sensitive and control paths are left out, and `filtered: true` says some matches were removed. `truncated: true` means more matches exist, so search for more specific text.",
     schema: v.object({
-      query: v.pipe(v.string(), v.minLength(1)),
-      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
+      query: literalQueryParam,
+      maxResults: v.optional(maxResultsParam, 20),
     }),
     run: async ({ query, maxResults }) => {
       const allowedPaths: string[] = [];
@@ -657,8 +667,9 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
   });
 
   const getWorkspaceDiff = defineLocalTool({
-    description: "Return the cached GitHub PR unified diff for a repo-relative path.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+    description:
+      "Return the pull request's unified diff for one file, as GitHub reports it. An empty diff means the pull request does not change that path.",
+    schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const rel = policy.assertDiff(path);
       const diff = await workspace.getDiffForPath(rel);
@@ -673,11 +684,12 @@ function buildTriageReadTools(workspace: RepositoryReader) {
   const root = workspace.agentCwd;
   const policy = createPathPolicy(root, { kind: "triage" });
   const readWorkspaceFile = defineLocalTool({
-    description: "Read a text file from the writable PR checkout. Path is repo-relative.",
+    description:
+      "Read a text file from the writable PR checkout, including edits made earlier in this run. Use startLine and maxLines for long files. Sensitive and control paths return `refused` with a reason.",
     schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
-      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      path: repoPathParam,
+      startLine: startLineParam,
+      maxLines: maxLinesParam,
     }),
     run: async ({ path, startLine, maxLines }) => {
       const result = await workspace.readFile(path, policy, {
@@ -693,10 +705,11 @@ function buildTriageReadTools(workspace: RepositoryReader) {
   });
 
   const searchWorkspace = defineLocalTool({
-    description: "Search the writable checkout with git grep for a literal string.",
+    description:
+      "Search the writable PR checkout for literal text with git grep. Sensitive and control paths are left out, and `filtered: true` says some matches were removed. `truncated: true` means more matches exist, so search for more specific text.",
     schema: v.object({
-      query: v.pipe(v.string(), v.minLength(1)),
-      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
+      query: literalQueryParam,
+      maxResults: v.optional(maxResultsParam, 20),
     }),
     run: async ({ query, maxResults }) => {
       const result = await workspace.grepLiteral({
@@ -743,8 +756,8 @@ function buildTriageReadTools(workspace: RepositoryReader) {
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      "Return the current unified diff for a repo-relative path in the writable checkout.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+      "Return the uncommitted changes to one file in the writable checkout, as `git diff HEAD`. Use it to check your own edits before submitting. An empty diff means the file matches the PR head.",
+    schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const rel = policy.assertDiff(path);
       const diff = await workspace.getDiffForPath(rel);

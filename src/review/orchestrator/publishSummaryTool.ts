@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../../agent/tools/toolParams.js";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
@@ -83,7 +83,7 @@ function reconstructPayload(
     throwValidationError(
       state,
       "publish_summary_validation_failed",
-      formatReviewValidationError(parsed.issues).message,
+      `${formatReviewValidationError(parsed.issues).message}\nFindings come from accepted placements, not from publish_summary arguments. Fix only size, followUps, mergeability, or blastRadius here; a findings issue means the ledger itself is invalid.`,
     );
   }
   return parsed.output;
@@ -97,8 +97,8 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   const piTool: PiTool = {
     name: "publish_summary",
     description:
-      "Publish the final review summary exactly once. Set size, followUps, mergeability, and blastRadius; findings publish from accepted placements. The server writes the action line.",
-    parameters: toJsonSchema(publishSummarySchema, { errorMode: "ignore" }),
+      "Publish the final review summary. Call it once, after every specialist batch is judged. You supply size, followUps, mergeability, and blastRadius; the findings come from accepted placements and the server writes the action line. A repeat call after success is a no-op.",
+    parameters: toToolParameters(publishSummarySchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");

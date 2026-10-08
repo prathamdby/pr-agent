@@ -125,6 +125,11 @@ and final outcome precedence. Internal `turnToolBudget.ts` keeps Core's
 finish-before-event counting and reserved terminal allowance together.
 `sessionTurnLoop.ts` owns transcript order and capped retry continuation;
 `sessionCompaction.ts` owns window and overflow compaction policy.
+`coreTools.ts` turns a rejected terminal submit (`accepted`/`ok` false with an
+`error`) into a `tool.submit_rejected` tool error so the turn budget does not
+count it as finished. A provider `refusal` stop raises `provider.refusal`
+without retry. Anthropic-only request behavior is gated on the model's `api` or
+catalog compat flags ([ADR 0047](adr/0047-adaptive-thinking-prompt-and-request-profile.md)).
 `sendActivity.ts` owns each send's inactivity monitors and abortable retry waits,
 and releases all acquired timers when that send finishes. The existing
 `createPiSession.test.ts` and seam/compaction suites exercise this through the
@@ -257,7 +262,7 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`, cons
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in prompt modules. Correctness uses `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, and tests personas live under `src/agent/prompts/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns. Inspect a persona's generated prompt with `nub run dump-prompt <persona>` (`scripts/dump-prompt.ts`); prompt changes are proven by inspected prompt output, not `check:code` alone.
+Long investigator prompt blocks stay in prompt modules. Correctness uses `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, and tests personas live under `src/agent/prompts/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns. Inspect a persona's generated prompt with `nub run dump-prompt <persona>` (`scripts/dump-prompt.ts`); prompt changes are proven by inspected prompt output, not `check:code` alone. Model-facing tool schemas go through `toToolParameters` in `src/agent/tools/toolParams.ts`, which closes objects for the model and owns the shared parameter descriptions. Prompt style for adaptive-thinking models (goals and done-criteria, no unenforced caps, one copy of each contract) is recorded in [ADR 0047](adr/0047-adaptive-thinking-prompt-and-request-profile.md).
 
 `nub run dump-prompt all` emits deterministic JSON for every role's system prompt
 and ordered tool definitions, including native workspace definitions hidden by

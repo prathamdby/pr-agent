@@ -5,13 +5,14 @@ import {
   compactIfNeeded,
   dropTrailingErrorAssistant,
 } from "./transcriptCompaction.js";
-import type { CompactionPolicy } from "./types.js";
+import type { CompactionPolicy, ThinkingLevel } from "./types.js";
 import type { SessionTrace } from "./sessionTrace.js";
 
 type SessionCompactionRuntime = {
   readonly model: AgentLoopConfig["model"];
   readonly streamFn: StreamFn;
   readonly signal: AbortSignal;
+  readonly thinkingCeiling: ThinkingLevel;
   readonly onCompaction: (reason: "window" | "overflow") => void;
   readonly trace?: SessionTrace;
 };
@@ -25,6 +26,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
       model: rt.model,
       streamFn: rt.streamFn,
       signal: rt.signal,
+      thinkingCeiling: rt.thinkingCeiling,
       trace: rt.trace,
     });
     if (!compacted) return undefined;
@@ -44,6 +46,7 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
         model: rt.model,
         streamFn: rt.streamFn,
         signal: rt.signal,
+        thinkingCeiling: rt.thinkingCeiling,
         trace: rt.trace,
       });
       if (!compacted) return false;

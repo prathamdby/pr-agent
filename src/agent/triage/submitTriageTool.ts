@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../tools/toolParams.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
@@ -30,9 +30,7 @@ export function createSubmitTriageState(): SubmitTriageState {
   };
 }
 
-const SUBMIT_TRIAGE_PARAMETERS = toJsonSchema(TriagePayloadSchema, {
-  errorMode: "ignore",
-}) as PiTool["parameters"];
+const SUBMIT_TRIAGE_PARAMETERS = toToolParameters(TriagePayloadSchema);
 
 export function buildSubmitTriageTool(params: {
   readonly owner: string;
@@ -49,7 +47,7 @@ export function buildSubmitTriageTool(params: {
   const piTool: PiTool = {
     name: "submitTriage",
     description:
-      "Submit exactly one verdict for every triage inventory thread after verifying current code.",
+      "Record the triage result: one verdict for every inventory thread, judged against the current code. A fixed verdict cites the full sha that commitFix returned for that thread, and every commitFix commit needs a fixed verdict. A rejected submission returns the reasons; correct them and submit again. The first accepted submission is final.",
     parameters: SUBMIT_TRIAGE_PARAMETERS,
   };
 

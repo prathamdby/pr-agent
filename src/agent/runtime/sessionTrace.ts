@@ -85,6 +85,8 @@ function createRecording(
     span.errorCode =
       span.status === "error" ? "provider_error" : span.status === "cancelled" ? "aborted" : null;
     span.attrs.stop_reason = message.stopReason;
+    span.attrs.raw_stop_reason = message.rawStopReason ?? null;
+    span.attrs.effort = message.providerThinkingLevel ?? null;
     span.attrs.empty_final_text =
       message.stopReason !== "toolUse" && !contentText(message.content).trim();
     for (const part of message.content) {

@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../tools/toolParams.js";
 import * as v from "valibot";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
@@ -54,15 +54,14 @@ export function createSubmitDescriptionState(): SubmitDescriptionState {
 }
 
 const SUBMIT_DESCRIPTION_DESCRIPTION = [
-  "Submit the completed PR description exactly once.",
+  "Submit the completed PR description. A repeat call after success is a no-op.",
   "Pass a DescriptionPayload object matching the schema.",
-  "This merges generated content into the pull request body under the PR Agent description header.",
+  "The content merges into the pull request body under the PR Agent description header.",
+  "Before publishing, the server normalizes the title (drops a conventional-commit prefix and trailing periods, capitalizes, shortens past the limit), drops prFiles entries for paths outside this pull request, caps the map length, removes the map entirely when the map rule says to omit it, and drops empty visuals. None of this is reported back, so follow the rules rather than relying on it.",
   `Shape-only example (active map hard rule decides prFiles): ${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE)}`,
 ].join(" ");
 
-const SUBMIT_DESCRIPTION_PARAMETERS = toJsonSchema(descriptionPayloadSchema, {
-  errorMode: "ignore",
-}) as PiTool["parameters"];
+const SUBMIT_DESCRIPTION_PARAMETERS = toToolParameters(descriptionPayloadSchema);
 
 export function buildSubmitDescriptionTool(params: {
   cfg: Config;

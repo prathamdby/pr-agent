@@ -30,7 +30,7 @@ export type TriageRunResult = {
 const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
   "call commitFix for each pending finding first, then call submitTriage once with a complete TriagePayload";
 
-const TRIAGE_SUBMIT_ONLY_NUDGE = `You replied with text only. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+const TRIAGE_SUBMIT_ONLY_NUDGE = `Your last reply was text only, and the server reads only tool calls. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 
 const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 

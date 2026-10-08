@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../../agent/tools/toolParams.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
@@ -55,8 +55,9 @@ export function buildSpecialistBriefTool(
   let validationError: string | null = null;
   const piTool: PiTool = {
     name: "submit_specialist_brief",
-    description: "Submit the structured specialist brief after completing PR reconnaissance.",
-    parameters: toJsonSchema(specialistBriefSchema, { errorMode: "ignore" }),
+    description:
+      "Submit the reconnaissance brief that every specialist receives. Call it once your investigation is done. Risk areas and focus notes are hypotheses for the specialists to verify, so name files and reasons rather than conclusions. A rejected call returns the validation error; fix the named fields and call again.",
+    parameters: toToolParameters(specialistBriefSchema),
   };
   const executor: AgentRunnerToolExecutor = async (args) => {
     const gate = assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief");

@@ -29,6 +29,11 @@ type SessionTurnRuntime = {
   readonly onRetry: (attempt: number) => void;
 };
 
+/** Provider safety-classifier decline. Retrying the same request returns the same decline. */
+export function isProviderRefusal(message: AssistantMessage | undefined): boolean {
+  return message?.rawStopReason === "refusal";
+}
+
 export function lastAssistant(messages: readonly AgentMessage[]): AssistantMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -111,7 +116,7 @@ export async function runSessionTurn(
   }
   while (rt.shouldContinue()) {
     const assistant = lastAssistant(messages);
-    if (!assistant || assistant.stopReason !== "error") break;
+    if (!assistant || assistant.stopReason !== "error" || isProviderRefusal(assistant)) break;
     if (isContextOverflow(assistant, rt.config.model.contextWindow)) {
       if (!(await rt.compaction.recoverOverflow(messages))) break;
       try {

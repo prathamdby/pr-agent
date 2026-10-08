@@ -49,15 +49,35 @@ export function clampToModelSupportedLevel(
   );
 }
 
+/** Phases one orchestrator session sends, in order. */
+export const ORCHESTRATOR_SESSION_PHASES: readonly AgentSessionPhase[] = [
+  "recon",
+  "judgment",
+  "synthesis",
+  "validation_repair",
+  "publish_recovery",
+];
+
 export function resolveThinkingLevel(params: {
   readonly policy: ThinkingPolicy;
   readonly phase: AgentSessionPhase;
   readonly modelSupportedLevels?: readonly ThinkingLevel[];
+  /**
+   * Resolve one level for every phase in this list instead of the current phase.
+   * Anthropic keys the prompt cache on top-level effort, so a per-phase change
+   * inside one session rewrites the whole cached transcript.
+   */
+  readonly holdAcrossPhases?: readonly AgentSessionPhase[];
 }): ThinkingLevel {
-  const desired = clampThinkingLevel(
-    params.policy.levelForPhase(params.phase),
-    params.policy.ceiling,
-  );
+  const phases = params.holdAcrossPhases?.includes(params.phase)
+    ? params.holdAcrossPhases
+    : [params.phase];
+  const wanted = phases
+    .map((phase) => params.policy.levelForPhase(phase))
+    .reduce((highest, level) =>
+      thinkingLevelIndex(level) > thinkingLevelIndex(highest) ? level : highest,
+    );
+  const desired = clampThinkingLevel(wanted, params.policy.ceiling);
   if (!params.modelSupportedLevels) return desired;
   return clampToModelSupportedLevel(desired, params.modelSupportedLevels);
 }

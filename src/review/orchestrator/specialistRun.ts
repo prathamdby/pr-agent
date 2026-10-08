@@ -7,6 +7,7 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import {
   classifyProviderError,
   isCancelAbortError,
+  isProviderRefusalError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
@@ -153,6 +154,7 @@ function buildSubmitTool(
   readonly executor: AgentRunnerToolExecutor;
 } {
   const piTool = buildSubmitFindingsReportPiTool();
+  let evidenceFeedbackSent = false;
   const executor: AgentRunnerToolExecutor = async (args) => {
     const schemaStartedAt = Date.now();
     const parsed = parseToolInput(specialistReportSchema, args, {
@@ -205,6 +207,26 @@ function buildSubmitTool(
       const status =
         report.status === "findings" && findings.length === 0 ? "no_findings" : report.status;
       report = { ...report, status, findings };
+      // The filtered report is recorded first, so a model that stops here still
+      // reports what it proved; one resubmission lets it ground the dropped ones.
+      if (filtered.rejected.length > 0 && !evidenceFeedbackSent) {
+        evidenceFeedbackSent = true;
+        state.report = report;
+        state.validationError = null;
+        return {
+          accepted: false,
+          recorded: { findings: findings.length },
+          droppedFindings: filtered.rejected.map((entry) => ({
+            title: entry.finding.title,
+            file: entry.finding.file,
+            startLine: entry.finding.startLine,
+            endLine: entry.finding.endLine,
+            reasonCode: entry.reasonCode,
+          })),
+          error:
+            "These findings cite lines that no file read or diff result in this session returned, so they were dropped. The rest of the report is recorded. To keep a dropped finding, read the cited lines, then call submit_findings_report again with the complete report. If the lines do not support it, leave it out.",
+        };
+      }
     }
 
     state.report = report;
@@ -360,7 +382,7 @@ async function runAttempt(
             session,
             [
               validationError,
-              "Fix the report and call submit_findings_report now. Do not use any other tools.",
+              "Fix the report and call submit_findings_report now. This repair turn allows only a couple of tool calls, so submit from the evidence you already have.",
             ].join("\n\n"),
             (active, prompt, options) =>
               send(active, prompt, { ...options, traceValidationRepair: true }),
@@ -460,6 +482,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
 
     if (
       isCancelAbortError(lastError) ||
+      isProviderRefusalError(lastError) ||
       classification === "cancelled" ||
       params.signal?.aborted ||
       attempts >= MAX_SESSION_ATTEMPTS ||

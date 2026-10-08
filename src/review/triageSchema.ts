@@ -5,32 +5,73 @@ import {
   TRIAGE_VERDICT_EVIDENCE_MAX_CHARS,
 } from "../settings/index.js";
 
+const threadRootCommentIdField = v.pipe(
+  v.number(),
+  v.integer(),
+  v.gtValue(0),
+  v.description("Root comment id of the inventory thread this verdict answers."),
+);
+const evidenceField = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS),
+  v.description("What in the current code supports this verdict, with file and line."),
+);
+
 const TriageVerdictSchema = v.variant("verdict", [
   v.object({
-    verdict: v.literal("fixed"),
-    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-    commitSha: v.pipe(v.string(), v.regex(/^[0-9a-f]{7,40}$/)),
-    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
+    verdict: v.pipe(
+      v.literal("fixed"),
+      v.description("A commit in this pull request fixes the finding."),
+    ),
+    threadRootCommentId: threadRootCommentIdField,
+    commitSha: v.pipe(
+      v.string(),
+      v.regex(/^[0-9a-f]{7,40}$/),
+      v.description("Full lowercase sha of the fixing commit, exactly as reported."),
+    ),
+    evidence: evidenceField,
   }),
   v.object({
-    verdict: v.literal("already-resolved"),
-    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
+    verdict: v.pipe(
+      v.literal("already-resolved"),
+      v.description("The current code no longer has the problem, without a fix from this run."),
+    ),
+    threadRootCommentId: threadRootCommentIdField,
+    evidence: evidenceField,
   }),
   v.object({
-    verdict: v.literal("skipped"),
-    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-    reason: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_SKIP_REASON_MAX_CHARS)),
+    verdict: v.pipe(
+      v.literal("skipped"),
+      v.description("The finding still applies or cannot be settled from the code available."),
+    ),
+    threadRootCommentId: threadRootCommentIdField,
+    reason: v.pipe(
+      v.string(),
+      v.minLength(1),
+      v.maxLength(TRIAGE_SKIP_REASON_MAX_CHARS),
+      v.description("Why the finding was left open."),
+    ),
   }),
   v.object({
-    verdict: v.literal("dismissed"),
-    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
+    verdict: v.pipe(
+      v.literal("dismissed"),
+      v.description(
+        "An authorized maintainer decided the finding does not need a fix. Only valid for threads that record that decision.",
+      ),
+    ),
+    threadRootCommentId: threadRootCommentIdField,
+    evidence: evidenceField,
   }),
 ]);
 
 export const TriagePayloadSchema = v.object({
-  verdicts: v.pipe(v.array(TriageVerdictSchema), v.minLength(1), v.maxLength(MAX_TRIAGE_FINDINGS)),
+  verdicts: v.pipe(
+    v.array(TriageVerdictSchema),
+    v.minLength(1),
+    v.maxLength(MAX_TRIAGE_FINDINGS),
+    v.description("One verdict for every inventory thread."),
+  ),
 });
 
 export type TriageVerdict = v.InferOutput<typeof TriageVerdictSchema>;
@@ -48,6 +89,7 @@ export const VerificationPayloadSchema = v.object({
     v.array(VerificationVerdictSchema),
     v.minLength(1),
     v.maxLength(MAX_TRIAGE_FINDINGS),
+    v.description("One verdict for every inventory thread."),
   ),
 });
 

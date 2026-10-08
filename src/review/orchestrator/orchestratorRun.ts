@@ -4,7 +4,10 @@ import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import type { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";
-import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
+import {
+  isCancelAbortError,
+  isProviderRefusalError,
+} from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
@@ -781,6 +784,12 @@ export async function runOrchestratedPrReview(
           await stopFromGateResult(await params.gate.check());
           return { kind: "failed", error: appError };
         }
+        if (isProviderRefusalError(appError)) {
+          // Repair and recovery turns would resend the declined context, so the
+          // run falls back to deterministic output with no further model sends.
+          await retireSession();
+          break;
+        }
         const failure = classifyFailure(appError, { phase });
         recordClassifiedFailure(failure);
         logWarn("review_orchestrator_send_retry", {
@@ -1107,7 +1116,7 @@ export async function runOrchestratedPrReview(
               "recon",
               [
                 validationError,
-                "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
+                "Fix the brief and call submit_specialist_brief now. This repair turn allows only a couple of tool calls, so submit from what you already found.",
               ].join("\n\n"),
               { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );

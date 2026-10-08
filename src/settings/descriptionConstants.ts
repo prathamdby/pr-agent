@@ -7,7 +7,7 @@ export const DESCRIPTION_FAILURE_MESSAGE =
 export const DESCRIPTION_ALREADY_IN_PROGRESS =
   "A `/describe` run is already queued or in progress for this pull request.";
 export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
-  "You replied with text only. Call submitDescription now with a complete DescriptionPayload.";
+  "Your last reply was text only, and the server reads only the submitDescription call. Call submitDescription now with a complete DescriptionPayload.";
 export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
 export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 

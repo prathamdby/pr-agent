@@ -94,7 +94,7 @@ describe("severity helpers", () => {
     expect(isCheckFailingSeverity("P3")).toBe(false);
   });
 
-  it("requires fixPrompt for P3 findings", () => {
+  it("requires a non-blank fixPrompt for P3 findings", () => {
     const parsed = v.safeParse(
       reviewPayloadSchema,
       makeReviewPayload({
@@ -106,6 +106,7 @@ describe("severity helpers", () => {
             endLine: 1,
             title: "Nit",
             detail: "minor",
+            fixPrompt: "  ",
           },
         ],
         size: "XS",

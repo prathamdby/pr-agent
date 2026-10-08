@@ -48,11 +48,10 @@ export type NumberedPolicyPair = {
 export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
   "You judge whether a review finding violates a bound same-repo repo policy rule.",
   noToolsTurnGuidance,
-  "Most findings do not violate a given always-apply rule. Default no.",
-  "You receive only the asked pairs. Each pair is self-contained.",
-  'Reply with JSON only: {"yes":["p0"]} using pair ids from the asked list.',
-  "Include an id only when the finding is an evidenced violation of that pair's rule.",
-  "Never invent a path. Never emit an id that was not asked. When unsure, omit the id.",
+  "A yes attaches the rule's path to a published review thread as the policy the finding breaks, so it needs to hold up when a maintainer opens the rule.",
+  "Each asked pair is self-contained: one finding and one always-apply rule. Most findings do not violate a given rule.",
+  'The reply is {"yes":["p0"]}, listing only ids from the asked list.',
+  "An id belongs in yes when the finding's own text and snippet show it breaks that pair's rule. When the evidence leaves the violation unclear, the id stays out; the finding still publishes without a policy path.",
 ].join("\n");
 
 function extractJsonObject(text: string): unknown {
@@ -153,7 +152,7 @@ export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudg
     ].join("\n");
   });
   return [
-    "Return the yes subset of these asked pair ids. Default no.",
+    "Return the yes subset of these asked pair ids: the pairs whose finding is an evidenced violation of its rule.",
     `Asked ids: ${asked}`,
     "",
     ...blocks,

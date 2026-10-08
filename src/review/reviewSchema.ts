@@ -27,17 +27,66 @@ export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "sty
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
 export const reviewFindingEntries = {
-  severity: severitySchema,
-  file: v.pipe(v.string(), v.minLength(1)),
-  startLine: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-  endLine: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-  title: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_TITLE_MAX_CHARS)),
-  detail: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_DETAIL_MAX_CHARS)),
-  fixPrompt: v.optional(v.pipe(v.string(), v.maxLength(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS))),
-  suggestedCode: v.optional(
-    v.pipe(v.string(), v.maxLength(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS)),
+  severity: v.pipe(
+    severitySchema,
+    v.description(
+      "P0 near-certain crash or exploit; P1 clear-path correctness or security defect; P2 plausible bug with real impact; P3 real low-impact defect.",
+    ),
   ),
-  confidence: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(5))),
+  file: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.description("Repository-relative path of the file the finding anchors to."),
+  ),
+  startLine: v.pipe(
+    v.number(),
+    v.integer(),
+    v.gtValue(0),
+    v.description("First anchored line at the reviewed head, 1-based."),
+  ),
+  endLine: v.pipe(
+    v.number(),
+    v.integer(),
+    v.gtValue(0),
+    v.description("Last anchored line, at or after startLine."),
+  ),
+  title: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.maxLength(REVIEW_FINDING_TITLE_MAX_CHARS),
+    v.description("One-line statement of the defect."),
+  ),
+  detail: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.maxLength(REVIEW_FINDING_DETAIL_MAX_CHARS),
+    v.description("The trigger, the observable consequence, and the code that proves it."),
+  ),
+  fixPrompt: v.pipe(
+    v.string(),
+    v.maxLength(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS),
+    v.description(
+      "One or two standalone sentences naming the defect and the fix direction, without a file or line header.",
+    ),
+  ),
+  suggestedCode: v.optional(
+    v.pipe(
+      v.string(),
+      v.maxLength(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS),
+      v.description(
+        "Exact replacement for startLine..endLine. Omit when the fix touches other lines.",
+      ),
+    ),
+  ),
+  confidence: v.optional(
+    v.pipe(
+      v.number(),
+      v.integer(),
+      v.minValue(1),
+      v.maxValue(5),
+      v.description("How sure you are the defect is real, 1 (guess) to 5 (proven)."),
+    ),
+  ),
   category: v.optional(v.picklist(REVIEW_FINDING_CATEGORIES)),
 };
 
@@ -48,10 +97,7 @@ export const reviewFindingSchema = v.pipe(
     ["endLine"],
   ),
   v.forward(
-    v.check(
-      (f) => f.fixPrompt != null && f.fixPrompt.trim().length > 0,
-      "fixPrompt is required for P0/P1/P2/P3 findings",
-    ),
+    v.check((f) => f.fixPrompt.trim().length > 0, "fixPrompt is required for P0/P1/P2/P3 findings"),
     ["fixPrompt"],
   ),
 );
@@ -136,10 +182,6 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     paths.push(path);
     lines.push(`- ${path}: ${issue.message}`);
   }
-  lines.push(
-    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), followUps (max ${MAX_REVIEW_FOLLOW_UPS}), mergeability (max ${REVIEW_GATE_PROSE_MAX_CHARS}), blastRadius (max ${REVIEW_GATE_PROSE_MAX_CHARS}).`,
-  );
-  lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];
   const failureKind = firstIssue ? valibotIssueFailureKind(firstIssue) : "other";
   return { message: lines.join("\n"), failureKind, paths };
