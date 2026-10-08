@@ -77,9 +77,9 @@ function contextTokens(usage: {
 }
 
 function assistantUsage(message: AgentMessage) {
-  if (message.role !== "assistant") return undefined;
+  if (message.role !== "assistant" || !("usage" in message)) return undefined;
   if (message.stopReason === "aborted" || message.stopReason === "error") return undefined;
-  if (contextTokens(message.usage) <= 0) return undefined;
+  if (!message.usage || contextTokens(message.usage) <= 0) return undefined;
   return message.usage;
 }
 
