@@ -19,6 +19,11 @@ retain validated redacted structured output, not session computation. Briefs,
 reports, and publication/summary inputs can contain code excerpts. The no-model-text
 rule below applies to lifecycle/audit records, not that separate private store.
 Fresh judgment sessions never restore transcripts.
+`pi-agent-core` and `pi-ai` stay pinned together at exact 1.0.0, including
+Core's dependency on pi-ai. Core 1.0 removed the harness compaction exports.
+`src/agent/runtime/transcriptCompaction.ts` owns the summary framing, character
+token estimate, and window threshold. Sessions stay in memory. This pin does
+not add a session store, the coding-agent SDK, or pi-durable.
 
 ## Context
 
@@ -47,6 +52,9 @@ policy, durable operation intents, and strict redaction.
    `PI_PROVIDER` / `PI_MODEL` (and optional orchestrator/fallback overrides), resolved
    against pi-ai built-ins plus an optional `models.json` overlay through
    `createProvider`. Pin `pi-agent-core` to the same version as `pi-ai`.
+   The current pin is exact 1.0.0. Compaction framing, the token estimate, and
+   the window threshold live in `transcriptCompaction.ts` because Core 1.0
+   removed those harness exports.
 2. Replace the generic runner abstraction with one Pi-specific session seam owned
    by pr-agent (`src/agent/runtime/`). Feature harnesses must not import or
    construct raw Pi sessions, call `runAgentLoop`, or import `pi-ai/compat`.
