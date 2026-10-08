@@ -182,6 +182,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         model,
         streamFn,
         signal: loopSignal,
+        thinkingCeiling: params.thinkingPolicy.ceiling,
         onCompaction: (reason) =>
           emit({
             kind: "compaction",

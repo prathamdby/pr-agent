@@ -16,6 +16,8 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import type { SessionTrace } from "./sessionTrace.js";
+import { clampThinkingLevel } from "./thinkingPolicy.js";
+import type { ThinkingLevel } from "./types.js";
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Keep the task and current phase, every accepted or submitted finding with its file and line range, the evidence paths and line ranges already read, tool calls the session still owes (submit, publish, or reply), and open questions.";
@@ -103,10 +105,13 @@ async function summarizeMessages(
   model: Model<Api>,
   streamFn: StreamFn,
   signal: AbortSignal | undefined,
+  thinkingCeiling: ThinkingLevel,
   trace?: SessionTrace,
 ): Promise<string | undefined> {
   const conversationText = serializeForSummary(messages);
   if (conversationText.length === 0) return undefined;
+  // Thinking shares maxTokens with the summary; keep it short so the summary fits.
+  const reasoning = clampThinkingLevel("low", thinkingCeiling);
   const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
   const maxTokens = Math.min(
     Math.floor(0.8 * DEFAULT_COMPACTION_SETTINGS.reserveTokens),
@@ -130,8 +135,9 @@ async function summarizeMessages(
         maxTokens,
         cacheRetention: "none",
         signal,
-        // Thinking shares maxTokens with the summary; keep it short so the summary fits.
-        ...(getSupportedThinkingLevels(model).includes("low") ? { reasoning: "low" } : {}),
+        ...(reasoning !== "off" && getSupportedThinkingLevels(model).includes(reasoning)
+          ? { reasoning }
+          : {}),
       },
     );
     const response = await stream.result();
@@ -174,6 +180,7 @@ export async function compactAgentMessages(params: {
   readonly model: Model<Api>;
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
+  readonly thinkingCeiling: ThinkingLevel;
 }): Promise<AgentMessage[] | undefined> {
   // Leading system messages carry the session prompt. Compaction summarizes
   // conversation only, so keep them out of the summarized region and re-prepend
@@ -198,6 +205,7 @@ export async function compactAgentMessages(params: {
     params.model,
     params.streamFn,
     params.signal,
+    params.thinkingCeiling,
     params.trace,
   );
   if (!summary) return undefined;
@@ -215,6 +223,7 @@ export async function compactIfNeeded(params: {
   readonly model: Model<Api>;
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
+  readonly thinkingCeiling: ThinkingLevel;
 }): Promise<AgentMessage[] | undefined> {
   const usage = estimateContextTokens([...params.messages]);
   if (!shouldCompact(usage.tokens, params.model.contextWindow, DEFAULT_COMPACTION_SETTINGS)) {

@@ -112,7 +112,12 @@ describe("compactAgentMessages overflow", () => {
       })),
     ] as never;
     const model = { maxTokens: 100000, contextWindow: 200000 } as never;
-    const compacted = await compactAgentMessages({ messages, model, streamFn });
+    const compacted = await compactAgentMessages({
+      messages,
+      model,
+      streamFn,
+      thinkingCeiling: "max",
+    });
     expect(compacted?.[0]).toMatchObject({ role: "system", content: "session prompt" });
     const summaryMessage = compacted?.[1] as { content?: unknown } | undefined;
     expect(compacted?.[1]).toMatchObject({ role: "user" });
@@ -153,7 +158,12 @@ describe("compactAgentMessages overflow", () => {
       })),
     ] as never;
     const model = { maxTokens: 100000, contextWindow: 200000 } as never;
-    const compacted = await compactAgentMessages({ messages, model, streamFn });
+    const compacted = await compactAgentMessages({
+      messages,
+      model,
+      streamFn,
+      thinkingCeiling: "max",
+    });
     expect(compacted?.[0]).toMatchObject({ role: "system", content: "session prompt" });
     expect(compacted?.[1]).toMatchObject({ role: "user" });
     const summaryContent = (compacted?.[1] as { content?: unknown } | undefined)?.content;

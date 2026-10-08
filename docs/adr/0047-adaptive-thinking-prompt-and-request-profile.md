@@ -53,8 +53,10 @@ History:
   from the retained tail. The cut still lands on a safe boundary, so tool calls
   and results stay paired.
 - The summarizer prompt treats the conversation as untrusted data, keeps
-  findings, evidence ranges, and owed tool calls, and asks for `low` reasoning
-  when the model supports it, because thinking shares the summary's token limit.
+  findings, evidence ranges, and owed tool calls, and asks for `low` reasoning,
+  clamped to `PI_THINKING_CEILING`, when the model supports that level, because
+  thinking shares the summary's token limit. An `off` ceiling sends no
+  reasoning.
 - Generation trace spans record `raw_stop_reason` and the provider-native
   `effort`.
 
