@@ -143,6 +143,12 @@ Mode host calls. Code Mode's
 `admitted_host_calls` gives the investigation depth within `execute`. These are
 diagnostics, not findings or proof that a model is worse.
 
+Generation spans also carry `raw_stop_reason` (the provider's own stop reason)
+and `effort` (the provider-native thinking level actually sent). A
+`raw_stop_reason` of `refusal` means the provider's safety classifier declined
+the request. The session raises `provider.refusal` without a retry or an
+empty-text nudge, because resending the same request returns the same decline.
+
 `agent_events.event_kind = 'trace_spans_dropped'` records each execution's lost
 span count. `agent_trace_flush_failed`, `agent_trace_content_failed` and
 `agent_trace_shutdown_incomplete` logs identify gaps. Tracing never retries agent

@@ -54,6 +54,16 @@ function isAcceptedTerminalResult(result: unknown): boolean {
   return result.accepted === true || result.ok === true;
 }
 
+/**
+ * A terminal submit that refuses its input must surface as a tool error: the turn
+ * budget treats any non-error terminal result as success and ends the turn, which
+ * would leave the model no room to correct the submission.
+ */
+function isRejectedTerminalResult(result: unknown): boolean {
+  if (!isRecord(result)) return false;
+  return (result.accepted === false || result.ok === false) && typeof result.error === "string";
+}
+
 export function toCoreTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
@@ -96,6 +106,14 @@ export function toCoreTool(
           ...(observe ? { emit: (event: AgentLifecycleEvent) => observe(toolCallId, event) } : {}),
         };
         const result = await executor(asToolArgs(params), ctx);
+        if (TERMINAL_SUBMIT_TOOLS.has(tool.name) && isRejectedTerminalResult(result)) {
+          throw new AppError({
+            domain: "tool",
+            kind: "submit_rejected",
+            message: toolResultToText(result),
+            context: { toolName: tool.name },
+          });
+        }
         const size = toolResultSize(result);
         safeRecordReviewMetric({
           kind: "tool_call",

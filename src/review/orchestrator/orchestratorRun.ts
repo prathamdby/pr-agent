@@ -1107,7 +1107,7 @@ export async function runOrchestratedPrReview(
               "recon",
               [
                 validationError,
-                "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
+                "Fix the brief and call submit_specialist_brief now. This repair turn allows only a couple of tool calls, so submit from what you already found.",
               ].join("\n\n"),
               { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );

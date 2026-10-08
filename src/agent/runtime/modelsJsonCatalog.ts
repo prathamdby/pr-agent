@@ -21,16 +21,42 @@ const MODEL_KEYS = new Set([
   "contextWindow",
   "maxTokens",
   "cost",
+  "compat",
+  "thinkingLevelMap",
 ]);
 
 const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite"]);
 
-const COMPAT_KEYS = new Set(["supportsDeveloperRole", "supportsReasoningEffort"]);
+const COMPAT_FLAG_KEYS = [
+  "supportsDeveloperRole",
+  "supportsReasoningEffort",
+  // Anthropic Messages flags. Without them a models.json-declared adaptive-only
+  // model (Opus 4.7+, Opus 5.x) gets budget thinking and a temperature field.
+  "forceAdaptiveThinking",
+  "supportsTemperature",
+  "supportsStrictTools",
+  "supportsMidConvoEffort",
+  "supportsMidConvoSystemMessages",
+  "supportsMidConvoToolChanges",
+] as const;
 
-export type ModelsJsonCompat = {
-  readonly supportsDeveloperRole?: boolean;
-  readonly supportsReasoningEffort?: boolean;
-};
+type CompatFlagKey = (typeof COMPAT_FLAG_KEYS)[number];
+
+const COMPAT_KEYS: ReadonlySet<string> = new Set(COMPAT_FLAG_KEYS);
+
+export type ModelsJsonCompat = { readonly [K in CompatFlagKey]?: boolean };
+
+const THINKING_LEVEL_MAP_KEYS: ReadonlySet<string> = new Set([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+export type ModelsJsonThinkingLevelMap = Readonly<Record<string, string | null>>;
 
 export type ModelsJsonCost = {
   readonly input: number;
@@ -47,6 +73,8 @@ export type ModelsJsonModel = {
   readonly contextWindow: number;
   readonly maxTokens: number;
   readonly cost: ModelsJsonCost;
+  readonly compat?: ModelsJsonCompat;
+  readonly thinkingLevelMap?: ModelsJsonThinkingLevelMap;
 };
 
 export type ModelsJsonProvider = {
@@ -127,24 +155,29 @@ function parseCompat(value: unknown, label: string): ModelsJsonCompat | undefine
   if (value === undefined) return undefined;
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, COMPAT_KEYS, label);
-  return {
-    ...(value.supportsDeveloperRole !== undefined
-      ? {
-          supportsDeveloperRole: asBoolean(
-            value.supportsDeveloperRole,
-            `${label}.supportsDeveloperRole`,
-          ),
-        }
-      : {}),
-    ...(value.supportsReasoningEffort !== undefined
-      ? {
-          supportsReasoningEffort: asBoolean(
-            value.supportsReasoningEffort,
-            `${label}.supportsReasoningEffort`,
-          ),
-        }
-      : {}),
-  };
+  const compat: { [K in CompatFlagKey]?: boolean } = {};
+  for (const key of COMPAT_FLAG_KEYS) {
+    const flag = value[key];
+    if (flag !== undefined) compat[key] = asBoolean(flag, `${label}.${key}`);
+  }
+  return compat;
+}
+
+function parseThinkingLevelMap(
+  value: unknown,
+  label: string,
+): ModelsJsonThinkingLevelMap | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
+  assertAllowedKeys(value, THINKING_LEVEL_MAP_KEYS, label);
+  const map: Record<string, string | null> = {};
+  for (const [level, mapped] of Object.entries(value)) {
+    if (mapped !== null && (typeof mapped !== "string" || mapped.trim().length === 0)) {
+      throw invalidSchema(`${label}.${level} must be a non-empty string or null`);
+    }
+    map[level] = mapped;
+  }
+  return map;
 }
 
 function parseHeaders(value: unknown, label: string): Readonly<Record<string, string>> | undefined {
@@ -208,6 +241,15 @@ function parseModel(value: unknown, label: string): ModelsJsonModel {
     contextWindow,
     maxTokens,
     cost: parseCost(value.cost, `${label}.cost`),
+    ...(value.compat !== undefined ? { compat: parseCompat(value.compat, `${label}.compat`) } : {}),
+    ...(value.thinkingLevelMap !== undefined
+      ? {
+          thinkingLevelMap: parseThinkingLevelMap(
+            value.thinkingLevelMap,
+            `${label}.thinkingLevelMap`,
+          ),
+        }
+      : {}),
   };
 }
 

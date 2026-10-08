@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../../agent/tools/toolParams.js";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
@@ -93,8 +93,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   const piTool: PiTool = {
     name: "publish_thread",
     description:
-      "Publish one judged batch of review findings. An empty findings array is valid when no candidate survives judgment.",
-    parameters: toJsonSchema(publishThreadSchema, { errorMode: "ignore" }),
+      "Publish the judged findings for the active specialist as one batch. Pass only the candidates that survive judgment; an empty findings array is valid and records that none did. The result reports what was accepted and lists already-published findings in the same files, so you can avoid repeating them.",
+    parameters: toToolParameters(publishThreadSchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");

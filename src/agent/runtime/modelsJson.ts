@@ -72,8 +72,10 @@ function toPiModel(
   baseUrl: string,
   api: string,
   entry: ModelsJsonModel,
-  compat: ModelsJsonCompat | undefined,
+  providerCompat: ModelsJsonCompat | undefined,
 ): Model<Api> {
+  const compat =
+    providerCompat || entry.compat ? { ...providerCompat, ...entry.compat } : undefined;
   return {
     id: entry.id,
     name: entry.name,
@@ -86,6 +88,7 @@ function toPiModel(
     contextWindow: entry.contextWindow,
     maxTokens: entry.maxTokens,
     ...(compat ? { compat } : {}),
+    ...(entry.thinkingLevelMap ? { thinkingLevelMap: { ...entry.thinkingLevelMap } } : {}),
   };
 }
 

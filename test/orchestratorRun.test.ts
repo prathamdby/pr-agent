@@ -23,7 +23,6 @@ import {
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.js";
 import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
-import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 import {
@@ -341,6 +340,7 @@ function finding(specialist: SpecialistId, extras: Partial<ReviewFinding> = {}):
     endLine: 1,
     title: `${specialist} finding`,
     detail: `The ${specialist} path is incorrect.`,
+    fixPrompt: `Fix the ${specialist} path.`,
     ...extras,
   };
 }
@@ -1128,7 +1128,9 @@ describe("runOrchestratedPrReview", () => {
     }
 
     await expect(run).resolves.toMatchObject({ published: true });
-    expect(testState.judgmentPrompts[0]).toContain(causalPublicationContract);
+    expect(testState.judgmentPrompts[0]).toContain(
+      "apply the causal-publication contract from your instructions",
+    );
     expect(testState.judgmentPrompts[0]).toContain("Consider extracting a helper");
     expect(testState.publishOrder).toEqual(["quality", "summary"]);
     expect(testState.ledger?.accepted ?? []).toEqual([]);
@@ -1937,8 +1939,10 @@ describe("runOrchestratedPrReview", () => {
       prompt.includes("Synthesize the final"),
     );
     expect(synthesisPrompt).toContain("empty placement list is a valid review");
-    expect(synthesisPrompt).toContain("Do not invent findings");
-    expect(synthesisPrompt).toContain("still required on every summary");
+    expect(synthesisPrompt).toContain("The accepted placements below are the review's findings");
+    expect(synthesisPrompt).toContain(
+      "required on every summary, including a zero-findings review",
+    );
     expect(testState.deterministicSummaries).toHaveLength(0);
   });
 

@@ -12,6 +12,7 @@ import {
 import { AppError } from "../../errors/appError.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import { repoPathParam } from "../tools/toolParams.js";
 import { defineLocalTool } from "../tools/defineWorkspaceTool.js";
 import { normalizeTextFileEncoding } from "../tools/readWorkspaceTextFile.js";
 import {
@@ -83,11 +84,15 @@ export function buildTriageWorkspaceTools(params: {
 
   const editWorkspaceFile = defineLocalTool({
     description:
-      "Exact-match replacement in a writable checkout file. oldText must match exactly once.",
+      "Replace one exact span of text in a file named by a finding in the triage inventory. Other files are refused, so the fix stays inside what the finding implicates. oldText must occur exactly once; copy it from a fresh read and include enough surrounding lines to make it unique.",
     schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      oldText: v.pipe(v.string(), v.minLength(1)),
-      newText: v.string(),
+      path: repoPathParam,
+      oldText: v.pipe(
+        v.string(),
+        v.minLength(1),
+        v.description("Text to replace, copied exactly from the file. Must occur once."),
+      ),
+      newText: v.pipe(v.string(), v.description("Replacement text. May be empty to delete.")),
     }),
     run: async ({ path, oldText, newText }) => {
       const { fullPath, relativePath: rel } = await assertTriageWritablePath({
@@ -160,10 +165,19 @@ export function buildTriageWorkspaceTools(params: {
   });
 
   const createWorkspaceFile = defineLocalTool({
-    description: "Create a new file in the writable checkout. Fails if path already exists.",
+    description:
+      "Create a new file in the writable checkout. Only test files, docs directories, and Markdown files can be created, and an existing path is refused. Use editWorkspaceFile to change an existing file.",
     schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      content: v.pipe(v.string(), v.maxLength(TRIAGE_NEW_FILE_MAX_BYTES)),
+      path: repoPathParam,
+      content: v.pipe(
+        v.string(),
+        v.maxLength(TRIAGE_NEW_FILE_MAX_BYTES),
+        v.check(
+          (text) => Buffer.byteLength(text, "utf8") <= TRIAGE_NEW_FILE_MAX_BYTES,
+          `content must be at most ${TRIAGE_NEW_FILE_MAX_BYTES} UTF-8 bytes`,
+        ),
+        v.description(`Full file content, at most ${TRIAGE_NEW_FILE_MAX_BYTES} UTF-8 bytes.`),
+      ),
     }),
     run: async ({ path, content }) => {
       const { fullPath, relativePath: rel } = await assertTriageWritablePath({
@@ -187,15 +201,30 @@ export function buildTriageWorkspaceTools(params: {
   });
 
   const commitFix = defineLocalTool({
-    description: "Commit the minimal fix for one finding. One call per threadRootCommentId.",
+    description:
+      "Commit the fix for one inventory finding. Each finding gets at most one commit, so finish and check the edits for that finding first. It returns the commit sha, which a fixed verdict in submitTriage cites, and the committed diff, so you can confirm the commit holds what you intended. Staged files must be the finding's implicated files or files createWorkspaceFile allows.",
     schema: v.object({
-      threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
-      files: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1)),
-      subject: v.pipe(v.string(), v.minLength(1)),
+      threadRootCommentId: v.pipe(
+        v.number(),
+        v.integer(),
+        v.gtValue(0),
+        v.description("Root comment id of the inventory thread this commit fixes."),
+      ),
+      files: v.pipe(
+        v.array(repoPathParam),
+        v.minLength(1),
+        v.description("Every file this fix changed or created."),
+      ),
+      subject: v.pipe(
+        v.string(),
+        v.minLength(1),
+        v.description("Commit subject line describing the fix."),
+      ),
       body: v.optional(
         v.pipe(
           v.array(v.pipe(v.string(), v.minLength(1))),
           v.maxLength(TRIAGE_COMMIT_BODY_MAX_BULLETS),
+          v.description("Optional commit body bullets, one line each."),
         ),
       ),
     }),

@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toJsonSchema } from "@valibot/to-json-schema";
+import { toToolParameters } from "../tools/toolParams.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
@@ -28,9 +28,7 @@ export function createSubmitVerificationState(): SubmitVerificationState {
   };
 }
 
-const SUBMIT_VERIFICATION_PARAMETERS = toJsonSchema(VerificationPayloadSchema, {
-  errorMode: "ignore",
-}) as PiTool["parameters"];
+const SUBMIT_VERIFICATION_PARAMETERS = toToolParameters(VerificationPayloadSchema);
 
 export function buildSubmitVerificationTool(params: {
   readonly owner: string;
@@ -46,7 +44,7 @@ export function buildSubmitVerificationTool(params: {
   const piTool: PiTool = {
     name: "submitVerification",
     description:
-      "Submit exactly one verdict for every verification inventory thread after inspecting current code.",
+      "Record the verification result: one verdict for every inventory thread, judged against the current code. A fixed verdict cites one of the pushed commits listed in the request. A rejected submission returns the reasons; correct them and submit again. The first accepted submission is final.",
     parameters: SUBMIT_VERIFICATION_PARAMETERS,
   };
 

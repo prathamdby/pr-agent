@@ -25,7 +25,7 @@ export type VerificationRunResult = {
 };
 
 const VERIFICATION_SUBMIT_ONLY_NUDGE =
-  "You replied with text only. Call submitVerification now with a complete VerificationPayload.";
+  "Your last reply was text only, and the server reads only the submitVerification call. Call submitVerification now with a complete VerificationPayload.";
 
 export async function runVerification(params: {
   readonly cfg: Config;

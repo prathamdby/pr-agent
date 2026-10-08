@@ -16,11 +16,18 @@ import {
 
 /** Stable tool surface for prompt-cache prefixes (available and unavailable share these bytes). */
 export const SEARCH_CODE_INDEX_DESCRIPTION =
-  "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only. Confirm any match with `await tools.readWorkspaceFile({ path, startLine, maxLines })` inside `execute` before citing path or line numbers. When the index is unavailable, the tool returns { unavailable: true }; use `await tools.listChangedFiles()`, `await tools.searchWorkspace({ query })`, and `await tools.readWorkspaceFile({ path })` inside `execute`.";
+  "Search the repository's full-text code index for places worth reading. The query is matched as words, not as exact text or a regular expression. Each hint has a path and line range, plus a preview when the indexed lines still match the checkout; a hint without a preview points at lines that have changed since indexing. Hints are navigation only: read the lines with `await tools.readWorkspaceFile({ path, startLine, maxLines })` inside `execute` before you cite them. When the index is unavailable the result is { unavailable: true }; use `await tools.searchWorkspace({ query })` and `await tools.readWorkspaceFile({ path })` inside `execute` instead.";
 
 export const searchCodeIndexSchema = v.object({
-  query: v.pipe(v.string(), v.minLength(1)),
-  limit: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), CODE_INDEX_MAX_RESULTS),
+  query: v.pipe(
+    v.string(),
+    v.minLength(1),
+    v.description("Words to search for, such as identifiers or terms from the question."),
+  ),
+  limit: v.optional(
+    v.pipe(v.number(), v.integer(), v.gtValue(0), v.description("Most hints to return.")),
+    CODE_INDEX_MAX_RESULTS,
+  ),
 });
 
 async function linesForChunkVerification(

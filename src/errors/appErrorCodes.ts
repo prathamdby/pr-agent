@@ -98,7 +98,13 @@ export const APP_ERROR_KINDS = {
     "unsafe_repo_part",
     "unsafe_root_prefix",
   ],
-  provider: ["missing_tool_executor", "model_not_found", "protocol_invalid", "request_failed"],
+  provider: [
+    "missing_tool_executor",
+    "model_not_found",
+    "protocol_invalid",
+    "refusal",
+    "request_failed",
+  ],
   publish_store: ["invalid_detail"],
   review: [
     "deterministic_finding_publish_failed",
@@ -147,7 +153,7 @@ export const APP_ERROR_KINDS = {
     "models_json_unknown_provider_no_catalog",
     "models_json_unresolvable_api",
   ],
-  tool: ["input_validation_failed"],
+  tool: ["input_validation_failed", "submit_rejected"],
   triage: [
     "cancelled",
     "closed_pull_request",

@@ -32,11 +32,11 @@ import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promp
 import { createSessionModels } from "./sessionModels.js";
 import { createSessionStreamFn } from "./sessionStream.js";
 import { createSessionTrace } from "./sessionTrace.js";
-import { resolveThinkingLevel } from "./thinkingPolicy.js";
+import { ORCHESTRATOR_SESSION_PHASES, resolveThinkingLevel } from "./thinkingPolicy.js";
 import { createSendActivity } from "./sendActivity.js";
 import { createTurnToolBudget } from "./turnToolBudget.js";
 import { createSessionCompaction } from "./sessionCompaction.js";
-import { lastAssistant, runSessionTurn } from "./sessionTurnLoop.js";
+import { isProviderRefusal, lastAssistant, runSessionTurn } from "./sessionTurnLoop.js";
 import type { PiSession, PiSessionCreateParams } from "./types.js";
 
 function isOrchestratorPhaseTool(name: string): name is OrchestratorPhaseTool {
@@ -172,6 +172,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       const budget = createTurnToolBudget(opts);
       let finalText = "";
       let terminalProviderError: string | undefined;
+      let refused = false;
       let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
       const activity = createSendActivity(
         opts.deadlineMs ?? params.cfg.provider.promptTimeoutMs,
@@ -196,6 +197,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         policy: params.thinkingPolicy,
         phase: opts.phase,
         modelSupportedLevels: getSupportedThinkingLevels(model),
+        ...(params.role === "orchestrator" && model.api === "anthropic-messages"
+          ? { holdAcrossPhases: ORCHESTRATOR_SESSION_PHASES }
+          : {}),
       });
       const context: AgentContext = {
         messages: sessionMessages,
@@ -270,6 +274,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           sessionMessages.push(assistant);
         }
         if (assistant) {
+          if (isProviderRefusal(assistant)) refused = true;
           if (assistant.stopReason === "error" && assistant.errorMessage?.trim()) {
             terminalProviderError = assistant.errorMessage;
           } else if (assistant.stopReason !== "error") {
@@ -357,6 +362,15 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             domain: "agent",
             kind: "session_aborted",
             message: "Agent runner session aborted",
+          });
+        }
+        // A refusal can arrive as a normal stop with no text. Callers that nudge
+        // on empty text would otherwise resend the declined request.
+        if (refused) {
+          throw new AppError({
+            domain: "provider",
+            kind: "refusal",
+            message: "Provider declined the request (stop_reason: refusal)",
           });
         }
         if (terminalProviderError !== undefined && !budget.stopped) {

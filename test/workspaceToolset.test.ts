@@ -146,12 +146,11 @@ describe("local workspace tools", () => {
     });
     const byName = Object.fromEntries(piTools.map((tool) => [tool.name, tool.description]));
 
-    expect(byName.listChangedFiles).toContain("Start here");
-    expect(byName.getWorkspaceDiff).toContain("before opening whole files");
-    expect(byName.searchWorkspace).toContain("literal string");
-    expect(byName.searchWorkspace).toContain("not a regex");
-    expect(byName.readWorkspaceFile).toContain("do not retry the same call unchanged");
-    expect(byName.getWorkspaceBlame).toContain("only when authorship genuinely decides");
+    expect(byName.listChangedFiles).toContain("The other tools take paths from this list");
+    expect(byName.getWorkspaceDiff).toContain("cheapest first read");
+    expect(byName.searchWorkspace).toContain("literal text");
+    expect(byName.readWorkspaceFile).toContain("the same call returns the same note");
+    expect(byName.getWorkspaceBlame).toContain("decides a finding");
   });
 
   it("readWorkspaceFile returns full content under the response cap", async () => {
