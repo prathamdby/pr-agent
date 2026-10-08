@@ -41,7 +41,8 @@ Request profile:
   all of its phases (the highest of them, after the ceiling). Specialists and
   other roles keep per-phase levels; each runs in its own session.
 - `rawStopReason === "refusal"` stops the retry loop and raises
-  `provider.refusal`. No empty-text nudge follows it.
+  `provider.refusal`. No empty-text nudge follows it, and the specialist and
+  orchestrator send retries stop on it too.
 - PR Agent does not pass `maxTokens`; Pi clamps the model default.
 
 History:

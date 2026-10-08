@@ -4,7 +4,10 @@ import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import type { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";
-import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
+import {
+  isCancelAbortError,
+  isProviderRefusalError,
+} from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
@@ -781,6 +784,7 @@ export async function runOrchestratedPrReview(
           await stopFromGateResult(await params.gate.check());
           return { kind: "failed", error: appError };
         }
+        if (isProviderRefusalError(appError)) break;
         const failure = classifyFailure(appError, { phase });
         recordClassifiedFailure(failure);
         logWarn("review_orchestrator_send_retry", {

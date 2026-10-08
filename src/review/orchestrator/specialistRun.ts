@@ -7,6 +7,7 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import {
   classifyProviderError,
   isCancelAbortError,
+  isProviderRefusalError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
@@ -481,6 +482,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
 
     if (
       isCancelAbortError(lastError) ||
+      isProviderRefusalError(lastError) ||
       classification === "cancelled" ||
       params.signal?.aborted ||
       attempts >= MAX_SESSION_ATTEMPTS ||

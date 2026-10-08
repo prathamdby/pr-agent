@@ -26,6 +26,11 @@ export function isCancelAbortError(error: unknown): boolean {
   );
 }
 
+/** Safety-classifier decline. Resending the same request returns the same decline. */
+export function isProviderRefusalError(error: unknown): boolean {
+  return isAppError(error) && error.code === "provider.refusal";
+}
+
 /** Logs-only classification for worker/provider failures. */
 export function classifyProviderError(error: unknown): ProviderErrorKind {
   if (isCancelAbortError(error)) return "cancelled";
