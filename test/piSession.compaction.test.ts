@@ -12,6 +12,14 @@ vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
   };
 });
 
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage,
+  type Model,
+  type StopReason,
+  type Usage,
+} from "@earendil-works/pi-ai";
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.js";
 import {
@@ -22,6 +30,104 @@ import {
   findSafeCutIndex,
 } from "../src/agent/runtime/transcriptCompaction.js";
 import type { AgentSessionRole } from "../src/agent/runtime/types.js";
+
+const ZERO_RATES = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+function reportedUsage(totalTokens: number, input = totalTokens): Usage {
+  return {
+    totalTokens,
+    input,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: { ...ZERO_RATES, total: 0 },
+  };
+}
+
+function openAiModel(contextWindow: number): Model<"openai-completions"> {
+  return {
+    id: "test",
+    name: "test",
+    api: "openai-completions",
+    provider: "openai",
+    baseUrl: "https://example.invalid",
+    input: ["text"],
+    cost: ZERO_RATES,
+    reasoning: false,
+    contextWindow,
+    maxTokens: 100_000,
+  };
+}
+
+function adaptiveModel(): Model<"anthropic-messages"> {
+  return {
+    id: "test",
+    name: "test",
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: "https://example.invalid",
+    input: ["text"],
+    cost: ZERO_RATES,
+    reasoning: true,
+    contextWindow: 200_000,
+    maxTokens: 100_000,
+    compat: { forceAdaptiveThinking: true },
+  };
+}
+
+function userMessage(
+  content: string | [{ type: "image"; data: string; mimeType: string }],
+): AgentMessage {
+  return { role: "user", content, timestamp: 1 };
+}
+
+function systemMessage(content: string): AgentMessage {
+  return { role: "system", content, timestamp: 1 };
+}
+
+function assistantMessage(
+  content: AssistantMessage["content"],
+  stopReason: StopReason,
+  usage: Usage = reportedUsage(0),
+): AssistantMessage {
+  return {
+    role: "assistant",
+    content,
+    api: "openai-completions",
+    provider: "openai",
+    model: "test",
+    usage,
+    stopReason,
+    timestamp: 1,
+  };
+}
+
+function toolResult(text: string): AgentMessage {
+  return {
+    role: "toolResult",
+    toolCallId: "c",
+    toolName: "execute",
+    content: [{ type: "text", text }],
+    isError: false,
+    timestamp: 1,
+  };
+}
+
+function summaryStream(text: string, stopReason: StopReason = "stop") {
+  let captured:
+    | {
+        context: { messages: Array<{ role: string }> };
+        options: { cacheRetention?: string } | undefined;
+      }
+    | undefined;
+  const streamFn: StreamFn = async (_model, context, options) => {
+    captured = { context, options };
+    const stream = createAssistantMessageEventStream();
+    stream.end(assistantMessage([{ type: "text", text }], stopReason, reportedUsage(1)));
+    return stream;
+  };
+  return { streamFn, read: () => captured };
+}
 
 describe("compactionPolicyForRole", () => {
   it("disables auto-compaction for short review roles", () => {
@@ -89,46 +195,18 @@ describe("createFeaturePiSession compaction by role", () => {
 
 describe("compactAgentMessages overflow", () => {
   const big = "x".repeat(30_000);
-  const messages = [
-    { role: "system", content: "session prompt", timestamp: 1 },
-    ...[0, 1, 2].map((index) => ({
-      role: "user",
-      content: `q${index} ${big}`,
-      timestamp: 1,
-    })),
-    {
-      role: "assistant",
-      content: [
+  const messages: AgentMessage[] = [
+    systemMessage("session prompt"),
+    ...[0, 1, 2].map((index) => userMessage(`q${index} ${big}`)),
+    assistantMessage(
+      [
         { type: "thinking", thinking: "private" },
         { type: "text", text: "kept" },
       ],
-      timestamp: 1,
-    },
-  ] as never;
-  const model = { api: "openai-completions", maxTokens: 100_000, contextWindow: 200_000 } as never;
-
-  function summaryStream(text: string, stopReason = "stop") {
-    let captured:
-      | {
-          context: { messages: Array<{ role: string }> };
-          options: { cacheRetention?: string };
-        }
-      | undefined;
-    const streamFn = (async (
-      _model: never,
-      context: { messages: Array<{ role: string }> },
-      options: { cacheRetention?: string },
-    ) => {
-      captured = { context, options };
-      return {
-        result: async () => ({
-          stopReason,
-          content: [{ type: "text" as const, text }],
-        }),
-      };
-    }) as never;
-    return { streamFn, read: () => captured };
-  }
+      "stop",
+    ),
+  ];
+  const model = openAiModel(200_000);
 
   it("keeps the leading system prompt and wraps the summary", async () => {
     const summary = summaryStream("SUMMARY");
@@ -143,33 +221,35 @@ describe("compactAgentMessages overflow", () => {
       role: "user",
       content: `${COMPACTION_SUMMARY_PREFIX}SUMMARY${COMPACTION_SUMMARY_SUFFIX}`,
     });
-    const retained = compacted?.at(-1) as { content?: Array<{ type: string }> } | undefined;
-    expect(retained?.content?.some((part) => part.type === "thinking")).toBe(true);
+    const retained = compacted?.at(-1);
+    expect(retained?.role).toBe("assistant");
+    if (retained?.role === "assistant") {
+      expect(retained.content.some((part) => part.type === "thinking")).toBe(true);
+    }
     expect(summary.read()?.options?.cacheRetention).toBe("none");
-    expect(summary.read()?.context?.messages[0]).toMatchObject({ role: "system" });
+    expect(summary.read()?.context.messages[0]).toMatchObject({ role: "system" });
 
     const adaptive = await compactAgentMessages({
       messages,
-      model: {
-        api: "anthropic-messages",
-        compat: { forceAdaptiveThinking: true },
-        maxTokens: 100_000,
-        contextWindow: 200_000,
-      } as never,
+      model: adaptiveModel(),
       streamFn: summaryStream("SUMMARY").streamFn,
       thinkingCeiling: "max",
     });
-    const stripped = adaptive?.at(-1) as { content?: Array<{ type: string }> } | undefined;
-    expect(stripped?.content?.some((part) => part.type === "thinking")).toBe(false);
-    expect(stripped?.content).toEqual([{ type: "text", text: "kept" }]);
+    const stripped = adaptive?.at(-1);
+    expect(stripped?.role).toBe("assistant");
+    if (stripped?.role === "assistant") {
+      expect(stripped.content.some((part) => part.type === "thinking")).toBe(false);
+      expect(stripped.content).toEqual([{ type: "text", text: "kept" }]);
+    }
 
+    const throwing: StreamFn = async () => {
+      throw new Error("summary failed");
+    };
     for (const streamFn of [
       summaryStream("SUMMARY", "error").streamFn,
       summaryStream("SUMMARY", "aborted").streamFn,
       summaryStream("  ").streamFn,
-      (async () => {
-        throw new Error("summary failed");
-      }) as never,
+      throwing,
     ]) {
       await expect(
         compactAgentMessages({ messages, model, streamFn, thinkingCeiling: "max" }),
@@ -179,102 +259,61 @@ describe("compactAgentMessages overflow", () => {
 
   it("uses provider usage, the reserve boundary, and safe cuts", async () => {
     expect(findSafeCutIndex([], 20_000)).toBe(0);
-    expect(
-      findSafeCutIndex([{ role: "user", content: "a".repeat(80_000), timestamp: 1 }] as never, 5),
-    ).toBe(0);
-    expect(
-      findSafeCutIndex(
-        [
-          { role: "toolResult", content: [{ type: "text", text: "1" }], timestamp: 1 },
-          { role: "toolResult", content: [{ type: "text", text: "2" }], timestamp: 1 },
-        ] as never,
-        20_000,
-      ),
-    ).toBe(0);
+    expect(findSafeCutIndex([userMessage("a".repeat(80_000))], 5)).toBe(0);
+    expect(findSafeCutIndex([toolResult("1"), toolResult("2")], 20_000)).toBe(0);
     const paired = [
-      {
-        role: "assistant",
-        content: [{ type: "toolCall", id: "c", name: "execute", arguments: {} }],
-        timestamp: 1,
-      },
-      {
-        role: "toolResult",
-        content: [{ type: "text", text: "ok" }],
-        timestamp: 1,
-      },
+      assistantMessage([{ type: "toolCall", id: "c", name: "execute", arguments: {} }], "toolUse"),
+      toolResult("ok"),
     ];
-    expect(findSafeCutIndex(paired as never, 1)).toBe(0);
+    expect(findSafeCutIndex(paired, 1)).toBe(0);
     expect(paired[0]?.role).toBe("assistant");
 
     expect(
       findSafeCutIndex(
-        [
-          { role: "user", content: "abcd", timestamp: 1 },
-          { role: "user", content: [{ type: "image" }], timestamp: 1 },
-        ] as never,
+        [userMessage("abcd"), userMessage([{ type: "image", data: "", mimeType: "image/png" }])],
         1_200,
       ),
     ).toBe(1);
     expect(
       findSafeCutIndex(
         [
-          { role: "user", content: "abcd", timestamp: 1 },
-          {
-            role: "assistant",
-            content: [
+          userMessage("abcd"),
+          assistantMessage(
+            [
               { type: "thinking", thinking: "12345" },
               { type: "toolCall", id: "c", name: "foo", arguments: { a: 1 } },
             ],
-            timestamp: 1,
-          },
-        ] as never,
+            "toolUse",
+          ),
+        ],
         4,
       ),
     ).toBe(1);
-    expect(
-      findSafeCutIndex(
-        [
-          { role: "system", content: "s".repeat(80_000), timestamp: 1 },
-          { role: "user", content: "abcd", timestamp: 1 },
-        ] as never,
-        1,
-      ),
-    ).toBe(0);
+    expect(findSafeCutIndex([systemMessage("s".repeat(80_000)), userMessage("abcd")], 1)).toBe(0);
 
-    const older = { role: "user", content: `q ${"x".repeat(80_000)}`, timestamp: 1 };
-    const recent = { role: "user", content: "abcd", timestamp: 1 };
-    const usage = {
-      totalTokens: 5_000,
-      input: 5_000,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    };
-    const assistant = (stopReason: string, reported: typeof usage | undefined) => ({
-      role: "assistant",
-      content: [{ type: "text", text: "" }],
-      stopReason,
-      timestamp: 1,
-      ...(reported === undefined ? {} : { usage: reported }),
-    });
+    const older = userMessage(`q ${"x".repeat(80_000)}`);
+    const recent = userMessage("abcd");
+    const usage = reportedUsage(5_000);
     let calls = 0;
-    const streamFn = (async () => {
+    const streamFn: StreamFn = async () => {
       calls += 1;
-      return {
-        result: async () => ({
-          stopReason: "stop",
-          content: [{ type: "text", text: "SUMMARY" }],
-        }),
-      };
-    }) as never;
-    const windowModel = (contextWindow: number) =>
-      ({ api: "openai-completions", maxTokens: 100_000, contextWindow }) as never;
+      const stream = createAssistantMessageEventStream();
+      stream.end(assistantMessage([{ type: "text", text: "SUMMARY" }], "stop", reportedUsage(1)));
+      return stream;
+    };
+    const { usage: _usage, ...missingUsage } = assistantMessage(
+      [{ type: "text", text: "" }],
+      "stop",
+      reportedUsage(1),
+    );
+    // AssistantMessage requires usage. The runtime still sees provider objects that omit it.
+    const omittedUsage = { ...missingUsage, role: "assistant" } as AgentMessage;
 
     calls = 0;
     await expect(
       compactIfNeeded({
-        messages: [older, recent, assistant("stop", usage)] as never,
-        model: windowModel(16_384 + 5_000),
+        messages: [older, recent, assistantMessage([{ type: "text", text: "" }], "stop", usage)],
+        model: openAiModel(16_384 + 5_000),
         streamFn,
         thinkingCeiling: "off",
       }),
@@ -285,10 +324,10 @@ describe("compactAgentMessages overflow", () => {
     const over = await compactIfNeeded({
       messages: [
         older,
-        assistant("stop", usage),
-        { role: "user", content: "c".repeat(40), timestamp: 1 },
-      ] as never,
-      model: windowModel(16_384 + 5_000),
+        assistantMessage([{ type: "text", text: "" }], "stop", usage),
+        userMessage("c".repeat(40)),
+      ],
+      model: openAiModel(16_384 + 5_000),
       streamFn,
       thinkingCeiling: "off",
     });
@@ -304,9 +343,9 @@ describe("compactAgentMessages overflow", () => {
           messages: [
             older,
             recent,
-            assistant(stopReason, { ...usage, totalTokens: 999_999, input: 999_999 }),
-          ] as never,
-          model: windowModel(16_384 + 100_000),
+            assistantMessage([{ type: "text", text: "" }], stopReason, reportedUsage(999_999)),
+          ],
+          model: openAiModel(16_384 + 100_000),
           streamFn,
           thinkingCeiling: "off",
         }),
@@ -315,10 +354,13 @@ describe("compactAgentMessages overflow", () => {
     expect(calls).toBe(0);
 
     calls = 0;
-    const zeros = { totalTokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     await compactIfNeeded({
-      messages: [older, recent, assistant("stop", zeros)] as never,
-      model: windowModel(16_384 + 20_000),
+      messages: [
+        older,
+        recent,
+        assistantMessage([{ type: "text", text: "" }], "stop", reportedUsage(0)),
+      ],
+      model: openAiModel(16_384 + 20_000),
       streamFn,
       thinkingCeiling: "off",
     });
@@ -327,8 +369,8 @@ describe("compactAgentMessages overflow", () => {
     calls = 0;
     await expect(
       compactIfNeeded({
-        messages: [older, recent, assistant("stop", undefined)] as never,
-        model: windowModel(16_384 + 20_000),
+        messages: [older, recent, omittedUsage],
+        model: openAiModel(16_384 + 20_000),
         streamFn,
         thinkingCeiling: "off",
       }),
