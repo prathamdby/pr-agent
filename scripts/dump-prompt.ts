@@ -9,9 +9,12 @@ import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt
 import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import {
+  COMPACTION_CUSTOM_INSTRUCTIONS,
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
-} from "@earendil-works/pi-agent-core";
+  SUMMARIZATION_PROMPT,
+  SUMMARIZATION_SYSTEM_PROMPT,
+} from "../src/agent/runtime/transcriptCompaction.js";
 import type { Config } from "../src/settings/index.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
@@ -52,11 +55,6 @@ import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
 } from "../src/agent/verification/submitVerificationTool.js";
-import {
-  COMPACTION_CUSTOM_INSTRUCTIONS,
-  SUMMARIZATION_SYSTEM_PROMPT,
-  SUMMARIZATION_PROMPT,
-} from "../src/agent/runtime/transcriptCompaction.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 
 function unavailable(): never {

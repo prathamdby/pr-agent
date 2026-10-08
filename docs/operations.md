@@ -334,6 +334,13 @@ records, or metadata-only agent events. Upgrade workers together before resuming
 work; old worker code is not compatible with the dropped tables. Snapshot env
 keys are ignored. Capped submit repairs retain their last validation diagnostic.
 
+The Pi runtime pin is exact `@earendil-works/pi-agent-core` and
+`@earendil-works/pi-ai` 1.0.0. Compaction framing and token estimates are
+in-process. This dependency upgrade has no migration and no new setting.
+Drain active workers, then switch them together. Roll back by draining and
+restoring the previous image. In-flight sessions are in memory and do not
+need data repair.
+
 ## Review reliability rollout
 
 Install additive `038_github_capabilities.sql` before the matching worker build.

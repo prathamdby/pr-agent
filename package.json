@@ -40,8 +40,8 @@
     "traces-report": "nub scripts/traces-report.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.87.0",
-    "@earendil-works/pi-ai": "0.87.0",
+    "@earendil-works/pi-agent-core": "1.0.0",
+    "@earendil-works/pi-ai": "1.0.0",
     "@effect/platform-node": "4.0.0",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@octokit/auth-app": "^8.3.1",
@@ -70,6 +70,8 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
+    "@earendil-works/pi-agent-core": "1.0.0",
+    "@earendil-works/pi-ai": "1.0.0",
     "@tootallnate/once@<2.0.1": ">=2.0.1",
     "brace-expansion": ">=5.0.9",
     "nanoid@<3.3.18": ">=3.3.18",

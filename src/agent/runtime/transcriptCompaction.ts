@@ -1,13 +1,4 @@
-import {
-  COMPACTION_SUMMARY_PREFIX,
-  COMPACTION_SUMMARY_SUFFIX,
-  DEFAULT_COMPACTION_SETTINGS,
-  estimateContextTokens,
-  estimateTokens,
-  shouldCompact,
-  type AgentMessage,
-  type StreamFn,
-} from "@earendil-works/pi-agent-core";
+import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import {
   contentText,
   getSupportedThinkingLevels,
@@ -18,6 +9,19 @@ import {
 import type { SessionTrace } from "./sessionTrace.js";
 import { clampThinkingLevel } from "./thinkingPolicy.js";
 import type { ThinkingLevel } from "./types.js";
+
+// Summary framing and token estimates adapted from Pi (MIT, Copyright (c) 2025
+// Mario Zechner, earendil-works/pi packages/agent). Core 1.0 removed the exports.
+export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+
+<summary>
+`;
+export const COMPACTION_SUMMARY_SUFFIX = `
+</summary>`;
+
+const COMPACTION_RESERVE_TOKENS = 16_384;
+const COMPACTION_KEEP_RECENT_TOKENS = 20_000;
+const ESTIMATED_IMAGE_CHARS = 4_800;
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Keep the task and current phase, every accepted or submitted finding with its file and line range, the evidence paths and line ranges already read, tool calls the session still owes (submit, publish, or reply), and open questions.";
@@ -52,6 +56,83 @@ Copy paths, names, IDs, and error messages exactly.`;
 
 function isToolResult(message: AgentMessage): boolean {
   return message.role === "toolResult";
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "undefined";
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+function contextTokens(usage: {
+  readonly totalTokens: number;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+}): number {
+  return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+}
+
+function assistantUsage(message: AgentMessage) {
+  if (message.role !== "assistant" || !("usage" in message)) return undefined;
+  if (message.stopReason === "aborted" || message.stopReason === "error") return undefined;
+  if (!message.usage || contextTokens(message.usage) <= 0) return undefined;
+  return message.usage;
+}
+
+function estimateContextTokens(messages: readonly AgentMessage[]): number {
+  let usageIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message && assistantUsage(message)) {
+      usageIndex = index;
+      break;
+    }
+  }
+  if (usageIndex < 0) {
+    return messages.reduce((total, message) => total + estimateTokens(message), 0);
+  }
+  const usageMessage = messages[usageIndex];
+  const usage = usageMessage ? assistantUsage(usageMessage) : undefined;
+  const reported = usage ? contextTokens(usage) : 0;
+  let trailing = 0;
+  for (const message of messages.slice(usageIndex + 1)) trailing += estimateTokens(message);
+  return reported + trailing;
+}
+
+function contextNeedsCompaction(tokens: number, contextWindow: number): boolean {
+  return tokens > contextWindow - COMPACTION_RESERVE_TOKENS;
+}
+
+function estimateTextAndImageChars(
+  content: string | readonly { readonly type: string; readonly text?: string }[],
+): number {
+  if (typeof content === "string") return content.length;
+  let chars = 0;
+  for (const block of content) {
+    if (block.type === "text" && block.text) chars += block.text.length;
+    else if (block.type === "image") chars += ESTIMATED_IMAGE_CHARS;
+  }
+  return chars;
+}
+
+function estimateTokens(message: AgentMessage): number {
+  if (message.role === "user" || message.role === "toolResult") {
+    return Math.ceil(estimateTextAndImageChars(message.content) / 4);
+  }
+  if (message.role !== "assistant") return 0;
+  let chars = 0;
+  for (const block of message.content) {
+    if (block.type === "text") chars += block.text.length;
+    else if (block.type === "thinking") chars += block.thinking.length;
+    else if (block.type === "toolCall") {
+      chars += block.name.length + safeJsonStringify(block.arguments).length;
+    }
+  }
+  return Math.ceil(chars / 4);
 }
 
 function serializeForSummary(messages: readonly AgentMessage[]): string {
@@ -114,7 +195,7 @@ async function summarizeMessages(
   const reasoning = clampThinkingLevel("low", thinkingCeiling);
   const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
   const maxTokens = Math.min(
-    Math.floor(0.8 * DEFAULT_COMPACTION_SETTINGS.reserveTokens),
+    Math.floor(0.8 * COMPACTION_RESERVE_TOKENS),
     model.maxTokens > 0 ? model.maxTokens : 16_384,
   );
   try {
@@ -194,7 +275,7 @@ export async function compactAgentMessages(params: {
     restStart += 1;
   }
   const rest = params.messages.slice(restStart);
-  const cut = findSafeCutIndex(rest, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
+  const cut = findSafeCutIndex(rest, COMPACTION_KEEP_RECENT_TOKENS);
   if (cut <= 0) return undefined;
   const summarized = rest.slice(0, cut);
   const retained = thinkingBoundToPrefix(params.model)
@@ -225,8 +306,8 @@ export async function compactIfNeeded(params: {
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
 }): Promise<AgentMessage[] | undefined> {
-  const usage = estimateContextTokens([...params.messages]);
-  if (!shouldCompact(usage.tokens, params.model.contextWindow, DEFAULT_COMPACTION_SETTINGS)) {
+  const usage = estimateContextTokens(params.messages);
+  if (!contextNeedsCompaction(usage, params.model.contextWindow)) {
     return undefined;
   }
   return compactAgentMessages(params);

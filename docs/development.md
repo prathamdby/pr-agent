@@ -125,6 +125,9 @@ and final outcome precedence. Internal `turnToolBudget.ts` keeps Core's
 finish-before-event counting and reserved terminal allowance together.
 `sessionTurnLoop.ts` owns transcript order and capped retry continuation;
 `sessionCompaction.ts` owns window and overflow compaction policy.
+`transcriptCompaction.ts` owns summary framing, the character token estimate,
+and the window threshold. Pi 1.0 removed those helpers from Core, so this
+module is their owner. The packages stay pinned together at exact 1.0.0.
 `coreTools.ts` turns a rejected terminal submit (`accepted`/`ok` false with an
 `error`) into a `tool.submit_rejected` tool error so the turn budget does not
 count it as finished. A provider `refusal` stop raises `provider.refusal`
