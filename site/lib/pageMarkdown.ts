@@ -183,6 +183,7 @@ export function renderAgentInstructionsMarkdown(): string {
       "- Fetch `/index.md`, or send `Accept: text/markdown` to `/`, for the landing page without markup.",
       `- Name a programming language after your locale in \`Accept-Language\` on either markdown request, such as \`Accept-Language: en-US, python\`, and the fetch example on that page switches to it. Served languages are ${SERVED_LANGUAGES}. Two-letter codes are locale tags, not languages.`,
       "- Broad queries (`all`, `everything`, `full`, `profile`) return the whole profile.",
+      "- POST `/mcp` for the same profile through the read-only MCP server. Read `/auth.md` before sending a credential. This origin does not issue tokens.",
       "- Deployment, environment variables, and operational detail live in the repository docs linked below, not on this site.",
     ]),
     "## Facts worth stating correctly",

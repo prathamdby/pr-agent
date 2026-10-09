@@ -1,4 +1,14 @@
-import { AGENT_RESOURCES } from "./agentResources.js";
+import {
+  AGENT_RESOURCES,
+  AGENT_SKILLS_INDEX,
+  AI_CATALOG,
+  API_CATALOG,
+  AUTH_MD,
+  MCP_ENDPOINT,
+  MCP_SERVER_CARD,
+  READ_PR_AGENT_SKILL,
+  SITE_HEALTH,
+} from "./agentResources.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import { MAX_QUERY_CHARS } from "./llmsKnowledge.js";
 import { REPO_URL, SITE_ORIGIN } from "./site.js";
@@ -49,7 +59,7 @@ export function renderOpenApiDocument(): Record<string, unknown> {
       description: [
         "PR Agent is a self-hosted GitHub App for AI pull request reviews.",
         "This description covers the endpoints the landing site serves to agents: the product profile, a queryable knowledge base, markdown representations of the landing page, and agent instructions.",
-        "It does not describe a PR Agent deployment. A deployment exposes POST /webhooks, GET /health, and GET /ready on the operator's own host.",
+        "It does not describe a PR Agent deployment. A deployment exposes POST /webhooks, GET /health, and GET /ready on the operator's own host. GET /health on this site only checks that the landing site is serving.",
         `Product documentation lives in the repository: ${REPO_URL}.`,
       ].join(" "),
       version: "1.0.0",
@@ -173,7 +183,113 @@ export function renderOpenApiDocument(): Record<string, unknown> {
         get: {
           operationId: "getRobots",
           summary: "PR Agent robots.txt",
+          description:
+            "Crawl policy, Content-Signal preferences, an Agentmap pointing at the ARD manifest, and pointers to the other agent files.",
           responses: { "200": plainTextResponse("Crawl policy and agent file pointers.") },
+        },
+      },
+      [API_CATALOG.path]: {
+        get: {
+          operationId: "getApiCatalog",
+          summary: API_CATALOG.title,
+          description:
+            "RFC 9727 API catalog as application/linkset+json. The anchor is this site. service-desc is the OpenAPI document, service-doc is the profile and agent instructions, and status is landing-site liveness.",
+          responses: {
+            "200": {
+              description: "Linkset catalog.",
+              content: { "application/linkset+json": { schema: { type: "object" } } },
+            },
+          },
+        },
+      },
+      [AI_CATALOG.path]: {
+        get: {
+          operationId: "getAiCatalog",
+          summary: AI_CATALOG.title,
+          description:
+            "ARD manifest. Served as application/json with Access-Control-Allow-Origin: *.",
+          responses: {
+            "200": {
+              description: "Capability manifest.",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
+          },
+        },
+      },
+      [MCP_SERVER_CARD.path]: {
+        get: {
+          operationId: "getMcpServerCard",
+          summary: MCP_SERVER_CARD.title,
+          description: "Card for the read-only MCP server. authentication.required is false.",
+          responses: {
+            "200": {
+              description: "MCP server card.",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
+          },
+        },
+      },
+      [AGENT_SKILLS_INDEX.path]: {
+        get: {
+          operationId: "getAgentSkillsIndex",
+          summary: AGENT_SKILLS_INDEX.title,
+          description: "Skills index. The digest is the sha256 of the SKILL.md bytes.",
+          responses: {
+            "200": {
+              description: "Skills index.",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
+          },
+        },
+      },
+      [READ_PR_AGENT_SKILL.path]: {
+        get: {
+          operationId: "getReadPrAgentSkill",
+          summary: READ_PR_AGENT_SKILL.title,
+          responses: { "200": markdownResponse("Skill for reading this site.") },
+        },
+      },
+      [AUTH_MD.path]: {
+        get: {
+          operationId: "getAuthMd",
+          summary: AUTH_MD.title,
+          description:
+            "Says these endpoints are public. This origin does not publish OAuth metadata.",
+          responses: { "200": markdownResponse("Public-access registration note.") },
+        },
+      },
+      [SITE_HEALTH.path]: {
+        get: {
+          operationId: "getSiteHealth",
+          summary: SITE_HEALTH.title,
+          description: SITE_HEALTH.description,
+          responses: {
+            "200": {
+              description: "Landing site is serving.",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
+          },
+        },
+      },
+      [MCP_ENDPOINT.path]: {
+        post: {
+          operationId: "callMcp",
+          summary: MCP_ENDPOINT.title,
+          description:
+            "Stateless streamable HTTP. JSON-RPC methods: initialize, ping, tools/list, tools/call. tools/call supports query_pr_agent and list_site_resources. No token. GET is 405.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object" } } },
+          },
+          responses: {
+            "200": {
+              description: "JSON-RPC response.",
+              content: { "application/json": { schema: { type: "object" } } },
+            },
+            "202": { description: "Accepted a JSON-RPC notification." },
+            "400": { description: "The body was not a JSON-RPC request." },
+            "405": { description: "GET is not a session stream. POST JSON-RPC instead." },
+          },
         },
       },
     },

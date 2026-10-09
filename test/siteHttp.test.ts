@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "../site/lib/agentResources.js";
+import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.js";
+import {
+  AI_CATALOG,
+  API_CATALOG,
+  LANDING_PAGE_MARKDOWN,
+  LLMS_TXT_PROFILE,
+} from "../site/lib/agentResources.js";
 import {
   conditionalResponse,
   revisionFor,
@@ -23,9 +29,10 @@ import {
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
 
-/** The alternate/describedby pair every HTML response advertises, built as the registry states it. */
-const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
-const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
+/** Alternate, describedby, and discovery links, built as the registry states them. */
+const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
+const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
+const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
 /** Stand-in for whatever the router rendered before the middleware saw it. */
 function rendered(status: number): Response {
@@ -414,6 +421,23 @@ describe("content revision validators", () => {
     const homepage = xml.match(/<loc>[^<]*\/<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/);
     const landingModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
     expect(new Date(homepage?.[1] ?? "").toUTCString()).toBe(landingModified);
+    const preview = sitemapResponse(
+      { ifNoneMatch: null, ifModifiedSince: null },
+      "https://preview.example",
+    );
+    expect(await preview.text()).toContain("<loc>https://preview.example/</loc>");
+    expect(preview.headers.get("Vary")).toBe("Host");
+  });
+
+  it("names only a trusted request host in discovery documents", () => {
+    expect(requestOrigin(new Request("http://localhost:3999/robots.txt"))).toBe(
+      "http://localhost:3999",
+    );
+    expect(requestOrigin(new Request("https://pr-agent-git-preview.vercel.app/sitemap.xml"))).toBe(
+      "https://pr-agent-git-preview.vercel.app",
+    );
+    expect(requestOrigin(new Request("https://evil.example/sitemap.xml"))).toBe(SITE_ORIGIN);
+    expect(requestOrigin(new Request(`${SITE_ORIGIN}/`))).toBe(new URL(SITE_ORIGIN).origin);
   });
 
   it("serves /llms.txt with the committed revision rather than a clock", () => {

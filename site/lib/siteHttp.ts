@@ -1,6 +1,11 @@
 import { negotiateType } from "./accept.js";
 import { negotiateProgrammingLanguage } from "./acceptLanguage.js";
-import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "./agentResources.js";
+import {
+  AI_CATALOG,
+  API_CATALOG,
+  LANDING_PAGE_MARKDOWN,
+  LLMS_TXT_PROFILE,
+} from "./agentResources.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import {
   applyRevisionHeaders,
@@ -13,6 +18,7 @@ import {
 import { renderSitemapXml } from "./discovery.js";
 import { renderLlmsTxt } from "./llmsKnowledge.js";
 import { renderOpenApiDocument } from "./openapi.js";
+import { SITE_ORIGIN } from "./site.js";
 import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
@@ -51,8 +57,9 @@ const MARKDOWN_CONTENT_TYPE = `${MARKDOWN_TYPE}; charset=utf-8`;
  * Targets come from the resource registry so the headers cannot drift from the sitemap, the
  * OpenAPI description, or the markdown link lists.
  */
-const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
-const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
+const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
+const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
+const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
 /** Add a request header to Vary without dropping whatever the framework already varies on. */
 export function varyOn(headers: Headers, field: string): void {
@@ -226,17 +233,22 @@ export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS)
 }
 
 /** `/sitemap.xml`. Each URL keeps its own lastmod. The document validator is the newest of those. */
-export function sitemapResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+export function sitemapResponse(
+  conditional: ConditionalHeaders = NO_VALIDATORS,
+  origin: string = SITE_ORIGIN,
+): Response {
   const revision = sitemapRevision();
   const cached = conditionalResponse(conditional, revision, { honorModifiedSince: true });
   if (cached !== null) {
     cached.headers.set("Content-Type", "application/xml; charset=utf-8");
+    varyOn(cached.headers, "Host");
     return cached;
   }
-  const response = new Response(renderSitemapXml(lastmodForSitemapPath), {
+  const response = new Response(renderSitemapXml(lastmodForSitemapPath, origin), {
     headers: { "Content-Type": "application/xml; charset=utf-8" },
   });
   applyRevisionHeaders(response.headers, revision);
+  varyOn(response.headers, "Host");
   return response;
 }
 
