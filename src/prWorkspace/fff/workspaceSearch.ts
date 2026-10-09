@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { logWarn } from "../../evlog.js";
 import {
@@ -51,7 +51,7 @@ const FFF_SKIPPED_EXTENSIONS = new Set(
 );
 
 function fffSkipsExtension(path: string): boolean {
-  const name = path.slice(path.lastIndexOf("/") + 1);
+  const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   const dot = name.lastIndexOf(".");
   return dot > 0 && dot < name.length - 1 && FFF_SKIPPED_EXTENSIONS.has(name.slice(dot + 1));
 }
@@ -168,10 +168,13 @@ export function createFffWorkspaceSearch(params: {
     for (const hit of hits) {
       let lines = linesByPath.get(hit.path);
       if (lines == null) {
-        lines = readFile(join(root, hit.path), "utf8").then(
-          (content) => content.split("\n"),
-          () => null,
-        );
+        const fullPath = join(root, hit.path);
+        // Pinned checkouts strip symlinks; a link that reappears is never read.
+        lines = lstat(fullPath)
+          .then(async (info) =>
+            info.isFile() ? (await readFile(fullPath, "utf8")).split("\n") : null,
+          )
+          .catch(() => null);
         linesByPath.set(hit.path, lines);
       }
       const text = (await lines)?.[hit.line - 1];
