@@ -2,6 +2,8 @@ import type { Features } from "./featureModes.js";
 import { readTracesSlice, type TracesSlice } from "./slices/traces.js";
 import { readAskSlice, type AskSlice } from "./slices/ask.js";
 import { readFeatures } from "./slices/features.js";
+import { REMOVED_ENV_KEYS } from "./envKeys.js";
+import { setEnvNames } from "./envReaders.js";
 import {
   readAssociationsSlice,
   readGithubSlice,
@@ -26,7 +28,6 @@ import {
 } from "./slices/queue.js";
 import {
   readAgentEventsSlice,
-  readCodeIndexSlice,
   readCodeModeSlice,
   readContext7Slice,
   readFindingHistorySlice,
@@ -35,7 +36,6 @@ import {
   readReviewSlice,
   readRuntimeSlice,
   type AgentEventsSlice,
-  type CodeIndexSlice,
   type CodeModeSlice,
   type Context7Slice,
   type FindingHistorySlice,
@@ -57,7 +57,8 @@ export type Config = {
   readonly agentEvents: AgentEventsSlice;
   readonly traces: TracesSlice;
   readonly findingHistory: FindingHistorySlice;
-  readonly codeIndex: CodeIndexSlice;
+  /** Removed settings that are still set in the environment; boot logs them. */
+  readonly removedEnv: readonly string[];
   readonly codeMode: CodeModeSlice;
   readonly review: ReviewSlice;
   readonly concurrency: ConcurrencySlice;
@@ -87,7 +88,7 @@ export async function loadConfig(): Promise<Config> {
     agentEvents: readAgentEventsSlice(),
     traces: readTracesSlice(retention.agentWorkSeconds),
     findingHistory: readFindingHistorySlice(),
-    codeIndex: readCodeIndexSlice(),
+    removedEnv: setEnvNames(REMOVED_ENV_KEYS),
     codeMode: readCodeModeSlice(),
     review: readReviewSlice(),
     concurrency: readConcurrencySlice(),

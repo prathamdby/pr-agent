@@ -60,7 +60,7 @@ services:
 
   pr-agent-worker:
     # Same worker registers ack, CI-refresh, review, ask, description, triage,
-    # verification, retention, and code-index-build. Compose healthcheck uses /ready.
+    # verification, and retention. Compose healthcheck uses /ready.
     build: .
     image: pr-agent:local
     env_file:

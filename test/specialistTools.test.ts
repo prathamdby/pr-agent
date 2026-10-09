@@ -27,8 +27,8 @@ describe("specialistTools", () => {
         parameters: { type: "object", properties: { path: { type: "string" } } },
       },
       {
-        name: "searchCodeIndex",
-        description: "Search index",
+        name: "resolveLibraryId",
+        description: "Resolve a library",
         parameters: { type: "object", properties: { query: { type: "string" } } },
       },
     ];
@@ -36,7 +36,7 @@ describe("specialistTools", () => {
       piTools: workspacePiTools,
       executors: {
         readWorkspaceFile: async () => ({}),
-        searchCodeIndex: async () => ({ unavailable: true }),
+        resolveLibraryId: async () => ({ libraries: [] }),
       },
     };
 

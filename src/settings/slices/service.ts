@@ -1,11 +1,7 @@
-import { CODE_INDEX_MODES } from "../codeIndexConstants.js";
 import type { CodeModeExecutorKind } from "../codeModeConstants.js";
 import {
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
-  DEFAULT_CODE_INDEX_MODE,
-  DEFAULT_CODE_INDEX_RETENTION_SECONDS,
-  DEFAULT_CODE_INDEX_WAIT_MS,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
   DEFAULT_FINDING_HISTORY_ENABLED,
@@ -45,12 +41,6 @@ export type FindingHistorySlice = {
   readonly enabled: boolean;
   readonly dismissSuppressAfter: number;
   readonly lookbackDays: number;
-};
-
-export type CodeIndexSlice = {
-  readonly mode: (typeof CODE_INDEX_MODES)[number];
-  readonly waitMs: number;
-  readonly retentionSeconds: number;
 };
 
 /** Which executor Code Mode scripts run in. Derived from the build, not from an env var. */
@@ -108,17 +98,6 @@ export function readFindingHistorySlice(): FindingHistorySlice {
     lookbackDays: readPositiveNumber(
       ENV.FINDING_HISTORY_LOOKBACK_DAYS,
       DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
-    ),
-  };
-}
-
-export function readCodeIndexSlice(): CodeIndexSlice {
-  return {
-    mode: readEnum(ENV.CODE_INDEX_MODE, CODE_INDEX_MODES, DEFAULT_CODE_INDEX_MODE),
-    waitMs: readNonNegativeNumber(ENV.CODE_INDEX_WAIT_MS, DEFAULT_CODE_INDEX_WAIT_MS),
-    retentionSeconds: readPositiveNumber(
-      ENV.CODE_INDEX_RETENTION_SECONDS,
-      DEFAULT_CODE_INDEX_RETENTION_SECONDS,
     ),
   };
 }

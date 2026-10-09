@@ -1,5 +1,4 @@
 import { createAskPathGate } from "./askSafety.js";
-import { buildCodeIndexTools, buildUnavailableCodeIndexTools } from "../tools/codeIndexTools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
 import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
 import type { AskRunParams } from "./askRunTypes.js";
@@ -15,20 +14,5 @@ export function buildAskRunSetup(params: AskRunParams) {
     }),
     { executorKind: params.cfg.codeMode.executorKind },
   );
-  const codeIndex =
-    params.pool && params.codeIndexSnapshotId
-      ? buildCodeIndexTools({
-          pool: params.pool,
-          snapshotId: params.codeIndexSnapshotId,
-          workspace: params.workspace,
-          pathGate,
-        })
-      : buildUnavailableCodeIndexTools();
-
-  return {
-    bundle: {
-      piTools: [...bundle.piTools, ...codeIndex.piTools],
-      executors: { ...bundle.executors, ...codeIndex.executors },
-    },
-  };
+  return { bundle };
 }

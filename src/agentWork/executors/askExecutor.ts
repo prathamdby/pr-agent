@@ -23,7 +23,6 @@ import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "
 import { fenceForEpoch } from "../writeFence.js";
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskWorkItem } from "../types.js";
-import { waitForReadySnapshot } from "../../codeIndex/repository.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 
 function replyTargetKindFromIntentDetail(
@@ -369,19 +368,6 @@ export function createAskWorkExecution({
             replyTarget: payload.replyTarget,
             commentId: payload.commentId,
           });
-          const ready =
-            cfg.codeIndex.mode === "fts"
-              ? await waitForReadySnapshot(
-                  pool,
-                  {
-                    installationId: item.installationId,
-                    owner: item.owner,
-                    repo: item.repo,
-                    headSha,
-                  },
-                  0,
-                )
-              : null;
           const executionId = createAskExecutionId();
           const result = await runAskRun({
             cfg,
@@ -399,7 +385,6 @@ export function createAskWorkExecution({
             workspace: repositoryView.workspace,
             sessionContext: env.durability,
             pool,
-            codeIndexSnapshotId: ready?.id,
             signal: env.signal,
           });
           await recordAskProviderUsage(pool, {

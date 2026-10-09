@@ -1,5 +1,21 @@
 export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
 export const LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE = 256;
+
+/** fff search host: one child process per worker, one index per pinned checkout. */
+export const LOCAL_WORKSPACE_FFF_SCAN_TIMEOUT_MS = 10_000;
+/** Deadline for one host request. A miss kills the host and the call uses git grep. */
+export const LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS = 20_000;
+/** Paging budget inside one grep before the call falls back to git grep. */
+export const LOCAL_WORKSPACE_FFF_GREP_TIME_BUDGET_MS = 5_000;
+export const LOCAL_WORKSPACE_FFF_GREP_PAGE_FILES = 200;
+export const LOCAL_WORKSPACE_FFF_MAX_COLLECTED_MATCHES = 10_000;
+/** Checkouts above this file count skip fff and search with git grep. */
+export const LOCAL_WORKSPACE_FFF_MAX_INDEXED_FILES = 200_000;
+/** Covers default concurrency (2 + 1 + 1 + 1 + 1 leased jobs) with headroom. */
+export const LOCAL_WORKSPACE_FFF_MAX_LIVE_INDEXES = 8;
+/** fff skips larger files, so they stay on git grep. */
+export const LOCAL_WORKSPACE_FFF_MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const LOCAL_WORKSPACE_FFF_RESPAWN_BACKOFF_MS = 30_000;
 export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
 
 /** Local PR workspace caps. */
@@ -8,6 +24,9 @@ export const LOCAL_WORKSPACE_FETCH_TIMEOUT_MS = 60_000;
 export const LOCAL_WORKSPACE_SEARCH_MAX_FILES = 500;
 export const LOCAL_WORKSPACE_MAX_FILE_BYTES = 1_000_000;
 export const LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES = 50_000_000;
+/** `searchWorkspace({ terms })`: extra literals per call, and matches kept per literal for ranking. */
+export const LOCAL_WORKSPACE_SEARCH_MAX_TERMS = 8;
+export const LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES = 200;
 export const LOCAL_WORKSPACE_MAX_DIFF_BYTES = 5_000_000;
 export const LOCAL_WORKSPACE_READ_RESPONSE_BYTES = 128_000;
 /** Lines longer than this are replaced by a marker before the byte budget runs. */

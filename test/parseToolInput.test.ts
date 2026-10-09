@@ -31,7 +31,7 @@ describe("parseToolInput", () => {
 
   it("drops null on an optional field wrapped in a pipe", () => {
     // Every production optional routed through the seam is optional(pipe(...))
-    // — codeIndex limit, workspace startLine/maxLines, reviewSchema confidence.
+    // — workspace maxResults, startLine/maxLines, reviewSchema confidence.
     const result = parseToolInput(schema, { path: "a", limit: null }, { toolName: "t" });
     expect(result).toMatchObject({ ok: true, value: { path: "a" } });
     expect(result.ok && result.repairs).toEqual(["null_optional_dropped"]);

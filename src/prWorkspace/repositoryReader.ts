@@ -9,6 +9,11 @@ import { promisify } from "node:util";
 import { AppError } from "../errors/appError.js";
 import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.js";
 import {
+  createFffWorkspaceSearch,
+  type WorkspaceFileSearchParams,
+  type WorkspaceFileSearchResult,
+} from "./fff/workspaceSearch.js";
+import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_DIFF_BYTES,
@@ -87,6 +92,7 @@ export type PinnedRepositoryReader = RepositoryReader & {
   readonly isPathInCheckout: (path: string) => boolean;
   readonly getCoverage: () => CheckoutCoverage;
   readonly noteSearchTruncated: () => void;
+  readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
   readonly lookupSymbol: (name: string, maxResults?: number) => readonly SymbolIndexEntry[];
   readonly getSymbolIndexStatus: () => SymbolIndexStatus;
 };
@@ -418,11 +424,18 @@ export function createPinnedRepositoryReader(params: {
     }
   }
 
+  const fffSearch = createFffWorkspaceSearch({
+    root: agentCwd,
+    checkoutPaths,
+    sortedCheckoutPaths,
+    gitGrep: (grepParams) =>
+      gitGrepWorkspace(
+        { privateGitDir, agentCwd },
+        { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
+      ),
+  });
   const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
-    const result = await gitGrepWorkspace(
-      { privateGitDir, agentCwd },
-      { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
-    );
+    const result = await fffSearch.search(grepParams);
     if (result.truncated) {
       noteSearchTruncated();
     }
@@ -448,6 +461,7 @@ export function createPinnedRepositoryReader(params: {
     isPathInCheckout,
     getCoverage,
     noteSearchTruncated,
+    findFiles: fffSearch.findFiles,
     lookupSymbol,
     getSymbolIndexStatus,
   };
@@ -456,6 +470,7 @@ export function createPinnedRepositoryReader(params: {
     dispose: () => {
       symbolIndex = null;
       blameCache.clear();
+      fffSearch.dispose();
     },
   };
 }

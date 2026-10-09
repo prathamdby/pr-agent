@@ -7,7 +7,6 @@ import { makeTestConfig } from "./helpers/config.js";
 const RETENTION = makeTestConfig({
   retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
   agentEvents: { retentionSeconds: 0 },
-  codeIndex: { retentionSeconds: 30 * 86_400 },
 });
 
 describe("runRetention batched delete loop", () => {
@@ -43,9 +42,6 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("agent_events")) {
           return { rowCount: 0 };
         }
-        if (text.includes("code_index_snapshots")) {
-          return { rowCount: 0 };
-        }
         if (text.includes("ask_quota_buckets")) {
           return { rowCount: 0 };
         }
@@ -66,7 +62,6 @@ describe("runRetention batched delete loop", () => {
     expect(result.workItemsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 2);
     expect(result.webhookEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE);
     expect(result.agentEventsDeleted).toBe(0);
-    expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(result.prHeadCiStateDeleted).toBe(0);
     expect(result.reviewApprovalsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 3);
@@ -92,9 +87,6 @@ describe("runRetention batched delete loop", () => {
           return { rowCount: 0 };
         }
         if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
-        if (text.includes("code_index_snapshots")) {
-          return { rowCount: 0 };
-        }
         if (text.includes("ask_quota_buckets")) {
           return { rowCount: 0 };
         }
@@ -126,7 +118,6 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
-      if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
@@ -159,7 +150,6 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
-      if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("agent_events")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };

@@ -8,7 +8,6 @@ import {
   ASK_QUEUE,
   CI_PROJECTION_DEAD_LETTER_QUEUE,
   CI_PROJECTION_QUEUE,
-  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   PG_BOSS_POOL_MAX_WEB,
@@ -41,6 +40,8 @@ export const AGENT_DEAD_LETTER_QUEUES = [
 /** Retired one-release shim. Boot deletes both after a drain check. */
 const RETIRED_CI_REFRESH_QUEUE = "agent-work-ci-refresh";
 const RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
+/** Retired with the code index. Its jobs only rebuilt that index, so boot drops them. */
+const RETIRED_CODE_INDEX_BUILD_QUEUE = "code-index-build";
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
@@ -143,12 +144,6 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ),
   );
 
-  // No DLQ; created at boot so work()/diagnostics never hit a missing queue.
-  await boss.createQueue(CODE_INDEX_BUILD_QUEUE, {
-    ...defaults,
-    policy: "standard",
-  });
-
   // pg-boss never changes an existing queue's policy (createQueue is insert-only);
   // migration 023 flips pre-lease deployments. Loudly catch a queue whose flip was
   // skipped, since key_strict_fifo would silently re-block PRs with no repair left.
@@ -160,6 +155,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   }
 
   await retireLeftoverCiRefreshQueues(boss);
+  await retireCodeIndexBuildQueue(boss);
 }
 
 type RetiredQueueBoss = Pick<PgBoss, "getQueue" | "getQueueStats" | "deleteQueue">;
@@ -197,6 +193,20 @@ export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Pro
         message: errorMessage(error),
       });
     }
+  }
+}
+
+/** Delete the code-index build lane, including any queued, active, or deferred jobs. */
+export async function retireCodeIndexBuildQueue(boss: RetiredQueueBoss): Promise<void> {
+  const name = RETIRED_CODE_INDEX_BUILD_QUEUE;
+  try {
+    const queue = await boss.getQueue(name);
+    if (queue == null) return;
+    const [stats] = await boss.getQueueStats(name);
+    await boss.deleteQueue(name);
+    logDebug("retired_queue_deleted", { queue: name, droppedCount: retiredQueueLiveCount(stats) });
+  } catch (error) {
+    logWarn("retired_queue_delete_failed", { queue: name, message: errorMessage(error) });
   }
 }
 

@@ -16,8 +16,6 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   CI_PROJECTION_QUEUE,
-  CODE_INDEX_BUILD_CONCURRENCY,
-  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
@@ -31,7 +29,6 @@ import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "..
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.js";
 import { executeAckJob } from "./executors/ackExecutor.js";
 import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
-import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeIndex/buildJob.js";
 import { type AckJobData, type CiProjectionJobData } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 import {
@@ -219,15 +216,6 @@ export const AgentWorkerLive = (
               },
             ).then(() => {
               registeredQueues.add(RETENTION_QUEUE);
-            }),
-            registerPlainQueue<CodeIndexBuildJobData>(
-              boss,
-              executions,
-              CODE_INDEX_BUILD_QUEUE,
-              { localConcurrency: CODE_INDEX_BUILD_CONCURRENCY, ...fastQueueOptions },
-              (job) => executeCodeIndexBuildJob(cfg, pool, job.data),
-            ).then(() => {
-              registeredQueues.add(CODE_INDEX_BUILD_QUEUE);
             }),
           ]);
           logInfo("agent_worker_started", {

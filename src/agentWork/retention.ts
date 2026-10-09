@@ -2,7 +2,6 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { type Config, RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
-import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
 import { deleteExpiredReviewApprovals } from "./intake/reviewApprovals.js";
@@ -16,7 +15,6 @@ export type RetentionResult = {
   readonly webhookEventsDeleted: number;
   readonly webhookDuplicatesDeleted: number;
   readonly agentEventsDeleted: number;
-  readonly codeIndexSnapshotsDeleted: number;
   readonly askQuotaBucketsDeleted: number;
   readonly prHeadCiStateDeleted: number;
   readonly reviewApprovalsDeleted: number;
@@ -29,14 +27,13 @@ export type RetentionResult = {
  */
 export async function runRetention(
   pool: Pool,
-  cfg: Pick<Config, "retention" | "agentEvents" | "codeIndex" | "traces">,
+  cfg: Pick<Config, "retention" | "agentEvents" | "traces">,
 ): Promise<RetentionResult> {
   const [
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
     agentEventsDeleted,
-    codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,
@@ -115,11 +112,6 @@ export async function runRetention(
       }
       return deleted;
     })(),
-    safeDeleteExpiredCodeIndexSnapshots(
-      pool,
-      cfg.codeIndex.retentionSeconds,
-      RETENTION_DELETE_BATCH_SIZE,
-    ),
     deleteExpiredAskQuotaState(pool, cfg.retention.agentWorkSeconds, RETENTION_DELETE_BATCH_SIZE),
     deleteExpiredPrHeadCiState(pool, cfg.retention.agentWorkSeconds),
     deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
@@ -135,7 +127,6 @@ export async function runRetention(
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
     agentEventsDeleted,
-    codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,

@@ -43,7 +43,6 @@ export type AskRunParams = {
   pool?: Pool;
   /** Durable CI facts for this head. Loaded by the ask run from `pr_head_ci_state`. */
   ciState?: AskCiState;
-  codeIndexSnapshotId?: string;
   /** Durable job/lease abort for tool execution. */
   signal?: AbortSignal;
 };

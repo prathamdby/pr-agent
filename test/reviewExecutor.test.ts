@@ -1584,7 +1584,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
     });
   });
@@ -1627,7 +1626,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
     });
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
@@ -1675,7 +1673,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
     });
   });
@@ -1777,7 +1774,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
     });
   });
@@ -1808,7 +1804,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
       checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
     });
   });

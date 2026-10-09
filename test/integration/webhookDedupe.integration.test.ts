@@ -203,7 +203,6 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
       makeTestConfig({
         retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
         agentEvents: { retentionSeconds: 0 },
-        codeIndex: { retentionSeconds: 30 * 86_400 },
       }),
     );
 

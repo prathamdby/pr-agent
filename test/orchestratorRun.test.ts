@@ -300,6 +300,7 @@ const workspace: LocalPrWorkspace = {
     diffIndex: { files: new Map(), truncated: false, listPullRequestFilesIngested: false },
     stats: { truncated: false, totalChanges: 0, fileCount: 0 },
     grepLiteral: async () => ({ matches: [], truncated: false }),
+    findFiles: async () => ({ paths: [], truncated: false }),
     getDiffForPath: async () => "",
     getBlameForPath: async () => "",
     isPathInCheckout: () => false,

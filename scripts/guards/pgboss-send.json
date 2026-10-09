@@ -7,8 +7,7 @@
     "src/agentWork/ciProjection.ts",
     "src/agentWork/intake/queueing.ts",
     "src/agentWork/prActorLease.ts",
-    "src/agentWork/reviewReschedule.ts",
-    "src/codeIndex/buildJob.ts"
+    "src/agentWork/reviewReschedule.ts"
   ],
   "mustCatch": ["await boss.send(queue, data);"]
 }

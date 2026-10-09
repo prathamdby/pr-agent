@@ -44,7 +44,6 @@ export type ReviewRunParams = {
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly severityFloor?: number;
-  readonly codeIndexSnapshotId?: string;
   readonly sameRepo?: boolean;
   readonly repoPolicy?: RepoPolicyResult;
   /** Durable job/lease abort for tool execution. */

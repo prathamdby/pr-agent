@@ -102,7 +102,8 @@ export function reviewRecoveryInputDigest(input: {
         },
         codeMode: input.cfg.codeMode,
         context7Enabled: input.cfg.context7.apiKey.length > 0,
-        codeIndexMode: input.cfg.codeIndex.mode,
+        // Pinned so the retired setting leaves existing review bindings unchanged.
+        codeIndexMode: "off",
         personas: {
           orchestrator: orchestratorSystemPrompt,
           specialists: SPECIALIST_SYSTEM_PROMPTS,

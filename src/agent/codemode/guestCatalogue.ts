@@ -21,8 +21,12 @@ const GUEST_CAPABILITY_SPEC_BY_NAME = {
     rule: "Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes.",
   },
   searchWorkspace: {
-    call: "await tools.searchWorkspace({ query, maxResults? })",
-    rule: "Literal git grep, not regex. On truncation, search for more specific text.",
+    call: "await tools.searchWorkspace({ query, terms?, maxResults? })",
+    rule: "Literal text, matched case-sensitively, not regex. `terms` adds literals and ranks files by how many they contain. On truncation, search for more specific text.",
+  },
+  findFiles: {
+    call: "await tools.findFiles({ query, maxResults? })",
+    rule: "Fuzzy, case-insensitive path lookup, best match first. Paths only; read before citing.",
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",

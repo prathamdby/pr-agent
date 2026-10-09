@@ -13,6 +13,10 @@ export function requireEnv(name: string): string {
   return v;
 }
 
+export function setEnvNames(names: readonly string[]): string[] {
+  return names.filter((name) => (process.env[name] ?? "") !== "");
+}
+
 export function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] ?? defaultValue;
 }

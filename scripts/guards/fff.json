@@ -1,0 +1,11 @@
+{
+  "id": "fff",
+  "kind": "module",
+  "specifierPrefix": "@ff-labs/",
+  "skipTypeOnly": false,
+  "allow": ["src/prWorkspace/fff/host.ts"],
+  "mustCatch": [
+    "import { FileFinder } from \"@ff-labs/fff-node\";",
+    "const fff = await import(\"@ff-labs/fff-node\");"
+  ]
+}

@@ -1,6 +1,6 @@
 import { loadConfig, type Config } from "./settings/index.js";
 import { initAnalytics } from "./analytics/index.js";
-import { initEvlog, logInfo } from "./evlog.js";
+import { initEvlog, logInfo, logWarn } from "./evlog.js";
 import { sanitizeErrorForTelemetry } from "./errors/appError.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
@@ -26,6 +26,9 @@ async function main() {
     model: cfg.models.model,
     context7_enabled: cfg.context7.apiKey.length > 0,
   });
+  if (cfg.removedEnv.length > 0) {
+    logWarn("config_removed_env_ignored", { names: cfg.removedEnv });
+  }
   if (cfg.runtime.role === "worker") {
     const { startAgentWorker } = await import("./worker.js");
     startAgentWorker(cfg);

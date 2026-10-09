@@ -51,18 +51,9 @@ export function renderCodeModeHarness(params: {
 export const specialistInvestigationHarness = [
   renderCodeModeHarness({
     guest: GUEST_CAPABILITY_SPECS,
-    nativeTools: [
-      "execute",
-      "searchCodeIndex",
-      "resolveLibraryId",
-      "getLibraryDocs",
-      "submit_findings_report",
-    ],
+    nativeTools: ["execute", "resolveLibraryId", "getLibraryDocs", "submit_findings_report"],
     cellBoundary:
       "Submitting happens outside the cell: after investigation, call `submit_findings_report`.",
-    extra: [
-      "Confirm `searchCodeIndex` hints with `await tools.readWorkspaceFile` inside `execute`. When the index returns `{ unavailable: true }`, use `listChangedFiles`, `searchWorkspace`, and `readWorkspaceFile` inside `execute`.",
-    ],
   }),
   "",
   "## Investigation protocol",
@@ -77,7 +68,6 @@ export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
   nativeTools: [
     "execute",
-    "searchCodeIndex",
     "resolveLibraryId",
     "getLibraryDocs",
     "submit_specialist_brief",
@@ -87,16 +77,15 @@ export const orchestratorHarness = renderCodeModeHarness({
   cellBoundary: "Submitting and publishing happen outside the cell, through the active phase tool.",
   extra: [
     "Each phase accepts one terminal tool: recon `submit_specialist_brief`, judgment `publish_thread`, synthesis `publish_summary`. The others return a wrong-phase error. `execute` stays available in every phase.",
-    "Confirm `searchCodeIndex` and `resolveSymbol` hints with `await tools.readWorkspaceFile` inside `execute` before naming a path or symbol.",
+    "Confirm `findFiles` and `resolveSymbol` hints with `await tools.readWorkspaceFile` inside `execute` before naming a path or symbol.",
   ],
 });
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
-  nativeTools: ["execute", "searchCodeIndex", "resolveLibraryId", "getLibraryDocs"],
+  nativeTools: ["execute", "resolveLibraryId", "getLibraryDocs"],
   cellBoundary: "The answer goes in your final plain-text reply, not in a cell.",
   extra: [
-    "Confirm `searchCodeIndex` hints with `await tools.readWorkspaceFile` inside `execute`. When the index returns `{ unavailable: true }`, use `listChangedFiles`, `searchWorkspace`, and `readWorkspaceFile` inside `execute`.",
     "The workspace is a PR head checkout. No tool reads the PR conversation, issues, or external URLs.",
   ],
 });
@@ -106,15 +95,15 @@ export const verificationInvestigationHarness = renderCodeModeHarness({
   nativeTools: ["execute", "submitVerification"],
   cellBoundary: "Submitting happens outside the cell: after inspection, call `submitVerification`.",
   extra: [
-    "This profile has no `listChangedFiles`, `getWorkspaceBlame`, `resolveSymbol`, `searchCodeIndex`, or Context7; the inventory names the paths to inspect.",
+    "This profile has no `listChangedFiles`, `findFiles`, `getWorkspaceBlame`, `resolveSymbol`, or Context7; the inventory names the paths to inspect.",
   ],
 });
 
 export const descriptionNativeTooling = [
   "## Tools",
   "Call native tools directly. There is no `execute` cell.",
-  "Installed: `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace` (literal match), `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`, `submitDescription`.",
-  "`listChangedFiles` gives the paths; diffs show what changed and cost less than whole files; focused reads supply context. Blame is for when authorship decides the description. `resolveSymbol` matches are hints until `readWorkspaceFile` confirms them.",
+  "Installed: `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace` (literal match), `findFiles` (fuzzy path match), `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`, `submitDescription`.",
+  "`listChangedFiles` gives the paths; diffs show what changed and cost less than whole files; focused reads supply context. Blame is for when authorship decides the description. `findFiles` and `resolveSymbol` matches are hints until `readWorkspaceFile` confirms them.",
   "No tool reads the PR conversation, issues, or external URLs.",
 ].join("\n");
 

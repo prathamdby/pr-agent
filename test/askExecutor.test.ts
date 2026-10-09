@@ -78,7 +78,6 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
   getAppBotIdentity: vi.fn(),
   findExistingAskReplyComment: vi.fn(),
-  waitForReadySnapshot: vi.fn(),
   recordAskProviderUsage: vi.fn(),
   createAskExecutionId: vi.fn(),
 }));
@@ -105,10 +104,6 @@ vi.mock("../src/agent/ask/recoverAskReply.js", async (importOriginal) => {
 
 vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
-}));
-
-vi.mock("../src/codeIndex/repository.js", () => ({
-  waitForReadySnapshot: mocks.waitForReadySnapshot,
 }));
 
 vi.mock("../src/agentWork/askQuota.js", () => ({
@@ -179,7 +174,6 @@ describe("ask work definition", () => {
     mocks.createAskExecutionId.mockReturnValue("11111111-1111-4111-8111-111111111111");
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
     mocks.findExistingAskReplyComment.mockResolvedValue(null);
-    mocks.waitForReadySnapshot.mockResolvedValue(null);
     mockDurableExecution();
     mockRepositoryView();
   });
@@ -211,13 +205,7 @@ describe("ask work definition", () => {
     expect(intent?.detail.__result).toEqual({
       commentId: expect.any(Number),
     });
-    expect(mocks.waitForReadySnapshot).not.toHaveBeenCalled();
-    expect(mocks.runAskRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pool,
-        codeIndexSnapshotId: undefined,
-      }),
-    );
+    expect(mocks.runAskRun).toHaveBeenCalledWith(expect.objectContaining({ pool }));
     expect(mocks.recordAskProviderUsage).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       executionId: "11111111-1111-4111-8111-111111111111",
@@ -256,49 +244,6 @@ describe("ask work definition", () => {
       executionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       usage: { estimated: false, totalTokens: 9 },
     });
-  });
-
-  it("passes a ready code-index snapshot to runAskRun when CODE_INDEX_MODE=fts", async () => {
-    mocks.waitForReadySnapshot.mockResolvedValue({ id: "snap-ready" });
-    const ftsCfg = makeTestConfig({ models: { model: "test" }, codeIndex: { mode: "fts" } });
-
-    await createWorkDefinitions({
-      cfg: ftsCfg,
-      pool,
-      boss,
-      installationSurface: openInstallationSurface(),
-    }).ask.execute(
-      askItem(),
-      createDurableExecutionContext({
-        pool,
-        item: askItem(),
-        job: makeDurableJobMetadata(),
-        prSurface: fakeDurablePrSurface(),
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        getClaim: () => undefined,
-        getEscalation: () => undefined,
-      }),
-    );
-
-    expect(mocks.waitForReadySnapshot).toHaveBeenCalledWith(
-      pool,
-      {
-        installationId: 42,
-        owner: "o",
-        repo: "r",
-        headSha: "head",
-      },
-      0,
-    );
-    expect(mocks.runAskRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pool,
-        codeIndexSnapshotId: "snap-ready",
-      }),
-    );
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {

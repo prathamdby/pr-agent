@@ -44,6 +44,7 @@ import {
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
+import { rankPathsByQuery } from "../src/prWorkspace/fff/workspaceSearch.js";
 import {
   buildSymbolIndex,
   querySymbolIndex,
@@ -109,6 +110,10 @@ function mockWorkspace(
       stats,
       grepLiteral: (params: GitGrepWorkspaceParams) =>
         gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
+      findFiles: async ({ query, maxResults, paths: allowed }) => {
+        const ranked = rankPathsByQuery(query, allowed ?? [...paths].toSorted());
+        return { paths: ranked.slice(0, maxResults), truncated: ranked.length > maxResults };
+      },
       getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
       getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
       isPathInCheckout: (path) => paths.has(path),
@@ -2003,6 +2008,226 @@ describe("local workspace tools", () => {
         const out = await executors.searchWorkspace({ query: "a.b*c" });
         expect(out).toEqual({
           matches: [{ path: "src/colon:name.ts", line: 1, text: "export const token = 'a.b*c';" }],
+          truncated: false,
+        });
+      });
+
+      it("finds every tracked file git grep finds, with exact line text", async () => {
+        const files = {
+          ".ignore": "src/listed.ts\n",
+          ".config/tool.ts": "export const fffNeedle = 'dotdir';\n",
+          "node_modules/pkg/index.js": "export const fffNeedle = 'ignored-dir';\n",
+          "target/debug/build.rs": 'const FFF_NEEDLE: &str = "fffNeedle";\n',
+          "src/listed.ts": "export const fffNeedle = 'dot-ignore';\n",
+          "src/fake.png": "fffNeedle in a text file with a binary extension\n",
+          "src/crlf.ts": "export const fffNeedle = 'crlf';\r\n",
+          "src/long.ts": `export const pad = '${"x".repeat(600)}'; // fffNeedle\n`,
+          "src/big.txt": `${"filler line\n".repeat(1_000_000)}fffNeedle at the end\n`,
+          "src/plain.ts": "export const fffNeedle = 'plain';\n",
+        };
+        const { workspace } = await setup(files);
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const out = await executors.searchWorkspace?.({ query: "fffNeedle", maxResults: 50 });
+        const reference = await gitGrepWorkspace(workspace, {
+          query: "fffNeedle",
+          maxResults: 50,
+          timeoutMs: 10_000,
+        });
+
+        expect(out).toMatchObject({ matches: reference.matches, truncated: false });
+        expect(reference.matches.map((match) => match.path)).toEqual([
+          ".config/tool.ts",
+          "node_modules/pkg/index.js",
+          "src/big.txt",
+          "src/crlf.ts",
+          "src/fake.png",
+          "src/listed.ts",
+          "src/long.ts",
+          "src/plain.ts",
+          "target/debug/build.rs",
+        ]);
+        expect(reference.matches.find((match) => match.path === "src/crlf.ts")?.text).toBe(
+          "export const fffNeedle = 'crlf';\r",
+        );
+        expect(reference.matches.find((match) => match.path === "src/long.ts")?.text).toHaveLength(
+          `export const pad = '${"x".repeat(600)}'; // fffNeedle`.length,
+        );
+      });
+
+      it("truncates in git grep path order when hits span fff and git grep", async () => {
+        const files = {
+          ".ignore": "src/b.ts\nsrc/d.ts\n",
+          "src/a.ts": "splitNeedle a\n",
+          "src/b.ts": "splitNeedle b\n",
+          "src/c.ts": "splitNeedle c\n",
+          "src/d.ts": "splitNeedle d\n",
+          "src/e.PNG": "splitNeedle e\n",
+          "src/multi.ts": "first\nsecond\n",
+        };
+        const { workspace } = await setup(files);
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const reference = (query: string, maxResults: number) =>
+          gitGrepWorkspace(workspace, { query, maxResults, timeoutMs: 10_000 });
+
+        const capped = await reference("splitNeedle", 3);
+        expect(capped.matches.slice(0, 3).map((match) => match.path)).toEqual([
+          "src/a.ts",
+          "src/b.ts",
+          "src/c.ts",
+        ]);
+        await expect(
+          executors.searchWorkspace?.({ query: "splitNeedle", maxResults: 3 }),
+        ).resolves.toMatchObject({ matches: capped.matches.slice(0, 3), truncated: true });
+        await expect(
+          executors.searchWorkspace?.({ query: "splitNeedle", maxResults: 10 }),
+        ).resolves.toMatchObject({
+          matches: (await reference("splitNeedle", 10)).matches,
+          truncated: false,
+        });
+        await expect(
+          executors.searchWorkspace?.({ query: "first\nsecond" }),
+        ).resolves.toMatchObject({ matches: (await reference("first\nsecond", 20)).matches });
+      });
+
+      it("keeps queries literal and case-sensitive", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "const value = 'a  spaced   needle';\n",
+          "src/b.ts": "const glob = '*.ts needle';\n",
+          "src/c.ts": "const path = 'needle src/';\n",
+          "src/d.ts": "const upper = 'NEEDLE';\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const expectPaths = async (query: string, paths: readonly string[]) =>
+          expect(await executors.searchWorkspace?.({ query })).toMatchObject({
+            matches: paths.map((path) => ({ path })),
+          });
+
+        await expectPaths("a  spaced   needle", ["src/a.ts"]);
+        await expectPaths("*.ts needle", ["src/b.ts"]);
+        await expectPaths("needle src/", ["src/c.ts"]);
+        await expectPaths("needle", ["src/a.ts", "src/b.ts", "src/c.ts"]);
+        await expectPaths("NEEDLE", ["src/d.ts"]);
+      });
+
+      it("ranks files by how many search terms they contain", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "renewLease();\nrenewLease();\n",
+          "src/b.ts": "renewLease();\nLEASE_TTL_SECONDS;\n",
+          "src/c.ts": "renewLease();\nLEASE_TTL_SECONDS;\nlease_epoch;\n",
+          "src/d.ts": "unrelated();\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        await expect(
+          executors.searchWorkspace?.({
+            query: "renewLease",
+            terms: ["LEASE_TTL_SECONDS", "lease_epoch"],
+          }),
+        ).resolves.toEqual({
+          files: [
+            { path: "src/c.ts", terms: ["renewLease", "LEASE_TTL_SECONDS", "lease_epoch"] },
+            { path: "src/b.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+            { path: "src/a.ts", terms: ["renewLease"] },
+          ],
+          matches: [
+            { path: "src/c.ts", line: 1, text: "renewLease();" },
+            { path: "src/c.ts", line: 2, text: "LEASE_TTL_SECONDS;" },
+            { path: "src/c.ts", line: 3, text: "lease_epoch;" },
+            { path: "src/b.ts", line: 1, text: "renewLease();" },
+            { path: "src/b.ts", line: 2, text: "LEASE_TTL_SECONDS;" },
+            { path: "src/a.ts", line: 1, text: "renewLease();" },
+            { path: "src/a.ts", line: 2, text: "renewLease();" },
+          ],
+          truncated: false,
+          pathsSearched: 4,
+          filesScanned: 3,
+        });
+        await expect(
+          executors.searchWorkspace?.({
+            query: "renewLease",
+            terms: ["renewLease", "LEASE_TTL_SECONDS"],
+            maxResults: 2,
+          }),
+        ).resolves.toMatchObject({
+          files: [
+            { path: "src/b.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+            { path: "src/c.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+          ],
+          matches: [
+            { path: "src/b.ts", line: 1 },
+            { path: "src/b.ts", line: 2 },
+          ],
+          truncated: true,
+          coverage: expect.objectContaining({ searchTruncated: true }),
+          warning: expect.stringContaining("search truncated"),
+        });
+      });
+
+      it("finds files by fuzzy path, including paths fff does not index", async () => {
+        const { workspace } = await setup({
+          ".env": "TOKEN=1\n",
+          ".github/workflows/lease-check.yml": "name: lease\n",
+          "src/agentWork/prActorLease.ts": "export {};\n",
+          "src/agentWork/prActorLeaseRepository.ts": "export {};\n",
+          "test/prActorLease.test.ts": "export {};\n",
+          "docs/unrelated.md": "notes\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        const lease = await executors.findFiles?.({ query: "prActorLease" });
+        expect(lease).toMatchObject({ truncated: false });
+        expect(lease).toHaveProperty(
+          "paths",
+          expect.arrayContaining([
+            "src/agentWork/prActorLease.ts",
+            "src/agentWork/prActorLeaseRepository.ts",
+            "test/prActorLease.test.ts",
+          ]),
+        );
+        await expect(executors.findFiles?.({ query: "lease-check" })).resolves.toEqual({
+          paths: [".github/workflows/lease-check.yml"],
+          truncated: false,
+        });
+        expect(await executors.findFiles?.({ query: ".env" })).not.toMatchObject({
+          paths: expect.arrayContaining([".env"]),
+        });
+        await expect(
+          executors.findFiles?.({ query: "Lease", maxResults: 2 }),
+        ).resolves.toMatchObject({ truncated: true });
+      });
+
+      it("keeps searching with git grep when the fff host dies", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "export const hostNeedle = 1;\n",
+          "src/b.ts": "export const hostNeedle = 2;\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const expected = {
+          matches: [
+            { path: "src/a.ts", line: 1, text: "export const hostNeedle = 1;" },
+            { path: "src/b.ts", line: 1, text: "export const hostNeedle = 2;" },
+          ],
+          truncated: false,
+          pathsSearched: 2,
+          filesScanned: 2,
+        };
+        await expect(executors.searchWorkspace?.({ query: "hostNeedle" })).resolves.toEqual(
+          expected,
+        );
+
+        const { stdout } = await exec("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)]);
+        const hostPids = stdout
+          .split("\n")
+          .filter((line) => line.includes("prWorkspace/fff/host"))
+          .map((line) => Number.parseInt(line.trim(), 10));
+        expect(hostPids.length).toBeGreaterThan(0);
+        for (const pid of hostPids) process.kill(pid, "SIGKILL");
+
+        await expect(executors.searchWorkspace?.({ query: "hostNeedle" })).resolves.toEqual(
+          expected,
+        );
+        await expect(executors.findFiles?.({ query: "b.ts" })).resolves.toEqual({
+          paths: ["src/b.ts"],
           truncated: false,
         });
       });
