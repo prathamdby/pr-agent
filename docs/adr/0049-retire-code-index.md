@@ -6,6 +6,9 @@ Accepted. Supersedes item 5 of
 [ADR 0024](0024-workspace-primary-grounding-and-evidence.md). Items 1 to 4 stand:
 the workspace at `headSha` is still the only publishable code authority.
 
+> **Changelog:** 2026-10-09, startup does not read `CODE_INDEX_MODE`,
+> `CODE_INDEX_WAIT_MS`, or `CODE_INDEX_RETENTION_SECONDS`.
+
 ## Context
 
 The optional Postgres FTS code index (`CODE_INDEX_MODE=fts`, default `off`)
@@ -33,8 +36,7 @@ served are covered by two workspace tools on the live checkout.
    it indexes. Paths it does not index, and every path when the host is down,
    use a deterministic basename, path, then subsequence ranking.
 4. Boot deletes the `code-index-build` queue, including leftover jobs, because
-   they only rebuilt the index. Boot logs `config_removed_env_ignored` when a
-   removed `CODE_INDEX_*` setting is still set.
+   they only rebuilt the index.
 5. The review recovery binding keeps `codeIndexMode: "off"`, so existing
    validated review artifacts keep their hash.
 6. Tables `code_index_snapshots` and `code_index_chunks` stay one more release, so

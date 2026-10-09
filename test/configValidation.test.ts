@@ -50,26 +50,20 @@ describe("loadConfig validation", () => {
     expect(cfg.ask.providerBudgetTokens).toBe(0);
     expect(cfg.ask.providerReservationTokens).toBe(16_384);
     expect(cfg.codeMode.executorKind).toBe("in_process");
-    expect(cfg.removedEnv).toEqual([]);
   });
 
-  it.each(["TRACES_MODE", "TRACES_RETENTION_SECONDS", "TRACES_BUFFER_MAX_SPANS"])(
-    "rejects removed trace setting %s",
-    async (name) => {
-      await expect(
-        load({ [name]: name === "TRACES_MODE" ? "metadata" : "1" }),
-      ).rejects.toMatchObject({
-        code: "config.invalid_enum",
-        context: { name },
-      });
-    },
-  );
-
-  it("rejects an empty removed trace setting", async () => {
-    await expect(load({ TRACES_MODE: "" })).rejects.toMatchObject({
-      code: "config.invalid_enum",
-      context: { name: "TRACES_MODE" },
+  it("loads when retired trace and code index variables are set", async () => {
+    const withValues = await load({
+      TRACES_MODE: "metadata",
+      TRACES_RETENTION_SECONDS: "86400",
+      TRACES_BUFFER_MAX_SPANS: "32",
+      CODE_INDEX_MODE: "fts",
+      CODE_INDEX_WAIT_MS: "1000",
+      CODE_INDEX_RETENTION_SECONDS: "3600",
     });
+    expect(withValues.runtime.role).toBe("web");
+    const withEmpty = await load({ TRACES_MODE: "" });
+    expect(withEmpty.runtime.role).toBe("web");
   });
 
   it("rejects a non-numeric positive knob", async () => {

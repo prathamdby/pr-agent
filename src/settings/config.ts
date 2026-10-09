@@ -1,8 +1,6 @@
 import type { Features } from "./featureModes.js";
 import { readAskSlice, type AskSlice } from "./slices/ask.js";
 import { readFeatures } from "./slices/features.js";
-import { REMOVED_ENV_KEYS } from "./envKeys.js";
-import { rejectRemovedEnv, setEnvNames } from "./envReaders.js";
 import {
   readAssociationsSlice,
   readGithubSlice,
@@ -55,8 +53,6 @@ export type Config = {
   readonly provider: ProviderSlice;
   readonly agentEvents: AgentEventsSlice;
   readonly findingHistory: FindingHistorySlice;
-  /** Removed settings that are still set in the environment; boot logs them. */
-  readonly removedEnv: readonly string[];
   readonly codeMode: CodeModeSlice;
   readonly review: ReviewSlice;
   readonly concurrency: ConcurrencySlice;
@@ -68,14 +64,7 @@ export type Config = {
   readonly logging: LoggingSlice;
 };
 
-const REMOVED_TRACE_ENV = [
-  "TRACES_MODE",
-  "TRACES_RETENTION_SECONDS",
-  "TRACES_BUFFER_MAX_SPANS",
-] as const;
-
 export async function loadConfig(): Promise<Config> {
-  rejectRemovedEnv(REMOVED_TRACE_ENV);
   const runtime = readRuntimeSlice();
   const github = readGithubSlice();
   const webhook = readWebhookSlice();
@@ -92,7 +81,6 @@ export async function loadConfig(): Promise<Config> {
     provider,
     agentEvents: readAgentEventsSlice(),
     findingHistory: readFindingHistorySlice(),
-    removedEnv: setEnvNames(REMOVED_ENV_KEYS),
     codeMode: readCodeModeSlice(),
     review: readReviewSlice(),
     concurrency: readConcurrencySlice(),

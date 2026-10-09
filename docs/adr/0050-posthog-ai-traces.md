@@ -4,6 +4,9 @@
 
 Accepted. Supersedes [ADR 0046](0046-agent-traces.md).
 
+> **Changelog:** 2026-10-09, startup does not read `TRACES_MODE`,
+> `TRACES_RETENTION_SECONDS`, or `TRACES_BUFFER_MAX_SPANS`.
+
 ## Context
 
 ADR 0046 stored execution, session, generation, tool, and compaction spans in
@@ -52,9 +55,8 @@ product events stay metadata and do not include prompts or tool payloads.
 An empty token records nothing and opens no trace client. The web process does
 not emit traces. There is no local content mode and no metadata-only mode.
 
-`TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and `TRACES_BUFFER_MAX_SPANS` fail
-startup and name the variable. Migration 040 drops the trace tables. The drop
-sets a 3 second lock timeout because it locks `agent_work_items`.
+Migration 040 drops the trace tables. The drop sets a 3 second lock timeout
+because it locks `agent_work_items`.
 
 This is a breaking privacy change. An install that already has a PostHog token
 now sends repository text to that project. Removing the token is the opt-out.
@@ -65,8 +67,6 @@ Traces are not recovery evidence.
 
 ## Consequences
 
-Delete the three `TRACES_*` variables before upgrade, or web and worker both
-refuse to start and GitHub will not redeliver the in-flight webhook. Upgrade
-both processes together. Query `posthog.ai_events`. Dashboards that used the
+Upgrade both processes together. Query `posthog.ai_events`. Dashboards that used the
 work item as `$ai_trace_id`, or the Pi session id as `$ai_session_id`, need to
 use the execution id and the work item id.
