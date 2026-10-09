@@ -1,14 +1,11 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { GhPill } from "@/components/github-output/primitives";
-import { Document, Eye, Info, Question, Refresh, Wrench } from "@/components/icons";
 import { Section, SectionHeading } from "@/components/section";
 import { CAPABILITIES, type CapabilityId } from "@/lib/content";
 
-type IconComponent = ComponentType<{ readonly className?: string }>;
-
 const BY_ID = new Map(CAPABILITIES.map((item) => [item.id, item]));
 
-/** Every card below reads its copy from `CAPABILITIES`; only the arrangement lives here. */
+/** Every row below reads its copy from `CAPABILITIES`; only the arrangement lives here. */
 function capability(id: CapabilityId) {
   const item = BY_ID.get(id);
   if (item === undefined) {
@@ -19,14 +16,6 @@ function capability(id: CapabilityId) {
 
 function command(trigger: string): string | null {
   return trigger.match(/\/[a-z-]+/)?.[0] ?? null;
-}
-
-function IconTile({ icon: Icon }: { readonly icon: IconComponent }) {
-  return (
-    <span className="grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text">
-      <Icon className="size-5" />
-    </span>
-  );
 }
 
 function CommandChip({ value }: { readonly value: string | null }) {
@@ -47,110 +36,6 @@ function Copy({ id }: { readonly id: CapabilityId }) {
   );
 }
 
-function Card({
-  id,
-  icon,
-  className,
-  children,
-}: {
-  readonly id: CapabilityId;
-  readonly icon: IconComponent;
-  readonly className?: string;
-  readonly children?: ReactNode;
-}) {
-  const item = capability(id);
-  return (
-    <li className={`flex flex-col card p-6 ${className ?? ""}`}>
-      <div className="flex items-start justify-between gap-3">
-        <IconTile icon={icon} />
-        <CommandChip value={command(item.trigger)} />
-      </div>
-      <div className="mt-5">
-        <Copy id={id} />
-      </div>
-      {children}
-    </li>
-  );
-}
-
-/**
- * Dashed rail segment. A wrapper takes the insets because an absolutely positioned SVG is a
- * replaced element and would keep its intrinsic height instead of stretching between them.
- */
-function Rail({ className }: { readonly className: string }) {
-  return (
-    <span aria-hidden="true" className={`pointer-events-none absolute left-0 w-10 ${className}`}>
-      <svg className="h-full w-full text-line" preserveAspectRatio="none">
-        <line x1="20.5" y1="0" x2="20.5" y2="100%" stroke="currentColor" strokeDasharray="3 3" />
-      </svg>
-    </span>
-  );
-}
-
-/**
- * Review and verify share one card: the first pass, then the recheck that follows every push.
- * One dashed rail runs from the review tile through a small info mark and behind the verify
- * tile, then turns with a rounded corner into the middle of the verify copy.
- */
-function ReviewLoopCard() {
-  const review = capability("review");
-  const verify = capability("verify");
-  return (
-    <li className="flex flex-col card p-6 sm:row-span-2">
-      <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4">
-        <div className="relative">
-          <Rail className="top-5 bottom-0" />
-          <div className="relative z-10">
-            <IconTile icon={Eye} />
-          </div>
-        </div>
-        <div className="min-w-0">
-          <div className="flex h-10 items-center">
-            <CommandChip value={command(review.trigger)} />
-          </div>
-          <div className="mt-3">
-            <Copy id="review" />
-          </div>
-        </div>
-
-        <div className="relative flex h-20 items-center justify-center">
-          <Rail className="inset-y-0" />
-          <span className="relative z-10 grid size-4.5 place-items-center rounded-full bg-accent-solid text-on-accent">
-            <Info className="size-3.5" />
-          </span>
-        </div>
-        <p className="flex h-20 items-center text-xs text-text-tertiary">Then, after every push</p>
-
-        <div className="relative">
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute top-0 left-0 h-40 w-14 text-line"
-            viewBox="0 0 56 160"
-            fill="none"
-          >
-            <path
-              d="M20.5 0V126a16 16 0 0 0 16 16H52"
-              stroke="currentColor"
-              strokeDasharray="3 3"
-            />
-          </svg>
-          <div className="relative z-10">
-            <IconTile icon={Refresh} />
-          </div>
-        </div>
-        <div className="min-w-0">
-          <div className="flex h-10 items-center">
-            <CommandChip value={command(verify.trigger)} />
-          </div>
-          <div className="mt-3">
-            <Copy id="verify" />
-          </div>
-        </div>
-      </div>
-    </li>
-  );
-}
-
 type Verdict = {
   readonly finding: string;
   readonly tone: "success" | "accent" | "neutral" | "warning";
@@ -164,7 +49,7 @@ const VERDICTS: readonly Verdict[] = [
   { finding: "Docs skip ack wait", tone: "warning", verdict: "Dismissed" },
 ];
 
-/** The verdicts a triage run leaves behind, sized for a card. Decorative. */
+/** The verdicts a triage run leaves behind. Decorative. */
 function TriageVerdicts() {
   return (
     <div className="wash wash-grid flex items-center rounded-md p-4 sm:p-5" aria-hidden="true">
@@ -186,21 +71,29 @@ function TriageVerdicts() {
   );
 }
 
-function TriageCard() {
-  const triage = capability("triage");
+function Row({
+  id,
+  note,
+  aside,
+}: {
+  readonly id: CapabilityId;
+  readonly note?: string;
+  readonly aside?: ReactNode;
+}) {
+  const item = capability(id);
   return (
-    <li className="card p-6 sm:col-span-2">
-      <div className="grid gap-6 md:grid-cols-2 md:gap-8">
-        <div className="flex flex-col">
-          <div className="flex items-start justify-between gap-3">
-            <IconTile icon={Wrench} />
-            <CommandChip value={command(triage.trigger)} />
+    <li className="py-8">
+      <div className={aside === undefined ? undefined : "grid items-center gap-8 lg:grid-cols-2"}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:gap-8">
+          <div className="sm:w-32 sm:shrink-0 sm:pt-0.5">
+            <CommandChip value={command(item.trigger)} />
           </div>
-          <div className="mt-5">
-            <Copy id="triage" />
+          <div className="min-w-0">
+            {note === undefined ? null : <p className="mb-3 text-xs text-text-tertiary">{note}</p>}
+            <Copy id={id} />
           </div>
         </div>
-        <TriageVerdicts />
+        {aside}
       </div>
     </li>
   );
@@ -216,11 +109,12 @@ export function Capabilities() {
         description="Ask from a pull request comment, or let the automatic path run when a pull request opens."
       />
 
-      <ul className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
-        <ReviewLoopCard />
-        <Card id="describe" icon={Document} />
-        <Card id="ask" icon={Question} />
-        <TriageCard />
+      <ul className="mt-10 divide-y divide-line border-t border-line sm:mt-12">
+        <Row id="review" />
+        <Row id="verify" note="Then, after every push" />
+        <Row id="describe" />
+        <Row id="ask" />
+        <Row id="triage" aside={<TriageVerdicts />} />
       </ul>
     </Section>
   );

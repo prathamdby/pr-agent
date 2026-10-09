@@ -11,23 +11,15 @@ import {
   FeatherIcon,
   GitPullRequestIcon,
   GithubIcon,
-  HelpCircleIcon,
   InformationCircleIcon,
   Linkedin02Icon,
   Menu01Icon,
   MinusSignIcon,
   NewTwitterIcon,
-  NoteEditIcon,
   PlusSignIcon,
-  RefreshIcon,
-  SecurityCheckIcon,
   ServerStack01Icon,
-  StarIcon,
   TerminalIcon,
   Tick02Icon,
-  ViewIcon,
-  Wallet01Icon,
-  Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 
@@ -36,7 +28,7 @@ type IconProps = {
 };
 
 /**
- * Hugeicons, stroke-rounded set. The 1.5 stroke matches Geist at 400–500 weight, so an icon beside
+ * Hugeicons, stroke-rounded set. The 1.5 stroke matches IBM Plex Sans at 400–500 weight, so an icon beside
  * a label reads as the same ink. Every icon here is decorative: the text next to it carries the
  * meaning, so the SVG is hidden from assistive tech.
  */
@@ -72,15 +64,7 @@ export const PullRequest = fromGlyph(GitPullRequestIcon);
 export const Scan = fromGlyph(Bug01Icon);
 export const Comment = fromGlyph(Comment01Icon);
 export const Gauge = fromGlyph(DashboardSpeed01Icon);
-export const Eye = fromGlyph(ViewIcon);
-export const Document = fromGlyph(NoteEditIcon);
-export const Question = fromGlyph(HelpCircleIcon);
-export const Refresh = fromGlyph(RefreshIcon);
-export const Wrench = fromGlyph(Wrench01Icon);
 export const Feather = fromGlyph(FeatherIcon);
-export const Wallet = fromGlyph(Wallet01Icon);
-export const Shield = fromGlyph(SecurityCheckIcon);
-export const Star = fromGlyph(StarIcon);
 export const CheckCircle = fromGlyph(CheckmarkCircle02Icon);
 export const XCircle = fromGlyph(CancelCircleIcon);
 export const Info = fromGlyph(InformationCircleIcon);

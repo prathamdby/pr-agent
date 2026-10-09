@@ -7,9 +7,9 @@ import { join } from "node:path";
   and the PrWindow mock inside a wash card. Positions were measured from that markup at 1× and the
   colours mirror the semantic tokens in app/globals.css, so a token change means a regeneration.
 
-  Text goes through librsvg and fontconfig, not a browser. Geist ships as woff2 for the page, which
-  that stack cannot read, so ../assets/fonts carries the same faces as TTF and the script points
-  fontconfig at only that directory. Every glyph then comes from Geist on any machine.
+  Text goes through librsvg and fontconfig, not a browser. IBM Plex ships as woff2 for the page,
+  which that stack cannot read, so ../assets/fonts carries the same faces as TTF and the script
+  points fontconfig at only that directory. Every glyph then comes from IBM Plex on any machine.
 */
 const siteDir = join(import.meta.dirname, "..");
 const fontDir = join(siteDir, "assets", "fonts");
@@ -49,11 +49,11 @@ const color = {
   successSoft: "#dcf7e3",
 };
 
-const sans = "Geist";
-const mono = "Geist Mono";
+const sans = "IBM Plex Sans";
+const mono = "IBM Plex Mono";
 
-/* Geist: ascender 1005 and descender 295 per 1000 units, so a line of text is 1.3em tall. */
-const ASCENT = 1.005;
+/* IBM Plex Sans: ascender 1025 and descender 275 per 1000 units, so a line of text is 1.3em tall. */
+const ASCENT = 1.025;
 const CONTENT = 1.3;
 
 /** Baseline of line `index` in a block whose top edge is `top`, for CSS font-size and line-height. */
@@ -88,7 +88,7 @@ const text = (x, y, content, opts = {}) => {
     .filter(Boolean)
     .join(" ");
   const body = Array.isArray(content) ? content.join("") : esc(content);
-  // Geist ships upright only here; a 12° skew stands in for the italic instance.
+  // The social card has no italic file loaded; a 12° skew stands in for the italic instance.
   return italic
     ? `<text transform="translate(${x} ${y}) skewX(-12)" ${attrs}>${body}</text>`
     : `<text x="${x}" y="${y}" ${attrs}>${body}</text>`;

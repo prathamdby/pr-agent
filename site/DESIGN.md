@@ -45,7 +45,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - A button with an icon on one side takes less padding on that side: `.btn-trailing` is `padding-inline: 1rem 0.75rem`, `.btn-leading` is `0.75rem 1rem`.
 - Depth is layered `box-shadow`, not borders. The first layer of every shadow token is a hairline standing in for a border.
 - Raster images carry a 1px, 8% outline so a light image still has an edge: `img { outline: 1px solid rgb(0 0 0 / 0.08); outline-offset: -1px; }`. The logo, which already has an edge, opts out with `outline-none`.
-- Icon stroke matches text weight: Hugeicons stroke-rounded at `strokeWidth={1.5}` beside Geist at 400–500.
+- Icon stroke matches text weight: Hugeicons stroke-rounded at `strokeWidth={1.5}` beside IBM Plex Sans at 400–500.
 
 ### Animation
 
@@ -53,7 +53,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - Frequently used menus open instantly and only animate on close. `.menu-panel` uses `@starting-style` to skip the entrance and transitions `opacity, translate, filter, display` on the way out. Escape closes it and returns focus to the menu button. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit: the panel sits in the header’s flow, so a fade-out would still be taking up space when the browser measures the anchor, and the scroll would land a full menu height past it.
 - Exits are subtler than entrances and end in a 4px blur: `.menu-panel[data-open="false"]` and `.swap > [data-shown="false"]` both finish at `filter: blur(4px)`.
 - Name the transition properties. Never `transition: all`. `.btn` lists `background-color, color, box-shadow, scale`.
-- Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98. The hero pill link, which is button-shaped, does the same with `active:scale-[0.97]`.
+- Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98.
 - Icon swaps cross-fade: the new icon goes `scale 0.25` to `1` and `blur 4px` to `0` while the old one shrinks away (`.swap`).
 - Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.menu-panel`, and `.disclosure` transition; `rise` and `panel-in` are keyframes. `panel-in` only plays when a tab is picked with the pointer: on page load and while arrowing through the strip the panel switches instantly, because keyboard-driven actions should not animate.
 - Disable transitions while switching themes. There is one theme today. If a second arrives, zero `transition-duration` for the frame the switch happens in.
@@ -64,9 +64,9 @@ These rules are followed without exception. They are grouped the way the site ap
 
 ### Typography
 
-- Only `woff2`, self-hosted: `/fonts/Geist-Variable.woff2` and `/fonts/GeistMono-Variable.woff2`.
+- Only `woff2`, self-hosted: `/fonts/IBMPlexSans-Variable.woff2`, `/fonts/IBMPlexSans-Italic-Variable.woff2`, `/fonts/IBMPlexMono-Regular.woff2`, `/fonts/IBMPlexMono-Medium.woff2`, and `/fonts/IBMPlexMono-SemiBold.woff2`.
 - `font-variant-numeric: tabular-nums` on counters, prices, and tables: the `.tabular` utility on step numbers, `$0`, `#284`, tab counts, and the copyright line.
-- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`. `ch` is the width of a zero, wider than Geist’s average letter, so check real lines: FAQ answers at `max-w-[52ch]` run about 70 characters.
+- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`. `ch` is the width of a zero, wider than IBM Plex Sans’s average letter, so check real lines: FAQ answers at `max-w-[52ch]` run about 70 characters.
 - `text-wrap: balance` on `h1`, `h2`, `h3`; `text-wrap: pretty` on `p`. Both set in `@layer base`.
 - `overflow-wrap: break-word` on paragraphs; `white-space: nowrap` on labels that must not break (`.btn`, `GhPill`, `.wordmark-sky`).
 - Font smoothing on the root: `-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`.
@@ -125,12 +125,12 @@ These rules are followed without exception. They are grouped the way the site ap
 
 ### Fonts
 
-| Token         | Value                                                                              | Purpose                               |
-| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------- |
-| `--font-sans` | `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | Everything except code                |
-| `--font-mono` | `"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`           | `code`, `pre`, `kbd`, commands, paths |
+| Token         | Value                                                                                      | Purpose                               |
+| ------------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
+| `--font-sans` | `"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | Everything except code                |
+| `--font-mono` | `"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`                | `code`, `pre`, `kbd`, commands, paths |
 
-Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand.
+Sans is a variable roman and a variable italic (`font-weight: 100 700`). Mono is three static files at 400, 500, and 600. All are `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/ibm-plex-OFL.txt`. `site/app/__root.tsx` preloads the roman sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Italic and mono load on demand.
 
 Weights: 400 for body copy and ghost nav items, 500 for headings, buttons, and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
 
@@ -245,7 +245,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface (the sticky header).
-- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `nub run site:generate-og` when a token, the hero copy, or the mock changes.
+- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets IBM Plex from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `nub run site:generate-og` when a token, the hero copy, or the mock changes.
 
 ## Radii
 
@@ -289,14 +289,14 @@ Every layer is `rgb(var(--shadow-ink) / α)`, and a shadow takes the hue of the 
 
 Apply shadows through the `shadow-*` utilities, or `@apply shadow-*` inside a component class. Never write `box-shadow: var(--shadow-*)`: a custom property resolves `--shadow-ink` where it is declared, on `:root`, so the wash ink would never reach it.
 
-| Token             | Layers                                                                         | Where                                                                                                                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--shadow-ring`   | `0 0 0 1px` at 7%                                                              | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block and pricing shells. A border without a border                                                             |
-| `--shadow-soft`   | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                    | Secondary buttons, the hero pill link, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, the hero wash card, pricing panels and price pills |
-| `--shadow-card`   | `--shadow-soft` plus `16, 32` at 3%                                            | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing tiles, `.skip-link`, `.page-frame`                                                     |
-| `--shadow-float`  | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)` | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                                                                       |
-| `--shadow-button` | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder       | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                                                                      |
-| `--shadow-header` | `0 1px 0` at 5%, then `2, 4, 8, 16` at 2%                                      | The header once it sticks (`data-stuck="true"`)                                                                                                                                                 |
+| Token             | Layers                                                                         | Where                                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--shadow-ring`   | `0 0 0 1px` at 7%                                                              | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block and pricing shells. A border without a border         |
+| `--shadow-soft`   | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                    | Secondary buttons, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, the hero wash card |
+| `--shadow-card`   | `--shadow-soft` plus `16, 32` at 3%                                            | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing tiles, `.skip-link`, `.page-frame` |
+| `--shadow-float`  | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)` | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                   |
+| `--shadow-button` | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder       | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                  |
+| `--shadow-header` | `0 1px 0` at 5%, then `2, 4, 8, 16` at 2%                                      | The header once it sticks (`data-stuck="true"`)                                                                                             |
 
 Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-float`, `shadow-button`, `shadow-header`. Use `border-line` only for rules between rows (`divide-y divide-line`, `border-b border-line`) and for the mock chrome; never to outline a card or a button.
 
@@ -317,7 +317,7 @@ Recipes, all in `globals.css`:
 - **Sticky header.** `transition-[box-shadow] duration-200` and `data-[stuck=true]:shadow-header`.
 - **Hovers.** `transition-colors duration-150` on links; the `.btn` variants change background inside `@media (hover: hover)`.
 - **Skip link.** `transition: transform 150ms var(--ease-out-quart)` from `translateY(-200%)` to `0` on `:focus-visible`.
-- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
+- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
 
 ## Layout
 
@@ -393,7 +393,7 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 - `SectionTitle`: the eyebrow, then the section `h2` recipe at `mt-4`, as a fragment. It takes the `h2` `id` and the eyebrow text.
 - `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
 - Sections with a side column (features, pricing, FAQ) place `SectionTitle` in that column themselves instead of using `SectionHeading`.
-- Pricing plans are shell cards: each `li` is a grey shell (`flex flex-col rounded-xl bg-surface-raised p-2 shadow-ring`) holding a `wash wash-grid` (or `wash-clouds`) `aspect-[4/3] rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
+- Pricing plans are a type ledger under the `$0` figure: `ul mt-10 grid gap-10 border-t border-line pt-10 sm:mt-12 md:grid-cols-3 md:gap-8`. Each `li` is the price line (`text-label font-medium text-accent-text`), the `h3`, and one `text-sm text-text-secondary` sentence. No icon, no card, no pill.
 
 ### Cards, tiles, chips, wells
 
@@ -402,7 +402,6 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 - **Chip**: `.chip` is `@apply rounded-xs bg-surface-raised px-2 py-1 text-xs shadow-ring`. Ink, weight, and font family stay with the caller.
 - **Command chip**: `chip font-mono font-medium text-accent-text`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
 - **Step pill**: `tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-text`.
-- **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-label whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
 - **Well** (a list inside a card): `divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring`.
 - **Feature cue**: `inline-flex max-w-full items-center chip font-mono text-text-secondary`.
 
@@ -497,13 +496,9 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 - Preview: `wash wash-clouds tabs-media p-4 sm:p-6 lg:p-8`, then a frame at `h-[24rem] [mask-image:linear-gradient(to_bottom,black_78%,transparent_100%)] sm:h-[27rem] lg:absolute lg:inset-8 lg:h-auto`. At `lg` the preview is taken out of flow, so its content can never stretch the row. Inside it, `role="region"` with `aria-label="{tab} example output"` and `tabIndex={0}` is `scrollbar-none h-full overflow-y-auto overscroll-contain rounded-md focus-visible:outline-offset-[-3px]`: long outputs scroll behind the bottom fade with no visible scrollbar.
 - Every panel is rendered and toggled with `hidden`, so each keeps its scroll position and the DOM order matches the strip.
 
-### Commands bento
+### Commands list
 
-`site/components/capabilities.tsx` lays five of the six capabilities out (`docs-only` stays in `CAPABILITIES` for the markdown page) as `ul mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3`. Copy comes only from `CAPABILITIES` in `content.ts`; the file owns arrangement.
-
-- **Review and verify “loop” card** (`sm:row-span-2`): a `grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4`. A dashed `Rail` (an `absolute left-0 w-10` span with an SVG `line` at `x=20.5`, `strokeDasharray="3 3"`, `text-line`) runs from under the review tile through an 18px info dot (`size-4.5 rounded-full bg-accent-solid text-on-accent` with `Info size-3.5`) beside the 12px subtext “Then, after every push” (`text-xs text-text-tertiary`, both in an `h-20` row), then behind the verify tile, where a `viewBox="0 0 56 160"` path `M20.5 0V126a16 16 0 0 0 16 16H52` bends with a 16px corner into the verify copy. The tiles sit at `relative z-10` so the rail passes behind them. A wrapper span takes the insets because an absolutely positioned SVG keeps its intrinsic height instead of stretching.
-- **Describe and ask cards**: the plain `.card p-6` recipe with an icon tile top-left and a command chip top-right.
-- **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
+`site/components/capabilities.tsx` lays five of the six capabilities out (`docs-only` stays in `CAPABILITIES` for the markdown page) as `ul mt-10 divide-y divide-line border-t border-line sm:mt-12`. Copy comes only from `CAPABILITIES` in `content.ts`; the file owns arrangement. Each row is `py-8`, a command chip in `sm:w-32 sm:shrink-0`, then the `h3`, the trigger, and the detail. Verify carries the note “Then, after every push” (`mb-3 text-xs text-text-tertiary`) above its title. Triage adds the verdict mock beside the copy from `lg` (`grid items-center gap-8 lg:grid-cols-2`): `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). The mock is `aria-hidden`.
 
 ### Comparison matrix
 
@@ -531,8 +526,8 @@ The wordmark is the page’s closing note:
 ```css
 .wordmark-clip {
   --wordmark-size: clamp(4.5rem, 17.5vw, 14rem);
-  --wordmark-cap-top: 0.145em;
-  --wordmark-cap-height: 0.71em;
+  --wordmark-cap-top: 0.177em;
+  --wordmark-cap-height: 0.698em;
   height: calc(var(--wordmark-size) * 0.6);
   overflow: hidden;
   pointer-events: none;
@@ -550,11 +545,11 @@ The wordmark is the page’s closing note:
 }
 ```
 
-The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap tops sit 0.145em below the line box and caps are 0.71em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is the hero sky: five white radial cloud puffs over a `to bottom in oklab` gradient from `accent-bright` at 14% through a 55% mix with `wash-strong` at 46% to `wash-strong` at 72% and `wash-mid` at 84%, all clipped to the glyphs with `background-clip: text`. It is `aria-hidden`; the product name is already in the footer above it.
+The metrics are measured, not guessed: with IBM Plex Sans 500 at `line-height: 1`, cap tops sit 0.177em below the line box and caps are 0.698em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is the hero sky: five white radial cloud puffs over a `to bottom in oklab` gradient from `accent-bright` at 14% through a 55% mix with `wash-strong` at 46% to `wash-strong` at 72% and `wash-mid` at 84%, all clipped to the glyphs with `background-clip: text`. It is `aria-hidden`; the product name is already in the footer above it.
 
 ### Hero and CTA banner
 
-The hero (`site/components/hero.tsx`) is `pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20`, a `grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10`. Copy on the left in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link, the `h1` with the brand in a `sr-only` span, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. On the right a `wash wash-grid aspect-[4/3] w-full rounded-xl shadow-soft sm:aspect-[5/4] lg:aspect-auto lg:h-[36rem]` card with the `PrWindow` (`w-full`) pinned at `absolute inset-x-5 top-5 sm:inset-x-8 sm:top-8 lg:top-12 lg:right-auto lg:left-12 lg:w-[34rem]`, so it fills the card below `lg` and is cropped by the card’s `overflow: hidden`.
+The hero (`site/components/hero.tsx`) is `pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20`, a `grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10`. Copy on the left in three staggered `motion-safe:animate-rise` groups: the `h1` with the brand in a `sr-only` span, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line. The repository link lives in the header. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. On the right a `wash wash-grid aspect-[4/3] w-full rounded-xl shadow-soft sm:aspect-[5/4] lg:aspect-auto lg:h-[36rem]` card with the `PrWindow` (`w-full`) pinned at `absolute inset-x-5 top-5 sm:inset-x-8 sm:top-8 lg:top-12 lg:right-auto lg:left-12 lg:w-[34rem]`, so it fills the card below `lg` and is cropped by the card’s `overflow: hidden`.
 
 The CTA banner (`site/components/cta-banner.tsx`) is a full-bleed band inside the sheet, `wash wash-grid wash-grid-fade wash-clouds py-12 text-center sm:py-16`, with a `container-x` inside it, no rounded corners and no shadow. `wash-grid-fade` intersects the grid's radial mask with `linear-gradient(to bottom, black 20%, transparent 60%)`, so the grid sits behind the heading and is gone before the command box. An overlay `linear-gradient(to bottom, transparent 55%, var(--color-surface) 100%)` fades its lower half into the page, so the command box and its shadow float over white and the footer, which follows it directly, reads as one surface. It holds exactly three things: the heading with the word “reviewer” in `accent-word italic` underlined by a hand-drawn `Scribble` SVG (one 4px stroke in `text-accent-solid`, `vectorEffect="non-scaling-stroke"`, `preserveAspectRatio="none"`), one `max-w-[46ch]` sentence, and the clone command box (`rounded-md bg-surface p-1.5 shadow-card` with a `truncate` `code` carrying `title` and a primary `CopyButton`). Do not add anything to it.
 
@@ -581,9 +576,9 @@ Every UI icon comes from `site/components/icons.tsx`, which wraps `@hugeicons/re
 />
 ```
 
-The 1.5 stroke matches Geist at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Eye`, `Document`, `Question`, `Refresh`, `Wrench`, `Feather`, `Wallet`, `Shield`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
+The 1.5 stroke matches IBM Plex Sans at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Feather`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
 
-The only hand-drawn SVGs on the page are illustration, not icons: the dashed rails in the commands bento and the CTA scribble.
+The only hand-drawn SVG on the page is illustration, not an icon: the CTA scribble.
 
 ### Competitor marks
 
@@ -616,8 +611,8 @@ Learned over the design session. Treat these as review criteria for any site cha
 - Keep changes literal and minimal. When asked to change one thing, change that thing.
 - Restore rather than reinterpret. If something the maintainer liked is lost, put it back as it was.
 - Keep copy short. One sentence where one sentence works.
-- Keep small marks small: the loop card’s info dot is 18px and its label is 12px subtext.
-- Fix heights that would otherwise move: the tab panel is `lg:h-[39rem]`, the preview frame `h-[24rem] sm:h-[27rem]`, and the loop card rows `h-10` and `h-20`, so nothing shifts between tabs or states.
+- Keep small marks small: the FAQ disclosure icon is 16px inside a 32px target.
+- Fix heights that would otherwise move: the tab panel is `lg:h-[39rem]` and the preview frame is `h-[24rem] sm:h-[27rem]`, so nothing shifts between tabs.
 - Hide scrollbars and signal overflow with a fade (`scrollbar-none` plus the mask on the preview).
 - Merge logos with their text: flat, monochrome, `currentColor`, no tile behind them.
 - Merge the tab strip into its card: one shell, one shadow.
@@ -707,39 +702,39 @@ Run these before calling a site change done. They are the checks the maintainer 
 
 ## File map
 
-| Path                                  | Owns                                                                                         |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities     |
-| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                        |
-| `site/app/index.tsx`                  | Section order                                                                                |
-| `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                       |
-| `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                       |
-| `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                    |
-| `site/components/header.tsx`          | Sticky header, mobile menu                                                                   |
-| `site/components/hero.tsx`            | Hero copy, staggered entrance, hero wash                                                     |
-| `site/components/pr-window.tsx`       | The decorative pull request window                                                           |
-| `site/components/providers.tsx`       | Provider strip                                                                               |
-| `site/components/provider-logos.tsx`  | Model provider marks                                                                         |
-| `site/components/features.tsx`        | “How it works” timeline                                                                      |
-| `site/components/use-cases.tsx`       | Output example tabs                                                                          |
-| `site/components/capabilities.tsx`    | Commands bento, loop card, triage card                                                       |
-| `site/components/pricing.tsx`         | `$0` figure and three shell cards, each with an inset wash panel, a mark, and a line of copy |
-| `site/components/alternatives.tsx`    | Comparison table and cards                                                                   |
-| `site/components/brand-logos.tsx`     | Competitor marks                                                                             |
-| `site/components/faq.tsx`             | Native accordion                                                                             |
-| `site/components/quickstart.tsx`      | Installation steps                                                                           |
-| `site/components/code-block.tsx`      | `CodeBlock`                                                                                  |
-| `site/components/copy-button.tsx`     | `CopyButton`                                                                                 |
-| `site/components/cta-banner.tsx`      | Closing wash banner and clone command                                                        |
-| `site/components/footer.tsx`          | Footer columns, social links, legal bar, wordmark                                            |
-| `site/components/not-found.tsx`       | 404 page                                                                                     |
-| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks                                           |
-| `site/lib/content.ts`                 | Every line of page copy                                                                      |
-| `site/lib/agentResources.ts`          | Every machine-readable URL                                                                   |
-| `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                        |
-| `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                        |
-| `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                      |
-| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                            |
-| `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                        |
-| `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                    |
-| `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                  |
+| Path                                  | Owns                                                                                     |
+| ------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities |
+| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                    |
+| `site/app/index.tsx`                  | Section order                                                                            |
+| `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                   |
+| `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                   |
+| `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                |
+| `site/components/header.tsx`          | Sticky header, mobile menu                                                               |
+| `site/components/hero.tsx`            | Hero copy, staggered entrance, hero wash                                                 |
+| `site/components/pr-window.tsx`       | The decorative pull request window                                                       |
+| `site/components/providers.tsx`       | Provider strip                                                                           |
+| `site/components/provider-logos.tsx`  | Model provider marks                                                                     |
+| `site/components/features.tsx`        | “How it works” timeline                                                                  |
+| `site/components/use-cases.tsx`       | Output example tabs                                                                      |
+| `site/components/capabilities.tsx`    | Commands list and the triage verdict mock                                                |
+| `site/components/pricing.tsx`         | `$0` figure and the three pricing lines                                                  |
+| `site/components/alternatives.tsx`    | Comparison table and cards                                                               |
+| `site/components/brand-logos.tsx`     | Competitor marks                                                                         |
+| `site/components/faq.tsx`             | Native accordion                                                                         |
+| `site/components/quickstart.tsx`      | Installation steps                                                                       |
+| `site/components/code-block.tsx`      | `CodeBlock`                                                                              |
+| `site/components/copy-button.tsx`     | `CopyButton`                                                                             |
+| `site/components/cta-banner.tsx`      | Closing wash banner and clone command                                                    |
+| `site/components/footer.tsx`          | Footer columns, social links, legal bar, wordmark                                        |
+| `site/components/not-found.tsx`       | 404 page                                                                                 |
+| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks                                       |
+| `site/lib/content.ts`                 | Every line of page copy                                                                  |
+| `site/lib/agentResources.ts`          | Every machine-readable URL                                                               |
+| `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                    |
+| `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                    |
+| `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                  |
+| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                        |
+| `site/assets/fonts/`                  | IBM Plex Sans and IBM Plex Mono `ttf` for the social card, plus licence                  |
+| `site/public/fonts/`                  | IBM Plex Sans and IBM Plex Mono `woff2` plus licence                                     |
+| `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                              |

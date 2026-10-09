@@ -95,7 +95,7 @@ export const Route = createRootRoute({
     links: [
       {
         rel: "preload",
-        href: "/fonts/Geist-Variable.woff2",
+        href: "/fonts/IBMPlexSans-Variable.woff2",
         as: "font",
         type: "font/woff2",
         crossOrigin: "anonymous",

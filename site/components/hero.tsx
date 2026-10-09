@@ -1,11 +1,11 @@
 import { ButtonLink } from "@/components/button";
 import { CopyButton } from "@/components/copy-button";
-import { ArrowUpRight, ChevronRight, Star } from "@/components/icons";
+import { ChevronRight } from "@/components/icons";
 import { PrWindow } from "@/components/pr-window";
 import { ClaudeMark, GeminiMark, OpenAiMark } from "@/components/provider-logos";
 import { renderSetupPrompt } from "@/lib/agentResources";
 import { HERO_CTA_NOTE, HERO_HEADING, HERO_SUPPORT } from "@/lib/content";
-import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
+import { SITE_ORIGIN } from "@/lib/site";
 
 /*
   The shared heading reads "PR Agent: AI PR reviews on your own servers" so the markdown page and
@@ -39,27 +39,13 @@ export function Hero() {
     <section aria-labelledby="hero-heading" className="pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20">
       <div className="container-x grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10">
         <div className="max-w-xl">
-          <div className="motion-safe:animate-rise">
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-label whitespace-nowrap text-text-secondary shadow-soft transition-[color,scale] duration-[150ms,200ms] ease-out hover:text-text active:scale-[0.97] motion-reduce:transition-none"
-            >
-              <span className="grid size-5 place-items-center rounded-full bg-accent-soft text-accent-text">
-                <Star className="size-3" />
-              </span>
-              Star PR Agent on GitHub
-              <ArrowUpRight className="size-3.5 text-text-tertiary" />
-            </a>
-            <h1
-              id="hero-heading"
-              className="mt-6 text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text"
-            >
-              <span className="sr-only">{HERO_BRAND}: </span>
-              {HERO_TAGLINE}
-            </h1>
-          </div>
+          <h1
+            id="hero-heading"
+            className="text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text motion-safe:animate-rise"
+          >
+            <span className="sr-only">{HERO_BRAND}: </span>
+            {HERO_TAGLINE}
+          </h1>
 
           <div className="motion-safe:animate-rise motion-safe:[animation-delay:90ms]">
             <p className="mt-6 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg">
