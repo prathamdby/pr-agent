@@ -465,8 +465,6 @@ PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set
 
 A configured project also receives one AI trace per worker execution. That trace includes credential-redacted prompts, reasoning, and tool arguments and results. Repository text can still be sensitive. Removing the token is the opt-out. Ordinary work and webhook events stay metadata. They do not include prompts or tool payloads. Classified failures can include sanitized, bounded error messages. Raw error payloads are not sent.
 
-Delete `TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and `TRACES_BUFFER_MAX_SPANS` before you upgrade. If one is still set, web and worker both refuse to start, and GitHub will not redeliver the webhook that was in flight.
-
 The work item is the session. The execution is the trace. Query `posthog.ai_events` for content. PostHog keeps that content for 30 days. Model, tokens, latency, and ids remain after the content drop. AI events are billed. Set a billing limit. They do not update person profiles.
 
 Env catalog: [docs/configuration.md](docs/configuration.md). See [ADR 0050](docs/adr/0050-posthog-ai-traces.md).

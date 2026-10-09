@@ -93,8 +93,6 @@ password are redacted before send. Content can still contain proprietary
 code. These limits are private constants in `src/traces/recorder.ts`, not env
 knobs. See [ADR 0050](adr/0050-posthog-ai-traces.md).
 
-Delete `TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and `TRACES_BUFFER_MAX_SPANS`
-before upgrade. A variable that is still set fails startup and names itself.
 Migration 040 drops the old trace tables. That drop locks `agent_work_items`
 and fails after 3 seconds if the lock is busy. Retry when the lock clears.
 Upgrade web and worker together.
@@ -721,7 +719,7 @@ Review, ask, and verification expose one model-visible `execute` tool. Scripts c
 
 ### Removed settings
 
-`CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are no longer read. Boot logs `config_removed_env_ignored` with the names that are still set. Remove them from `.env`. See [ADR 0049](adr/0049-retire-code-index.md).
+`CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are not settings. See [ADR 0049](adr/0049-retire-code-index.md).
 
 ### Postgres pool
 

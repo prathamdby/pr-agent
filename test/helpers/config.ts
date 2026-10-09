@@ -42,7 +42,6 @@ const baseTestConfig: Config = {
   provider: { promptTimeoutMs: 300_000, retryMax: 2, maxRetryDelayMs: 60_000 },
   agentEvents: { enabled: true, retentionSeconds: 0 },
   findingHistory: { enabled: true, dismissSuppressAfter: 3, lookbackDays: 180 },
-  removedEnv: [],
   codeMode: { executorKind: "in_process" },
   review: {
     specialistTimeoutMs: 900_000,
@@ -113,7 +112,6 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
     provider: { ...base.provider, ...overrides.provider },
     agentEvents: { ...base.agentEvents, ...overrides.agentEvents },
     findingHistory: { ...base.findingHistory, ...overrides.findingHistory },
-    removedEnv: base.removedEnv,
     codeMode: { ...base.codeMode, ...overrides.codeMode },
     review: { ...base.review, ...overrides.review },
     concurrency: { ...base.concurrency, ...overrides.concurrency },
