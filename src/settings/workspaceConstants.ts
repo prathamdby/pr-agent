@@ -24,6 +24,9 @@ export const LOCAL_WORKSPACE_FETCH_TIMEOUT_MS = 60_000;
 export const LOCAL_WORKSPACE_SEARCH_MAX_FILES = 500;
 export const LOCAL_WORKSPACE_MAX_FILE_BYTES = 1_000_000;
 export const LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES = 50_000_000;
+/** `searchWorkspace({ terms })`: extra literals per call, and matches kept per literal for ranking. */
+export const LOCAL_WORKSPACE_SEARCH_MAX_TERMS = 8;
+export const LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES = 200;
 export const LOCAL_WORKSPACE_MAX_DIFF_BYTES = 5_000_000;
 export const LOCAL_WORKSPACE_READ_RESPONSE_BYTES = 128_000;
 /** Lines longer than this are replaced by a marker before the byte budget runs. */

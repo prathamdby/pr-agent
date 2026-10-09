@@ -41,7 +41,9 @@ import {
   LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+  LOCAL_WORKSPACE_SEARCH_MAX_TERMS,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+  LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
 } from "../../settings/index.js";
 import {
@@ -264,6 +266,73 @@ function suggestSimilarPaths(
   return scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path);
 }
 
+async function searchRankedTerms(
+  workspace: PinnedRepositoryReader,
+  params: {
+    readonly terms: readonly string[];
+    readonly maxResults: number;
+    readonly maxOutputBytes: number;
+    readonly allowedPaths: readonly string[];
+  },
+) {
+  const fullCoverage = params.allowedPaths.length === workspace.sortedCheckoutPaths.length;
+  const results = await Promise.all(
+    params.terms.map(async (term) => ({
+      term,
+      result: await workspace.grepLiteral({
+        query: term,
+        maxResults: LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
+        maxOutputBytes: Math.floor(params.maxOutputBytes / params.terms.length),
+        ...(fullCoverage ? {} : { paths: params.allowedPaths }),
+      }),
+    })),
+  );
+  const byPath = new Map<
+    string,
+    { readonly terms: Set<string>; readonly lines: Map<number, string> }
+  >();
+  for (const { term, result } of results) {
+    for (const match of result.matches.slice(0, LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES)) {
+      let file = byPath.get(match.path);
+      if (file == null) {
+        file = { terms: new Set(), lines: new Map() };
+        byPath.set(match.path, file);
+      }
+      file.terms.add(term);
+      file.lines.set(match.line, match.text);
+    }
+  }
+  const ranked = [...byPath.entries()].toSorted(
+    ([pathA, a], [pathB, b]) =>
+      b.terms.size - a.terms.size || b.lines.size - a.lines.size || pathA.localeCompare(pathB),
+  );
+  const matches: { path: string; line: number; text: string }[] = [];
+  for (const [path, file] of ranked) {
+    for (const [line, text] of [...file.lines.entries()].toSorted(([a], [b]) => a - b)) {
+      matches.push({ path, line, text });
+    }
+  }
+  const truncated =
+    results.some(
+      ({ result }) =>
+        result.truncated || result.matches.length > LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
+    ) || matches.length > params.maxResults;
+  if (truncated) workspace.noteSearchTruncated();
+  const coverage = workspace.getCoverage();
+  const warning = truncated ? coverageWarning(coverage) : undefined;
+  return {
+    files: ranked.slice(0, params.maxResults).map(([path, file]) => ({
+      path,
+      terms: params.terms.filter((term) => file.terms.has(term)),
+    })),
+    matches: matches.slice(0, params.maxResults),
+    truncated,
+    pathsSearched: params.allowedPaths.length,
+    filesScanned: byPath.size,
+    ...(truncated ? { coverage, ...(warning ? { warning } : {}) } : {}),
+  };
+}
+
 function buildInvestigationTools(
   workspace: PinnedRepositoryReader,
   opts?: {
@@ -413,16 +482,33 @@ function buildInvestigationTools(
 
   const searchWorkspace = defineLocalTool({
     description:
-      "Search every readable file in the PR head checkout for literal text, matched case-sensitively. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
+      "Search every readable file in the PR head checkout for literal text, matched case-sensitively. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. Pass `terms` with related literals, for example a function name, its error code, and its config key, to rank files by how many of `query` and `terms` they contain; the response then lists those files in `files`, best first, and `matches` follows that order. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
     schema: v.object({
       query: literalQueryParam,
+      terms: v.optional(
+        v.pipe(
+          v.array(literalQueryParam),
+          v.maxLength(LOCAL_WORKSPACE_SEARCH_MAX_TERMS),
+          v.description(
+            "More exact texts to rank files by, alongside query. Each is matched literally.",
+          ),
+        ),
+      ),
       maxResults: v.optional(maxResultsParam, 20),
     }),
-    run: async ({ query, maxResults }) => {
+    run: async ({ query, terms, maxResults }) => {
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) => policy.allows(path));
       const pathsSearched = allowedPaths.length;
       if (allowedPaths.length === 0) {
         return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
+      }
+      if (terms?.length) {
+        return searchRankedTerms(workspace, {
+          terms: [...new Set([query, ...terms])],
+          maxResults,
+          maxOutputBytes: limits.searchMaxTotalBytes,
+          allowedPaths,
+        });
       }
       // Full-tree coverage searches the same on-disk tree either way
       // (symlinks are stripped at checkout, `.git` lives outside the
@@ -555,10 +641,33 @@ function buildInvestigationTools(
     },
   });
 
+  const findFiles = defineLocalTool({
+    description:
+      "Find files in the PR head checkout by path. Matching is fuzzy and case-insensitive, so part of a file name or directory, such as `prActorLease` or `migrations`, is enough. Returns paths only, best match first. Read a path with readWorkspaceFile before citing it. `truncated: true` means more paths matched.",
+    schema: v.object({
+      query: v.pipe(
+        v.string(),
+        v.minLength(1),
+        v.description("Part of a file name or path, for example `prActorLease`."),
+      ),
+      maxResults: v.optional(maxResultsParam, 20),
+    }),
+    run: async ({ query, maxResults }) => {
+      const allowedPaths = workspace.sortedCheckoutPaths.filter((path) => policy.allows(path));
+      const fullCoverage = allowedPaths.length === workspace.sortedCheckoutPaths.length;
+      return workspace.findFiles({
+        query,
+        maxResults,
+        ...(fullCoverage ? {} : { paths: allowedPaths }),
+      });
+    },
+  });
+
   const tools: Record<string, LocalTool> = {
     listChangedFiles,
     readWorkspaceFile,
     searchWorkspace,
+    findFiles,
     getWorkspaceDiff,
     getWorkspaceBlame,
     resolveSymbol,

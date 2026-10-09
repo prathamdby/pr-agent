@@ -6,7 +6,7 @@ import {
   LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS,
   LOCAL_WORKSPACE_FFF_RESPAWN_BACKOFF_MS,
 } from "../../settings/index.js";
-import type { FffGrepResult, FffOpenResult } from "./host.js";
+import type { FffFilesResult, FffGrepResult, FffOpenResult } from "./host.js";
 
 type Pending = {
   readonly resolve: (value: unknown) => void;
@@ -130,6 +130,19 @@ export async function grepFffIndex(params: {
 }): Promise<FffGrepResult> {
   const parsed = v.safeParse(grepResultSchema, await request({ op: "grep", ...params }));
   if (!parsed.success) throw new Error("invalid_grep_result");
+  return parsed.output;
+}
+
+const filesResultSchema = v.object({ paths: v.array(v.string()) });
+
+export async function findFffFiles(params: {
+  readonly key: string;
+  readonly query: string;
+  readonly denied: readonly string[];
+  readonly maxResults: number;
+}): Promise<FffFilesResult> {
+  const parsed = v.safeParse(filesResultSchema, await request({ op: "files", ...params }));
+  if (!parsed.success) throw new Error("invalid_files_result");
   return parsed.output;
 }
 

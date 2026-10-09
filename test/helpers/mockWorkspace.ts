@@ -29,6 +29,7 @@ export function mockLocalPrWorkspace(
       diffIndex: createCachedPrDiffIndex(),
       stats,
       grepLiteral: async () => ({ matches: [], truncated: false }),
+      findFiles: async () => ({ paths: [], truncated: false }),
       getDiffForPath: async () => "",
       getBlameForPath: async () => "",
       isPathInCheckout: () => false,

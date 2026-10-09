@@ -27,7 +27,6 @@ import { verificationSystemPrompt } from "../src/agent/verification/verification
 import { CI_SUMMARY_SYSTEM_PROMPT } from "../src/review/ci/ciAuthor.js";
 import { BOUND_POLICY_JUDGE_SYSTEM_PROMPT } from "../src/review/publish/boundPolicyJudge.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
-import { buildUnavailableCodeIndexTools } from "../src/agent/tools/codeIndexTools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.js";
 import { buildSpecialistBriefTool } from "../src/review/orchestrator/briefTool.js";
@@ -89,6 +88,7 @@ function dumpAll() {
         changeSetTruncated: false,
       }),
       noteSearchTruncated: unavailable,
+      findFiles: unavailable,
       lookupSymbol: unavailable,
       getSymbolIndexStatus: () => ({ available: false }),
     },
@@ -119,8 +119,7 @@ function dumpAll() {
     apiKey: "",
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   }).piTools;
-  const codeIndex = buildUnavailableCodeIndexTools().piTools;
-  const reviewWorkspace = [...codeModeLocal, ...context7, ...codeIndex];
+  const reviewWorkspace = [...codeModeLocal, ...context7];
   const specialist = [...reviewWorkspace, buildSubmitFindingsReportPiTool()];
   const phaseRef = { current: "recon" } satisfies Parameters<typeof buildSpecialistBriefTool>[0];
   const ctx = {
@@ -221,7 +220,7 @@ function dumpAll() {
         thread,
         summary,
       ],
-      ask: [...codeModeLocal, ...codeIndex, ...context7],
+      ask: [...codeModeLocal, ...context7],
       description: [...local.piTools, description],
       triage: [...triageWorkspace, triage],
       verification: [

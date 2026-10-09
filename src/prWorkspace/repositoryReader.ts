@@ -8,7 +8,11 @@ import { relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { AppError } from "../errors/appError.js";
 import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.js";
-import { createFffWorkspaceSearch } from "./fff/workspaceSearch.js";
+import {
+  createFffWorkspaceSearch,
+  type WorkspaceFileSearchParams,
+  type WorkspaceFileSearchResult,
+} from "./fff/workspaceSearch.js";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -88,6 +92,7 @@ export type PinnedRepositoryReader = RepositoryReader & {
   readonly isPathInCheckout: (path: string) => boolean;
   readonly getCoverage: () => CheckoutCoverage;
   readonly noteSearchTruncated: () => void;
+  readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
   readonly lookupSymbol: (name: string, maxResults?: number) => readonly SymbolIndexEntry[];
   readonly getSymbolIndexStatus: () => SymbolIndexStatus;
 };
@@ -456,6 +461,7 @@ export function createPinnedRepositoryReader(params: {
     isPathInCheckout,
     getCoverage,
     noteSearchTruncated,
+    findFiles: fffSearch.findFiles,
     lookupSymbol,
     getSymbolIndexStatus,
   };

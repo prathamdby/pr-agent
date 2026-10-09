@@ -6,6 +6,7 @@ export const CODE_MODE_WORKSPACE_TOOL_NAMES = [
   "listChangedFiles",
   "readWorkspaceFile",
   "searchWorkspace",
+  "findFiles",
   "getWorkspaceDiff",
   "getWorkspaceBlame",
   "resolveSymbol",

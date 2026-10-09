@@ -28,6 +28,14 @@ const requestSchema = v.variant("op", [
     pageSize: v.number(),
     timeBudgetMs: v.number(),
   }),
+  v.object({
+    id: v.number(),
+    op: v.literal("files"),
+    key: v.string(),
+    query: v.string(),
+    denied: v.array(v.string()),
+    maxResults: v.number(),
+  }),
   v.object({ id: v.number(), op: v.literal("close"), key: v.string() }),
 ]);
 
@@ -42,6 +50,7 @@ export type FffGrepResult = {
   readonly hits: readonly FffGrepHit[];
   readonly capped: boolean;
 };
+export type FffFilesResult = { readonly paths: readonly string[] };
 export type FffHostResponse =
   | { readonly id: number; readonly ok: true; readonly value: unknown }
   | { readonly id: number; readonly ok: false; readonly error: string };
@@ -130,9 +139,27 @@ function grep(request: Extract<HostRequest, { op: "grep" }>): FffGrepResult {
   }
 }
 
+function findFiles(request: Extract<HostRequest, { op: "files" }>): FffFilesResult {
+  const finder = finders.get(request.key);
+  if (finder == null) throw new Error("index_not_open");
+  touch(request.key, finder);
+  const denied = new Set(request.denied);
+  const found = finder.fileSearch(request.query, {
+    pageSize: request.maxResults + denied.size + 1,
+  });
+  if (!found.ok) throw new Error(found.error);
+  return {
+    paths: found.value.items
+      .map((item) => item.relativePath)
+      .filter((path) => !denied.has(path))
+      .slice(0, request.maxResults + 1),
+  };
+}
+
 async function handle(request: HostRequest): Promise<unknown> {
   if (request.op === "open") return open(request);
   if (request.op === "grep") return grep(request);
+  if (request.op === "files") return findFiles(request);
   closeIndex(request.key);
   return null;
 }

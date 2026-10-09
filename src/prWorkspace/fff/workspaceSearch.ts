@@ -12,12 +12,24 @@ import {
   LOCAL_WORKSPACE_FFF_SCAN_TIMEOUT_MS,
 } from "../../settings/index.js";
 import type { GitGrepWorkspaceParams, GitGrepWorkspaceResult } from "../repositoryReader.js";
-import { closeFffIndex, grepFffIndex, openFffIndex } from "./client.js";
+import { closeFffIndex, findFffFiles, grepFffIndex, openFffIndex } from "./client.js";
 
 type WorkspaceSearchMatch = GitGrepWorkspaceResult["matches"][number];
 
+export type WorkspaceFileSearchParams = {
+  readonly query: string;
+  readonly maxResults: number;
+  readonly paths?: readonly string[];
+};
+
+export type WorkspaceFileSearchResult = {
+  readonly paths: readonly string[];
+  readonly truncated: boolean;
+};
+
 type FffIndexState = {
   readonly indexed: readonly string[];
+  readonly indexedSet: ReadonlySet<string>;
   /** Tracked paths fff reads; everything else in the checkout goes to git grep. */
   readonly searchable: ReadonlySet<string>;
 };
@@ -44,6 +56,33 @@ function fffSkipsExtension(path: string): boolean {
   return dot > 0 && dot < name.length - 1 && FFF_SKIPPED_EXTENSIONS.has(name.slice(dot + 1));
 }
 
+/**
+ * Case-insensitive path ranking for paths fff does not index, and for every
+ * path when the host is unavailable: basename substring, then path substring,
+ * then an in-order character match; shorter paths first within a tier.
+ */
+export function rankPathsByQuery(query: string, paths: readonly string[]): string[] {
+  const needle = query.toLowerCase();
+  const scored: { path: string; tier: number }[] = [];
+  for (const path of paths) {
+    const haystack = path.toLowerCase();
+    const basename = haystack.slice(haystack.lastIndexOf("/") + 1);
+    let tier = -1;
+    if (basename.includes(needle)) tier = 2;
+    else if (haystack.includes(needle)) tier = 1;
+    else {
+      let at = 0;
+      for (const char of haystack) if (char === needle[at]) at += 1;
+      if (at === needle.length) tier = 0;
+    }
+    if (tier >= 0) scored.push({ path, tier });
+  }
+  scored.sort(
+    (a, b) => b.tier - a.tier || a.path.length - b.path.length || a.path.localeCompare(b.path),
+  );
+  return scored.map((entry) => entry.path);
+}
+
 function matchBytes(match: WorkspaceSearchMatch): number {
   return (
     Buffer.byteLength(match.path) + String(match.line).length + Buffer.byteLength(match.text) + 3
@@ -63,6 +102,7 @@ export function createFffWorkspaceSearch(params: {
   readonly gitGrep: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
 }): {
   readonly search: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
+  readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
   readonly dispose: () => void;
 } {
   const { root, checkoutPaths, sortedCheckoutPaths, gitGrep } = params;
@@ -111,7 +151,8 @@ export function createFffWorkspaceSearch(params: {
         )
           searchable.add(file.path);
       }
-      return { indexed: result.files.map((file) => file.path), searchable };
+      const indexed = result.files.map((file) => file.path);
+      return { indexed, indexedSet: new Set(indexed), searchable };
     } catch (error) {
       index = null;
       logWarn("workspace_search_fff_fallback", { stage: "open", reason: String(error) });
@@ -198,8 +239,38 @@ export function createFffWorkspaceSearch(params: {
     };
   }
 
+  async function findFiles(request: WorkspaceFileSearchParams): Promise<WorkspaceFileSearchResult> {
+    const allowed = request.paths ?? sortedCheckoutPaths;
+    const allowedSet = request.paths ? new Set(request.paths) : checkoutPaths;
+    index ??= openIndex();
+    const state = await index;
+    let ranked: readonly string[] = [];
+    let remainder = allowed;
+    if (state != null) {
+      try {
+        const found = await findFffFiles({
+          key,
+          query: request.query,
+          denied: state.indexed.filter((path) => !allowedSet.has(path)),
+          maxResults: request.maxResults,
+        });
+        ranked = found.paths;
+        remainder = allowed.filter((path) => !state.indexedSet.has(path));
+      } catch (error) {
+        index = null;
+        logWarn("workspace_search_fff_fallback", { stage: "files", reason: String(error) });
+      }
+    }
+    const paths = [...new Set([...ranked, ...rankPathsByQuery(request.query, remainder)])];
+    return {
+      paths: paths.slice(0, request.maxResults),
+      truncated: paths.length > request.maxResults,
+    };
+  }
+
   return {
     search,
+    findFiles,
     dispose: () => {
       disposed = true;
       if (opened) closeFffIndex(key);

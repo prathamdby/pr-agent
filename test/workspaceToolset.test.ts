@@ -44,6 +44,7 @@ import {
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
+import { rankPathsByQuery } from "../src/prWorkspace/fff/workspaceSearch.js";
 import {
   buildSymbolIndex,
   querySymbolIndex,
@@ -109,6 +110,10 @@ function mockWorkspace(
       stats,
       grepLiteral: (params: GitGrepWorkspaceParams) =>
         gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
+      findFiles: async ({ query, maxResults, paths: allowed }) => {
+        const ranked = rankPathsByQuery(query, allowed ?? [...paths].toSorted());
+        return { paths: ranked.slice(0, maxResults), truncated: ranked.length > maxResults };
+      },
       getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
       getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
       isPathInCheckout: (path) => paths.has(path),
@@ -2069,6 +2074,74 @@ describe("local workspace tools", () => {
         await expectPaths("NEEDLE", ["src/d.ts"]);
       });
 
+      it("ranks files by how many search terms they contain", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "renewLease();\nrenewLease();\n",
+          "src/b.ts": "renewLease();\nLEASE_TTL_SECONDS;\n",
+          "src/c.ts": "renewLease();\nLEASE_TTL_SECONDS;\nlease_epoch;\n",
+          "src/d.ts": "unrelated();\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        await expect(
+          executors.searchWorkspace?.({
+            query: "renewLease",
+            terms: ["LEASE_TTL_SECONDS", "lease_epoch"],
+          }),
+        ).resolves.toEqual({
+          files: [
+            { path: "src/c.ts", terms: ["renewLease", "LEASE_TTL_SECONDS", "lease_epoch"] },
+            { path: "src/b.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+            { path: "src/a.ts", terms: ["renewLease"] },
+          ],
+          matches: [
+            { path: "src/c.ts", line: 1, text: "renewLease();" },
+            { path: "src/c.ts", line: 2, text: "LEASE_TTL_SECONDS;" },
+            { path: "src/c.ts", line: 3, text: "lease_epoch;" },
+            { path: "src/b.ts", line: 1, text: "renewLease();" },
+            { path: "src/b.ts", line: 2, text: "LEASE_TTL_SECONDS;" },
+            { path: "src/a.ts", line: 1, text: "renewLease();" },
+            { path: "src/a.ts", line: 2, text: "renewLease();" },
+          ],
+          truncated: false,
+          pathsSearched: 4,
+          filesScanned: 3,
+        });
+      });
+
+      it("finds files by fuzzy path, including paths fff does not index", async () => {
+        const { workspace } = await setup({
+          ".env": "TOKEN=1\n",
+          ".github/workflows/lease-check.yml": "name: lease\n",
+          "src/agentWork/prActorLease.ts": "export {};\n",
+          "src/agentWork/prActorLeaseRepository.ts": "export {};\n",
+          "test/prActorLease.test.ts": "export {};\n",
+          "docs/unrelated.md": "notes\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        const lease = await executors.findFiles?.({ query: "prActorLease" });
+        expect(lease).toMatchObject({ truncated: false });
+        expect(lease).toHaveProperty(
+          "paths",
+          expect.arrayContaining([
+            "src/agentWork/prActorLease.ts",
+            "src/agentWork/prActorLeaseRepository.ts",
+            "test/prActorLease.test.ts",
+          ]),
+        );
+        await expect(executors.findFiles?.({ query: "lease-check" })).resolves.toEqual({
+          paths: [".github/workflows/lease-check.yml"],
+          truncated: false,
+        });
+        expect(await executors.findFiles?.({ query: ".env" })).not.toMatchObject({
+          paths: expect.arrayContaining([".env"]),
+        });
+        await expect(
+          executors.findFiles?.({ query: "Lease", maxResults: 2 }),
+        ).resolves.toMatchObject({ truncated: true });
+      });
+
       it("keeps searching with git grep when the fff host dies", async () => {
         const { workspace } = await setup({
           "src/a.ts": "export const hostNeedle = 1;\n",
@@ -2099,6 +2172,10 @@ describe("local workspace tools", () => {
         await expect(executors.searchWorkspace?.({ query: "hostNeedle" })).resolves.toEqual(
           expected,
         );
+        await expect(executors.findFiles?.({ query: "b.ts" })).resolves.toEqual({
+          paths: ["src/b.ts"],
+          truncated: false,
+        });
       });
 
       it("returns a deleted path's cached PR patch without requiring the file at head", async () => {
