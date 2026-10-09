@@ -7,6 +7,15 @@ import {
   llmsTxtServePlugin,
 } from "../site/lib/llmsTxtPlugins.js";
 import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
+import {
+  CONTENT_REVISION_MISMATCH,
+  contentRevisionBuildPlugin,
+} from "../site/lib/contentRevisionPlugin.js";
+import {
+  redactOrigin,
+  revisionHashes,
+  stableDocumentBodies,
+} from "../site/lib/contentRevisionCheck.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.js";
 import {
   FEATURE_KEYS,
@@ -316,5 +325,50 @@ describe("offering layer documents", () => {
     expect(json.matches).toEqual([]);
     expect(json.topics).toEqual(KNOWLEDGE_CHUNKS.map((chunk) => chunk.id));
     expect(renderAnswerText({ kind: "index" })).toContain("Topics:");
+  });
+});
+
+describe("content revision stamp", () => {
+  it("redacts the site host so a laptop and Vercel hash the same bytes", () => {
+    const local = redactOrigin("see http://localhost:3000/ today", "http://localhost:3000");
+    const vercel = redactOrigin(
+      "see https://pr-agent-site.vercel.app/ today",
+      "https://pr-agent-site.vercel.app",
+    );
+    expect(local).toBe(vercel);
+    expect(local).not.toContain("localhost");
+    expect(vercel).not.toContain(".vercel.app");
+    const bodies = stableDocumentBodies();
+    for (const body of Object.values(bodies)) {
+      expect(body).not.toContain("localhost");
+      expect(body).not.toContain(".vercel.app");
+      expect(body).not.toContain(SITE_ORIGIN);
+    }
+  });
+
+  it("keeps content-revision.json aligned with those bytes", () => {
+    const onDisk = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "site/content-revision.json"), "utf8"),
+    ) as Record<string, { hash: string }>;
+    const hashes = revisionHashes();
+    expect(onDisk.landing?.hash).toBe(hashes.landing);
+    expect(onDisk.llms?.hash).toBe(hashes.llms);
+    expect(onDisk.agents?.hash).toBe(hashes.agents);
+    expect(onDisk.openapi?.hash).toBe(hashes.openapi);
+  });
+
+  it("fails the build when the stamp disagrees and does not rewrite it", () => {
+    const readFileSync = vi.fn(() => '{"landing":{"hash":"nope"}}');
+    const plugin = contentRevisionBuildPlugin({
+      readFileSync: readFileSync as unknown as typeof fs.readFileSync,
+      bodies: () => stableDocumentBodies(),
+    });
+    expect(plugin.apply).toBe("build");
+    const start = plugin.buildStart;
+    if (typeof start !== "function") {
+      throw new Error("buildStart missing");
+    }
+    expect(() => start.call({} as never, {} as never)).toThrow(CONTENT_REVISION_MISMATCH);
+    expect(readFileSync).toHaveBeenCalled();
   });
 });

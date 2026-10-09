@@ -6,10 +6,13 @@ import {
   decorateHtmlResponse,
   homeMarkdownDocumentResponse,
   homeMarkdownResponse,
+  landingHtmlConditional,
+  llmsProfileResponse,
   negotiateHomeRequest,
   notAcceptableResponse,
   notFoundResponse,
   restateAcceptAsHtml,
+  sitemapResponse,
   varyOn,
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
@@ -282,5 +285,74 @@ describe("notAcceptableResponse", () => {
     expect(await notAcceptableResponse(["text/markdown"]).text()).toBe(
       "Not Acceptable\n\nAvailable: text/markdown\n",
     );
+  });
+});
+
+describe("content revision validators", () => {
+  it("puts the landing date on the HTML page", () => {
+    const response = decorateHtmlResponse(rendered(200));
+    expect(response.headers.get("Last-Modified")).toMatch(/GMT$/);
+    expect(response.headers.get("ETag")).toMatch(/^"[0-9a-f]+"$/);
+  });
+
+  it("returns 304 for a fresh HTML revalidation and 200 for a garbage date", async () => {
+    const lastModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
+    const fresh = landingHtmlConditional(null, lastModified);
+    expect(fresh?.status).toBe(304);
+    expect(await fresh?.text()).toBe("");
+    expect(fresh?.headers.get("Last-Modified")).toBe(lastModified);
+    expect(landingHtmlConditional(null, "not-a-date")).toBeNull();
+  });
+
+  it("does not 304 markdown from If-Modified-Since, only from its language ETag", async () => {
+    const python = negotiateHomeRequest("text/markdown", "python");
+    const since = negotiateHomeRequest("text/markdown", "python", {
+      ifNoneMatch: null,
+      ifModifiedSince: python?.headers.get("Last-Modified") ?? null,
+    });
+    expect(since?.status).toBe(200);
+    expect(await since?.text()).toContain("```python\n");
+
+    const matched = negotiateHomeRequest("text/markdown", "python", {
+      ifNoneMatch: python?.headers.get("ETag") ?? null,
+      ifModifiedSince: null,
+    });
+    expect(matched?.status).toBe(304);
+    expect(await matched?.text()).toBe("");
+
+    const otherLanguage = negotiateHomeRequest("text/markdown", null, {
+      ifNoneMatch: python?.headers.get("ETag") ?? null,
+      ifModifiedSince: null,
+    });
+    expect(otherLanguage?.status).toBe(200);
+    expect(await otherLanguage?.text()).toContain("```typescript\n");
+  });
+
+  it("304s /agents.md when the client already has that date", async () => {
+    const first = agentInstructionsResponse();
+    const second = agentInstructionsResponse({
+      ifNoneMatch: null,
+      ifModifiedSince: first.headers.get("Last-Modified"),
+    });
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+  });
+
+  it("keeps one sitemap lastmod across reads and aligns the homepage with its HTTP date", async () => {
+    const first = sitemapResponse();
+    const second = sitemapResponse();
+    const xml = await first.text();
+    expect(xml).toBe(await second.text());
+    expect(first.headers.get("Last-Modified")).toBe(second.headers.get("Last-Modified"));
+    const homepage = xml.match(/<loc>[^<]*\/<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/);
+    const landingModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
+    expect(new Date(homepage?.[1] ?? "").toUTCString()).toBe(landingModified);
+  });
+
+  it("serves /llms.txt with the committed revision rather than a clock", () => {
+    const response = llmsProfileResponse();
+    expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("Last-Modified")).toMatch(/GMT$/);
+    expect(response.headers.get("ETag")).toMatch(/^"[0-9a-f]+"$/);
   });
 });

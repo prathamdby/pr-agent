@@ -1,3 +1,4 @@
+import contentRevision from "../content-revision.json" with { type: "json" };
 import { KNOWLEDGE_QUERY_TEXT } from "@/lib/agentResources";
 import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
 import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
@@ -108,6 +109,7 @@ export const JSON_LD_GRAPHS = [
     alternateName: ["pr-agent", "PR Agent by prathamdby"],
     description: SEO_DESCRIPTION,
     url: SITE_ORIGIN,
+    dateModified: contentRevision.landing.revisedAt,
     sameAs: SAME_AS,
     potentialAction: {
       "@type": "SearchAction",

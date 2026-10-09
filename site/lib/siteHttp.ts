@@ -3,6 +3,17 @@ import { negotiateProgrammingLanguage } from "./acceptLanguage.js";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "./agentResources.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import {
+  applyRevisionHeaders,
+  conditionalResponse,
+  lastmodForSitemapPath,
+  revisionFor,
+  sitemapRevision,
+  type ConditionalHeaders,
+} from "./contentRevision.js";
+import { renderSitemapXml } from "./discovery.js";
+import { renderLlmsTxt } from "./llmsKnowledge.js";
+import { renderOpenApiDocument } from "./openapi.js";
+import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
   renderNotFoundMarkdown,
@@ -90,8 +101,28 @@ export function notAcceptableResponse(produces: readonly string[]): Response {
   });
 }
 
-function homeMarkdown(acceptLanguage: string | null, vary: readonly string[]): Response {
+const NO_VALIDATORS: ConditionalHeaders = { ifNoneMatch: null, ifModifiedSince: null };
+
+function homeMarkdown(
+  acceptLanguage: string | null,
+  vary: readonly string[],
+  conditional: ConditionalHeaders,
+): Response {
   const language = negotiateProgrammingLanguage(acceptLanguage, FETCH_MARKDOWN_LANGUAGES);
+  const varyHeader = vary.join(", ");
+  // Time revalidation cannot name the cached language, so only the language-specific ETag 304s.
+  const cached = conditionalResponse(conditional, revisionFor("landing"), {
+    variant: language,
+    honorModifiedSince: false,
+    cacheControl: PAGE_CACHE_CONTROL,
+    vary: varyHeader,
+    extra: (headers) => {
+      headers.set("Link", MARKDOWN_LINK);
+    },
+  });
+  if (cached !== null) {
+    return cached;
+  }
   const response = markdownResponse(renderHomeMarkdown(language), {
     status: 200,
     cacheControl: PAGE_CACHE_CONTROL,
@@ -99,12 +130,16 @@ function homeMarkdown(acceptLanguage: string | null, vary: readonly string[]): R
   for (const field of vary) {
     varyOn(response.headers, field);
   }
+  applyRevisionHeaders(response.headers, revisionFor("landing"), language);
   return response;
 }
 
 /** `/` negotiated to markdown. HTML shares the URL, so both axes are declared. */
-export function homeMarkdownResponse(acceptLanguage: string | null): Response {
-  return homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"]);
+export function homeMarkdownResponse(
+  acceptLanguage: string | null,
+  conditional: ConditionalHeaders = NO_VALIDATORS,
+): Response {
+  return homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"], conditional);
 }
 
 /**
@@ -114,16 +149,95 @@ export function homeMarkdownResponse(acceptLanguage: string | null): Response {
  * Accept header at all. Only the example language is negotiated, so only Accept-Language is
  * declared.
  */
-export function homeMarkdownDocumentResponse(acceptLanguage: string | null): Response {
-  return homeMarkdown(acceptLanguage, ["Accept-Language"]);
+export function homeMarkdownDocumentResponse(
+  acceptLanguage: string | null,
+  conditional: ConditionalHeaders = NO_VALIDATORS,
+): Response {
+  return homeMarkdown(acceptLanguage, ["Accept-Language"], conditional);
 }
 
 /** `/agents.md`: when to reach for PR Agent, and how an agent should query this site. */
-export function agentInstructionsResponse(): Response {
-  return markdownResponse(renderAgentInstructionsMarkdown(), {
+export function agentInstructionsResponse(
+  conditional: ConditionalHeaders = NO_VALIDATORS,
+): Response {
+  const revision = revisionFor("agents");
+  const cached = conditionalResponse(conditional, revision, {
+    honorModifiedSince: true,
+    cacheControl: DOCUMENT_CACHE_CONTROL,
+    extra: (headers) => {
+      headers.set("Link", MARKDOWN_LINK);
+      headers.set("X-Content-Type-Options", "nosniff");
+    },
+  });
+  if (cached !== null) {
+    return cached;
+  }
+  const response = markdownResponse(renderAgentInstructionsMarkdown(), {
     status: 200,
     cacheControl: DOCUMENT_CACHE_CONTROL,
   });
+  applyRevisionHeaders(response.headers, revision);
+  return response;
+}
+
+/** `/llms.txt`. A route, so the static file cannot replace Last-Modified with the request time. */
+export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+  const revision = revisionFor("llms");
+  const cached = conditionalResponse(conditional, revision, {
+    honorModifiedSince: true,
+    cacheControl: DOCUMENT_CACHE_CONTROL,
+    extra: (headers) => {
+      headers.set("X-Content-Type-Options", "nosniff");
+    },
+  });
+  if (cached !== null) {
+    return cached;
+  }
+  const response = new Response(renderLlmsTxt(), {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": DOCUMENT_CACHE_CONTROL,
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+  applyRevisionHeaders(response.headers, revision);
+  return response;
+}
+
+/** `/openapi.json`. */
+export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+  const revision = revisionFor("openapi");
+  const cached = conditionalResponse(conditional, revision, {
+    honorModifiedSince: true,
+    cacheControl: DOCUMENT_CACHE_CONTROL,
+    extra: (headers) => {
+      headers.set("X-Content-Type-Options", "nosniff");
+    },
+  });
+  if (cached !== null) {
+    return cached;
+  }
+  const headers = new Headers({
+    "Cache-Control": DOCUMENT_CACHE_CONTROL,
+    "X-Content-Type-Options": "nosniff",
+  });
+  applyRevisionHeaders(headers, revision);
+  return Response.json(renderOpenApiDocument(), { headers });
+}
+
+/** `/sitemap.xml`. Each URL keeps its own lastmod. The document validator is the newest of those. */
+export function sitemapResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+  const revision = sitemapRevision();
+  const cached = conditionalResponse(conditional, revision, { honorModifiedSince: true });
+  if (cached !== null) {
+    cached.headers.set("Content-Type", "application/xml; charset=utf-8");
+    return cached;
+  }
+  const response = new Response(renderSitemapXml(lastmodForSitemapPath), {
+    headers: { "Content-Type": "application/xml; charset=utf-8" },
+  });
+  applyRevisionHeaders(response.headers, revision);
+  return response;
 }
 
 /**
@@ -136,15 +250,38 @@ export function agentInstructionsResponse(): Response {
 export function negotiateHomeRequest(
   accept: string | null,
   acceptLanguage: string | null,
+  conditional: ConditionalHeaders = NO_VALIDATORS,
 ): Response | null {
   const chosen = negotiateType(accept, PAGE_TYPES);
   if (chosen === null) {
     return notAcceptableResponse(PAGE_TYPES);
   }
   if (chosen === MARKDOWN_TYPE) {
-    return homeMarkdownResponse(acceptLanguage);
+    return homeMarkdownResponse(acceptLanguage, conditional);
   }
   return null;
+}
+
+/** 304 for the HTML landing page. Invalid conditional headers fall through to a 200. */
+export function landingHtmlConditional(
+  ifNoneMatch: string | null,
+  ifModifiedSince: string | null,
+): Response | null {
+  return conditionalResponse({ ifNoneMatch, ifModifiedSince }, revisionFor("landing"), {
+    honorModifiedSince: true,
+    cacheControl: PAGE_CACHE_CONTROL,
+    vary: "Accept",
+    extra: (headers) => {
+      headers.set("Link", HTML_LINK);
+    },
+  });
+}
+
+export function conditionalHeaders(request: Request): ConditionalHeaders {
+  return {
+    ifNoneMatch: request.headers.get("If-None-Match"),
+    ifModifiedSince: request.headers.get("If-Modified-Since"),
+  };
 }
 
 /** Copy a response so headers can be added even when the original guards them. */
@@ -165,6 +302,9 @@ export function decorateHtmlResponse(response: Response): Response {
     headers.set("Link", HTML_LINK);
     if (!headers.has("Cache-Control")) {
       headers.set("Cache-Control", PAGE_CACHE_CONTROL);
+    }
+    if (response.status === 200) {
+      applyRevisionHeaders(headers, revisionFor("landing"));
     }
   });
 }
