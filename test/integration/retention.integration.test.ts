@@ -13,7 +13,6 @@ import { hasDatabase, integrationPool } from "./db.js";
 const RETENTION = makeTestConfig({
   retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
   agentEvents: { retentionSeconds: 0 },
-  codeIndex: { retentionSeconds: 30 * 86_400 },
 });
 const OWNER = "retention-it";
 const EVENT = "retention-it";

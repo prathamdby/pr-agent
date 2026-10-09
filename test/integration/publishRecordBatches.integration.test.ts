@@ -2263,7 +2263,6 @@ try {
       "agent-work-review",
       "agent-work-triage",
       "agent-work-verification",
-      "code-index-build",
     ]);
     expect([...WORKER_DLQ_QUEUES].toSorted()).toEqual([
       "agent-work-ack-dead",

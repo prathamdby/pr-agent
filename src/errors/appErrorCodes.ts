@@ -39,7 +39,6 @@ export const APP_ERROR_KINDS = {
   ],
   ask: ["sensitive_path_blocked"],
   ci: ["head_state_lock_missed", "head_state_missing", "head_state_unseeded", "summary_no_json"],
-  code_index: ["snapshot_upsert_failed"],
   codemode: [
     "access_denied",
     "file_not_found",

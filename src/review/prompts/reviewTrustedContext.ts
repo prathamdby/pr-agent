@@ -11,8 +11,6 @@ import {
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
 import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
-import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
-import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import {
   fetchPriorInlineFeedback,
@@ -28,7 +26,6 @@ export function buildTrustedReviewContextForReview(params: {
   agentInstructionFilesBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
   symbolIndexStatus?: SymbolIndexStatus;
-  codeIndexStatus?: CodeIndexPrepareResult;
 }): string {
   const filenames = params.preflight.files.map((file) => file.filename);
   const pathProfile = buildReviewPathProfile(filenames);
@@ -48,9 +45,6 @@ export function buildTrustedReviewContextForReview(params: {
   }
   if (params.symbolIndexStatus) {
     blocks.push("", formatSymbolIndexStatusLine(params.symbolIndexStatus));
-  }
-  if (params.codeIndexStatus) {
-    blocks.push("", formatCodeIndexStatusLine(params.codeIndexStatus));
   }
   if (params.priorInlineFeedback) {
     blocks.push("", params.priorInlineFeedback);

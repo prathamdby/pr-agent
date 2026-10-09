@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Item 5 is superseded by [ADR 0049](0049-retire-code-index.md), which retires the code index.
 
 ## Context
 

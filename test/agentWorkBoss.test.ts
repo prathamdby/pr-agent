@@ -12,6 +12,7 @@ import {
   bossConstructorOptions,
   createPgBossEventGate,
   ensureAgentQueues,
+  retireCodeIndexBuildQueue,
   retireLeftoverCiRefreshQueues,
 } from "../src/agentWork/boss.js";
 import {
@@ -21,7 +22,6 @@ import {
   ASK_QUEUE,
   CI_PROJECTION_DEAD_LETTER_QUEUE,
   CI_PROJECTION_QUEUE,
-  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -155,16 +155,8 @@ describe("ensureAgentQueues", () => {
       entry.resolve();
     }
 
-    await vi.waitFor(() =>
-      expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length + 1),
-    );
-    const codeIndexStarted = started[deadLetterQueues.length + parentQueues.length];
-    expect(codeIndexStarted.name).toBe(CODE_INDEX_BUILD_QUEUE);
-    expect(codeIndexStarted.options).toEqual(expect.objectContaining({ policy: "standard" }));
-    expect(codeIndexStarted.options).not.toHaveProperty("deadLetter");
-    codeIndexStarted.resolve();
-
     await ensurePromise;
+    expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length);
   });
 
   it("logs an error when a leased queue kept a non-standard policy", async () => {
@@ -189,6 +181,21 @@ describe("ensureAgentQueues", () => {
       queue: REVIEW_QUEUE,
       policy: "key_strict_fifo",
     });
+  });
+});
+
+describe("retireCodeIndexBuildQueue", () => {
+  it("deletes the retired code-index queue even when it still has jobs", async () => {
+    const deleteQueue = vi.fn(async () => undefined);
+    const boss = {
+      getQueue: vi.fn(async (name: string) => ({ name })),
+      getQueueStats: vi.fn(async () => [{ queuedCount: 3, activeCount: 1, deferredCount: 0 }]),
+      deleteQueue,
+    } as unknown as PgBoss;
+
+    await retireCodeIndexBuildQueue(boss);
+
+    expect(deleteQueue).toHaveBeenCalledWith("code-index-build");
   });
 });
 

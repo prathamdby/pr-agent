@@ -15,10 +15,7 @@ const definitionsSrc = fs.readFileSync(DEFINITIONS, "utf8");
 const typesSrc = fs.readFileSync(TYPES, "utf8");
 const fenceSrc = fs.readFileSync(WRITE_FENCE, "utf8");
 
-const QUEUE_FILES = [
-  path.join(ROOT, "src", "settings", "queueConstants.ts"),
-  path.join(ROOT, "src", "settings", "codeIndexConstants.ts"),
-];
+const QUEUE_FILES = [path.join(ROOT, "src", "settings", "queueConstants.ts")];
 
 const queueValues = Object.fromEntries(
   QUEUE_FILES.flatMap((file) => {
@@ -45,7 +42,6 @@ const retention = retentionRegistered
 const executorFiles = {
   executeAckJob: "src/agentWork/executors/ackExecutor.ts",
   executeCiProjectionJob: "src/agentWork/executors/ciProjectionExecutor.ts",
-  executeCodeIndexBuildJob: "src/codeIndex/buildJob.ts",
   runRetention: "src/agentWork/retention.ts",
 };
 

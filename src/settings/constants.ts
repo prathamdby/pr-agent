@@ -16,7 +16,6 @@ export * from "./context7Constants.js";
 export * from "./loggingConstants.js";
 export * from "./verificationConstants.js";
 export * from "./webhookConstants.js";
-export * from "./codeIndexConstants.js";
 export * from "./promptCacheConstants.js";
 export * from "./codeModeConstants.js";
 export * from "./sessionConstants.js";

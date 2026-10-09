@@ -43,7 +43,7 @@ const baseTestConfig: Config = {
   agentEvents: { enabled: true, retentionSeconds: 0 },
   traces: { mode: "metadata", retentionSeconds: 1_209_600, bufferMaxSpans: 400 },
   findingHistory: { enabled: true, dismissSuppressAfter: 3, lookbackDays: 180 },
-  codeIndex: { mode: "off", waitMs: 3_000, retentionSeconds: 2_592_000 },
+  removedEnv: [],
   codeMode: { executorKind: "in_process" },
   review: {
     specialistTimeoutMs: 900_000,
@@ -115,7 +115,7 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
     agentEvents: { ...base.agentEvents, ...overrides.agentEvents },
     traces: { ...base.traces, ...overrides.traces },
     findingHistory: { ...base.findingHistory, ...overrides.findingHistory },
-    codeIndex: { ...base.codeIndex, ...overrides.codeIndex },
+    removedEnv: base.removedEnv,
     codeMode: { ...base.codeMode, ...overrides.codeMode },
     review: { ...base.review, ...overrides.review },
     concurrency: { ...base.concurrency, ...overrides.concurrency },

@@ -5,8 +5,7 @@
   "allow": [
     "src/agentWork/executors/ackExecutor.ts",
     "src/agentWork/executors/ciProjectionExecutor.ts",
-    "src/agentWork/lostRunningWork.ts",
-    "src/codeIndex/buildJob.ts"
+    "src/agentWork/lostRunningWork.ts"
   ],
   "mustCatch": ["unfencedSurface();"]
 }

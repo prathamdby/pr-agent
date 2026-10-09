@@ -68,11 +68,13 @@ survive across specialists. Parallelism is inside one cell
 (`Promise.all`, 4 in flight). Two `execute` calls in one turn are
 sequential (`src/agent/runtime/toolExecutionMode.ts`).
 
-**Guest catalogue.** Review and ask install all six:
-`listChangedFiles`, `readWorkspaceFile`, `searchWorkspace`,
+**Guest catalogue.** Review and ask install all seven:
+`listChangedFiles`, `readWorkspaceFile`, `searchWorkspace`, `findFiles`,
 `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`. Verification
 installs read, search, and diff only. `searchWorkspace` is literal,
-case-sensitive text, not regex. Code index and Context7 stay native siblings.
+case-sensitive text, not regex; `terms` ranks files by how many literals
+they contain. `findFiles` is fuzzy path lookup. Context7 stays a native
+sibling.
 Submit and publish stay native (`submit_findings_report`,
 `submit_specialist_brief`, `publish_thread`, `publish_summary`,
 `submitVerification`, `submitDescription`, `submitTriage`). Catalogue
@@ -265,7 +267,7 @@ globs:
   - "src/agent/tools/**"
 ---
 
-The local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0024). Findings that cite a path or line must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`). Code Mode marshal records delivered file and diff ranges. `searchCodeIndex` and `resolveSymbol` hits are navigation hints. Confirm with `tools.readWorkspaceFile` before citing. A truncated host result cannot prove absence.
+The local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0024). Findings that cite a path or line must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`). Code Mode marshal records delivered file and diff ranges. `findFiles` and `resolveSymbol` hits are navigation hints. Confirm with `tools.readWorkspaceFile` before citing. A truncated host result cannot prove absence.
 ````
 
 </Good>

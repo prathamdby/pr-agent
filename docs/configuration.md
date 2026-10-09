@@ -10,12 +10,12 @@ For behaviour, deployment, and developer scripts see [operations.md](operations.
 
 ## How to change something
 
-| Kind         | Where to edit                                                                                                                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md)                                                                                                                                      |
-| **env**      | `.env` / deployment env → keys below. Defaults live in `src/settings/defaults.ts`, plus ask-quota and code-index defaults there, and `LOG_PRETTY` in `src/settings/slices/service.ts` (`NODE_ENV !== "production"`) |
-| **code**     | `src/settings/constants.ts`                                                                                                                                                                                         |
-| **external** | Provider env; loaded into config but never logged                                                                                                                                                                   |
+| Kind         | Where to edit                                                                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md)                                                                                                                       |
+| **env**      | `.env` / deployment env → keys below. Defaults live in `src/settings/defaults.ts`, plus ask-quota defaults there, and `LOG_PRETTY` in `src/settings/slices/service.ts` (`NODE_ENV !== "production"`) |
+| **code**     | `src/settings/constants.ts`                                                                                                                                                                          |
+| **external** | Provider env; loaded into config but never logged                                                                                                                                                    |
 
 Import convention: `import { … } from "../settings/index.js"` for shared constants; `Config` from `config.ts` at runtime. Single-owner slash replies are private to `src/agentWork/intake/slashIntake.ts`; migration constants are private to `src/db/migrations.ts`.
 
@@ -61,9 +61,6 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                                                |
 | Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                      | After this many dismissals for a fingerprint, suppress new inline threads while `last_outcome` remains `dismissed` (summary-only still allowed); later open/fixed outcomes lift suppression                                                                                                                                                                       |
 | Finding history lookback          | `FINDING_HISTORY_LOOKBACK_DAYS`          | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                                                                                                                                                                                                                                            |
-| Code index mode                   | `CODE_INDEX_MODE`                        | `off`                    | `off` disables Postgres FTS hints; `fts` enables optional navigation index (hints only; confirm with `tools.readWorkspaceFile` inside `execute` before citing)                                                                                                                                                                                                    |
-| Code index wait                   | `CODE_INDEX_WAIT_MS`                     | `3000`                   | Max wait during review setup for a ready `code_index_snapshots` row at the PR head SHA                                                                                                                                                                                                                                                                            |
-| Code index retention              | `CODE_INDEX_RETENTION_SECONDS`           | `2592000`                | Delete superseded/failed/ready `code_index_snapshots` older than this (cascades `code_index_chunks`)                                                                                                                                                                                                                                                              |
 | Models catalog path               | `MODELS_JSON_PATH`                       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                          |
 | Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional; sent only in `Authorization` for policy-approved requests, otherwise Context7 uses anonymous fallback                                                                                                                                                                                                                                                   |
 | PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics via `src/analytics` facade (`work completed`, `work item retried`, `webhook received`, `$ai_generation`/`$ai_span`); empty token disables init (no SDK load, no capture). Failed sink construction, including reinitialization, restores a no-op sink with analytics disabled. OSS installs need no PostHog setup                              |
@@ -363,7 +360,6 @@ and defaults are unchanged. There is no separate unknown-resolution knob.
 | `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                                                                                                 |
 | `CI_PROJECTION_DEAD_LETTER_QUEUE`          | `agent-work-ci-projection-dead`                                                                                                                                                                                                |
 | `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                                                                                               |
-| `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                                                                                            |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                                                                                             |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                                                                                                       |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened, closed — accepted intake actions, not the auto-enqueue map; effective close cancels reviews and persists a closed/merged intake gate; only a newer reopen restores admission                    |
@@ -672,6 +668,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_SEARCH_MAX_FILES`               | 500        |
 | `LOCAL_WORKSPACE_MAX_FILE_BYTES`                 | 1000000    |
 | `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`         | 50000000   |
+| `LOCAL_WORKSPACE_SEARCH_MAX_TERMS`               | 8          |
+| `LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES`        | 200        |
 | `LOCAL_WORKSPACE_MAX_DIFF_BYTES`                 | 5000000    |
 | `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`            | 128000     |
 | `LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS`       | 2000       |
@@ -717,18 +715,9 @@ Pinned searches run on the fff host with `git grep` for the remainder; writable 
 
 Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `Config.codeMode.executorKind` is `worker_threads` for compiled production and `in_process` for TypeScript sources (Vitest, dev); callers pass it down as a parameter. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 
-### Code index (optional FTS hints)
+### Removed settings
 
-| Symbol                           | Value / role |
-| -------------------------------- | ------------ |
-| `CODE_INDEX_MODES`               | `off`, `fts` |
-| `CODE_INDEX_CHUNKER_VERSION`     | `1`          |
-| `CODE_INDEX_MAX_CHUNKS_PER_REPO` | 100000       |
-| `CODE_INDEX_MAX_RESULTS`         | 20           |
-| `CODE_INDEX_PREVIEW_MAX_CHARS`   | 500          |
-| `CODE_INDEX_BUILD_CONCURRENCY`   | 1            |
-
-Source-boundary recognition is linear in each line. File eligibility, content hashes, line ranges, symbol names, and `CODE_INDEX_MAX_CHUNKS_PER_REPO` stay as listed.
+`CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are no longer read. Boot logs `config_removed_env_ignored` with the names that are still set. Remove them from `.env`. See [ADR 0049](adr/0049-retire-code-index.md).
 
 ### Postgres pool
 

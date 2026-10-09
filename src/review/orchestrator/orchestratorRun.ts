@@ -264,8 +264,6 @@ export async function runOrchestratedPrReview(
     userSupplement: params.userSupplement,
     trustedContext: params.trustedContext,
     workspace: params.workspace,
-    pool: params.sessionContext?.pool,
-    codeIndexSnapshotId: params.codeIndexSnapshotId,
     ...(params.workItemId != null || params.sessionContext?.workItemId != null
       ? {
           workItemId: params.workItemId ?? params.sessionContext?.workItemId,

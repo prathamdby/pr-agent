@@ -1,5 +1,4 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Pool } from "pg";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { type Config, CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -12,10 +11,6 @@ import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/re
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
-import {
-  buildCodeIndexTools,
-  buildUnavailableCodeIndexTools,
-} from "../../agent/tools/codeIndexTools.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -79,8 +74,6 @@ export function buildReviewRunSetup(params: {
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  pool?: Pool;
-  codeIndexSnapshotId?: string;
   workItemId?: string;
 }): ReviewRunSetup {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
@@ -105,23 +98,13 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7.apiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
-  const codeIndex =
-    params.pool && params.codeIndexSnapshotId
-      ? buildCodeIndexTools({
-          pool: params.pool,
-          snapshotId: params.codeIndexSnapshotId,
-          workspace: params.workspace,
-          pathGate,
-        })
-      : buildUnavailableCodeIndexTools();
   const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit({
     ...bundle.executors,
     ...ctx7.executors,
-    ...codeIndex.executors,
   });
   const wrappedExecutors = wrapReviewToolExecutors(rateLimitedExecutors);
   const workspaceTools = {
-    piTools: [...bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
+    piTools: [...bundle.piTools, ...ctx7.piTools],
     executors: wrappedExecutors,
   };
 

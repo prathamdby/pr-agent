@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Pool } from "pg";
 import {
   ASK_FAILURE_MESSAGE,
   ASK_RETRY_NUDGE,
@@ -14,14 +13,6 @@ vi.mock("../src/agent/tools/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
-vi.mock("../src/agent/tools/codeIndexTools.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/tools/codeIndexTools.js")>();
-  return {
-    ...actual,
-    buildCodeIndexTools: vi.fn(actual.buildCodeIndexTools),
-  };
-});
-
 const sendMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
 
@@ -35,9 +26,6 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.js";
-import { buildAskRunSetup } from "../src/agent/ask/askRunSetup.js";
-import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
-import { buildCodeIndexTools } from "../src/agent/tools/codeIndexTools.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
@@ -132,46 +120,5 @@ describe("runAskRun finalize", () => {
       apiKey: cfg.context7.apiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
-  });
-});
-
-describe("runAskRun code index tools", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    sendMock.mockResolvedValue({ text: "Answer." });
-  });
-
-  it("registers searchCodeIndex on the ask session", async () => {
-    await runAskRun(askParams);
-
-    expect(createFeaturePiSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tools: expect.arrayContaining([expect.objectContaining({ name: "searchCodeIndex" })]),
-      }),
-    );
-  });
-
-  it("returns unavailable when the index is not configured", async () => {
-    const { bundle } = buildAskRunSetup(askParams);
-    const result = await bundle.executors.searchCodeIndex?.({ query: "auth" });
-    expect(result).toEqual({ unavailable: true });
-  });
-
-  it("builds searchCodeIndex via buildCodeIndexTools when pool and snapshot are set", () => {
-    const pool = {} as Pool;
-    const { bundle } = buildAskRunSetup({
-      ...askParams,
-      pool,
-      codeIndexSnapshotId: "snap-1",
-    });
-
-    expect(buildCodeIndexTools).toHaveBeenCalledWith({
-      pool,
-      snapshotId: "snap-1",
-      workspace: askParams.workspace,
-      pathGate: expect.anything(),
-    });
-    expect(bundle.piTools.map((tool) => tool.name)).toContain("searchCodeIndex");
-    expect(bundle.executors.searchCodeIndex).toEqual(expect.any(Function));
   });
 });

@@ -53,7 +53,7 @@ const reconRiskMapGuidance = [
   "Each risk area must name the relevant changed paths or surrounding symbols when those are known from the reviewed workspace. Explain the concrete contract, boundary, lifecycle, or state relationship. State what the assigned specialist should verify.",
   "Stay inside the existing risk-area count and size limits. When more candidates exist than the brief can carry, prioritize security-sensitive, persistence, migration, configuration, API-contract, and stateful paths.",
   "Route each risk to the specialist whose ownership fits it. Give related aspects to more than one specialist only when their questions are materially different.",
-  "Code-index and symbol-index results are navigation hints. Confirm with `await tools.readWorkspaceFile` inside `execute` before you name a path or symbol in the brief.",
+  "Symbol-index and `findFiles` results are navigation hints. Confirm with `await tools.readWorkspaceFile` inside `execute` before you name a path or symbol in the brief.",
   "When checkout coverage is sparse or a search is truncated, the brief cannot claim completeness: write all, none, every, or no callers only when the workspace evidence fully supports it.",
   "Consider these four dimensions only when the changed code makes them applicable.",
   "- Contract edges. Changed exported symbols, interfaces, schemas, serializers, response shapes, query results, identifiers, configuration meanings, and external API requests, plus the most relevant producer and consumer relationships visible in the workspace.",

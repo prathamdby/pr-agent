@@ -96,8 +96,6 @@ import {
   type DurableExecutionResult,
 } from "../agentWork/durableJob.js";
 import { type ReviewWorkItem, type ReviewWorkPayload } from "../agentWork/types.js";
-import { createAskPathGate } from "../agent/ask/askSafety.js";
-import { prepareCodeIndexForReview } from "../codeIndex/buildJob.js";
 import type { ReviewProfileFields, WorkCompletion } from "../analytics/workCompleted.js";
 import type { ReviewRunMetricsSnapshot } from "./run/reviewRunMetrics.js";
 import { errorMessage } from "../errors/errorMessage.js";
@@ -620,7 +618,6 @@ async function assembleTrustedReviewContext(args: {
   readonly priorInlineFeedback: string | undefined;
   readonly findingHistoryTrustedBlock: string | undefined;
   readonly checkoutCoverage: ReturnType<PrRepositoryView["workspace"]["reader"]["getCoverage"]>;
-  readonly codeIndexStatus: Awaited<ReturnType<typeof prepareCodeIndexForReview>>;
 }) {
   const {
     repositoryView,
@@ -628,7 +625,6 @@ async function assembleTrustedReviewContext(args: {
     priorInlineFeedback,
     findingHistoryTrustedBlock,
     checkoutCoverage,
-    codeIndexStatus,
   } = args;
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const sameRepo = isSameRepoPullRequest(pullRequest);
@@ -664,7 +660,6 @@ async function assembleTrustedReviewContext(args: {
     agentInstructionFilesBlock,
     checkoutCoverage,
     symbolIndexStatus: repositoryView.workspace.reader.getSymbolIndexStatus(),
-    codeIndexStatus,
   });
   // Exclude our evolving summary, inline comments and history from cache identity.
   const recoveryContext = encodeReviewArtifact({
@@ -754,23 +749,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     });
   }
 
-  const pathGate = createAskPathGate();
-  pathGate.addPaths(repositoryView.workspace.reader.changedFiles.map((file) => file.path));
-  const codeIndexStatus = await prepareCodeIndexForReview({
-    cfg,
-    pool,
-    boss,
-    scope: {
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      headSha,
-      prNumber: item.prNumber,
-    },
-    workspace: repositoryView.workspace,
-    pathGate,
-  });
-
   const { sameRepo, repoPolicy, trustedContext, recoveryContext } =
     await assembleTrustedReviewContext({
       repositoryView,
@@ -778,7 +756,6 @@ async function runFullReviewAgainstRepositoryView(args: {
       priorInlineFeedback: priorInlineFeedbackResult.value,
       findingHistoryTrustedBlock,
       checkoutCoverage,
-      codeIndexStatus,
     });
 
   const timing = reviewRunTimingFromJob(args.job);
@@ -868,7 +845,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     resumedPlacements,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
-    codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     sameRepo,
     repoPolicy,
     shouldLinkToSummary,
