@@ -7,11 +7,9 @@ import {
   llmsTxtServePlugin,
 } from "../site/lib/llmsTxtPlugins.js";
 import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
+import { contentRevisionBuildPlugin } from "../site/lib/contentRevisionPlugin.js";
 import {
   CONTENT_REVISION_MISMATCH,
-  contentRevisionBuildPlugin,
-} from "../site/lib/contentRevisionPlugin.js";
-import {
   redactOrigin,
   revisionHashes,
   stableDocumentBodies,
@@ -328,6 +326,21 @@ describe("offering layer documents", () => {
   });
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function recordedHash(value: unknown, id: string): unknown {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const entry = value[id];
+  if (!isRecord(entry)) {
+    return undefined;
+  }
+  return entry.hash;
+}
+
 describe("content revision stamp", () => {
   it("redacts the site host so a laptop and Vercel hash the same bytes", () => {
     const local = redactOrigin("see http://localhost:3000/ today", "http://localhost:3000");
@@ -347,28 +360,29 @@ describe("content revision stamp", () => {
   });
 
   it("keeps content-revision.json aligned with those bytes", () => {
-    const onDisk = JSON.parse(
+    const onDisk: unknown = JSON.parse(
       fs.readFileSync(path.join(process.cwd(), "site/content-revision.json"), "utf8"),
-    ) as Record<string, { hash: string }>;
+    );
     const hashes = revisionHashes();
-    expect(onDisk.landing?.hash).toBe(hashes.landing);
-    expect(onDisk.llms?.hash).toBe(hashes.llms);
-    expect(onDisk.agents?.hash).toBe(hashes.agents);
-    expect(onDisk.openapi?.hash).toBe(hashes.openapi);
+    expect(recordedHash(onDisk, "landing")).toBe(hashes.landing);
+    expect(recordedHash(onDisk, "llms")).toBe(hashes.llms);
+    expect(recordedHash(onDisk, "agents")).toBe(hashes.agents);
+    expect(recordedHash(onDisk, "openapi")).toBe(hashes.openapi);
   });
 
   it("fails the build when the stamp disagrees and does not rewrite it", () => {
-    const readFileSync = vi.fn(() => '{"landing":{"hash":"nope"}}');
+    const readStamp = vi.fn(() => '{"landing":{"hash":"nope"}}');
     const plugin = contentRevisionBuildPlugin({
-      readFileSync: readFileSync as unknown as typeof fs.readFileSync,
+      readStamp,
       bodies: () => stableDocumentBodies(),
     });
     expect(plugin.apply).toBe("build");
     const start = plugin.buildStart;
+    expect(typeof start).toBe("function");
     if (typeof start !== "function") {
-      throw new Error("buildStart missing");
+      return;
     }
-    expect(() => start.call({} as never, {} as never)).toThrow(CONTENT_REVISION_MISMATCH);
-    expect(readFileSync).toHaveBeenCalled();
+    expect(start).toThrow(CONTENT_REVISION_MISMATCH);
+    expect(readStamp).toHaveBeenCalled();
   });
 });
