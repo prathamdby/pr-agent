@@ -27,11 +27,11 @@ function priorityFor(path: string): string {
   return path === "/" ? "1.0" : "0.3";
 }
 
-export function renderSitemapXml(lastmod: string): string {
-  const entries = AGENT_RESOURCES.filter((resource) => resource.inSitemap).map(
-    (resource) =>
-      `  <url>\n    <loc>${resourceUrl(resource)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`,
-  );
+export function renderSitemapXml(lastmodFor: (path: string) => string): string {
+  const entries = AGENT_RESOURCES.filter((resource) => resource.inSitemap).map((resource) => {
+    const lastmod = lastmodFor(resource.path);
+    return `  <url>\n    <loc>${resourceUrl(resource)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`;
+  });
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">

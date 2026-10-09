@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "../site/lib/agentResources.js";
 import {
+  conditionalResponse,
+  revisionFor,
+  type ConditionalHeaders,
+} from "../site/lib/contentRevision.js";
+import {
   DOCUMENT_CACHE_CONTROL,
   agentInstructionsResponse,
   decorateHtmlResponse,
   homeMarkdownDocumentResponse,
   homeMarkdownResponse,
+  landingHtmlConditional,
+  llmsProfileResponse,
   negotiateHomeRequest,
   notAcceptableResponse,
   notFoundResponse,
+  openApiResponse,
   restateAcceptAsHtml,
+  sitemapResponse,
   varyOn,
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
@@ -282,5 +291,135 @@ describe("notAcceptableResponse", () => {
     expect(await notAcceptableResponse(["text/markdown"]).text()).toBe(
       "Not Acceptable\n\nAvailable: text/markdown\n",
     );
+  });
+});
+
+async function expectFresh304(
+  load: (conditional?: ConditionalHeaders) => Response,
+  contentTypeOn304?: string,
+): Promise<void> {
+  const first = load();
+  const etag = first.headers.get("ETag");
+  const lastModified = first.headers.get("Last-Modified");
+  expect(first.status).toBe(200);
+  expect(etag).toMatch(/^"[0-9a-f]+"$/);
+  expect(lastModified).toMatch(/GMT$/);
+
+  const byTag = load({ ifNoneMatch: etag, ifModifiedSince: null });
+  expect(byTag.status).toBe(304);
+  expect(await byTag.text()).toBe("");
+  expect(byTag.headers.get("ETag")).toBe(etag);
+  expect(byTag.headers.get("Last-Modified")).toBe(lastModified);
+
+  const byDate = load({ ifNoneMatch: null, ifModifiedSince: lastModified });
+  expect(byDate.status).toBe(304);
+  expect(await byDate.text()).toBe("");
+  expect(byDate.headers.get("ETag")).toBe(etag);
+  expect(byDate.headers.get("Last-Modified")).toBe(lastModified);
+
+  if (contentTypeOn304 !== undefined) {
+    expect(byTag.headers.get("Content-Type")).toBe(contentTypeOn304);
+    expect(byDate.headers.get("Content-Type")).toBe(contentTypeOn304);
+  }
+
+  const bogus = load({ ifNoneMatch: null, ifModifiedSince: "not-a-date" });
+  expect(bogus.status).toBe(200);
+  expect(await bogus.text()).not.toBe("");
+}
+
+describe("content revision validators", () => {
+  it("puts the landing date on the HTML page", () => {
+    const response = decorateHtmlResponse(rendered(200));
+    expect(response.headers.get("Last-Modified")).toMatch(/GMT$/);
+    expect(response.headers.get("ETag")).toMatch(/^"[0-9a-f]+"$/);
+  });
+
+  it("returns 304 for a fresh HTML revalidation and 200 for a garbage date", async () => {
+    const lastModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
+    const fresh = landingHtmlConditional(null, lastModified);
+    expect(fresh?.status).toBe(304);
+    expect(await fresh?.text()).toBe("");
+    expect(fresh?.headers.get("Last-Modified")).toBe(lastModified);
+    expect(landingHtmlConditional(null, "not-a-date")).toBeNull();
+  });
+
+  it("does not 304 markdown from If-Modified-Since, only from its language ETag", async () => {
+    const python = negotiateHomeRequest("text/markdown", "python");
+    const since = negotiateHomeRequest("text/markdown", "python", {
+      ifNoneMatch: null,
+      ifModifiedSince: python?.headers.get("Last-Modified") ?? null,
+    });
+    expect(since?.status).toBe(200);
+    expect(await since?.text()).toContain("```python\n");
+
+    const matched = negotiateHomeRequest("text/markdown", "python", {
+      ifNoneMatch: python?.headers.get("ETag") ?? null,
+      ifModifiedSince: null,
+    });
+    expect(matched?.status).toBe(304);
+    expect(await matched?.text()).toBe("");
+
+    const otherLanguage = negotiateHomeRequest("text/markdown", null, {
+      ifNoneMatch: python?.headers.get("ETag") ?? null,
+      ifModifiedSince: null,
+    });
+    expect(otherLanguage?.status).toBe(200);
+    expect(await otherLanguage?.text()).toContain("```typescript\n");
+  });
+
+  it("304s on If-None-Match star, weak validators, and lists", async () => {
+    const page = decorateHtmlResponse(rendered(200));
+    const etag = page.headers.get("ETag");
+    const lastModified = page.headers.get("Last-Modified");
+    expect(etag).toMatch(/^"[0-9a-f]+"$/);
+    const direct = conditionalResponse(
+      { ifNoneMatch: "*", ifModifiedSince: null },
+      revisionFor("landing"),
+      { honorModifiedSince: true },
+    );
+    expect(direct?.status).toBe(304);
+    expect(direct?.headers.get("ETag")).toBe(etag);
+    expect(direct?.headers.get("Last-Modified")).toBe(lastModified);
+    for (const ifNoneMatch of ["*", `W/${etag}`, `"other", W/${etag}`]) {
+      const response = landingHtmlConditional(ifNoneMatch, "not-a-date");
+      expect(response?.status).toBe(304);
+      expect(await response?.text()).toBe("");
+      expect(response?.headers.get("ETag")).toBe(etag);
+      expect(response?.headers.get("Last-Modified")).toBe(lastModified);
+    }
+  });
+
+  it("304s llms, openapi, and sitemap on ETag or date, and ignores a garbage date", async () => {
+    await expectFresh304(llmsProfileResponse);
+    await expectFresh304(openApiResponse);
+    await expectFresh304(sitemapResponse, "application/xml; charset=utf-8");
+  });
+
+  it("304s /agents.md when the client already has that date", async () => {
+    const first = agentInstructionsResponse();
+    const second = agentInstructionsResponse({
+      ifNoneMatch: null,
+      ifModifiedSince: first.headers.get("Last-Modified"),
+    });
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe("");
+  });
+
+  it("keeps one sitemap lastmod across reads and aligns the homepage with its HTTP date", async () => {
+    const first = sitemapResponse();
+    const second = sitemapResponse();
+    const xml = await first.text();
+    expect(xml).toBe(await second.text());
+    expect(first.headers.get("Last-Modified")).toBe(second.headers.get("Last-Modified"));
+    const homepage = xml.match(/<loc>[^<]*\/<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/);
+    const landingModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
+    expect(new Date(homepage?.[1] ?? "").toUTCString()).toBe(landingModified);
+  });
+
+  it("serves /llms.txt with the committed revision rather than a clock", () => {
+    const response = llmsProfileResponse();
+    expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("Last-Modified")).toMatch(/GMT$/);
+    expect(response.headers.get("ETag")).toMatch(/^"[0-9a-f]+"$/);
   });
 });

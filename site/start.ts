@@ -1,6 +1,8 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
 import {
+  conditionalHeaders,
   decorateHtmlResponse,
+  landingHtmlConditional,
   negotiateHomeRequest,
   notFoundResponse,
   restateAcceptAsHtml,
@@ -21,9 +23,18 @@ const contentNegotiation = createMiddleware({ type: "request" }).server(
     const isHome = pathname === "/";
 
     if (isHome) {
-      const negotiated = negotiateHomeRequest(accept, request.headers.get("Accept-Language"));
+      const conditional = conditionalHeaders(request);
+      const negotiated = negotiateHomeRequest(
+        accept,
+        request.headers.get("Accept-Language"),
+        conditional,
+      );
       if (negotiated !== null) {
         return negotiated;
+      }
+      const fresh = landingHtmlConditional(conditional.ifNoneMatch, conditional.ifModifiedSince);
+      if (fresh !== null) {
+        return fresh;
       }
     }
     try {
