@@ -533,7 +533,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 | Symbol                                   | Default / role                                                                                                                                                  |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MAX_TOOL_ROUNDS`                        | 100000 for orchestrator reconnaissance and specialist investigation. The specialist timeout and the review deadline stop the run first.                        |
+| `MAX_TOOL_ROUNDS`                        | 100000 for orchestrator reconnaissance and specialist investigation. The specialist timeout and the review deadline stop the run first.                         |
 | `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 evidence rounds per specialist judgment turn, plus one reserved publish round (at most one extra round; evidence gathering can never starve `publish_thread`) |
 | `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                                                                                                                  |
 | `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                                                                                                                          |
