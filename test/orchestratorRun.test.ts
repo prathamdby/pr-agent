@@ -1,7 +1,7 @@
 import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
-import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
+import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
@@ -19,6 +19,7 @@ import { reviewPayloadFromFindings, type ReviewFinding } from "../src/review/rev
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import {
+  MAX_TOOL_ROUNDS,
   REVIEW_GATE_PROSE_UNASSESSED,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.js";
@@ -788,7 +789,9 @@ describe("runOrchestratedPrReview", () => {
     );
     expect(reconIndex).toBeGreaterThanOrEqual(0);
     expect(judgmentIndex).toBeGreaterThanOrEqual(0);
-    expect(testState.sentSendOptions[reconIndex]?.maxToolRounds).toBe(48);
+    expect(testState.sentSendOptions[reconIndex]?.maxToolRounds).toBe(
+      escalatedToolRounds(MAX_TOOL_ROUNDS, escalation),
+    );
     expect(testState.sentSendOptions[judgmentIndex]?.maxToolRounds).toBe(8);
     const synthesisIndex = testState.sentPrompts.findIndex((prompt) =>
       prompt.includes("Synthesize the final"),

@@ -4,10 +4,10 @@ import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityProm
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
 import type { PiSession } from "../src/agent/runtime/types.js";
-import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
+import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
-import { SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
+import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 
@@ -167,7 +167,7 @@ describe("runSpecialist", () => {
         durationMs: expect.any(Number),
       });
       expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
-        maxToolRounds: 24,
+        maxToolRounds: MAX_TOOL_ROUNDS,
         phase: "specialist",
         checkpointId: "specialist:specialist",
       });
@@ -194,7 +194,7 @@ describe("runSpecialist", () => {
     expect(briefMessage).toContain("Source: specialist_brief.correctness_focus");
     expect(briefMessage).toContain("Source: specialist_brief.risk_area");
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith(briefMessage, {
-      maxToolRounds: 24,
+      maxToolRounds: MAX_TOOL_ROUNDS,
       phase: "specialist",
       checkpointId: "specialist:specialist",
     });
@@ -241,7 +241,7 @@ describe("runSpecialist", () => {
 
     expect(outcome).toMatchObject({ kind: "report", specialist: "correctness" });
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
-      maxToolRounds: 48,
+      maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, escalationForAttempt(2, cfg)),
       phase: "specialist",
       checkpointId: "specialist:specialist",
     });
@@ -260,7 +260,9 @@ describe("runSpecialist", () => {
 
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith(
       "Review this pull request.",
-      expect.objectContaining({ maxToolRounds: 48 }),
+      expect.objectContaining({
+        maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, escalationForAttempt(2, cfg)),
+      }),
     );
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ attemptModel: undefined }),
