@@ -195,12 +195,60 @@ export function mcpMethodNotAllowed(): Response {
   );
 }
 
+function declaredBodyTooLarge(request: Request): boolean {
+  const header = request.headers.get("content-length");
+  if (header === null) {
+    return false;
+  }
+  if (!/^\d+$/.test(header)) {
+    return true;
+  }
+  return Number(header) > MAX_BODY_BYTES;
+}
+
+/**
+ * Stop once the cap is passed. `request.text()` would keep the whole body, so a
+ * client could force a multi-megabyte allocation before the 64 KiB reject.
+ */
+async function readCappedBody(request: Request): Promise<Uint8Array | null> {
+  if (declaredBodyTooLarge(request)) {
+    await request.body?.cancel();
+    return null;
+  }
+  const body = request.body;
+  if (body === null) {
+    return new Uint8Array();
+  }
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (total + value.byteLength > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 export async function mcpPostResponse(request: Request): Promise<Response> {
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) {
+  const bytes = await readCappedBody(request);
+  if (bytes === null) {
     return rpcError(null, -32600, "request is too large");
   }
-  const message = parseRpc(raw);
+  const message = parseRpc(new TextDecoder().decode(bytes));
   switch (message.kind) {
     case "parse_error":
       return rpcError(null, -32700, "parse error");
