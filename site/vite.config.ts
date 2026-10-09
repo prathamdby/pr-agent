@@ -118,10 +118,13 @@ export default defineConfig({
         entryFormat: "node",
       },
       hooks: {
-        compiled(output) {
+        // `compiled` belongs to the Vercel preset. It writes `.vercel/output/config.json`.
+        // A user hook on that same name replaces it, and Vercel then looks for `dist`.
+        // `close` runs after public files are copied and before that preset hook.
+        close() {
           // Vercel serves files in `static/` ahead of the function, and stamps Last-Modified
           // with the request time. The route is the response that carries the content date.
-          rmSync(resolve(output.options.output.publicDir, "llms.txt"), { force: true });
+          rmSync(resolve(siteDir, ".vercel/output/static/llms.txt"), { force: true });
         },
       },
     }),
