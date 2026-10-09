@@ -420,6 +420,11 @@ describe("content revision validators", () => {
     const homepage = xml.match(/<loc>[^<]*\/<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/);
     const landingModified = decorateHtmlResponse(rendered(200)).headers.get("Last-Modified");
     expect(new Date(homepage?.[1] ?? "").toUTCString()).toBe(landingModified);
+    const preview = sitemapResponse(
+      { ifNoneMatch: null, ifModifiedSince: null },
+      "https://preview.example",
+    );
+    expect(await preview.text()).toContain("<loc>https://preview.example/</loc>");
   });
 
   it("serves /llms.txt with the committed revision rather than a clock", () => {

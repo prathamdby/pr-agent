@@ -40,10 +40,17 @@ function priorityFor(path: string): string {
   return path === "/" ? "1.0" : "0.3";
 }
 
-export function renderSitemapXml(lastmodFor: (path: string) => string): string {
+/**
+ * Locations use the same host as robots.txt. SITE_ORIGIN is the build host, which is wrong
+ * for a preview deployment or a local scan.
+ */
+export function renderSitemapXml(
+  lastmodFor: (path: string) => string,
+  origin: string = SITE_ORIGIN,
+): string {
   const entries = AGENT_RESOURCES.filter((resource) => resource.inSitemap).map((resource) => {
     const lastmod = lastmodFor(resource.path);
-    return `  <url>\n    <loc>${resourceUrl(resource)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`;
+    return `  <url>\n    <loc>${resourceUrl(resource, origin)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`;
   });
 
   return `<?xml version="1.0" encoding="UTF-8"?>

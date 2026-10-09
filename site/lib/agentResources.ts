@@ -182,9 +182,13 @@ export const AGENT_RESOURCES: readonly AgentResource[] = [
   ROBOTS_POLICY,
 ];
 
-/** Absolute form, for the formats that require it: robots.txt, sitemap.xml, and OpenAPI servers. */
-export function resourceUrl(resource: AgentResource): string {
-  return `${SITE_ORIGIN}${resource.path}`;
+/**
+ * Absolute form for a document that must name a host.
+ * The default is the build host. Pass the request origin when a preview or local
+ * fetch must not advertise that build host.
+ */
+export function resourceUrl(resource: AgentResource, origin: string = SITE_ORIGIN): string {
+  return `${origin}${resource.path}`;
 }
 
 /**

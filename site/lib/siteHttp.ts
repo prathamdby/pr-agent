@@ -18,6 +18,7 @@ import {
 import { renderSitemapXml } from "./discovery.js";
 import { renderLlmsTxt } from "./llmsKnowledge.js";
 import { renderOpenApiDocument } from "./openapi.js";
+import { SITE_ORIGIN } from "./site.js";
 import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
@@ -232,14 +233,17 @@ export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS)
 }
 
 /** `/sitemap.xml`. Each URL keeps its own lastmod. The document validator is the newest of those. */
-export function sitemapResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+export function sitemapResponse(
+  conditional: ConditionalHeaders = NO_VALIDATORS,
+  origin: string = SITE_ORIGIN,
+): Response {
   const revision = sitemapRevision();
   const cached = conditionalResponse(conditional, revision, { honorModifiedSince: true });
   if (cached !== null) {
     cached.headers.set("Content-Type", "application/xml; charset=utf-8");
     return cached;
   }
-  const response = new Response(renderSitemapXml(lastmodForSitemapPath), {
+  const response = new Response(renderSitemapXml(lastmodForSitemapPath, origin), {
     headers: { "Content-Type": "application/xml; charset=utf-8" },
   });
   applyRevisionHeaders(response.headers, revision);
