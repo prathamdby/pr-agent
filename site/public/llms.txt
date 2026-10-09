@@ -235,11 +235,23 @@ Machine-readable endpoints published by this site. Paths are relative to this fi
 - [/llms?query=](/llms?query=): Ask one question and get the matching profile sections instead of the whole file.
 - [/llms/json?query=](/llms/json?query=): The same query interface with structured matches, topics, and a token estimate.
 - [/openapi.json](/openapi.json): OpenAPI 3.1 description of every endpoint on this list.
+- [/.well-known/api-catalog](/.well-known/api-catalog): RFC 9727 linkset for this site's agent API: OpenAPI description, docs, and landing-site liveness.
+- [/.well-known/ai-catalog.json](/.well-known/ai-catalog.json): ARD manifest of the profile, OpenAPI document, agent instructions, MCP card, and skills index.
+- [/.well-known/mcp/server-card.json](/.well-known/mcp/server-card.json): SEP-1649 card for the read-only MCP server at POST /mcp. No token.
+- [/.well-known/agent-skills/index.json](/.well-known/agent-skills/index.json): Skills discovery index. Each entry names a SKILL.md and its sha256 digest.
+- [/.well-known/agent-skills/read-pr-agent/SKILL.md](/.well-known/agent-skills/read-pr-agent/SKILL.md): SKILL.md for reading this site. The skills index carries its sha256 digest.
+- [/auth.md](/auth.md): Registration note: these endpoints are public and take no credentials.
+- [/mcp](/mcp): Read-only streamable HTTP MCP endpoint. POST one JSON-RPC message: initialize, tools/list, or tools/call. No token.
+- [/health](/health): Liveness of this landing site. A deployment's GET /health and GET /ready stay on the operator's host.
 - [/sitemap.xml](/sitemap.xml): Canonical URLs published by this site.
-- [/robots.txt](/robots.txt): Crawl policy, with pointers to the files on this list.
+- [/robots.txt](/robots.txt): Crawl policy, Content-Signal preferences, and pointers to the files on this list.
 Accept: text/markdown on / returns the landing page as markdown with Vary: Accept, Accept-Language. /index.md serves the markdown at a fixed URL with Vary: Accept-Language.
 Both pick the language of the page's fetch example from Accept-Language, for example en-us, python. Served languages are typescript, javascript, python, go, java, ruby, bash. HTML / varies on Accept only.
-A PR Agent deployment exposes its own endpoints on the operator's host: POST /webhooks for signed GitHub deliveries, GET /health, and GET /ready. Those are not served here.
+A PR Agent deployment exposes POST /webhooks, GET /health, and GET /ready on the operator's host. This site's GET /health only checks that the landing site is serving. It does not report a deployment.
+robots.txt sets Content-Signal: ai-train=no, search=yes, ai-input=yes. Agents may use this site as input. It is not offered for model training. Search crawlers may index it.
+POST /mcp is a read-only MCP server with tools query_pr_agent and list_site_resources. No token. Its card is /.well-known/mcp/server-card.json. The landing page also registers those tools, plus open_section, through the WebMCP API.
+/auth.md says these endpoints are public. This origin is not an OAuth authorization server and does not publish protected-resource metadata, because nothing here requires a bearer token.
+DNS for AI Discovery is not in this repository. The operator's DNS host publishes ServiceMode HTTPS records at _index._agents.<domain> and _mcp._agents.<domain>, with alpn=h2 and port=443, targeting this site, and signs that zone with DNSSEC.
 
 ## Documentation
 

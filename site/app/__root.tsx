@@ -1,6 +1,13 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { NotFound } from "@/components/not-found";
-import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
+import {
+  AI_CATALOG,
+  API_CATALOG,
+  LANDING_PAGE_MARKDOWN,
+  LLMS_TXT_PROFILE,
+  resourceUrl,
+} from "@/lib/agentResources";
+import { renderWebMcpScript } from "@/lib/webMcp";
 import { HERO_HEADING } from "@/lib/content";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
@@ -128,6 +135,16 @@ export const Route = createRootRoute({
         href: resourceUrl(LLMS_TXT_PROFILE),
         title: LLMS_TXT_PROFILE.title,
       },
+      {
+        rel: "api-catalog",
+        type: API_CATALOG.mediaType,
+        href: API_CATALOG.path,
+      },
+      {
+        rel: "ai-catalog",
+        type: AI_CATALOG.mediaType,
+        href: AI_CATALOG.path,
+      },
     ],
   }),
   component: RootLayout,
@@ -154,6 +171,7 @@ function RootLayout() {
         <div className="page-frame">
           <Outlet />
         </div>
+        <script dangerouslySetInnerHTML={{ __html: renderWebMcpScript() }} />
         <Scripts />
       </body>
     </html>

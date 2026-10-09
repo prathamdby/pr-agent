@@ -1,4 +1,5 @@
 import { renderDocLinks, renderResourceLinks } from "./agentResources.js";
+import { CONTENT_SIGNAL } from "./discovery.js";
 import {
   ALTERNATIVE_ROWS,
   CAPABILITIES,
@@ -395,13 +396,28 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "sitemap",
       "robots",
       "json",
+      "catalog",
+      "mcp",
+      "skill",
+      "skills",
+      "oauth",
+      "auth",
+      "dns",
+      "signal",
+      "discovery",
+      "webmcp",
+      "health",
     ],
     body: lines([
       "Machine-readable endpoints published by this site. Paths are relative to this file's origin:",
       renderResourceLinks(),
       "Accept: text/markdown on / returns the landing page as markdown with Vary: Accept, Accept-Language. /index.md serves the markdown at a fixed URL with Vary: Accept-Language.",
       `Both pick the language of the page's fetch example from Accept-Language, for example en-us, python. Served languages are ${SERVED_LANGUAGES}. HTML / varies on Accept only.`,
-      "A PR Agent deployment exposes its own endpoints on the operator's host: POST /webhooks for signed GitHub deliveries, GET /health, and GET /ready. Those are not served here.",
+      "A PR Agent deployment exposes POST /webhooks, GET /health, and GET /ready on the operator's host. This site's GET /health only checks that the landing site is serving. It does not report a deployment.",
+      `robots.txt sets Content-Signal: ${CONTENT_SIGNAL}. Agents may use this site as input. It is not offered for model training. Search crawlers may index it.`,
+      "POST /mcp is a read-only MCP server with tools query_pr_agent and list_site_resources. No token. Its card is /.well-known/mcp/server-card.json. The landing page also registers those tools, plus open_section, through the WebMCP API.",
+      "/auth.md says these endpoints are public. This origin is not an OAuth authorization server and does not publish protected-resource metadata, because nothing here requires a bearer token.",
+      "DNS for AI Discovery is not in this repository. The operator's DNS host publishes ServiceMode HTTPS records at _index._agents.<domain> and _mcp._agents.<domain>, with alpn=h2 and port=443, targeting this site, and signs that zone with DNSSEC.",
     ]),
   },
   {

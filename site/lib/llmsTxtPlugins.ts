@@ -22,6 +22,7 @@ function watchedModules(): readonly string[] {
   return [
     "llmsKnowledge.ts",
     "agentResources.ts",
+    "discovery.ts",
     "content.ts",
     "acceptLanguage.ts",
     "site.ts",

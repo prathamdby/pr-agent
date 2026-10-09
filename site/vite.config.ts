@@ -7,10 +7,13 @@ import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
+import { authMarkdownResponse, skillMarkdownResponse } from "./lib/agentDiscovery.js";
 import {
   AGENT_INSTRUCTIONS,
+  AUTH_MD,
   LANDING_PAGE_MARKDOWN,
   LLMS_TXT_PROFILE,
+  READ_PR_AGENT_SKILL,
 } from "./lib/agentResources.js";
 import { contentRevisionBuildPlugin } from "./lib/contentRevisionPlugin.js";
 import type { ConditionalHeaders } from "./lib/contentRevision.js";
@@ -57,6 +60,8 @@ function serveMarkdownRoutesInDev(): Plugin {
     ],
     [AGENT_INSTRUCTIONS.path, (request) => agentInstructionsResponse(conditionalFromNode(request))],
     [LLMS_TXT_PROFILE.path, (request) => llmsProfileResponse(conditionalFromNode(request))],
+    [AUTH_MD.path, () => authMarkdownResponse()],
+    [READ_PR_AGENT_SKILL.path, () => skillMarkdownResponse()],
   ]);
   return {
     name: "serve-markdown-routes-dev",

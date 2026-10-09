@@ -11,13 +11,21 @@
 import { Route as rootRouteImport } from './app/__root'
 import { Route as IndexRouteImport } from './app/index'
 import { Route as AgentsDotmdRouteImport } from './app/agents[.]md'
+import { Route as AuthDotmdRouteImport } from './app/auth[.]md'
+import { Route as HealthRouteImport } from './app/health'
 import { Route as IndexDotmdRouteImport } from './app/index[.]md'
 import { Route as LlmsDottxtRouteImport } from './app/llms[.]txt'
+import { Route as McpRouteImport } from './app/mcp'
 import { Route as OpenapiDotjsonRouteImport } from './app/openapi[.]json'
 import { Route as RobotsDottxtRouteImport } from './app/robots[.]txt'
 import { Route as SitemapDotxmlRouteImport } from './app/sitemap[.]xml'
+import { Route as DotwellKnownAiCatalogDotjsonRouteImport } from './app/[.]well-known/ai-catalog[.]json'
+import { Route as DotwellKnownApiCatalogRouteImport } from './app/[.]well-known/api-catalog'
 import { Route as LlmsIndexRouteImport } from './app/llms/index'
 import { Route as LlmsJsonRouteImport } from './app/llms/json'
+import { Route as DotwellKnownAgentSkillsIndexDotjsonRouteImport } from './app/[.]well-known/agent-skills/index[.]json'
+import { Route as DotwellKnownMcpServerCardDotjsonRouteImport } from './app/[.]well-known/mcp/server-card[.]json'
+import { Route as DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRouteImport } from './app/[.]well-known/agent-skills/read-pr-agent/SKILL[.]md'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -29,6 +37,16 @@ const AgentsDotmdRoute = AgentsDotmdRouteImport.update({
   path: '/agents.md',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthDotmdRoute = AuthDotmdRouteImport.update({
+  id: '/auth.md',
+  path: '/auth.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexDotmdRoute = IndexDotmdRouteImport.update({
   id: '/index.md',
   path: '/index.md',
@@ -37,6 +55,11 @@ const IndexDotmdRoute = IndexDotmdRouteImport.update({
 const LlmsDottxtRoute = LlmsDottxtRouteImport.update({
   id: '/llms.txt',
   path: '/llms.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OpenapiDotjsonRoute = OpenapiDotjsonRouteImport.update({
@@ -54,6 +77,17 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DotwellKnownAiCatalogDotjsonRoute =
+  DotwellKnownAiCatalogDotjsonRouteImport.update({
+    id: '/.well-known/ai-catalog.json',
+    path: '/.well-known/ai-catalog.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotwellKnownApiCatalogRoute = DotwellKnownApiCatalogRouteImport.update({
+  id: '/.well-known/api-catalog',
+  path: '/.well-known/api-catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LlmsIndexRoute = LlmsIndexRouteImport.update({
   id: '/llms/',
   path: '/llms/',
@@ -64,87 +98,161 @@ const LlmsJsonRoute = LlmsJsonRouteImport.update({
   path: '/llms/json',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DotwellKnownAgentSkillsIndexDotjsonRoute =
+  DotwellKnownAgentSkillsIndexDotjsonRouteImport.update({
+    id: '/.well-known/agent-skills/index.json',
+    path: '/.well-known/agent-skills/index.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotwellKnownMcpServerCardDotjsonRoute =
+  DotwellKnownMcpServerCardDotjsonRouteImport.update({
+    id: '/.well-known/mcp/server-card.json',
+    path: '/.well-known/mcp/server-card.json',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute =
+  DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRouteImport.update({
+    id: '/.well-known/agent-skills/read-pr-agent/SKILL.md',
+    path: '/.well-known/agent-skills/read-pr-agent/SKILL.md',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
+  '/auth.md': typeof AuthDotmdRoute
+  '/health': typeof HealthRoute
   '/index.md': typeof IndexDotmdRoute
   '/llms.txt': typeof LlmsDottxtRoute
+  '/mcp': typeof McpRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/.well-known/ai-catalog.json': typeof DotwellKnownAiCatalogDotjsonRoute
+  '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
   '/llms/json': typeof LlmsJsonRoute
   '/llms/': typeof LlmsIndexRoute
+  '/.well-known/agent-skills/index.json': typeof DotwellKnownAgentSkillsIndexDotjsonRoute
+  '/.well-known/mcp/server-card.json': typeof DotwellKnownMcpServerCardDotjsonRoute
+  '/.well-known/agent-skills/read-pr-agent/SKILL.md': typeof DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
+  '/auth.md': typeof AuthDotmdRoute
+  '/health': typeof HealthRoute
   '/index.md': typeof IndexDotmdRoute
   '/llms.txt': typeof LlmsDottxtRoute
+  '/mcp': typeof McpRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/.well-known/ai-catalog.json': typeof DotwellKnownAiCatalogDotjsonRoute
+  '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
   '/llms/json': typeof LlmsJsonRoute
   '/llms': typeof LlmsIndexRoute
+  '/.well-known/agent-skills/index.json': typeof DotwellKnownAgentSkillsIndexDotjsonRoute
+  '/.well-known/mcp/server-card.json': typeof DotwellKnownMcpServerCardDotjsonRoute
+  '/.well-known/agent-skills/read-pr-agent/SKILL.md': typeof DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
+  '/auth.md': typeof AuthDotmdRoute
+  '/health': typeof HealthRoute
   '/index.md': typeof IndexDotmdRoute
   '/llms.txt': typeof LlmsDottxtRoute
+  '/mcp': typeof McpRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/.well-known/ai-catalog.json': typeof DotwellKnownAiCatalogDotjsonRoute
+  '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
   '/llms/json': typeof LlmsJsonRoute
   '/llms/': typeof LlmsIndexRoute
+  '/.well-known/agent-skills/index.json': typeof DotwellKnownAgentSkillsIndexDotjsonRoute
+  '/.well-known/mcp/server-card.json': typeof DotwellKnownMcpServerCardDotjsonRoute
+  '/.well-known/agent-skills/read-pr-agent/SKILL.md': typeof DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/agents.md'
+    | '/auth.md'
+    | '/health'
     | '/index.md'
     | '/llms.txt'
+    | '/mcp'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/.well-known/ai-catalog.json'
+    | '/.well-known/api-catalog'
     | '/llms/json'
     | '/llms/'
+    | '/.well-known/agent-skills/index.json'
+    | '/.well-known/mcp/server-card.json'
+    | '/.well-known/agent-skills/read-pr-agent/SKILL.md'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/agents.md'
+    | '/auth.md'
+    | '/health'
     | '/index.md'
     | '/llms.txt'
+    | '/mcp'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/.well-known/ai-catalog.json'
+    | '/.well-known/api-catalog'
     | '/llms/json'
     | '/llms'
+    | '/.well-known/agent-skills/index.json'
+    | '/.well-known/mcp/server-card.json'
+    | '/.well-known/agent-skills/read-pr-agent/SKILL.md'
   id:
     | '__root__'
     | '/'
     | '/agents.md'
+    | '/auth.md'
+    | '/health'
     | '/index.md'
     | '/llms.txt'
+    | '/mcp'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
+    | '/.well-known/ai-catalog.json'
+    | '/.well-known/api-catalog'
     | '/llms/json'
     | '/llms/'
+    | '/.well-known/agent-skills/index.json'
+    | '/.well-known/mcp/server-card.json'
+    | '/.well-known/agent-skills/read-pr-agent/SKILL.md'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentsDotmdRoute: typeof AgentsDotmdRoute
+  AuthDotmdRoute: typeof AuthDotmdRoute
+  HealthRoute: typeof HealthRoute
   IndexDotmdRoute: typeof IndexDotmdRoute
   LlmsDottxtRoute: typeof LlmsDottxtRoute
+  McpRoute: typeof McpRoute
   OpenapiDotjsonRoute: typeof OpenapiDotjsonRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  DotwellKnownAiCatalogDotjsonRoute: typeof DotwellKnownAiCatalogDotjsonRoute
+  DotwellKnownApiCatalogRoute: typeof DotwellKnownApiCatalogRoute
   LlmsJsonRoute: typeof LlmsJsonRoute
   LlmsIndexRoute: typeof LlmsIndexRoute
+  DotwellKnownAgentSkillsIndexDotjsonRoute: typeof DotwellKnownAgentSkillsIndexDotjsonRoute
+  DotwellKnownMcpServerCardDotjsonRoute: typeof DotwellKnownMcpServerCardDotjsonRoute
+  DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute: typeof DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -163,6 +271,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsDotmdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth.md': {
+      id: '/auth.md'
+      path: '/auth.md'
+      fullPath: '/auth.md'
+      preLoaderRoute: typeof AuthDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/index.md': {
       id: '/index.md'
       path: '/index.md'
@@ -175,6 +297,13 @@ declare module '@tanstack/react-router' {
       path: '/llms.txt'
       fullPath: '/llms.txt'
       preLoaderRoute: typeof LlmsDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/openapi.json': {
@@ -198,6 +327,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/.well-known/ai-catalog.json': {
+      id: '/.well-known/ai-catalog.json'
+      path: '/.well-known/ai-catalog.json'
+      fullPath: '/.well-known/ai-catalog.json'
+      preLoaderRoute: typeof DotwellKnownAiCatalogDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/api-catalog': {
+      id: '/.well-known/api-catalog'
+      path: '/.well-known/api-catalog'
+      fullPath: '/.well-known/api-catalog'
+      preLoaderRoute: typeof DotwellKnownApiCatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/llms/': {
       id: '/llms/'
       path: '/llms'
@@ -212,19 +355,50 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LlmsJsonRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/.well-known/agent-skills/index.json': {
+      id: '/.well-known/agent-skills/index.json'
+      path: '/.well-known/agent-skills/index.json'
+      fullPath: '/.well-known/agent-skills/index.json'
+      preLoaderRoute: typeof DotwellKnownAgentSkillsIndexDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/mcp/server-card.json': {
+      id: '/.well-known/mcp/server-card.json'
+      path: '/.well-known/mcp/server-card.json'
+      fullPath: '/.well-known/mcp/server-card.json'
+      preLoaderRoute: typeof DotwellKnownMcpServerCardDotjsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/agent-skills/read-pr-agent/SKILL.md': {
+      id: '/.well-known/agent-skills/read-pr-agent/SKILL.md'
+      path: '/.well-known/agent-skills/read-pr-agent/SKILL.md'
+      fullPath: '/.well-known/agent-skills/read-pr-agent/SKILL.md'
+      preLoaderRoute: typeof DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentsDotmdRoute: AgentsDotmdRoute,
+  AuthDotmdRoute: AuthDotmdRoute,
+  HealthRoute: HealthRoute,
   IndexDotmdRoute: IndexDotmdRoute,
   LlmsDottxtRoute: LlmsDottxtRoute,
+  McpRoute: McpRoute,
   OpenapiDotjsonRoute: OpenapiDotjsonRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  DotwellKnownAiCatalogDotjsonRoute: DotwellKnownAiCatalogDotjsonRoute,
+  DotwellKnownApiCatalogRoute: DotwellKnownApiCatalogRoute,
   LlmsJsonRoute: LlmsJsonRoute,
   LlmsIndexRoute: LlmsIndexRoute,
+  DotwellKnownAgentSkillsIndexDotjsonRoute:
+    DotwellKnownAgentSkillsIndexDotjsonRoute,
+  DotwellKnownMcpServerCardDotjsonRoute: DotwellKnownMcpServerCardDotjsonRoute,
+  DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute:
+    DotwellKnownAgentSkillsReadPrAgentSKILLDotmdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

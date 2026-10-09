@@ -19,7 +19,7 @@ export type AgentResource = {
   readonly inSitemap: boolean;
 };
 
-const LANDING_PAGE: AgentResource = {
+export const LANDING_PAGE: AgentResource = {
   path: "/",
   title: "PR Agent landing page",
   mediaType: "text/html",
@@ -78,6 +78,74 @@ export const OPENAPI_DOCUMENT: AgentResource = {
   inSitemap: true,
 };
 
+export const API_CATALOG: AgentResource = {
+  path: "/.well-known/api-catalog",
+  title: "PR Agent API catalog",
+  mediaType: "application/linkset+json",
+  description:
+    "RFC 9727 linkset for this site's agent API: OpenAPI description, docs, and landing-site liveness.",
+  inSitemap: false,
+};
+
+export const AI_CATALOG: AgentResource = {
+  path: "/.well-known/ai-catalog.json",
+  title: "PR Agent agentic resource catalog",
+  mediaType: "application/json",
+  description:
+    "ARD manifest of the profile, OpenAPI document, agent instructions, MCP card, and skills index.",
+  inSitemap: false,
+};
+
+export const MCP_SERVER_CARD: AgentResource = {
+  path: "/.well-known/mcp/server-card.json",
+  title: "PR Agent MCP server card",
+  mediaType: "application/json",
+  description: "SEP-1649 card for the read-only MCP server at POST /mcp. No token.",
+  inSitemap: false,
+};
+
+export const AGENT_SKILLS_INDEX: AgentResource = {
+  path: "/.well-known/agent-skills/index.json",
+  title: "PR Agent agent skills index",
+  mediaType: "application/json",
+  description: "Skills discovery index. Each entry names a SKILL.md and its sha256 digest.",
+  inSitemap: false,
+};
+
+export const READ_PR_AGENT_SKILL: AgentResource = {
+  path: "/.well-known/agent-skills/read-pr-agent/SKILL.md",
+  title: "PR Agent read-site skill",
+  mediaType: "text/markdown",
+  description: "SKILL.md for reading this site. The skills index carries its sha256 digest.",
+  inSitemap: false,
+};
+
+export const AUTH_MD: AgentResource = {
+  path: "/auth.md",
+  title: "PR Agent auth.md",
+  mediaType: "text/markdown",
+  description: "Registration note: these endpoints are public and take no credentials.",
+  inSitemap: false,
+};
+
+export const MCP_ENDPOINT: AgentResource = {
+  path: "/mcp",
+  title: "PR Agent MCP server",
+  mediaType: "application/json",
+  description:
+    "Read-only streamable HTTP MCP endpoint. POST one JSON-RPC message: initialize, tools/list, or tools/call. No token.",
+  inSitemap: false,
+};
+
+export const SITE_HEALTH: AgentResource = {
+  path: "/health",
+  title: "PR Agent landing site health",
+  mediaType: "application/json",
+  description:
+    "Liveness of this landing site. A deployment's GET /health and GET /ready stay on the operator's host.",
+  inSitemap: false,
+};
+
 const SITEMAP: AgentResource = {
   path: "/sitemap.xml",
   title: "PR Agent sitemap",
@@ -90,7 +158,7 @@ const ROBOTS_POLICY: AgentResource = {
   path: "/robots.txt",
   title: "PR Agent robots.txt",
   mediaType: "text/plain",
-  description: "Crawl policy, with pointers to the files on this list.",
+  description: "Crawl policy, Content-Signal preferences, and pointers to the files on this list.",
   inSitemap: false,
 };
 
@@ -102,6 +170,14 @@ export const AGENT_RESOURCES: readonly AgentResource[] = [
   KNOWLEDGE_QUERY_TEXT,
   KNOWLEDGE_QUERY_JSON,
   OPENAPI_DOCUMENT,
+  API_CATALOG,
+  AI_CATALOG,
+  MCP_SERVER_CARD,
+  AGENT_SKILLS_INDEX,
+  READ_PR_AGENT_SKILL,
+  AUTH_MD,
+  MCP_ENDPOINT,
+  SITE_HEALTH,
   SITEMAP,
   ROBOTS_POLICY,
 ];

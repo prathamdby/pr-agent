@@ -1,6 +1,11 @@
 import { negotiateType } from "./accept.js";
 import { negotiateProgrammingLanguage } from "./acceptLanguage.js";
-import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "./agentResources.js";
+import {
+  AI_CATALOG,
+  API_CATALOG,
+  LANDING_PAGE_MARKDOWN,
+  LLMS_TXT_PROFILE,
+} from "./agentResources.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import {
   applyRevisionHeaders,
@@ -51,8 +56,9 @@ const MARKDOWN_CONTENT_TYPE = `${MARKDOWN_TYPE}; charset=utf-8`;
  * Targets come from the resource registry so the headers cannot drift from the sitemap, the
  * OpenAPI description, or the markdown link lists.
  */
-const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
-const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
+const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
+const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
+const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
 /** Add a request header to Vary without dropping whatever the framework already varies on. */
 export function varyOn(headers: Headers, field: string): void {
