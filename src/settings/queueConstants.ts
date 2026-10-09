@@ -28,7 +28,7 @@ export const DEFERRED_HEAD_SHA = "deferred-to-worker";
  * the factor is never truncated for existing callers.
  */
 export const ESCALATED_TOOL_ROUNDS_MULTIPLIER = 2;
-export const ESCALATED_TOOL_ROUNDS_CAP = 200_000;
+export const ESCALATED_TOOL_ROUNDS_CAP = 4_000;
 
 /** Queued this long with no live lease and no live pg-boss job means the delivery chain died. */
 export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;

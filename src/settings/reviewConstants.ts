@@ -251,7 +251,7 @@ export type ReviewPhase =
   | "plaintext_fallback";
 
 /** Recon and specialist investigation rounds. The specialist timeout and the review deadline stop the run before this budget. */
-export const MAX_TOOL_ROUNDS = 100_000;
+export const MAX_TOOL_ROUNDS = 2_000;
 /** Evidence rounds per specialist judgment turn. A reserved publish round is additional (at most one extra round), so evidence gathering can never starve `publish_thread`. */
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
