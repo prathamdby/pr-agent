@@ -2,7 +2,8 @@
 
 ## Status
 
-Implemented for local, best-effort analysis. Traces are not recovery evidence.
+Superseded by [ADR 0050](0050-posthog-ai-traces.md). The decision below is the
+historical Postgres store. Do not implement it.
 
 ## Decision
 

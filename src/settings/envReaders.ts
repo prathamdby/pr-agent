@@ -113,3 +113,16 @@ export function readStrictBoolean(name: string, defaultValue: boolean): boolean 
 export function isProductionNodeEnv(): boolean {
   return process.env.NODE_ENV === "production";
 }
+
+/** A removed variable fails startup even when its value is empty. */
+export function rejectRemovedEnv(names: readonly string[]): void {
+  for (const name of names) {
+    if (process.env[name] === undefined) continue;
+    throw new AppError({
+      domain: "config",
+      kind: "invalid_enum",
+      message: `${name} was removed; delete it from the environment`,
+      context: { name },
+    });
+  }
+}

@@ -1,12 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../../settings/index.js";
 import {
-  captureWorkSpan,
   llmSpanFromSession,
   publishSpanFromContext,
   projectWorkSpanToAgentEventRow,
   type WorkSpan,
 } from "../../analytics/workSpan.js";
+import { recordExecutionSpan } from "../../traces/recorder.js";
 import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
 import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
 import type { TurnEnd } from "../providers/usageMetadata.js";
@@ -236,12 +236,37 @@ export function createDurableLifecycleEventSink(
   };
 }
 
+function recordNonGenerationSpan(span: WorkSpan): void {
+  if (span.kind === "llm_generation") return;
+  const extra: Record<string, string | number | boolean | null> = {};
+  if (span.kind === "publish_span") extra.publish_step = span.publishStep;
+  if (span.kind === "specialist_span") {
+    extra.stage = span.stage;
+    extra.outcome = span.outcome;
+    if (span.submittedCount != null) extra.submitted_count = span.submittedCount;
+    if (span.acceptedCount != null) extra.accepted_count = span.acceptedCount;
+    if (span.rejectedCount != null) extra.rejected_count = span.rejectedCount;
+  }
+  if (span.attemptCount != null) extra.attempt_count = span.attemptCount;
+  recordExecutionSpan({
+    event: "$ai_span",
+    spanId: span.spanId,
+    spanName: span.spanName,
+    status: span.isError ? "error" : "ok",
+    latencyMs: span.latencyMs,
+    ...(span.isError ? { isError: true, error: span.errorReason ?? span.kind } : {}),
+    ...("phase" in span ? { phase: span.phase } : {}),
+    ...(span.specialistId != null ? { specialist: span.specialistId } : {}),
+    ...(Object.keys(extra).length > 0 ? { extra } : {}),
+  });
+}
+
 export function emitWorkSpan(
   context: AgentEventsContext | null,
   cfg: Pick<Config, "agentEvents">,
   span: WorkSpan,
 ): void {
-  captureWorkSpan(span);
+  recordNonGenerationSpan(span);
   if (!context) return;
   safeEmitAgentEvent(context, cfg, projectWorkSpanToAgentEventRow(context, span));
 }
@@ -291,7 +316,7 @@ export function safeEmitPublishEvent(
       latencyMs: span.latencyMs,
     },
   });
-  captureWorkSpan(span);
+  recordNonGenerationSpan(span);
 }
 
 export function safeEmitCoverageEvent(

@@ -1,9 +1,8 @@
-import { createHash } from "node:crypto";
 import type { Config } from "../settings/index.js";
-import type { TracePart, TracePartKind } from "./traceTypes.js";
+import { isPlainObject } from "../util/typeGuards.js";
 
 const CREDENTIALS =
-  /-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z]+ )?PRIVATE KEY-----|(?:gh[pso]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|xox(?:[a-z]-|e\.)[A-Za-z0-9.-]+|AKIA[A-Z0-9]{16})/g;
+  /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----|(?:gh[phorsu]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|npm_[A-Za-z0-9]{36}|sk_(?:live|test)_[A-Za-z0-9]+|sk-[A-Za-z0-9_-]+|xox(?:[a-z]-|e\.)[A-Za-z0-9.-]+|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})|(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?):\/\/[^\s:]+:[^\s@]+@/gi;
 
 export function createTraceRedactor(
   cfg: Pick<Config, "github" | "models" | "webhook" | "runtime" | "context7" | "posthog">,
@@ -24,36 +23,26 @@ export function createTraceRedactor(
   ].forEach(addSecret);
   return {
     addSecret,
-    redact(text: string): { body: string; redactions: number } {
-      let redactions = 0;
+    redact(text: string): string {
       let body = text;
       for (const secret of [...secrets].toSorted((a, b) => b.length - a.length)) {
         if (!body.includes(secret)) continue;
-        const pieces = body.split(secret);
-        redactions += pieces.length - 1;
-        body = pieces.join("[redacted]");
+        body = body.split(secret).join("[redacted]");
       }
-      body = body.replace(CREDENTIALS, () => {
-        redactions += 1;
-        return "[redacted]";
-      });
-      return { body, redactions };
+      return body.replace(CREDENTIALS, "[redacted]");
     },
   };
 }
 
-export function tracePart(kind: TracePartKind, body: string, redactions: number): TracePart {
-  return {
-    kind,
-    body,
-    redactions,
-    bytes: Buffer.byteLength(body),
-    sha256: createHash("sha256").update(body).digest("hex"),
-  };
-}
-
-export function untrustedTraceFence(body: string): string {
-  const runs = body.match(/`+/g) ?? [];
-  const fence = "`".repeat(Math.max(3, ...runs.map((run) => run.length + 1)));
-  return `${fence}untrusted_trace\n${body}\n${fence}`;
+export function redactTraceValue(value: unknown, redact: (text: string) => string): unknown {
+  if (typeof value === "string") return redact(value);
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
+  if (Array.isArray(value)) return value.map((item) => redactTraceValue(item, redact));
+  if (isPlainObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactTraceValue(item, redact)]),
+    );
+  }
+  const text = JSON.stringify(value);
+  return typeof text === "string" ? redact(text) : value;
 }

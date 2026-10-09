@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { runMigrations } from "../db/migrations.js";
@@ -18,38 +18,8 @@ export class AgentWorkExecutions extends Context.Service<AgentWorkExecutions, Ex
   "AgentWorkExecutions",
 ) {}
 
-function closeTraceClient(client: PoolClient): void {
-  void client.end().catch(() => logWarn("agent_trace_pool_close_failed"));
-}
-
 function openWorkerTraces(cfg: Config): () => Promise<void> {
-  if (cfg.runtime.role !== "worker" || cfg.traces.mode === "off") return async () => undefined;
-  try {
-    const pool = createPgPool(cfg, 2);
-    const borrowed = new Set<PoolClient>();
-    let closing = false;
-    pool.on("acquire", (client) => {
-      if (closing) closeTraceClient(client);
-      else borrowed.add(client);
-    });
-    pool.on("release", (_error, client) => borrowed.delete(client));
-    const drain = initTraces(pool, cfg);
-    return async () => {
-      try {
-        await drain();
-      } finally {
-        closing = true;
-        const ended = pool.end();
-        // pool.end waits for checked-out clients. A timed-out trace write
-        // must release its socket without touching the durable work pool.
-        for (const client of borrowed) closeTraceClient(client);
-        await ended.catch(() => logWarn("agent_trace_pool_close_failed"));
-      }
-    };
-  } catch {
-    logWarn("agent_trace_init_failed");
-    return async () => undefined;
-  }
+  return initTraces(cfg);
 }
 
 export const AgentWorkExecutionsLive = (cfg: Config) =>

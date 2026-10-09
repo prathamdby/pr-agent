@@ -1,8 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { captureEvent } from "./index.js";
 import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.js";
-import { installationDistinctId } from "./workCompleted.js";
-import { currentTraceSpanId } from "../traces/recorder.js";
 
 export type WorkSpanContext = {
   readonly workItemId: string;
@@ -78,91 +75,6 @@ export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan | Spec
 
 export function newSpanId(): string {
   return randomUUID();
-}
-
-function sharedPostHogProperties(span: WorkSpan): Record<string, string | number | boolean | null> {
-  const traceSpanId = span.traceSpanId ?? currentTraceSpanId();
-  return {
-    $ai_trace_id: span.workItemId,
-    ...(traceSpanId != null ? { trace_span_id: traceSpanId } : {}),
-    $ai_span_id: span.spanId,
-    $ai_span_name: span.spanName,
-    ...(span.parentSpanId != null ? { $ai_parent_id: span.parentSpanId } : {}),
-    $ai_latency: span.latencyMs / 1000,
-    $ai_is_error: span.isError,
-    ...(span.sessionId != null ? { $ai_session_id: span.sessionId } : {}),
-    ...(span.specialistId != null ? { specialist_id: span.specialistId } : {}),
-    ...(span.executionId != null ? { execution_id: span.executionId } : {}),
-    ...(span.attemptCount != null ? { attempt_count: span.attemptCount } : {}),
-    work_item_id: span.workItemId,
-    owner: span.owner,
-    repo: span.repo,
-    pr_number: span.prNumber,
-    ...(span.errorReason != null ? { $ai_error: span.errorReason } : {}),
-  };
-}
-
-export function projectWorkSpanToPostHog(span: WorkSpan): {
-  readonly event: "$ai_generation" | "$ai_span";
-  readonly properties: Record<string, string | number | boolean | null>;
-} {
-  const shared = sharedPostHogProperties(span);
-  switch (span.kind) {
-    case "llm_generation":
-      return {
-        event: "$ai_generation",
-        properties: {
-          ...shared,
-          $ai_model: span.model,
-          $ai_provider: span.provider,
-          ...(span.inputTokens != null ? { $ai_input_tokens: span.inputTokens } : {}),
-          ...(span.outputTokens != null ? { $ai_output_tokens: span.outputTokens } : {}),
-          ...(span.cacheReadTokens != null ? { $ai_cache_read_tokens: span.cacheReadTokens } : {}),
-          ...(span.cacheWriteTokens != null
-            ? { $ai_cache_write_tokens: span.cacheWriteTokens }
-            : {}),
-          ...(span.cacheWrite1hTokens != null
-            ? { $ai_cache_write_1h_tokens: span.cacheWrite1hTokens }
-            : {}),
-          ...(span.totalTokens != null ? { $ai_total_tokens: span.totalTokens } : {}),
-          phase: span.phase,
-          ...(span.sessionRole != null ? { session_role: span.sessionRole } : {}),
-        },
-      };
-    case "publish_span":
-      return {
-        event: "$ai_span",
-        properties: {
-          ...shared,
-          publish_step: span.publishStep,
-        },
-      };
-    case "phase_checkpoint":
-      return {
-        event: "$ai_span",
-        properties: {
-          ...shared,
-          phase: span.phase,
-        },
-      };
-    case "specialist_span":
-      return {
-        event: "$ai_span",
-        properties: {
-          ...shared,
-          phase: span.phase,
-          stage: span.stage,
-          outcome: span.outcome,
-          ...(span.submittedCount != null ? { submitted_count: span.submittedCount } : {}),
-          ...(span.acceptedCount != null ? { accepted_count: span.acceptedCount } : {}),
-          ...(span.rejectedCount != null ? { rejected_count: span.rejectedCount } : {}),
-        },
-      };
-    default: {
-      const exhaustive: never = span;
-      return exhaustive;
-    }
-  }
 }
 
 export function projectWorkSpanToAgentEventRow(
@@ -261,19 +173,6 @@ export function projectWorkSpanToAgentEventRow(
       const exhaustive: never = span;
       return exhaustive;
     }
-  }
-}
-
-export function captureWorkSpan(span: WorkSpan): void {
-  try {
-    const projected = projectWorkSpanToPostHog(span);
-    captureEvent({
-      distinctId: installationDistinctId(span.installationId),
-      event: projected.event,
-      properties: projected.properties,
-    });
-  } catch {
-    // Observability cannot fail or retry feature work.
   }
 }
 
