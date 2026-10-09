@@ -7,13 +7,23 @@ import {
   llmsTxtServePlugin,
 } from "../site/lib/llmsTxtPlugins.js";
 import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
+import {
+  readEntry,
+  REVISION_IDS,
+  entityTag,
+  lastmodForSitemapPath,
+  revisionFor,
+  sitemapRevision,
+} from "../site/lib/contentRevision.js";
 import { contentRevisionBuildPlugin } from "../site/lib/contentRevisionPlugin.js";
 import {
+  CONTENT_REVISION_HOST,
   CONTENT_REVISION_MISMATCH,
   redactOrigin,
   revisionHashes,
   stableDocumentBodies,
 } from "../site/lib/contentRevisionCheck.js";
+import { renderSitemapXml } from "../site/lib/discovery.js";
 import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.js";
 import {
   FEATURE_KEYS,
@@ -368,6 +378,79 @@ describe("content revision stamp", () => {
     expect(recordedHash(onDisk, "llms")).toBe(hashes.llms);
     expect(recordedHash(onDisk, "agents")).toBe(hashes.agents);
     expect(recordedHash(onDisk, "openapi")).toBe(hashes.openapi);
+  });
+
+  it("rejects a stamp hash that could break an ETag header", () => {
+    const revisedAt = "2026-10-01T00:00:00.000Z";
+    expect(() => readEntry({ hash: 'a"\r\nX-Injected: x', revisedAt }, "landing")).toThrow(
+      "content revision landing is invalid",
+    );
+    const hash = "a".repeat(64);
+    expect(readEntry({ hash, revisedAt }, "landing").hash).toBe(hash);
+    expect(entityTag(hash)).toBe(`"${hash}"`);
+    expect(entityTag(hash, "typescript")).toBe(`"${hash}-typescript"`);
+    expect(() => entityTag('a"\r\nX-Injected: x')).toThrow("content revision hash is not sha256");
+    expect(() => entityTag(hash, 'ts"\r\nX-Injected: x')).toThrow(
+      "content revision variant is not a token",
+    );
+  });
+
+  it("fails the build when a body still names a site host", () => {
+    const clean = stableDocumentBodies();
+    const plugin = contentRevisionBuildPlugin({
+      bodies: () => ({ ...clean, landing: `${clean.landing}\nhttp://localhost:3000/` }),
+    });
+    const start = plugin.buildStart;
+    expect(typeof start).toBe("function");
+    if (typeof start !== "function") {
+      return;
+    }
+    expect(start).toThrow(CONTENT_REVISION_HOST);
+  });
+
+  it("fails the build when a sitemap path has no revision", () => {
+    const plugin = contentRevisionBuildPlugin({
+      bodies: () => stableDocumentBodies(),
+      sitemapResources: [{ path: "/not-a-page", inSitemap: true }],
+    });
+    const start = plugin.buildStart;
+    expect(typeof start).toBe("function");
+    if (typeof start !== "function") {
+      return;
+    }
+    expect(start).toThrow("no content revision for /not-a-page");
+  });
+
+  it("fails the build when the stamp omits a document", () => {
+    const plugin = contentRevisionBuildPlugin({
+      readStamp: () => "{}",
+      bodies: () => stableDocumentBodies(),
+    });
+    const start = plugin.buildStart;
+    expect(typeof start).toBe("function");
+    if (typeof start !== "function") {
+      return;
+    }
+    expect(start).toThrow(CONTENT_REVISION_MISMATCH);
+  });
+
+  it("renders each sitemap url from its revision and joins hashes in id order", () => {
+    const seen: string[] = [];
+    const xml = renderSitemapXml((path) => {
+      seen.push(path);
+      return lastmodForSitemapPath(path);
+    });
+    const expected = AGENT_RESOURCES.filter((resource) => resource.inSitemap).map(
+      (resource) => resource.path,
+    );
+    expect(seen).toEqual(expected);
+    for (const path of expected) {
+      expect(xml).toContain(`<lastmod>${lastmodForSitemapPath(path)}</lastmod>`);
+    }
+    expect(() => lastmodForSitemapPath("/not-a-page")).toThrow(
+      "no content revision for /not-a-page",
+    );
+    expect(sitemapRevision().hash).toBe(REVISION_IDS.map((id) => revisionFor(id).hash).join(""));
   });
 
   it("fails the build when the stamp disagrees and does not rewrite it", () => {

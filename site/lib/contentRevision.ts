@@ -30,12 +30,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readEntry(value: unknown, id: RevisionId): ContentRevision {
+const STAMP_HASH = /^[a-f0-9]{64}$/i;
+/** One document hash, or the sitemap join of those hashes. Quotes and breaks never match. */
+const ETAG_HASH = /^[a-f0-9]{64}(?:[a-f0-9]{64})*$/i;
+const ETAG_VARIANT = /^[A-Za-z0-9_-]+$/;
+
+export function readEntry(value: unknown, id: RevisionId): ContentRevision {
   if (!isRecord(value)) {
     throw new Error(`content revision missing ${id}`);
   }
   const { hash, revisedAt } = value;
-  if (typeof hash !== "string" || hash === "" || typeof revisedAt !== "string") {
+  if (typeof hash !== "string" || !STAMP_HASH.test(hash) || typeof revisedAt !== "string") {
     throw new Error(`content revision ${id} is invalid`);
   }
   if (Number.isNaN(Date.parse(revisedAt))) {
@@ -96,6 +101,12 @@ export function httpDate(iso: string): string {
 }
 
 export function entityTag(hash: string, variant?: string): string {
+  if (!ETAG_HASH.test(hash)) {
+    throw new Error("content revision hash is not sha256");
+  }
+  if (variant !== undefined && !ETAG_VARIANT.test(variant)) {
+    throw new Error("content revision variant is not a token");
+  }
   return variant === undefined ? `"${hash}"` : `"${hash}-${variant}"`;
 }
 

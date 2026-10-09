@@ -8,6 +8,7 @@ import {
   CONTENT_REVISION_MISMATCH,
   revisionHashes,
   stableDocumentBodies,
+  type SitemapCoverageResource,
 } from "./contentRevisionCheck.js";
 import { REVISION_IDS, type RevisionId } from "./contentRevision.js";
 
@@ -16,6 +17,7 @@ const siteDir = fileURLToPath(new URL("..", import.meta.url));
 export type ContentRevisionIo = {
   readonly readStamp?: () => string;
   readonly bodies?: () => Record<RevisionId, string>;
+  readonly sitemapResources?: readonly SitemapCoverageResource[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,7 +59,7 @@ export function contentRevisionBuildPlugin(io: ContentRevisionIo = {}): Plugin {
     buildStart() {
       const rendered = bodies();
       assertHostStable(rendered);
-      assertSitemapCoverage();
+      assertSitemapCoverage(io.sitemapResources);
       const actual = revisionHashes(rendered);
       const stamp = stampHashes(JSON.parse(read()));
       for (const id of REVISION_IDS) {

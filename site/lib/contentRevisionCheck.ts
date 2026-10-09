@@ -62,8 +62,15 @@ export function assertHostStable(bodies: Record<RevisionId, string>): void {
   }
 }
 
-export function assertSitemapCoverage(): void {
-  for (const resource of AGENT_RESOURCES) {
+export type SitemapCoverageResource = {
+  readonly path: string;
+  readonly inSitemap: boolean;
+};
+
+export function assertSitemapCoverage(
+  resources: readonly SitemapCoverageResource[] = AGENT_RESOURCES,
+): void {
+  for (const resource of resources) {
     if (resource.inSitemap) {
       lastmodForSitemapPath(resource.path);
     }
