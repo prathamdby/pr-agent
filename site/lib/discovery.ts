@@ -40,6 +40,15 @@ function priorityFor(path: string): string {
   return path === "/" ? "1.0" : "0.3";
 }
 
+function xmlText(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 /**
  * Locations use the same host as robots.txt. SITE_ORIGIN is the build host, which is wrong
  * for a preview deployment or a local scan.
@@ -50,7 +59,8 @@ export function renderSitemapXml(
 ): string {
   const entries = AGENT_RESOURCES.filter((resource) => resource.inSitemap).map((resource) => {
     const lastmod = lastmodFor(resource.path);
-    return `  <url>\n    <loc>${resourceUrl(resource, origin)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`;
+    const loc = xmlText(resourceUrl(resource, origin));
+    return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>${priorityFor(resource.path)}</priority>\n  </url>`;
   });
 
   return `<?xml version="1.0" encoding="UTF-8"?>

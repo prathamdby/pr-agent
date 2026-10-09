@@ -9,6 +9,7 @@ import {
   READ_PR_AGENT_SKILL,
   SITE_HEALTH,
 } from "./agentResources.js";
+import { requestOrigin } from "./site.js";
 import { DOCUMENT_CACHE_CONTROL } from "./siteHttp.js";
 
 /** Profile URI from RFC 9727. The parameter tells a linkset client this is an API catalog. */
@@ -28,7 +29,7 @@ const MCP_SERVER_VERSION = "1.0.0";
 const SKILLS_SCHEMA = "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
 
 export function originOf(request: Request): string {
-  return new URL(request.url).origin;
+  return requestOrigin(request);
 }
 
 function jsonDocument(value: unknown): string {
@@ -45,7 +46,7 @@ function jsonDocument(value: unknown): string {
 export function documentResponse(
   body: string,
   contentType: string,
-  extra?: { readonly cors?: boolean },
+  extra?: { readonly cors?: boolean; readonly varyHost?: boolean },
 ): Response {
   const headers = new Headers({
     "Content-Type": contentType,
@@ -54,6 +55,9 @@ export function documentResponse(
   });
   if (extra?.cors === true) {
     headers.set("Access-Control-Allow-Origin", "*");
+  }
+  if (extra?.varyHost === true) {
+    headers.set("Vary", "Host");
   }
   return new Response(body, { headers });
 }
@@ -95,13 +99,17 @@ export function renderApiCatalog(origin: string): string {
 }
 
 export function apiCatalogResponse(origin: string): Response {
-  return documentResponse(renderApiCatalog(origin), API_CATALOG_CONTENT_TYPE);
+  return documentResponse(renderApiCatalog(origin), API_CATALOG_CONTENT_TYPE, { varyHost: true });
+}
+
+/** Hostname, or hostname%3Aport when the origin has a non-default port. Shared by did:web and urn:air. */
+function catalogHost(origin: string): string {
+  const url = new URL(origin);
+  return url.port === "" ? url.hostname : `${url.hostname}%3A${url.port}`;
 }
 
 function didWeb(origin: string): string {
-  const url = new URL(origin);
-  const host = url.port === "" ? url.hostname : `${url.hostname}%3A${url.port}`;
-  return `did:web:${host}`;
+  return `did:web:${catalogHost(origin)}`;
 }
 
 type CatalogEntry = {
@@ -131,7 +139,7 @@ function catalogEntry(
 }
 
 export function renderAiCatalog(origin: string): string {
-  const host = new URL(origin).hostname;
+  const host = catalogHost(origin);
   const entries: readonly CatalogEntry[] = [
     catalogEntry(
       host,
@@ -210,7 +218,10 @@ export function renderAiCatalog(origin: string): string {
 }
 
 export function aiCatalogResponse(origin: string): Response {
-  return documentResponse(renderAiCatalog(origin), JSON_CONTENT_TYPE, { cors: true });
+  return documentResponse(renderAiCatalog(origin), JSON_CONTENT_TYPE, {
+    cors: true,
+    varyHost: true,
+  });
 }
 
 export function renderMcpServerCard(origin: string): string {
@@ -236,7 +247,7 @@ export function renderMcpServerCard(origin: string): string {
 }
 
 export function mcpServerCardResponse(origin: string): Response {
-  return documentResponse(renderMcpServerCard(origin), JSON_CONTENT_TYPE);
+  return documentResponse(renderMcpServerCard(origin), JSON_CONTENT_TYPE, { varyHost: true });
 }
 
 /**
@@ -291,7 +302,9 @@ export async function renderAgentSkillsIndex(origin: string): Promise<string> {
 }
 
 export async function agentSkillsIndexResponse(origin: string): Promise<Response> {
-  return documentResponse(await renderAgentSkillsIndex(origin), JSON_CONTENT_TYPE);
+  return documentResponse(await renderAgentSkillsIndex(origin), JSON_CONTENT_TYPE, {
+    varyHost: true,
+  });
 }
 
 export function skillMarkdownResponse(): Response {

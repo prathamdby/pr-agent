@@ -241,12 +241,14 @@ export function sitemapResponse(
   const cached = conditionalResponse(conditional, revision, { honorModifiedSince: true });
   if (cached !== null) {
     cached.headers.set("Content-Type", "application/xml; charset=utf-8");
+    varyOn(cached.headers, "Host");
     return cached;
   }
   const response = new Response(renderSitemapXml(lastmodForSitemapPath, origin), {
     headers: { "Content-Type": "application/xml; charset=utf-8" },
   });
   applyRevisionHeaders(response.headers, revision);
+  varyOn(response.headers, "Host");
   return response;
 }
 

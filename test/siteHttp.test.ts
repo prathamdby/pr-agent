@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.js";
 import {
   AI_CATALOG,
   API_CATALOG,
@@ -425,6 +426,18 @@ describe("content revision validators", () => {
       "https://preview.example",
     );
     expect(await preview.text()).toContain("<loc>https://preview.example/</loc>");
+    expect(preview.headers.get("Vary")).toBe("Host");
+  });
+
+  it("names only a trusted request host in discovery documents", () => {
+    expect(requestOrigin(new Request("http://localhost:3999/robots.txt"))).toBe(
+      "http://localhost:3999",
+    );
+    expect(requestOrigin(new Request("https://pr-agent-git-preview.vercel.app/sitemap.xml"))).toBe(
+      "https://pr-agent-git-preview.vercel.app",
+    );
+    expect(requestOrigin(new Request("https://evil.example/sitemap.xml"))).toBe(SITE_ORIGIN);
+    expect(requestOrigin(new Request(`${SITE_ORIGIN}/`))).toBe(new URL(SITE_ORIGIN).origin);
   });
 
   it("serves /llms.txt with the committed revision rather than a clock", () => {

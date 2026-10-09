@@ -454,6 +454,8 @@ describe("content revision stamp", () => {
     );
     expect(preview).toContain("<loc>https://preview.example/</loc>");
     expect(preview).not.toContain(SITE_ORIGIN);
+    const escaped = renderSitemapXml((path) => lastmodForSitemapPath(path), "http://a<b&c");
+    expect(escaped).toContain("<loc>http://a&lt;b&amp;c/</loc>");
     expect(() => lastmodForSitemapPath("/not-a-page")).toThrow(
       "no content revision for /not-a-page",
     );
