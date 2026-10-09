@@ -749,7 +749,14 @@ schema would not restore old session contents or change publication evidence.
 
 ## Workspace search diagnostics
 
-Pinned and writable triage searches use the shared repository reader. A grep
+Pinned searches run on the fff host process with `git grep` for files fff
+does not index; writable triage searches use `git grep`. A host that dies, misses
+its deadline, or cannot load its native library logs
+`workspace_search_fff_host_retired` or `workspace_search_fff_fallback` with a
+stage and reason, never the query. That call, and calls during the respawn
+backoff, return the same results through `git grep`. Repeated fallbacks point at
+the image's `@ff-labs/fff-bin-*` package or host memory, not at search results
+([ADR 0048](adr/0048-fff-workspace-search.md)). A grep
 buffer cut returns `truncated: true`, including when no allowed matches survived;
 it does not prove that a finding is absent. Narrow the query or read a focused
 line window. The cap is `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` in

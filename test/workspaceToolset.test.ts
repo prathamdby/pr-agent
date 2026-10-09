@@ -2007,6 +2007,100 @@ describe("local workspace tools", () => {
         });
       });
 
+      it("finds every tracked file git grep finds, with exact line text", async () => {
+        const files = {
+          ".ignore": "src/listed.ts\n",
+          ".config/tool.ts": "export const fffNeedle = 'dotdir';\n",
+          "node_modules/pkg/index.js": "export const fffNeedle = 'ignored-dir';\n",
+          "target/debug/build.rs": 'const FFF_NEEDLE: &str = "fffNeedle";\n',
+          "src/listed.ts": "export const fffNeedle = 'dot-ignore';\n",
+          "src/fake.png": "fffNeedle in a text file with a binary extension\n",
+          "src/crlf.ts": "export const fffNeedle = 'crlf';\r\n",
+          "src/long.ts": `export const pad = '${"x".repeat(600)}'; // fffNeedle\n`,
+          "src/big.txt": `${"filler line\n".repeat(1_000_000)}fffNeedle at the end\n`,
+          "src/plain.ts": "export const fffNeedle = 'plain';\n",
+        };
+        const { workspace } = await setup(files);
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const out = await executors.searchWorkspace?.({ query: "fffNeedle", maxResults: 50 });
+        const reference = await gitGrepWorkspace(workspace, {
+          query: "fffNeedle",
+          maxResults: 50,
+          timeoutMs: 10_000,
+        });
+
+        expect(out).toMatchObject({ matches: reference.matches, truncated: false });
+        expect(reference.matches.map((match) => match.path)).toEqual([
+          ".config/tool.ts",
+          "node_modules/pkg/index.js",
+          "src/big.txt",
+          "src/crlf.ts",
+          "src/fake.png",
+          "src/listed.ts",
+          "src/long.ts",
+          "src/plain.ts",
+          "target/debug/build.rs",
+        ]);
+        expect(reference.matches.find((match) => match.path === "src/crlf.ts")?.text).toBe(
+          "export const fffNeedle = 'crlf';\r",
+        );
+        expect(reference.matches.find((match) => match.path === "src/long.ts")?.text).toHaveLength(
+          `export const pad = '${"x".repeat(600)}'; // fffNeedle`.length,
+        );
+      });
+
+      it("keeps queries literal and case-sensitive", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "const value = 'a  spaced   needle';\n",
+          "src/b.ts": "const glob = '*.ts needle';\n",
+          "src/c.ts": "const path = 'needle src/';\n",
+          "src/d.ts": "const upper = 'NEEDLE';\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const expectPaths = async (query: string, paths: readonly string[]) =>
+          expect(await executors.searchWorkspace?.({ query })).toMatchObject({
+            matches: paths.map((path) => ({ path })),
+          });
+
+        await expectPaths("a  spaced   needle", ["src/a.ts"]);
+        await expectPaths("*.ts needle", ["src/b.ts"]);
+        await expectPaths("needle src/", ["src/c.ts"]);
+        await expectPaths("needle", ["src/a.ts", "src/b.ts", "src/c.ts"]);
+        await expectPaths("NEEDLE", ["src/d.ts"]);
+      });
+
+      it("keeps searching with git grep when the fff host dies", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "export const hostNeedle = 1;\n",
+          "src/b.ts": "export const hostNeedle = 2;\n",
+        });
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const expected = {
+          matches: [
+            { path: "src/a.ts", line: 1, text: "export const hostNeedle = 1;" },
+            { path: "src/b.ts", line: 1, text: "export const hostNeedle = 2;" },
+          ],
+          truncated: false,
+          pathsSearched: 2,
+          filesScanned: 2,
+        };
+        await expect(executors.searchWorkspace?.({ query: "hostNeedle" })).resolves.toEqual(
+          expected,
+        );
+
+        const { stdout } = await exec("ps", ["-o", "pid=,args=", "--ppid", String(process.pid)]);
+        const hostPids = stdout
+          .split("\n")
+          .filter((line) => line.includes("prWorkspace/fff/host"))
+          .map((line) => Number.parseInt(line.trim(), 10));
+        expect(hostPids.length).toBeGreaterThan(0);
+        for (const pid of hostPids) process.kill(pid, "SIGKILL");
+
+        await expect(executors.searchWorkspace?.({ query: "hostNeedle" })).resolves.toEqual(
+          expected,
+        );
+      });
+
       it("returns a deleted path's cached PR patch without requiring the file at head", async () => {
         const { workspace, executors } = await setup(
           { "src/app.ts": "export {};\n" },

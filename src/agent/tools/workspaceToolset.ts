@@ -413,7 +413,7 @@ function buildInvestigationTools(
 
   const searchWorkspace = defineLocalTool({
     description:
-      "Search every readable file in the PR head checkout for literal text with git grep. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
+      "Search every readable file in the PR head checkout for literal text, matched case-sensitively. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
     schema: v.object({
       query: literalQueryParam,
       maxResults: v.optional(maxResultsParam, 20),
@@ -616,7 +616,7 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
 
   const searchWorkspace = defineLocalTool({
     description:
-      "Search the pull request's repository view for literal text with git grep. Sensitive and control paths are left out, and `filtered: true` says some matches were removed. `truncated: true` means more matches exist, so search for more specific text.",
+      "Search the pull request's repository view for literal text, matched case-sensitively. Sensitive and control paths are left out, and `filtered: true` says some matches were removed. `truncated: true` means more matches exist, so search for more specific text.",
     schema: v.object({
       query: literalQueryParam,
       maxResults: v.optional(maxResultsParam, 20),

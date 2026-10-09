@@ -22,7 +22,7 @@ const GUEST_CAPABILITY_SPEC_BY_NAME = {
   },
   searchWorkspace: {
     call: "await tools.searchWorkspace({ query, maxResults? })",
-    rule: "Literal git grep, not regex. On truncation, search for more specific text.",
+    rule: "Literal text, matched case-sensitively, not regex. On truncation, search for more specific text.",
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",

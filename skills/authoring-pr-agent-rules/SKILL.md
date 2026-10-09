@@ -71,8 +71,8 @@ sequential (`src/agent/runtime/toolExecutionMode.ts`).
 **Guest catalogue.** Review and ask install all six:
 `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace`,
 `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`. Verification
-installs read, search, and diff only. `searchWorkspace` is literal
-`git grep`, not regex. Code index and Context7 stay native siblings.
+installs read, search, and diff only. `searchWorkspace` is literal,
+case-sensitive text, not regex. Code index and Context7 stay native siblings.
 Submit and publish stay native (`submit_findings_report`,
 `submit_specialist_brief`, `publish_thread`, `publish_summary`,
 `submitVerification`, `submitDescription`, `submitTriage`). Catalogue

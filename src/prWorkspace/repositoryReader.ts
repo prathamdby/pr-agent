@@ -8,6 +8,7 @@ import { relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { AppError } from "../errors/appError.js";
 import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.js";
+import { createFffWorkspaceSearch } from "./fff/workspaceSearch.js";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -418,11 +419,18 @@ export function createPinnedRepositoryReader(params: {
     }
   }
 
+  const fffSearch = createFffWorkspaceSearch({
+    root: agentCwd,
+    checkoutPaths,
+    sortedCheckoutPaths,
+    gitGrep: (grepParams) =>
+      gitGrepWorkspace(
+        { privateGitDir, agentCwd },
+        { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
+      ),
+  });
   const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
-    const result = await gitGrepWorkspace(
-      { privateGitDir, agentCwd },
-      { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
-    );
+    const result = await fffSearch.search(grepParams);
     if (result.truncated) {
       noteSearchTruncated();
     }
@@ -456,6 +464,7 @@ export function createPinnedRepositoryReader(params: {
     dispose: () => {
       symbolIndex = null;
       blameCache.clear();
+      fffSearch.dispose();
     },
   };
 }

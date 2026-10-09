@@ -656,6 +656,15 @@ Writing policy is computed once per description run from workspace size stats (`
 | Symbol                                           | Default    |
 | ------------------------------------------------ | ---------- |
 | `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE`       | 256        |
+| `LOCAL_WORKSPACE_FFF_SCAN_TIMEOUT_MS`            | 10000      |
+| `LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS`            | 20000      |
+| `LOCAL_WORKSPACE_FFF_GREP_TIME_BUDGET_MS`        | 5000       |
+| `LOCAL_WORKSPACE_FFF_GREP_PAGE_FILES`            | 200        |
+| `LOCAL_WORKSPACE_FFF_MAX_COLLECTED_MATCHES`      | 10000      |
+| `LOCAL_WORKSPACE_FFF_MAX_INDEXED_FILES`          | 200000     |
+| `LOCAL_WORKSPACE_FFF_MAX_LIVE_INDEXES`           | 8          |
+| `LOCAL_WORKSPACE_FFF_MAX_FILE_BYTES`             | 10485760   |
+| `LOCAL_WORKSPACE_FFF_RESPAWN_BACKOFF_MS`         | 30000      |
 | `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`          | 32         |
 | `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`            | 60000      |
 | `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`               | 60000      |
@@ -678,7 +687,7 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5          |
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6        |
 
-Pinned and writable triage searches share `repositoryReader.ts`. Both apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-grep stdout at the process buffer and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
+Pinned searches run on the fff host with `git grep` for the remainder; writable triage searches use `git grep` alone ([ADR 0048](adr/0048-fff-workspace-search.md)). The `LOCAL_WORKSPACE_FFF_*` constants bound the host: scan and request deadlines, the paging budget, the indexed-file cap above which a checkout skips fff, live indexes per host, the file size fff reads, and the respawn backoff after a host dies. Both paths apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
 
 ### Code Mode
 
