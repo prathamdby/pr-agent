@@ -82,10 +82,3 @@ export const EXTERNAL_ENV = {
   ANTHROPIC_API_KEY: "ANTHROPIC_API_KEY",
   GOOGLE_GENERATIVE_AI_API_KEY: "GOOGLE_GENERATIVE_AI_API_KEY",
 } as const;
-
-/** Settings this release no longer reads. Boot warns when one is still set. */
-export const REMOVED_ENV_KEYS = [
-  "CODE_INDEX_MODE",
-  "CODE_INDEX_WAIT_MS",
-  "CODE_INDEX_RETENTION_SECONDS",
-] as const;

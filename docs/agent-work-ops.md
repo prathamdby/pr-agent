@@ -110,11 +110,6 @@ Postgres does not store traces. Migration 040 drops `agent_trace_parts`,
 and fails after 3 seconds if that lock is busy. Retry the migration when the
 lock clears. Upgrade web and worker together.
 
-Delete `TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and
-`TRACES_BUFFER_MAX_SPANS` before upgrade. A variable that is still set fails
-startup and names itself. Web and worker both refuse to boot, so GitHub will
-not redeliver the webhook that was in flight.
-
 A non-empty `POSTHOG_PROJECT_TOKEN` makes the worker send one AI trace per
 execution. Leave the token empty and nothing is recorded. The web process does
 not emit traces. Content is credential-redacted and can still contain

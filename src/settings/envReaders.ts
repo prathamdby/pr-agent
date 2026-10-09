@@ -13,10 +13,6 @@ export function requireEnv(name: string): string {
   return v;
 }
 
-export function setEnvNames(names: readonly string[]): string[] {
-  return names.filter((name) => (process.env[name] ?? "") !== "");
-}
-
 export function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] ?? defaultValue;
 }
@@ -112,17 +108,4 @@ export function readStrictBoolean(name: string, defaultValue: boolean): boolean 
 /** `NODE_ENV` is read here so slice readers stay free of direct `process.env` access. */
 export function isProductionNodeEnv(): boolean {
   return process.env.NODE_ENV === "production";
-}
-
-/** A removed variable fails startup even when its value is empty. */
-export function rejectRemovedEnv(names: readonly string[]): void {
-  for (const name of names) {
-    if (process.env[name] === undefined) continue;
-    throw new AppError({
-      domain: "config",
-      kind: "invalid_enum",
-      message: `${name} was removed; delete it from the environment`,
-      context: { name },
-    });
-  }
 }
