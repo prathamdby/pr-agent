@@ -88,7 +88,8 @@ worker-only and require `POSTHOG_PROJECT_TOKEN`. The web process does not emit
 them. Each event is at most 1 MiB after redaction. The worker queues at most
 400 spans and 8 MiB, and flushes every 500 ms. A full queue, or an event that
 still does not fit, is dropped and logged without blocking agent work.
-Credentials are redacted before send. Content can still contain proprietary
+GitHub tokens, npm tokens, provider keys, and database URLs that include a
+password are redacted before send. Content can still contain proprietary
 code. These limits are private constants in `src/traces/recorder.ts`, not env
 knobs. See [ADR 0050](adr/0050-posthog-ai-traces.md).
 

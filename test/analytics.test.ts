@@ -14,6 +14,8 @@ import * as evlog from "../src/evlog.js";
 import type { Config } from "../src/settings/index.js";
 import {
   initTraces,
+  openTraceSession,
+  recordExecutionSpan,
   startWorkTrace,
   TRACE_EVENT_BYTES,
   type TraceWork,
@@ -880,6 +882,9 @@ describe("posthog ai traces", () => {
     const pending = drain();
     await vi.advanceTimersByTimeAsync(5_000);
     await pending;
+    expect(warning).toHaveBeenCalledWith("agent_trace_shutdown_incomplete", {
+      queued: expect.any(Number),
+    });
     drain = async () => undefined;
   });
 
@@ -906,7 +911,7 @@ describe("posthog ai traces", () => {
     const trace = createSessionTrace(
       {
         ...sessionParams(cfg),
-        systemPrompt: `system ${privateKey} ghp_abcdefghijklmnopqrstuvwxyz012345`,
+        systemPrompt: `system ${privateKey} ghp_abcdefghijklmnopqrstuvwxyz012345 ghu_abcdefghijklmnopqrstuvwxyz012345 ghr_abcdefghijklmnopqrstuvwxyz012345 npm_abcdefghijklmnopqrstuvwxyz0123456789 mongodb://reader:mongo-secret@localhost/db redis://reader:redis-secret@localhost`,
       },
       model,
       "standalone",
@@ -928,6 +933,11 @@ describe("posthog ai traces", () => {
     const body = JSON.stringify(seen);
     expect(body).not.toContain("trace-key");
     expect(body).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz012345");
+    expect(body).not.toContain("ghu_abcdefghijklmnopqrstuvwxyz012345");
+    expect(body).not.toContain("ghr_abcdefghijklmnopqrstuvwxyz012345");
+    expect(body).not.toContain("npm_abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(body).not.toContain("mongo-secret");
+    expect(body).not.toContain("redis-secret");
     expect(body).not.toContain("sk_live_abcdefghijklmnopqrstuvwxyz");
     expect(body).not.toContain("trace-installation-token");
     expect(body).not.toContain("trace-pass");
@@ -948,6 +958,8 @@ describe("posthog ai traces", () => {
       shutdown: async () => undefined,
     };
     drain = initTraces(tracedConfig({ posthog: { projectToken: "" } }));
+    expect(openTraceSession({ provider: "openai", model: "trace-model" })).toBeUndefined();
+    await expect(startWorkTrace(work(), async () => "ran")).resolves.toBe("ran");
     createSessionTrace(
       sessionParams(tracedConfig()),
       traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }),
@@ -966,5 +978,161 @@ describe("posthog ai traces", () => {
     ).dispose();
     await drain();
     expect(seen).toEqual([]);
+  });
+
+  it("drops a span when queued bytes pass 8 MiB before the count cap", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(evlog, "logWarn");
+    const seen: string[] = [];
+    install({
+      capture(input) {
+        const blob = input.properties.blob;
+        if (typeof blob === "string") seen.push(blob.slice(0, 6));
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const chunk = "b".repeat(700_000);
+    await startWorkTrace(work(), async () => {
+      for (let index = 0; index < 14; index += 1) {
+        recordExecutionSpan({
+          event: "$ai_span",
+          spanId: randomUUID(),
+          spanName: "bulk",
+          status: "ok",
+          latencyMs: 1,
+          extra: { blob: `id:${index}:${chunk}` },
+        });
+      }
+    });
+    expect(warning).toHaveBeenCalledWith("agent_trace_span_dropped", { bytes: expect.any(Number) });
+    expect(seen).toEqual([]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(seen.some((blob) => blob.startsWith("id:0:"))).toBe(true);
+    expect(seen.some((blob) => blob.startsWith("id:13"))).toBe(false);
+    const pending = drain();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+    drain = async () => undefined;
+  });
+
+  it("drops an event that stays over 1 MiB after the fit steps", async () => {
+    const warning = vi.spyOn(evlog, "logWarn");
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const choices = Array.from({ length: 600 }, () => ({ text: "c".repeat(3_000) }));
+    await startWorkTrace(work(), async () => {
+      recordExecutionSpan({
+        event: "$ai_span",
+        spanId: randomUUID(),
+        spanName: "oversized",
+        status: "ok",
+        latencyMs: 1,
+        outputChoices: choices,
+      });
+    });
+    expect(warning).toHaveBeenCalledWith("agent_trace_event_dropped", {
+      kind: "oversized",
+      bytes: TRACE_EVENT_BYTES,
+    });
+    await drain();
+    expect(seen.some((event) => event.$ai_span_name === "oversized")).toBe(false);
+  });
+
+  it("logs a failed send and accepts a later span once the bytes are released", async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(evlog, "logWarn");
+    let failFlush = true;
+    let captured = 0;
+    install({
+      capture() {
+        captured += 1;
+      },
+      flush: async () => {
+        if (failFlush) throw new Error("posthog down");
+      },
+      shutdown: async () => undefined,
+    });
+    const chunk = "d".repeat(700_000);
+    await startWorkTrace(work(), async () => {
+      for (let index = 0; index < 14; index += 1) {
+        recordExecutionSpan({
+          event: "$ai_span",
+          spanId: randomUUID(),
+          spanName: "fill",
+          status: "ok",
+          latencyMs: 1,
+          extra: { blob: `fill-${index}-${chunk}` },
+        });
+      }
+    });
+    expect(captured).toBe(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(warning).toHaveBeenCalledWith("agent_trace_send_failed", {
+      count: expect.any(Number),
+    });
+    const afterFailure = captured;
+    expect(afterFailure).toBeGreaterThan(0);
+    failFlush = false;
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    createSessionTrace(sessionParams(tracedConfig()), model, "after-failure", () => 1).dispose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(captured).toBeGreaterThan(afterFailure);
+    const pending = drain();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+    drain = async () => undefined;
+  });
+
+  it("emits one execution for an owned session and one for a wrapped session", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const owned = createSessionTrace(sessionParams(cfg), model, "owned-session", () => 1);
+    owned.beginSend({ phase: "ask", checkpointId: "owned" });
+    owned.endSend("aborted", "agent.session_aborted");
+    owned.dispose();
+    const failed = createSessionTrace(sessionParams(cfg), model, "failed-session", () => 1);
+    failed.beginSend({ phase: "ask", checkpointId: "failed" });
+    failed.endSend("failed", "provider_down");
+    failed.dispose();
+    await startWorkTrace(work(), async () => {
+      createSessionTrace(sessionParams(cfg), model, "wrapped-session", () => 1).dispose();
+    });
+    await drain();
+    const ownedSessions = seen.filter(
+      (event) => event.$ai_span_name === "session" && event.$ai_session_id == null,
+    );
+    expect(ownedSessions).toHaveLength(2);
+    expect(
+      ownedSessions.find((event) => event.status === "cancelled")?.$ai_is_error,
+    ).toBeUndefined();
+    expect(ownedSessions.find((event) => event.status === "error")?.$ai_is_error).toBe(true);
+    const ownedExecutions = seen.filter(
+      (event) => event.$ai_span_name === "execution" && event.$ai_session_id == null,
+    );
+    expect(ownedExecutions).toHaveLength(2);
+    expect(
+      ownedExecutions.find((event) => event.status === "cancelled")?.$ai_is_error,
+    ).toBeUndefined();
+    expect(ownedExecutions.find((event) => event.status === "error")?.$ai_is_error).toBe(true);
+    const wrapped = seen.filter(
+      (event) => event.$ai_trace_id !== undefined && event.$ai_session_id === "work-item-1",
+    );
+    expect(wrapped.filter((event) => event.$ai_span_name === "execution")).toHaveLength(1);
+    expect(wrapped.filter((event) => event.$ai_span_name === "session")).toHaveLength(1);
   });
 });

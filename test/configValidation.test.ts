@@ -50,6 +50,7 @@ describe("loadConfig validation", () => {
     expect(cfg.ask.providerBudgetTokens).toBe(0);
     expect(cfg.ask.providerReservationTokens).toBe(16_384);
     expect(cfg.codeMode.executorKind).toBe("in_process");
+    expect(cfg.removedEnv).toEqual([]);
   });
 
   it.each(["TRACES_MODE", "TRACES_RETENTION_SECONDS", "TRACES_BUFFER_MAX_SPANS"])(

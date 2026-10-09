@@ -45,8 +45,9 @@ does not change the durable outcome.
 
 The AI client does not use the product analytics `before_send` sanitizer, which
 would strip tool bodies. It sets `$process_person_profile` false. Credential
-redaction still runs on trace content. Ordinary product events stay metadata
-and do not include prompts or tool payloads.
+redaction still runs on trace content, including GitHub user and refresh
+tokens, npm tokens, and mongodb or redis URLs with a password. Ordinary
+product events stay metadata and do not include prompts or tool payloads.
 
 An empty token records nothing and opens no trace client. The web process does
 not emit traces. There is no local content mode and no metadata-only mode.
