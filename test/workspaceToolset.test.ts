@@ -2049,6 +2049,41 @@ describe("local workspace tools", () => {
         );
       });
 
+      it("truncates in git grep path order when hits span fff and git grep", async () => {
+        const files = {
+          ".ignore": "src/b.ts\nsrc/d.ts\n",
+          "src/a.ts": "splitNeedle a\n",
+          "src/b.ts": "splitNeedle b\n",
+          "src/c.ts": "splitNeedle c\n",
+          "src/d.ts": "splitNeedle d\n",
+          "src/e.PNG": "splitNeedle e\n",
+          "src/multi.ts": "first\nsecond\n",
+        };
+        const { workspace } = await setup(files);
+        const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const reference = (query: string, maxResults: number) =>
+          gitGrepWorkspace(workspace, { query, maxResults, timeoutMs: 10_000 });
+
+        const capped = await reference("splitNeedle", 3);
+        expect(capped.matches.slice(0, 3).map((match) => match.path)).toEqual([
+          "src/a.ts",
+          "src/b.ts",
+          "src/c.ts",
+        ]);
+        await expect(
+          executors.searchWorkspace?.({ query: "splitNeedle", maxResults: 3 }),
+        ).resolves.toMatchObject({ matches: capped.matches.slice(0, 3), truncated: true });
+        await expect(
+          executors.searchWorkspace?.({ query: "splitNeedle", maxResults: 10 }),
+        ).resolves.toMatchObject({
+          matches: (await reference("splitNeedle", 10)).matches,
+          truncated: false,
+        });
+        await expect(
+          executors.searchWorkspace?.({ query: "first\nsecond" }),
+        ).resolves.toMatchObject({ matches: (await reference("first\nsecond", 20)).matches });
+      });
+
       it("keeps queries literal and case-sensitive", async () => {
         const { workspace } = await setup({
           "src/a.ts": "const value = 'a  spaced   needle';\n",
