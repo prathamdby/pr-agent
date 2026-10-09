@@ -17,6 +17,7 @@ import {
   classifiedFailurePostHogProperties,
   type ClassifiedFailure,
 } from "../src/errors/classifiedFailure.js";
+import { ESCALATED_TOOL_ROUNDS_CAP } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 describe("classifyFailure", () => {
@@ -634,7 +635,7 @@ describe("escalatedToolRounds", () => {
   });
 
   it("caps the raised budget", () => {
-    expect(escalatedToolRounds(50, plan)).toBe(64);
+    expect(escalatedToolRounds(ESCALATED_TOOL_ROUNDS_CAP, plan)).toBe(ESCALATED_TOOL_ROUNDS_CAP);
   });
 });
 
