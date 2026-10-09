@@ -6,6 +6,12 @@ import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanit
 const analyticsMocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
   appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
+  recordExecutionSpan: vi.fn(),
+}));
+
+vi.mock("../src/traces/recorder.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/traces/recorder.js")>()),
+  recordExecutionSpan: (...args: unknown[]) => analyticsMocks.recordExecutionSpan(...args),
 }));
 
 vi.mock("../src/analytics/index.js", () => ({
@@ -38,7 +44,6 @@ import {
 import {
   llmSpanFromSession,
   projectWorkSpanToAgentEventRow,
-  projectWorkSpanToPostHog,
   publishSpanFromContext,
 } from "../src/analytics/workSpan.js";
 
@@ -323,13 +328,12 @@ describe("work span projection", () => {
     });
     expect(span.parentSpanId).toBe("wi-span");
     expect(span.inputTokens).toBeUndefined();
-    const projected = projectWorkSpanToPostHog(span);
-    expect(projected.properties.$ai_parent_id).toBe("wi-span");
-    expect(projected.properties).not.toHaveProperty("$ai_input_tokens");
-    expect(projected.properties.$ai_latency).toBe(1.5);
+    const row = projectWorkSpanToAgentEventRow(spanContext, span);
+    expect(row.detail).not.toHaveProperty("inputTokens");
+    expect(row.detail).toMatchObject({ latencyMs: 1500, parentSpanId: "wi-span" });
   });
 
-  it("omits a null parent id from PostHog properties", () => {
+  it("keeps a null publish parent off the audit detail", () => {
     const span = publishSpanFromContext({
       context: spanContext,
       publishStep: "batch-1",
@@ -337,7 +341,8 @@ describe("work span projection", () => {
       isError: false,
       parentSpanId: null,
     });
-    expect(projectWorkSpanToPostHog(span).properties).not.toHaveProperty("$ai_parent_id");
+    const row = projectWorkSpanToAgentEventRow(spanContext, span);
+    expect(row.detail).not.toHaveProperty("parentSpanId");
   });
 });
 
@@ -351,6 +356,7 @@ describe("durable lifecycle span sink", () => {
   beforeEach(() => {
     analyticsMocks.captureEvent.mockClear();
     analyticsMocks.appendAgentEvents.mockClear();
+    analyticsMocks.recordExecutionSpan.mockClear();
   });
 
   it("does not emit a generation span when duration is missing", () => {
@@ -386,18 +392,8 @@ describe("durable lifecycle span sink", () => {
         detail: expect.objectContaining({ end: "tool_budget" }),
       }),
     ]);
-    expect(analyticsMocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "$ai_generation",
-        properties: expect.objectContaining({
-          $ai_trace_id: "wi-span",
-          $ai_parent_id: "wi-span",
-          $ai_latency: 0.8,
-          $ai_input_tokens: 12,
-          $ai_output_tokens: 4,
-        }),
-      }),
-    );
+    expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
+    expect(analyticsMocks.recordExecutionSpan).not.toHaveBeenCalled();
   });
 
   it("writes the same publish span id to Postgres and PostHog", () => {
@@ -407,13 +403,16 @@ describe("durable lifecycle span sink", () => {
       postedCount: 2,
       latencyMs: 250,
     });
-    const captured = analyticsMocks.captureEvent.mock.calls[0]?.[0] as {
+    const draft = analyticsMocks.recordExecutionSpan.mock.calls[0]?.[0] as {
+      spanId: string;
       event: string;
-      properties: { $ai_span_id: string; $ai_parent_id: string; $ai_latency: number };
+      latencyMs: number;
+      extra: { publish_step: string };
     };
-    expect(captured.event).toBe("$ai_span");
-    expect(captured.properties.$ai_parent_id).toBe("wi-span");
-    expect(captured.properties.$ai_latency).toBe(0.25);
+    expect(draft.event).toBe("$ai_span");
+    expect(draft.latencyMs).toBe(250);
+    expect(draft.extra.publish_step).toBe("batch-9");
+    expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
     const rows = analyticsMocks.appendAgentEvents.mock.calls[0]?.[1] as
       | Array<{
           eventKind: string;
@@ -421,7 +420,7 @@ describe("durable lifecycle span sink", () => {
         }>
       | undefined;
     expect(rows?.[0]?.eventKind).toBe("publish");
-    expect(rows?.[0]?.detail.spanId).toBe(captured.properties.$ai_span_id);
+    expect(rows?.[0]?.detail.spanId).toBe(draft.spanId);
     expect(rows?.[0]?.detail.parentSpanId).toBe("wi-span");
     expect(rows?.[0]?.detail.latencyMs).toBe(250);
   });
@@ -431,6 +430,7 @@ describe("cache token telemetry round-trip", () => {
   beforeEach(() => {
     analyticsMocks.captureEvent.mockClear();
     analyticsMocks.appendAgentEvents.mockClear();
+    analyticsMocks.recordExecutionSpan.mockClear();
   });
   const cacheTokens = {
     inputTokens: 100,
@@ -567,16 +567,6 @@ describe("cache token telemetry round-trip", () => {
     });
     const row = projectWorkSpanToAgentEventRow(spanContext, span);
     expect(row.detail).toEqual(expect.objectContaining(cacheTokens));
-    expect(projectWorkSpanToPostHog(span).properties).toEqual(
-      expect.objectContaining({
-        $ai_input_tokens: 100,
-        $ai_output_tokens: 20,
-        $ai_cache_read_tokens: 800,
-        $ai_cache_write_tokens: 50,
-        $ai_cache_write_1h_tokens: 10,
-        $ai_total_tokens: 980,
-      }),
-    );
   });
 
   it("emits cache fields through the durable sink to both Postgres and PostHog", () => {
@@ -615,16 +605,7 @@ describe("cache token telemetry round-trip", () => {
         detail: expect.objectContaining(cacheTokens),
       }),
     ]);
-    expect(analyticsMocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "$ai_generation",
-        properties: expect.objectContaining({
-          $ai_cache_read_tokens: 800,
-          $ai_cache_write_tokens: 50,
-          $ai_cache_write_1h_tokens: 10,
-          $ai_total_tokens: 980,
-        }),
-      }),
-    );
+    expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
+    expect(analyticsMocks.recordExecutionSpan).not.toHaveBeenCalled();
   });
 });

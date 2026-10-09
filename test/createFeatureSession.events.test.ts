@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { AgentEventInsertRow } from "../src/agentWork/agentEventsRepository.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
@@ -18,7 +19,9 @@ const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
     };
   }
   return {
-    appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
+    appendAgentEvents: vi.fn(
+      async (_client: unknown, _rows: readonly AgentEventInsertRow[]) => undefined,
+    ),
     fakePiSession,
   };
 });
@@ -31,7 +34,7 @@ vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
     safeAppendAgentEvents: (
       client: unknown,
       cfg: { agentEvents: { enabled: boolean } },
-      rows: unknown[],
+      rows: readonly AgentEventInsertRow[],
     ) => {
       if (!cfg.agentEvents.enabled || rows.length === 0) return;
       void appendAgentEvents(client, rows).catch(() => undefined);
@@ -57,13 +60,7 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { createPiSession } from "../src/agent/runtime/piSession.js";
 import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.js";
-import { captureWorkSpan } from "../src/analytics/workSpan.js";
 import { createFakePiSession } from "../src/agent/runtime/fakePiSession.js";
-
-vi.mock("../src/analytics/workSpan.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/analytics/workSpan.js")>()),
-  captureWorkSpan: vi.fn(),
-}));
 
 describe("createFeaturePiSession agent events", () => {
   beforeEach(() => {
@@ -92,7 +89,7 @@ describe("createFeaturePiSession agent events", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
-    const rows = appendAgentEvents.mock.calls[0]?.[1] as Array<{ eventKind: string }> | undefined;
+    const rows = appendAgentEvents.mock.calls[0]?.[1];
     expect(rows?.[0]?.eventKind).toBe("turn");
   });
 
@@ -111,7 +108,7 @@ describe("createFeaturePiSession agent events", () => {
   });
 
   it.each([false, true])(
-    "captures each send with actual fallback identity independently of audit (%s)",
+    "records each send on the audit trail when agent events are enabled (%s)",
     async (enabled) => {
       const cfg = makeTestConfig({ agentEvents: { enabled } });
       const createSession = (params: Parameters<typeof createFakePiSession>[0]) =>
@@ -140,23 +137,28 @@ describe("createFeaturePiSession agent events", () => {
       await first.send("private prompt", { phase: "specialist", checkpointId: "same" });
       await first.send("private repair", { phase: "validation_repair", checkpointId: "same" });
       await second.send("another work", { phase: "specialist", checkpointId: "same" });
-      const spans = vi.mocked(captureWorkSpan).mock.calls.map(([span]) => span);
-      expect(spans).toHaveLength(3);
-      expect(spans[0]).toMatchObject({
-        kind: "llm_generation",
+      const rows = appendAgentEvents.mock.calls.flatMap((call) => call[1] ?? []);
+      const generations = rows.filter((row) => row.eventKind === "generation");
+      if (!enabled) {
+        expect(generations).toEqual([]);
+        return;
+      }
+      expect(generations).toHaveLength(3);
+      expect(generations[0]).toMatchObject({
         provider: "anthropic",
         model: "fallback",
-        specialistId: "security",
-        executionId: "execution-1",
-        attemptCount: 2,
+        detail: {
+          specialistId: "security",
+          executionId: "execution-1",
+          attemptCount: 2,
+        },
       });
-      expect(new Set(spans.map((span) => span.spanId)).size).toBe(3);
-      expect(spans[0]?.sessionId).toBe(spans[1]?.sessionId);
-      expect(spans[0]?.sessionId).not.toBe(spans[2]?.sessionId);
-      expect(spans[0]?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
-      expect(spans[0]).not.toHaveProperty("inputTokens");
-      expect(appendAgentEvents.mock.calls.length > 0).toBe(enabled);
-      expect(JSON.stringify(spans)).not.toContain("private");
+      expect(new Set(generations.map((row) => row.detail?.spanId)).size).toBe(3);
+      expect(generations[0]?.detail?.sessionId).toBe(generations[1]?.detail?.sessionId);
+      expect(generations[0]?.detail?.sessionId).not.toBe(generations[2]?.detail?.sessionId);
+      expect(generations[0]?.detail?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(generations[0]?.detail?.inputTokens).toBeUndefined();
+      expect(JSON.stringify(generations)).not.toContain("private");
     },
   );
 
@@ -182,11 +184,10 @@ describe("createFeaturePiSession agent events", () => {
     await expect(session.send("private", { phase: "ask", checkpointId: "ask" })).rejects.toThrow(
       "provider failed",
     );
-    expect(vi.mocked(captureWorkSpan)).toHaveBeenCalledTimes(1);
-    const span = vi.mocked(captureWorkSpan).mock.calls[0]?.[0];
-    expect(span?.isError).toBe(true);
-    expect(events.find((event) => event.kind === "turn")?.generationId).toBe(span?.spanId);
-    expect(events.find((event) => event.kind === "failure")?.generationId).toBe(span?.spanId);
+    const turnId = events.find((event) => event.kind === "turn")?.generationId;
+    const failureId = events.find((event) => event.kind === "failure")?.generationId;
+    expect(turnId).toBeTruthy();
+    expect(failureId).toBe(turnId);
   });
 
   it("does not throw when writer fails", async () => {

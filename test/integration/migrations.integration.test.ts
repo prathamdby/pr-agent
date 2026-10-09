@@ -51,6 +51,7 @@ const EXPECTED_MIGRATIONS = [
   "037_review_run_artifacts.sql",
   "038_github_capabilities.sql",
   "039_agent_traces.sql",
+  "040_drop_agent_traces.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -104,6 +105,21 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
         )
       ).rows,
     ).toEqual([{ checkpoints: null, snapshots: null }]);
+  });
+
+  it("drops the local agent trace tables and keeps work items", async () => {
+    const { rows } = await pool.query<{
+      spans: string | null;
+      parts: string | null;
+      blobs: string | null;
+      work: string | null;
+    }>(
+      `SELECT to_regclass('agent_trace_spans') AS spans,
+              to_regclass('agent_trace_parts') AS parts,
+              to_regclass('agent_trace_blobs') AS blobs,
+              to_regclass('agent_work_items') AS work`,
+    );
+    expect(rows).toEqual([{ spans: null, parts: null, blobs: null, work: "agent_work_items" }]);
   });
 
   it("creates retention-supporting indexes", async () => {

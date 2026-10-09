@@ -55,15 +55,12 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Provider retry delay cap          | `PI_PROVIDER_MAX_RETRY_DELAY_MS`         | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                                                                                                                                      |
 | Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                            |
 | Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `2592000`                | TTL delete for `agent_events` by `recorded_at` (30d, same as work retention). `0` keeps rows forever. Work-item deletion still sets `work_item_id` null.                                                                                                                                                                                                          |
-| Trace mode                        | `TRACES_MODE`                            | `metadata`               | `off`, `metadata`, or opt-in `content`. Worker-only local spans; content stores credential-redacted messages, reasoning and tool payloads. PostHog remains metadata-only.                                                                                                                                                                                         |
-| Trace retention                   | `TRACES_RETENTION_SECONDS`               | `1209600`                | Positive integer seconds (14 days), no greater than `AGENT_WORK_RETENTION_SECONDS`. Work deletion cascades spans and parts; unreferenced aged blobs expire in the sweep.                                                                                                                                                                                          |
-| Trace buffer                      | `TRACES_BUFFER_MAX_SPANS`                | `400`                    | Positive integer pending-span bound, plus a fixed 8 MiB content buffer bound. Full buffers drop spans without blocking work; `trace_spans_dropped` records the loss.                                                                                                                                                                                              |
 | Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                                                |
 | Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                      | After this many dismissals for a fingerprint, suppress new inline threads while `last_outcome` remains `dismissed` (summary-only still allowed); later open/fixed outcomes lift suppression                                                                                                                                                                       |
 | Finding history lookback          | `FINDING_HISTORY_LOOKBACK_DAYS`          | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                                                                                                                                                                                                                                            |
 | Models catalog path               | `MODELS_JSON_PATH`                       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                          |
 | Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional; sent only in `Authorization` for policy-approved requests, otherwise Context7 uses anonymous fallback                                                                                                                                                                                                                                                   |
-| PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics via `src/analytics` facade (`work completed`, `work item retried`, `webhook received`, `$ai_generation`/`$ai_span`); empty token disables init (no SDK load, no capture). Failed sink construction, including reinitialization, restores a no-op sink with analytics disabled. OSS installs need no PostHog setup                              |
+| PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics and worker AI traces; empty token sends nothing and opens no trace client. Product events stay metadata. AI traces include credential-redacted repository text. Failed sink construction restores a no-op sink. OSS installs need no PostHog setup. See [ADR 0050](adr/0050-posthog-ai-traces.md)                                              |
 | PostHog host                      | `POSTHOG_HOST`                           | empty                    | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                                                                                                                                         |
 
 ## Ops (deployment-varying tuning)
@@ -86,14 +83,20 @@ even with recovery off; disabling scheduled retention leaves artifacts retained.
 `POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting enables
 review artifacts, and artifact retention is independent of the recovery flag.
 
-Local traces are independent of both settings. Migration 039 installs the span,
-blob and part tables. The worker execution layer owns a two-connection trace pool
-and injects it into recording.
-It flushes up to 200 spans every 500 ms. Content is capped at 64 KiB per part,
-256 KiB and 128 parts per span, with `content_truncated` marking omissions.
-These limits are private constants in `src/traces/recorder.ts`, not env knobs.
-Credentials are redacted before truncation and hashing. Content remains
-untrusted and may contain proprietary code. See [ADR 0046](adr/0046-agent-traces.md).
+AI traces are independent of agent events and of review artifacts. They are
+worker-only and require `POSTHOG_PROJECT_TOKEN`. The web process does not emit
+them. Each event is at most 1 MiB after redaction. The worker queues at most
+400 spans and 8 MiB, and flushes every 500 ms. A full queue, or an event that
+still does not fit, is dropped and logged without blocking agent work.
+Credentials are redacted before send. Content can still contain proprietary
+code. These limits are private constants in `src/traces/recorder.ts`, not env
+knobs. See [ADR 0050](adr/0050-posthog-ai-traces.md).
+
+Delete `TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and `TRACES_BUFFER_MAX_SPANS`
+before upgrade. A variable that is still set fails startup and names itself.
+Migration 040 drops the old trace tables. That drop locks `agent_work_items`
+and fails after 3 seconds if the lock is busy. Retry when the lock clears.
+Upgrade web and worker together.
 
 | Name                          | Env var                                   | Default                     | Notes                                                                                                                                                                                                                                |
 | ----------------------------- | ----------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

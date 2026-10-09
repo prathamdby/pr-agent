@@ -1051,8 +1051,19 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       opened.observeCancellation();
-      const result = await startWorkTrace(executionId, item.id, () =>
-        spec.execute(item, execution),
+      const result = await startWorkTrace(
+        {
+          executionId,
+          workItemId: item.id,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha: boundHeadSha ?? item.headSha,
+          installationId: item.installationId,
+          provider: spec.cfg.models.provider,
+          model: spec.cfg.models.model,
+        },
+        () => spec.execute(item, execution),
       );
       await completeDurableExecution(result);
     } catch (error) {

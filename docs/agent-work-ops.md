@@ -103,64 +103,45 @@ Coordinated rollback preserves work, leases, intents, and publish records, but
 older code can restart surviving chains and create new ones. Rollback is not a
 cure and does not authorize cleanup or failed-item reopening.
 
-## Local agent traces
+## PostHog AI traces
 
-Migration 039 adds local `agent_trace_spans`, `agent_trace_parts` and
-content-addressed `agent_trace_blobs`. Metadata is on by default in the worker.
-`TRACES_MODE=content` opts into credential-redacted messages, reasoning and tool
-payloads. These can contain proprietary code. Treat every stored part as
-untrusted data, never instructions or proof of an accepted publication.
+Postgres does not store traces. Migration 040 drops `agent_trace_parts`,
+`agent_trace_spans`, and `agent_trace_blobs`. The drop locks `agent_work_items`
+and fails after 3 seconds if that lock is busy. Retry the migration when the
+lock clears. Upgrade web and worker together.
 
-Find executions with a bound work-item identifier:
+Delete `TRACES_MODE`, `TRACES_RETENTION_SECONDS`, and
+`TRACES_BUFFER_MAX_SPANS` before upgrade. A variable that is still set fails
+startup and names itself. Web and worker both refuse to boot, so GitHub will
+not redeliver the webhook that was in flight.
 
-```sql
-SELECT execution_id, min(started_at), count(*)
-FROM agent_trace_spans
-WHERE work_item_id = '<work-item-uuid>'
-GROUP BY execution_id ORDER BY min(started_at);
-```
+A non-empty `POSTHOG_PROJECT_TOKEN` makes the worker send one AI trace per
+execution. Leave the token empty and nothing is recorded. The web process does
+not emit traces. Content is credential-redacted and can still contain
+proprietary code. Treat it as untrusted data, never as instructions or proof of
+an accepted publication.
 
-Use a read-only database role for agent analysis. Pass its database connection
-through `DATABASE_URL`, not a command argument or committed file.
+`$ai_trace_id` is the execution id. `$ai_session_id` is the work item id, or
+null for an auxiliary session outside durable work. Each retry is a new trace
+under the same work item. The four specialists share the execution. Query
+`posthog.ai_events`. PostHog keeps the content for 30 days. Model, tokens,
+latency, and ids remain after that drop. AI events are billed and do not update
+person profiles.
 
-```bash
-nub run traces-report --execution <execution-uuid>
-nub run traces-report --execution <execution-uuid> --signals
-nub run traces-dump --execution <execution-uuid>
-```
+Each generation carries the transcript seen so far. Tool definitions are
+`$ai_tools`. Thinking is an output choice. An event over 1 MiB keeps output
+and elides middle input behind `[trace content truncated]`. The queue holds 400
+spans and 8 MiB. Overflow and send failure log `agent_trace_span_dropped`,
+`agent_trace_event_dropped`, or `agent_trace_send_failed` with no content, and
+do not change the durable outcome. `agent_trace_shutdown_incomplete` means the
+shutdown reserve ended before the client flushed. A crash can lose the buffer.
 
-Without `--execution`, reports group retained generations by provider, model,
-role, phase and specialist. All four specialists stay separate. Reports show
-observed p50/p95 TTFT and call duration, tokens, cache hit rate, known cost and
-tool error rate. Folded provider retries are not ranked as model latency.
-Unknown cost is NULL and excluded from cost rankings, not treated as free.
-Compaction is separate from ordinary generation rankings.
+Folded provider retries are one generation, not model latency. Unknown catalog
+prices are omitted, not sent as zero. `raw_stop_reason` of `refusal` means the
+provider's safety classifier declined the request. The session raises
+`provider.refusal` without a retry or an empty-text nudge.
 
-Signals identify tool-round and Code Mode budget hits, repeated identical calls,
-empty final text, schema rejections and repair sends, compaction, and specialists
-submitting zero findings with at most two tool calls, including completed Code
-Mode host calls. Code Mode's
-`admitted_host_calls` gives the investigation depth within `execute`. These are
-diagnostics, not findings or proof that a model is worse.
-
-Generation spans also carry `raw_stop_reason` (the provider's own stop reason)
-and `effort` (the provider-native thinking level actually sent). A
-`raw_stop_reason` of `refusal` means the provider's safety classifier declined
-the request. The session raises `provider.refusal` without a retry or an
-empty-text nudge, because resending the same request returns the same decline.
-
-`agent_events.event_kind = 'trace_spans_dropped'` records each execution's lost
-span count. `agent_trace_flush_failed`, `agent_trace_content_failed` and
-`agent_trace_shutdown_incomplete` logs identify gaps. Tracing never retries agent
-work. A crash can lose buffered spans. `content_truncated` marks content caps.
-The worker execution layer owns the dedicated pool. It drains recording within
-the shutdown reserve, then closes trace sockets still checked out at the cutoff.
-
-`TRACES_RETENTION_SECONDS` defaults to 14 days and cannot exceed work retention.
-Parts cascade with spans and work items; only unreferenced aged blobs expire.
-`RETENTION_ENABLED=false` leaves traces retained. `TRACES_MODE=off` stops new
-recording without deleting existing data. PostHog receives summary metadata and
-`trace_span_id`, never stored content. See [ADR 0046](adr/0046-agent-traces.md).
+See [ADR 0050](adr/0050-posthog-ai-traces.md).
 
 ## Installation access recovery
 

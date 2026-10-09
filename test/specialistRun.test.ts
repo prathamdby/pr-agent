@@ -29,12 +29,12 @@ const runnerMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   behaviors: [] as AttemptBehavior[],
   sessions: [] as TestSession[],
-  captureWorkSpan: vi.fn(),
+  recordExecutionSpan: vi.fn(),
 }));
 
-vi.mock("../src/analytics/workSpan.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/analytics/workSpan.js")>()),
-  captureWorkSpan: runnerMocks.captureWorkSpan,
+vi.mock("../src/traces/recorder.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/traces/recorder.js")>()),
+  recordExecutionSpan: runnerMocks.recordExecutionSpan,
 }));
 
 vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
@@ -217,17 +217,15 @@ describe("runSpecialist", () => {
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionContext: context }),
     );
-    const spans = runnerMocks.captureWorkSpan.mock.calls.map(([span]) => span);
+    const spans = runnerMocks.recordExecutionSpan.mock.calls.map(([span]) => span);
     expect(spans.map((span) => span.spanName)).toEqual([
       "specialist:correctness:schema",
       "specialist:correctness:run",
     ]);
-    expect(spans.every((span) => span.kind === "specialist_span")).toBe(true);
+    expect(spans.every((span) => span.event === "$ai_span")).toBe(true);
     expect(spans.at(-1)).toMatchObject({
-      outcome: "empty",
-      specialistId: "correctness",
-      executionId: "execution",
-      attemptCount: 2,
+      specialist: "correctness",
+      extra: { stage: "run", outcome: "empty", attempt_count: 2 },
     });
   });
 

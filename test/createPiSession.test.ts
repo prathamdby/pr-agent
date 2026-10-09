@@ -1456,13 +1456,12 @@ describe("Pi 1.0 compatibility", () => {
         providerKeys: providerKeys ?? { openai: "unused-openai-key" },
       },
       provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
-      traces: { mode: "off" },
     });
   }
 
   it("resolves built-in and custom chat models without a type field", async () => {
     const builtin = await createPiRunnerSession({
-      cfg: makeTestConfig({ traces: { mode: "off" } }),
+      cfg: makeTestConfig(),
       systemPrompt: SYS_MARKER,
       tools: [],
       executors: {},
@@ -1580,7 +1579,6 @@ describe("Pi 1.0 compatibility", () => {
             providerKeys: { anthropic: EXPLICIT_ANTHROPIC_KEY },
           },
           provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
-          traces: { mode: "off" },
         }),
         systemPrompt: SYS_MARKER,
         tools: [],
@@ -2173,7 +2171,6 @@ describe("Pi 1.0 compatibility", () => {
               providerKeys: { anthropic: EXPLICIT_ANTHROPIC_KEY },
             },
             provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
-            traces: { mode: "off" },
           }),
           role: "orchestrator",
           thinkingPolicy: { ceiling, levelForPhase: DEFAULT_THINKING_POLICY.levelForPhase },
@@ -2244,7 +2241,6 @@ describe("Pi 1.0 compatibility", () => {
             api: "anthropic-messages",
           },
           provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
-          traces: { mode: "off" },
         }),
         systemPrompt: SYS_MARKER,
         tools: [objectTool("listChangedFiles", "list")],
