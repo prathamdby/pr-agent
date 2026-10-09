@@ -2142,6 +2142,25 @@ describe("local workspace tools", () => {
           pathsSearched: 4,
           filesScanned: 3,
         });
+        await expect(
+          executors.searchWorkspace?.({
+            query: "renewLease",
+            terms: ["renewLease", "LEASE_TTL_SECONDS"],
+            maxResults: 2,
+          }),
+        ).resolves.toMatchObject({
+          files: [
+            { path: "src/b.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+            { path: "src/c.ts", terms: ["renewLease", "LEASE_TTL_SECONDS"] },
+          ],
+          matches: [
+            { path: "src/b.ts", line: 1 },
+            { path: "src/b.ts", line: 2 },
+          ],
+          truncated: true,
+          coverage: expect.objectContaining({ searchTruncated: true }),
+          warning: expect.stringContaining("search truncated"),
+        });
       });
 
       it("finds files by fuzzy path, including paths fff does not index", async () => {
