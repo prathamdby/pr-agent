@@ -195,7 +195,7 @@ function startEffectServer({
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
-  readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void>;
+  readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void, Error>;
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
@@ -440,5 +440,42 @@ describe("effect webhook server (end-to-end)", () => {
     ]);
     expect(res.status).toBe(401);
     expect(res.body).toBe("invalid signature");
+  });
+
+  it("returns 422 unprocessable entity for a signed payload the codec rejects", async () => {
+    handle = await startEffectServer();
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: "bad", head: { sha: "a" } },
+      }),
+    );
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
+      "x-github-event": "pull_request",
+      "x-github-delivery": "e2e-unprocessable",
+    });
+    expect(res.status).toBe(422);
+    expect(res.body).toBe("unprocessable entity");
+  });
+
+  it("returns 503 service unavailable when intake submit fails", async () => {
+    handle = await startEffectServer({
+      recordIgnored: () => Effect.fail(new Error("scheduler failed")),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
+      "x-github-event": "ping",
+      "x-github-delivery": "e2e-intake-failed",
+    });
+    expect(res.status).toBe(503);
+    expect(res.body).toBe("service unavailable");
   });
 });

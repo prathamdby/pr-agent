@@ -622,9 +622,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
     const log = intakeLog();
     const result = Effect.runPromise(
-      processWebhookPostRequestEffect(
-        { ...cfg, webhook: { ...cfg.webhook, timeoutMs: 1 } },
-        {
+      processWebhookPostRequestEffect({
+        cfg: { ...cfg, webhook: { ...cfg.webhook, timeoutMs: 1 } },
+        request: {
           rawBody,
           headers: {
             "x-github-event": "pull_request",
@@ -632,8 +632,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
             "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
           },
         },
-        log,
-      ).pipe(
+        intakeLog: log,
+      }).pipe(
         Effect.provide(Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg))),
       ),
     ).then((value) => {
@@ -704,9 +704,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         }),
       );
       const response = await Effect.runPromise(
-        processWebhookPostRequestEffect(
+        processWebhookPostRequestEffect({
           cfg,
-          {
+          request: {
             rawBody,
             headers: {
               "x-github-event": "pull_request_review",
@@ -714,8 +714,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
               "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
             },
           },
-          intakeLog(),
-        ).pipe(
+          intakeLog: intakeLog(),
+        }).pipe(
           Effect.provide(
             Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg)),
           ),
@@ -778,9 +778,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
               };
         const rawBody = Buffer.from(JSON.stringify(payload));
         const response = await Effect.runPromise(
-          processWebhookPostRequestEffect(
+          processWebhookPostRequestEffect({
             cfg,
-            {
+            request: {
               rawBody,
               headers: {
                 "x-github-event": name,
@@ -788,8 +788,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
                 "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
               },
             },
-            intakeLog(),
-          ).pipe(
+            intakeLog: intakeLog(),
+          }).pipe(
             Effect.provide(
               Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg)),
             ),
@@ -3492,9 +3492,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         const delivery = `${OWNER}-approval-${randomUUID()}`;
         const signature = `sha256=${createHmac("sha256", cfg.webhook.secret).update(body).digest("hex")}`;
         const response = await Effect.runPromise(
-          processWebhookPostRequestEffect(
+          processWebhookPostRequestEffect({
             cfg,
-            {
+            request: {
               headers: {
                 "x-github-event": "workflow_run",
                 "x-github-delivery": delivery,
@@ -3502,8 +3502,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
               },
               rawBody: body,
             },
-            intakeLog(),
-          ).pipe(Effect.provide(runtime)),
+            intakeLog: intakeLog(),
+          }).pipe(Effect.provide(runtime)),
         );
         expect(response).toEqual({ status: 200, body: "ok" });
         const approved =

@@ -1,4 +1,4 @@
-import { Duration, Effect } from "effect";
+import { Data, Duration, Effect, Exit, Fiber, Ref } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
@@ -8,7 +8,7 @@ import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithub
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { toIntakeCommand } from "../../webhook/intakeCommand.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
-import { toError, errorMessage } from "../../errors/errorMessage.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 import { isRecord } from "../../util/typeGuards.js";
 
 function webhookDuplicateReason(
@@ -43,12 +43,6 @@ function emitWebhookReceived(args: {
   });
 }
 
-type DispatchResult =
-  | { readonly kind: "ok" }
-  | { readonly kind: "failed" }
-  | { readonly kind: "timeout" }
-  | { readonly kind: "parse_error"; readonly message: string };
-
 export type WebhookPostRequest = {
   headers: Record<string, string | undefined>;
   rawBody: Buffer;
@@ -60,233 +54,251 @@ export type WebhookResponseLike = {
   contentType?: string;
 };
 
+export type HandleWebhookInput = {
+  readonly cfg: Config;
+  readonly request: WebhookPostRequest;
+  readonly intakeLog: RequestLogger;
+};
+
+class WebhookSignatureInvalid extends Data.TaggedError("WebhookSignatureInvalid") {}
+
+class WebhookInvalidJson extends Data.TaggedError("WebhookInvalidJson") {}
+
+class WebhookUnprocessable extends Data.TaggedError("WebhookUnprocessable") {}
+
+class WebhookIntakeUnavailable extends Data.TaggedError("WebhookIntakeUnavailable")<{
+  readonly reason: "failed" | "timeout";
+}> {}
+
+type SubmitFiber = Fiber.Fiber<void, WebhookIntakeUnavailable>;
+
 type DispatchInput = {
   readonly cfg: Config;
   readonly headers: WebhookHeaders;
   readonly intakeLog: RequestLogger;
   readonly payload: Record<string, unknown>;
+  readonly githubEvent: string;
+  readonly logDelivery: string;
+  readonly submitFiber: Ref.Ref<SubmitFiber | undefined>;
 };
 
-function dispatchGithubEventEffect(
-  input: DispatchInput,
-): Effect.Effect<DispatchResult, Error, AgentWorkScheduler> {
-  return Effect.gen(function* () {
-    const { cfg, headers, intakeLog, payload } = input;
-    const event = headers.event ?? "";
+// `interruptible` is runtime fiber state. It is not on the Fiber interface.
+// A pending timeout interrupt discards success when this flag flips back to true,
+// so the budget handler must not interrupt a submit that is still uninterruptible.
+function fiberIsInterruptible(fiber: Fiber.Fiber<unknown, unknown>): boolean {
+  return "interruptible" in fiber && fiber.interruptible === true;
+}
 
+function detachedCommitLanded(
+  fiber: SubmitFiber | undefined,
+): Effect.Effect<boolean, WebhookIntakeUnavailable> {
+  return Effect.gen(function* () {
+    if (fiber === undefined) return false;
+    const finished = fiber.pollUnsafe();
+    if (finished && Exit.isSuccess(finished)) return true;
+    if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
+    if (fiberIsInterruptible(fiber)) return false;
+    yield* Fiber.join(fiber);
+    return true;
+  });
+}
+
+const dispatchGithubEvent = Effect.fn("webhook.dispatch")(function* (input: DispatchInput) {
+  const { cfg, headers, intakeLog, payload, githubEvent, logDelivery, submitFiber } = input;
+  yield* Effect.annotateCurrentSpan({
+    event: githubEvent,
+    delivery_id: logDelivery,
+  });
+  yield* Effect.gen(function* () {
+    const event = headers.event ?? "";
     if (!headers.delivery) {
       recordEvent(intakeLog, "missing_delivery_id_using_body_hash", undefined, "warn");
     }
 
-    let parsed: ReturnType<typeof parseGithubPayload>;
-    try {
-      parsed = parseGithubPayload(event, payload);
-    } catch (e) {
-      if (e instanceof WebhookParseError) {
-        recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
-        return { kind: "parse_error" as const, message: e.message };
-      }
-      yield* Effect.fail(toError(e));
-      return { kind: "failed" as const };
-    }
+    const parsed = yield* Effect.try({
+      try: () => parseGithubPayload(event, payload),
+      catch: (cause) => {
+        if (cause instanceof WebhookParseError) {
+          recordEvent(intakeLog, "webhook_parse_error", { event, message: cause.message }, "warn");
+          return new WebhookUnprocessable();
+        }
+        const message = errorMessage(cause);
+        recordEvent(
+          intakeLog,
+          "webhook_handler_error",
+          { event, delivery: logDelivery, message },
+          "error",
+        );
+        return new WebhookIntakeUnavailable({ reason: "failed" });
+      },
+    });
 
     const scheduler = yield* AgentWorkScheduler;
     if (parsed.name === "ignored") recordEvent(intakeLog, "ignored_event", { event }, "debug");
     let command = toIntakeCommand(cfg, headers, parsed);
     if (command.kind === "auth_required") {
-      const bot = yield* Effect.tryPromise({ try: () => getAppBotIdentity(cfg), catch: toError });
+      const bot = yield* Effect.tryPromise({
+        try: () => getAppBotIdentity(cfg),
+        catch: (cause) => {
+          const message = errorMessage(cause);
+          recordEvent(
+            intakeLog,
+            "webhook_handler_error",
+            { event, delivery: logDelivery, message },
+            "error",
+          );
+          return new WebhookIntakeUnavailable({ reason: "failed" });
+        },
+      });
       command = toIntakeCommand(cfg, headers, parsed, bot);
     }
-    if (command.kind === "auth_required")
-      return yield* Effect.fail(new Error("Bot identity did not resolve intake authorization"));
-    yield* scheduler.submit(command, intakeLog);
-    return { kind: "ok" as const };
+    if (command.kind === "auth_required") {
+      const message = "Bot identity did not resolve intake authorization";
+      recordEvent(
+        intakeLog,
+        "webhook_handler_error",
+        { event, delivery: logDelivery, message },
+        "error",
+      );
+      return yield* new WebhookIntakeUnavailable({ reason: "failed" });
+    }
+    const detached = yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkDetach(
+          scheduler.submit(command, intakeLog).pipe(
+            Effect.mapError((err) => {
+              const message = errorMessage(err);
+              recordEvent(
+                intakeLog,
+                "webhook_handler_error",
+                { event, delivery: logDelivery, message },
+                "error",
+              );
+              return new WebhookIntakeUnavailable({ reason: "failed" });
+            }),
+          ),
+          { startImmediately: true },
+        );
+        yield* Ref.set(submitFiber, fiber);
+        return fiber;
+      }),
+    );
+    yield* Fiber.join(detached);
+    return yield* Effect.annotateCurrentSpan({ outcome: "accepted" });
+  }).pipe(Effect.tapError(() => Effect.annotateCurrentSpan({ outcome: "rejected" })));
+});
+
+function rejectedResponse(
+  input: HandleWebhookInput,
+  githubEvent: string,
+  logDelivery: string,
+  startedAt: number,
+  response: WebhookResponseLike,
+  event: string,
+  webhook: Record<string, unknown>,
+  reason: string,
+) {
+  return Effect.gen(function* () {
+    input.intakeLog.set({ webhook });
+    yield* Effect.promise(() => emitOperationLogger(input.intakeLog, { event }));
+    const recordedElapsed = webhook.elapsedMs;
+    emitWebhookReceived({
+      githubEvent,
+      delivery: logDelivery,
+      elapsedMs: typeof recordedElapsed === "number" ? recordedElapsed : Date.now() - startedAt,
+      outcome: "rejected",
+      reason,
+    });
+    return response;
   });
 }
 
-export function processWebhookPostRequestEffect(
-  cfg: Config,
-  req: WebhookPostRequest,
-  intakeLog: RequestLogger,
-): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler> {
-  return Effect.gen(function* () {
-    const t0 = Date.now();
-    const delivery = req.headers["x-github-delivery"];
-    const githubEvent = req.headers["x-github-event"] ?? "";
-    const logDelivery = delivery ?? "(missing)";
+const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhookInput) {
+  const startedAt = Date.now();
+  const delivery = input.request.headers["x-github-delivery"];
+  const githubEvent = input.request.headers["x-github-event"] ?? "";
+  const logDelivery = delivery ?? "(missing)";
+  const responseBudgetMs = Math.max(
+    1,
+    input.cfg.webhook.timeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS,
+  );
+  input.intakeLog.set({
+    github: { event: githubEvent, delivery: logDelivery },
+    webhook: { method: "POST", path: "/webhooks" },
+    runtime: "effect",
+  });
+  yield* Effect.annotateCurrentSpan({
+    event: githubEvent,
+    delivery_id: logDelivery,
+  });
 
-    intakeLog.set({
-      github: { event: githubEvent, delivery: logDelivery },
-      webhook: { method: "POST", path: "/webhooks" },
-      runtime: "effect",
+  const admitted = Effect.gen(function* () {
+    const sig = input.request.headers["x-hub-signature-256"];
+    if (!verifyGithubWebhookSignature(input.cfg.webhook.secret, input.request.rawBody, sig)) {
+      recordEvent(input.intakeLog, "invalid_signature", undefined, "warn");
+      return yield* new WebhookSignatureInvalid();
+    }
+
+    const payload = yield* Effect.try({
+      try: (): Record<string, unknown> => {
+        const parsed: unknown = JSON.parse(input.request.rawBody.toString("utf8"));
+        if (!isRecord(parsed)) throw new Error("webhook payload must be an object");
+        return parsed;
+      },
+      catch: () => {
+        recordEvent(input.intakeLog, "invalid_json", undefined, "warn");
+        return new WebhookInvalidJson();
+      },
     });
 
-    const sig = req.headers["x-hub-signature-256"];
-    if (!verifyGithubWebhookSignature(cfg.webhook.secret, req.rawBody, sig)) {
-      recordEvent(intakeLog, "invalid_signature", undefined, "warn");
-      const response = {
-        status: 401,
-        body: "invalid signature",
-      } satisfies WebhookResponseLike;
-      intakeLog.set({
-        webhook: { status: response.status, signatureInvalid: true },
-      });
-      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_signature" }));
-      emitWebhookReceived({
-        githubEvent,
-        delivery: logDelivery,
-        elapsedMs: Date.now() - t0,
-        outcome: "rejected",
-        reason: "invalid_signature",
-      });
-      return response;
-    }
-
-    let payload: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(req.rawBody.toString("utf8"));
-      if (!isRecord(parsed)) throw new Error("webhook payload must be an object");
-      payload = parsed;
-    } catch {
-      recordEvent(intakeLog, "invalid_json", undefined, "warn");
-      const response = {
-        status: 400,
-        body: "invalid json",
-      } satisfies WebhookResponseLike;
-      intakeLog.set({ webhook: { status: response.status } });
-      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_json" }));
-      emitWebhookReceived({
-        githubEvent,
-        delivery: logDelivery,
-        elapsedMs: Date.now() - t0,
-        outcome: "rejected",
-        reason: "invalid_json",
-      });
-      return response;
-    }
-
-    const responseBudgetMs = Math.max(1, cfg.webhook.timeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const submitFiber = yield* Ref.make<SubmitFiber | undefined>(undefined);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
       event: githubEvent,
-      rawBody: req.rawBody,
+      rawBody: input.request.rawBody,
     } satisfies WebhookHeaders;
-    const dispatch = dispatchGithubEventEffect({
-      cfg,
+    yield* dispatchGithubEvent({
+      cfg: input.cfg,
       headers,
-      intakeLog,
+      intakeLog: input.intakeLog,
       payload,
-    });
-    const result: DispatchResult = yield* dispatch.pipe(
+      githubEvent,
+      logDelivery,
+      submitFiber,
+    }).pipe(
       Effect.timeout(Duration.millis(responseBudgetMs)),
       Effect.catchTag("TimeoutError", () =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          const fiber = yield* Ref.get(submitFiber);
+          if (yield* detachedCommitLanded(fiber)) return;
+          const finished = fiber?.pollUnsafe();
+          if (finished && Exit.isSuccess(finished)) return;
+          if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
+          if (fiber !== undefined) yield* Fiber.interrupt(fiber);
           recordEvent(
-            intakeLog,
+            input.intakeLog,
             "webhook_timeout_budget_exceeded",
             {
               event: githubEvent,
               delivery: logDelivery,
-              budgetMs: cfg.webhook.timeoutMs,
+              budgetMs: input.cfg.webhook.timeoutMs,
               responseBudgetMs,
             },
             "warn",
           );
-          return { kind: "timeout" as const };
-        }),
-      ),
-      Effect.catch((err) =>
-        Effect.sync(() => {
-          const message = errorMessage(err);
-          recordEvent(
-            intakeLog,
-            "webhook_handler_error",
-            {
-              event: githubEvent,
-              delivery: logDelivery,
-              message,
-            },
-            "error",
-          );
-          return { kind: "failed" as const };
+          yield* new WebhookIntakeUnavailable({ reason: "timeout" });
         }),
       ),
     );
-    const elapsedMs = Date.now() - t0;
 
-    switch (result.kind) {
-      case "ok":
-        break;
-      case "parse_error": {
-        const response = {
-          status: 422,
-          body: "unprocessable entity",
-        } satisfies WebhookResponseLike;
-        intakeLog.set({
-          webhook: {
-            status: response.status,
-            elapsedMs,
-            parseError: true,
-            responseBudgetMs,
-          },
-        });
-        yield* Effect.promise(() =>
-          emitOperationLogger(intakeLog, { event: "webhook_parse_error" }),
-        );
-        emitWebhookReceived({
-          githubEvent,
-          delivery: logDelivery,
-          elapsedMs,
-          outcome: "rejected",
-          reason: "parse_error",
-        });
-        return response;
-      }
-      case "failed":
-      case "timeout": {
-        const response = {
-          status: 503,
-          body: "service unavailable",
-        } satisfies WebhookResponseLike;
-        intakeLog.set({
-          webhook: {
-            status: response.status,
-            elapsedMs,
-            handlerFailed: result.kind === "failed",
-            timeout: result.kind === "timeout",
-            responseBudgetMs,
-          },
-        });
-        yield* Effect.promise(() =>
-          emitOperationLogger(intakeLog, {
-            event:
-              result.kind === "timeout"
-                ? "webhook_timeout_budget_exceeded"
-                : "webhook_handler_error",
-          }),
-        );
-        emitWebhookReceived({
-          githubEvent,
-          delivery: logDelivery,
-          elapsedMs,
-          outcome: "rejected",
-          reason: result.kind === "timeout" ? "timeout" : "handler_failed",
-        });
-        return response;
-      }
-      default: {
-        const _exhaustive: never = result;
-        return _exhaustive;
-      }
-    }
-
+    const elapsedMs = Date.now() - startedAt;
     recordEvent(
-      intakeLog,
+      input.intakeLog,
       "webhook_handled",
       { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
       "info",
     );
-    const duplicateReason = webhookDuplicateReason(intakeLog);
+    const duplicateReason = webhookDuplicateReason(input.intakeLog);
     if (duplicateReason != null) {
       emitWebhookReceived({
         githubEvent,
@@ -296,7 +308,7 @@ export function processWebhookPostRequestEffect(
         reason: duplicateReason,
       });
     } else {
-      const lastEvent = intakeLog.getContext().lastEvent;
+      const lastEvent = input.intakeLog.getContext().lastEvent;
       const ignored =
         typeof lastEvent === "string" && lastEvent.startsWith("ignored") ? lastEvent : undefined;
       emitWebhookReceived({
@@ -307,43 +319,115 @@ export function processWebhookPostRequestEffect(
         ...(ignored != null ? { reason: ignored } : {}),
       });
     }
-    intakeLog.set({
+    input.intakeLog.set({
       webhook: {
         status: 200,
         elapsedMs,
-        budgetExceeded: elapsedMs > cfg.webhook.timeoutMs,
-        budgetMs: cfg.webhook.timeoutMs,
+        budgetExceeded: elapsedMs > input.cfg.webhook.timeoutMs,
+        budgetMs: input.cfg.webhook.timeoutMs,
         responseBudgetMs,
       },
     });
-    if (elapsedMs > cfg.webhook.timeoutMs) {
+    if (elapsedMs > input.cfg.webhook.timeoutMs) {
       recordEvent(
-        intakeLog,
+        input.intakeLog,
         "webhook_timeout_budget_exceeded",
         {
           event: githubEvent,
           delivery: logDelivery,
           ms: elapsedMs,
-          budgetMs: cfg.webhook.timeoutMs,
+          budgetMs: input.cfg.webhook.timeoutMs,
         },
         "warn",
       );
     }
-    void emitOperationLogger(intakeLog, { event: "webhook_handled" }).catch(() => undefined);
+    yield* Effect.annotateCurrentSpan({
+      outcome: duplicateReason != null ? "duplicate" : "accepted",
+    });
+    void emitOperationLogger(input.intakeLog, { event: "webhook_handled" }).catch(() => undefined);
     return { status: 200, body: "ok" } satisfies WebhookResponseLike;
-  }).pipe(
+  });
+
+  return yield* admitted.pipe(
+    Effect.tapError(() => Effect.annotateCurrentSpan({ outcome: "rejected" })),
+    Effect.catchTags({
+      WebhookSignatureInvalid: () =>
+        rejectedResponse(
+          input,
+          githubEvent,
+          logDelivery,
+          startedAt,
+          { status: 401, body: "invalid signature" },
+          "invalid_signature",
+          { status: 401, signatureInvalid: true },
+          "invalid_signature",
+        ),
+      WebhookInvalidJson: () =>
+        rejectedResponse(
+          input,
+          githubEvent,
+          logDelivery,
+          startedAt,
+          { status: 400, body: "invalid json" },
+          "invalid_json",
+          { status: 400 },
+          "invalid_json",
+        ),
+      WebhookUnprocessable: () => {
+        const elapsedMs = Date.now() - startedAt;
+        return rejectedResponse(
+          input,
+          githubEvent,
+          logDelivery,
+          startedAt,
+          { status: 422, body: "unprocessable entity" },
+          "webhook_parse_error",
+          {
+            status: 422,
+            elapsedMs,
+            parseError: true,
+            responseBudgetMs,
+          },
+          "parse_error",
+        );
+      },
+      WebhookIntakeUnavailable: (error) => {
+        const elapsedMs = Date.now() - startedAt;
+        const timedOut = error.reason === "timeout";
+        return rejectedResponse(
+          input,
+          githubEvent,
+          logDelivery,
+          startedAt,
+          { status: 503, body: "service unavailable" },
+          timedOut ? "webhook_timeout_budget_exceeded" : "webhook_handler_error",
+          {
+            status: 503,
+            elapsedMs,
+            handlerFailed: !timedOut,
+            timeout: timedOut,
+            responseBudgetMs,
+          },
+          timedOut ? "timeout" : "handler_failed",
+        );
+      },
+    }),
     Effect.ensuring(
       Effect.gen(function* () {
-        if (intakeLog.getContext().emitted === true) return;
-        const webhook: unknown = intakeLog.getContext().webhook;
+        if (input.intakeLog.getContext().emitted === true) return;
+        const webhook: unknown = input.intakeLog.getContext().webhook;
         if (isRecord(webhook) && webhook.status === 200) return;
-        const lastEvent = intakeLog.getContext().lastEvent;
+        const lastEvent = input.intakeLog.getContext().lastEvent;
         yield* Effect.promise(() =>
-          emitOperationLogger(intakeLog, {
+          emitOperationLogger(input.intakeLog, {
             event: typeof lastEvent === "string" ? lastEvent : "webhook_request_aborted",
           }),
         ).pipe(Effect.catch(() => Effect.void));
       }),
     ),
   );
-}
+});
+
+export const processWebhookPostRequestEffect: (
+  input: HandleWebhookInput,
+) => Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler> = handleWebhook;
