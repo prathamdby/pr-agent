@@ -56,6 +56,27 @@ export async function approveAwaiting(
   return result.rows[0] ?? null;
 }
 
+/**
+ * True when this installation has already admitted the PR for review: a review
+ * work item still exists, or the approval row has been consumed. Retention
+ * deletes both, after which an approval-mode push waits for `/review` again.
+ */
+export async function reviewPushAdmitted(
+  client: PoolClient,
+  resourceKey: string,
+): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1 FROM agent_work_items
+      WHERE resource_key = $1 AND type = 'review'
+     UNION ALL
+     SELECT 1 FROM pr_review_approvals
+      WHERE resource_key = $1 AND state = 'approved'
+     LIMIT 1`,
+    [resourceKey],
+  );
+  return result.rows.length > 0;
+}
+
 export async function loadAwaitingApproval(
   client: PoolClient,
   resourceKey: string,

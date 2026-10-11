@@ -20,11 +20,11 @@ import {
   loadAwaitingApproval,
   insertAwaitingApproval,
   moveAwaitingHead,
+  reviewPushAdmitted,
   withdrawAwaiting,
 } from "./reviewApprovals.js";
 import {
   acquireAutoWorkIntakeLock,
-  replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
   type AutoWorkLifecycleChange,
   type AutoWorkSupersedeTarget,
@@ -210,9 +210,12 @@ async function applyPlannedAutomatedPullRequestIntake(
     );
   }
 
-  if (plan.kinds.includes("reviewSupersede")) {
+  if (
+    plan.kinds.includes("reviewSupersede") &&
+    (await synchronizeReviewEligible(client, plan, resourceKey))
+  ) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    const { workItemId, supersededIds, lifecycleChanges } = await replaceActiveAutoWorkItem({
+    const { workItemId, supersededIds, lifecycleChanges } = await replaceAutoWorkItem({
       client,
       target: { kind: "review", resourceKey },
       createWorkItem: () =>
@@ -224,38 +227,36 @@ async function applyPlannedAutomatedPullRequestIntake(
         }),
     });
     tx.deferWorkLifecycle(ref, lifecycleChanges, "auto_replacement", correlation);
-    if (workItemId != null) {
-      await enqueueAck(boss, client, {
-        kind: "ack",
-        workItemId,
-        installationId: ref.installationId,
-        owner: ref.owner,
-        repo: ref.repo,
-        prNumber: ref.prNumber,
-        targets: ackTargets,
-        progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
-        ...correlation,
+    await enqueueAck(boss, client, {
+      kind: "ack",
+      workItemId,
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      prNumber: ref.prNumber,
+      targets: ackTargets,
+      progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
+      ...correlation,
+    });
+    await enqueueReview(boss, client, ref, workItemId, correlation);
+    if (supersededIds.length > 0) {
+      events.push({
+        name: "agent_work_cancel_requested",
+        fields: {
+          type: "review",
+          source: "auto",
+          workItemId: supersededIds[0],
+          resourceKey,
+          cancelledCount: supersededIds.length,
+          cancelledIds: supersededIds,
+          ...correlation,
+        },
       });
-      await enqueueReview(boss, client, ref, workItemId, correlation);
-      events.push(
-        {
-          name: "agent_work_cancel_requested",
-          fields: {
-            type: "review",
-            source: "auto",
-            workItemId: supersededIds[0],
-            resourceKey,
-            cancelledCount: supersededIds.length,
-            cancelledIds: supersededIds,
-            ...correlation,
-          },
-        },
-        {
-          name: "agent_work_enqueued",
-          fields: { type: "review", source: "auto", workItemId, resourceKey, ...correlation },
-        },
-      );
     }
+    events.push({
+      name: "agent_work_enqueued",
+      fields: { type: "review", source: "auto", workItemId, resourceKey, ...correlation },
+    });
   }
 
   if (plan.kinds.includes("description")) {
@@ -875,6 +876,20 @@ function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
     return "automated_review_supersede_requested";
   }
   return "automated_work_enqueued";
+}
+
+/**
+ * `auto` reviews every push. `approval` reviews a push only after admission,
+ * and never while the fork is still awaiting approval.
+ */
+async function synchronizeReviewEligible(
+  client: PoolClient,
+  plan: AutomatedPrIntakePlan,
+  resourceKey: string,
+): Promise<boolean> {
+  if (!plan.kinds.includes("reviewTrackAwaitingHead")) return true;
+  if ((await loadAwaitingApproval(client, resourceKey)) != null) return false;
+  return reviewPushAdmitted(client, resourceKey);
 }
 
 /** Pure planner: maps webhook action + feature modes → agent work kinds (no I/O). */

@@ -56,8 +56,10 @@ function linkSupersededWorkItems(
 }
 
 function supersedeSelector(target: AutoWorkSupersedeTarget): TransitionSelector {
+  // A push replaces every in-progress review. Description and verification stay
+  // on their automatic rows; slash runs of those kinds keep their own intake.
   return target.kind === "review"
-    ? { resourceKey: target.resourceKey, reviewLens: "review", source: "auto" }
+    ? { resourceKey: target.resourceKey, type: "review" }
     : { resourceKey: target.resourceKey, type: target.kind, source: "auto" };
 }
 
@@ -65,6 +67,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   sql: string;
   params: unknown[];
 } {
+  const sourcePredicate = target.kind === "review" ? "" : "AND source = 'auto'";
   return {
     // Lock and retain the prior request bit so relinking an already-cancelled
     // running row preserves replacement behavior without reporting a new request.
@@ -72,8 +75,9 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
             SELECT id, cancel_requested_at
               FROM agent_work_items
              WHERE resource_key = $1
-               AND ${target.kind === "review" ? "review_lens" : "type"} = $2
-               AND source = 'auto' AND status = 'running'
+               AND type = $2
+               ${sourcePredicate}
+               AND status = 'running'
              FOR UPDATE
           )
           UPDATE agent_work_items w
@@ -87,11 +91,12 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 }
 
 /**
- * Supersede queued auto work and request cancel on running rows under the intake
- * lock. Running rows stay `running` with `cancel_requested_at` set while they wind
+ * Supersede queued work and request cancel on running rows under the intake
+ * lock. Review covers auto and slash. Other kinds stay on automatic rows.
+ * Running rows stay `running` with `cancel_requested_at` set while they wind
  * down; both sets release their PR actor lease holders in the same transaction so
  * the replacement acquires immediately instead of hop-looping till TTL.
- * Returns the affected ids; an empty list means no active auto work.
+ * Returns the affected ids; an empty list means nothing queued or running.
  */
 async function supersedeActiveAutoWork(
   client: PoolClient,
@@ -118,8 +123,8 @@ async function supersedeActiveAutoWork(
   const holders = [...queued.rows, ...running.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);
-  // Target kind is the lease work type; triage targets match zero rows today
-  // (planner never emits triage, triage rows are slash-only, supersede filters auto).
+  // Target kind is the lease work type. Triage is slash-only and this selector
+  // keeps description and verification on automatic rows, so those match nothing.
   await releasePrActorLeaseHeldByWorkItems(client, {
     resourceKey: target.resourceKey,
     workType: target.kind,
@@ -166,31 +171,5 @@ export async function replaceAutoWorkItem(params: {
   if (supersededIds.length > 0) {
     await linkSupersededWorkItems(params.client, workItemId, supersededIds);
   }
-  return { workItemId, supersededIds, lifecycleChanges };
-}
-
-/**
- * Like replaceAutoWorkItem, but the replacement is created only when active auto
- * work exists. A push must not start a review on a PR whose review already
- * finished; it only redirects work that is still queued or running.
- */
-export async function replaceActiveAutoWorkItem(params: {
-  readonly client: PoolClient;
-  readonly target: AutoWorkSupersedeTarget;
-  readonly createWorkItem: () => Promise<string>;
-}): Promise<{
-  readonly workItemId: string | null;
-  readonly supersededIds: readonly string[];
-  readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
-}> {
-  const { supersededIds, lifecycleChanges } = await supersedeActiveAutoWork(
-    params.client,
-    params.target,
-  );
-  if (supersededIds.length === 0) {
-    return { workItemId: null, supersededIds, lifecycleChanges };
-  }
-  const workItemId = await params.createWorkItem();
-  await linkSupersededWorkItems(params.client, workItemId, supersededIds);
   return { workItemId, supersededIds, lifecycleChanges };
 }
