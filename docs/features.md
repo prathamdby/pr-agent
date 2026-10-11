@@ -10,21 +10,22 @@ commands reply with a notice, nothing runs), `manual` = slash command only,
 `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` is invalid and crashes
 startup. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` is
 invalid and crashes startup.
-`/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
-a PR is `opened`; verification fires on `synchronize` (every push). With
-`FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened`. Trust means
+`/review` is available in every review mode on open PRs. Auto triggers are fixed: review fires when
+a PR is `opened` and again on each `synchronize` push; describe fires on `opened`; verification fires on `synchronize` (every push). With
+`FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened` and on each later push. Trust means
 a same-repo head or an author associated as `OWNER`, `MEMBER`, `COLLABORATOR`,
 or `CONTRIBUTOR`. Missing association or a deleted fork is untrusted.
 Untrusted forks get one awaiting notice. The first `workflow_run` `in_progress`
 with `event=pull_request` on the awaiting head, submitted approving review from
 a non-bot reviewer in `SLASH_ALLOWED_ASSOCIATIONS`, or `/review` approves that
-record once. Completed runs never approve it. Later signals do nothing.
-Already-open PRs are not backfilled; use `/review`.
+record once. Completed runs never approve it. Later approval signals do nothing.
+A push while the PR is awaiting moves that head and does not start a review.
+After admission, each push starts a review. Already-open PRs that were never admitted are not backfilled; use `/review`.
 Approval is the default, so trusted opens now spend review tokens; use `manual`
 to opt out. `CONTRIBUTOR` authors remain trusted even when your Actions policy
 requires workflow approval for all external contributors. A push
-while an auto review is still running cancels that review and replaces it with
-one for the new head; a push after the review finishes does not re-review.
+while a review is still running, including `/review`, cancels that review and replaces it with
+one for the new head. `manual` does not review on push.
 Custom trigger sets are intentionally not supported.
 
 `/cancel` blocks new review output when the worker's final publication check sees
@@ -62,7 +63,7 @@ thread. The join lasts until the work item is purged by
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                                                                        |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                                                                       |
+| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open and on each push. `approval` reviews trusted opens, holds untrusted forks until maintainer approval, then reviews each push. `/review` works in every mode on open PRs. `manual` does not review on push.                               |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                                                              |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                                                                |
 | `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                                                                        |
