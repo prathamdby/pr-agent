@@ -1,7 +1,6 @@
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -131,9 +130,9 @@ function buildEffectWebhookApp(cfg: Config) {
         context: { role: "web" },
       });
 
-      const result = yield* processWebhookPostRequestEffect(
+      const result = yield* processWebhookPostRequestEffect({
         cfg,
-        {
+        request: {
           headers: {
             "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
             "x-github-event": singleHeader(req.headers["x-github-event"]),
@@ -142,7 +141,7 @@ function buildEffectWebhookApp(cfg: Config) {
           rawBody: body.rawBody,
         },
         intakeLog,
-      );
+      });
 
       return HttpServerResponse.text(result.body, {
         status: result.status,
@@ -165,6 +164,6 @@ export function buildEffectWebhookLayer(
   ).pipe(Layer.provide(serverLayer), Layer.provide(schedulerLayer));
 }
 
-export function startEffectWebhookServer(cfg: Config): void {
-  NodeRuntime.runMain(Layer.launch(buildEffectWebhookLayer(cfg)));
+export function startEffectWebhookServer(cfg: Config) {
+  return Layer.launch(buildEffectWebhookLayer(cfg));
 }

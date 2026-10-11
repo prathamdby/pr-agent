@@ -3,8 +3,10 @@ import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import { Effect, Fiber, Layer } from "effect";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { AgentWorkScheduler, makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import type { WebhookHeaders } from "../src/agentWork/types.js";
 import type { Config } from "../src/settings/index.js";
 import { initEvlog } from "../src/evlog.js";
@@ -192,20 +194,23 @@ function startEffectServer({
   pingResult = true,
   cfg = testCfg,
   recordIgnored = () => Effect.void,
+  scheduler,
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
-  readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void>;
+  readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void, Error>;
+  readonly scheduler?: AgentWorkScheduler["Service"];
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
-      AgentWorkScheduler.of({
-        submit: (command) =>
-          recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
-        ping: () => Effect.succeed(pingResult),
-      }),
+      scheduler ??
+        AgentWorkScheduler.of({
+          submit: (command) =>
+            recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
+          ping: () => Effect.succeed(pingResult),
+        }),
     );
     const layer = buildEffectWebhookLayer(
       cfg,
@@ -440,5 +445,56 @@ describe("effect webhook server (end-to-end)", () => {
     ]);
     expect(res.status).toBe(401);
     expect(res.body).toBe("invalid signature");
+  });
+
+  it("returns 422 unprocessable entity for a signed payload the codec rejects", async () => {
+    handle = await startEffectServer();
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: "bad", head: { sha: "a" } },
+      }),
+    );
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
+      "x-github-event": "pull_request",
+      "x-github-delivery": "e2e-unprocessable",
+    });
+    expect(res.status).toBe(422);
+    expect(res.body).toBe("unprocessable entity");
+  });
+
+  it("returns 503 service unavailable when intake submit fails", async () => {
+    handle = await startEffectServer({
+      recordIgnored: () => Effect.fail(new Error("scheduler failed")),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": signBody(testCfg.webhook.secret, body),
+      "x-github-event": "ping",
+      "x-github-delivery": "e2e-intake-failed",
+    });
+    expect(res.status).toBe(503);
+    expect(res.body).toBe("service unavailable");
+  });
+
+  it("returns 503 not ready when makeAgentWorkScheduler ping cannot reach Postgres", async () => {
+    const pool = {
+      query: () => Promise.reject(new Error("db down")),
+    } as unknown as Pool;
+    handle = await startEffectServer({
+      scheduler: makeAgentWorkScheduler(pool, {} as PgBoss, testCfg),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const res = await get(addr.port, "/ready");
+    expect(res.status).toBe(503);
+    expect(res.body).toBe("not ready");
   });
 });

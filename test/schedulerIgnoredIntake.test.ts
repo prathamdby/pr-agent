@@ -21,16 +21,16 @@ function request(event: string, body: Buffer, signature = true) {
   };
 }
 function run(
-  req: Parameters<typeof processWebhookPostRequestEffect>[1],
+  req: { headers: Record<string, string | undefined>; rawBody: Buffer },
   submit: AgentWorkScheduler["Service"]["submit"],
   runCfg = cfg,
 ) {
   return Effect.runPromise(
-    processWebhookPostRequestEffect(
-      runCfg,
-      req,
-      evlog.createOperationLogger({ method: "POST", path: "/webhooks" }),
-    ).pipe(
+    processWebhookPostRequestEffect({
+      cfg: runCfg,
+      request: req,
+      intakeLog: evlog.createOperationLogger({ method: "POST", path: "/webhooks" }),
+    }).pipe(
       Effect.provide(
         Layer.succeed(AgentWorkScheduler, { submit, ping: () => Effect.succeed(true) }),
       ),

@@ -1,25 +1,30 @@
-import { loadConfig, type Config } from "./settings/index.js";
+import { Data, Effect } from "effect";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import { LOG_MAX_WIDE_EVENTS, loadConfig } from "./settings/index.js";
 import { initAnalytics } from "./analytics/index.js";
 import { initEvlog, logInfo } from "./evlog.js";
 import { sanitizeErrorForTelemetry } from "./errors/appError.js";
-import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
-async function main() {
-  let cfg: Config;
-  try {
-    cfg = await loadConfig();
-  } catch (e) {
-    console.error(sanitizeErrorForTelemetry(e));
-    process.exit(1);
-    return;
-  }
+class StartupConfigInvalid extends Data.TaggedError("StartupConfigInvalid")<{
+  readonly message: string;
+}> {}
 
-  initEvlog(cfg.logging.level, {
-    maxWideEvents: LOG_MAX_WIDE_EVENTS,
-    pretty: cfg.logging.pretty,
-    redact: cfg.logging.redact,
+const boot = Effect.fn("process.boot")(function* () {
+  const cfg = yield* Effect.tryPromise({
+    try: () => loadConfig(),
+    catch: (cause) =>
+      new StartupConfigInvalid({ message: sanitizeErrorForTelemetry(cause).message }),
   });
-  await initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host });
+  yield* Effect.sync(() => {
+    initEvlog(cfg.logging.level, {
+      maxWideEvents: LOG_MAX_WIDE_EVENTS,
+      pretty: cfg.logging.pretty,
+      redact: cfg.logging.redact,
+    });
+  });
+  yield* Effect.promise(() =>
+    initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host }),
+  );
   logInfo("boot", {
     role: cfg.runtime.role,
     provider: cfg.models.provider,
@@ -27,16 +32,15 @@ async function main() {
     context7_enabled: cfg.context7.apiKey.length > 0,
   });
   if (cfg.runtime.role === "worker") {
-    const { startAgentWorker } = await import("./worker.js");
-    startAgentWorker(cfg);
+    const { startAgentWorker } = yield* Effect.promise(() => import("./worker.js"));
+    yield* startAgentWorker(cfg);
     return;
   }
-  const [{ prewarmAppBotIdentity }, { startEffectWebhookServer }] = await Promise.all([
-    import("./github/appAuth.js"),
-    import("./effect/server.js"),
-  ]);
+  const [{ prewarmAppBotIdentity }, { startEffectWebhookServer }] = yield* Effect.promise(() =>
+    Promise.all([import("./github/appAuth.js"), import("./effect/server.js")]),
+  );
   prewarmAppBotIdentity(cfg);
-  startEffectWebhookServer(cfg);
-}
+  yield* startEffectWebhookServer(cfg);
+});
 
-void main();
+NodeRuntime.runMain(boot());
