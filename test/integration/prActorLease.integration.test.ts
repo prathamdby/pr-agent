@@ -2295,7 +2295,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await inTransaction(pool, (client) =>
           replaceAutoWorkItem({
             client,
-            target: { kind: "review", resourceKey },
+            target: { kind: "review", resourceKey, scope: "push" },
             createWorkItem: async () => {
               const replacementId = randomUUID();
               await client.query(
@@ -4034,7 +4034,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     try {
       const result = await replaceAutoWorkItem({
         client,
-        target: { kind: "review", resourceKey },
+        target: { kind: "review", resourceKey, scope: "automatic" },
         createWorkItem: async () => insertAutoQueued(resourceKey, "review"),
       });
       replacementId = result.workItemId;
@@ -4127,7 +4127,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     try {
       const result = await replaceAutoWorkItem({
         client: queuedClient,
-        target: { kind: "review", resourceKey: queuedOnlyKey },
+        target: { kind: "review", resourceKey: queuedOnlyKey, scope: "automatic" },
         createWorkItem: async () => insertAutoQueued(queuedOnlyKey, "review"),
       });
       expect(result.supersededIds).toHaveLength(2);
@@ -4147,7 +4147,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     try {
       const result = await replaceAutoWorkItem({
         client: legacyClient,
-        target: { kind: "review", resourceKey: legacyKey },
+        target: { kind: "review", resourceKey: legacyKey, scope: "automatic" },
         createWorkItem: async () => insertAutoQueued(legacyKey, "review"),
       });
       expect(result.supersededIds).toContain(legacy);
@@ -4184,7 +4184,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     try {
       const result = await replaceAutoWorkItem({
         client: reviewClient,
-        target: { kind: "review", resourceKey: reviewKey },
+        target: { kind: "review", resourceKey: reviewKey, scope: "push" },
         createWorkItem: async () => insertAutoQueued(reviewKey, "review"),
       });
       replacementId = result.workItemId;
@@ -4192,6 +4192,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     } finally {
       reviewClient.release();
     }
+    const { rows: slashRow } = await pool.query<{
+      status: string;
+      cancel_requested_at: Date | null;
+    }>(`SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1`, [slashReviewId]);
+    expect(slashRow[0]?.status).toBe("running");
+    expect(slashRow[0]?.cancel_requested_at).not.toBeNull();
     expect((await getLeaseRowFor(reviewKey, "review"))?.work_item_id).toBeNull();
     await expect(acquireFor(reviewKey, "review", replacementId)).resolves.toEqual({
       acquired: true,

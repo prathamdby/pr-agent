@@ -46,7 +46,7 @@ describe("replaceAutoWorkItem", () => {
 
     await replaceAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42" },
+      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
       createWorkItem,
     });
 
@@ -63,7 +63,7 @@ describe("replaceAutoWorkItem", () => {
 
     await replaceAutoWorkItem({
       client: reviewClient,
-      target: { kind: "review", resourceKey: "owner/repo#42" },
+      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
       createWorkItem: async () => "review-id",
     });
     await replaceAutoWorkItem({
@@ -81,7 +81,7 @@ describe("replaceAutoWorkItem", () => {
 
     const result = await replaceAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42" },
+      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
       createWorkItem,
     });
 
@@ -96,7 +96,7 @@ describe("replaceAutoWorkItem", () => {
 
     const result = await replaceAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42" },
+      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
       createWorkItem,
     });
 

@@ -4,14 +4,24 @@ import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
 import { transition, type TransitionSelector } from "./workItemTransitions.js";
 import { unleasedFence } from "./writeFence.js";
 
+export type AutoWorkIntakeLockTarget =
+  | { readonly kind: "review"; readonly resourceKey: string }
+  | { readonly kind: "description"; readonly resourceKey: string }
+  | { readonly kind: "triage"; readonly resourceKey: string }
+  | { readonly kind: "verification"; readonly resourceKey: string };
+
 export type AutoWorkSupersedeTarget =
   | {
       readonly kind: "review";
       readonly resourceKey: string;
+      /**
+       * `push` replaces every in-progress review, including slash.
+       * `automatic` replaces only automatic rows, so an open or approval
+       * admission leaves a slash review that already won the intake lock.
+       */
+      readonly scope: "push" | "automatic";
     }
-  | { readonly kind: "description"; readonly resourceKey: string }
-  | { readonly kind: "triage"; readonly resourceKey: string }
-  | { readonly kind: "verification"; readonly resourceKey: string };
+  | Exclude<AutoWorkIntakeLockTarget, { readonly kind: "review" }>;
 
 export type AutoWorkLifecycleChange = {
   readonly id: string;
@@ -26,7 +36,7 @@ type AutoWorkSupersedeResult = {
   readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
 };
 
-function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
+function autoWorkIntakeLockKey(target: AutoWorkIntakeLockTarget): string {
   return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
 }
 
@@ -37,7 +47,7 @@ function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
  */
 export async function acquireAutoWorkIntakeLock(
   client: PoolClient,
-  target: AutoWorkSupersedeTarget,
+  target: AutoWorkIntakeLockTarget,
 ): Promise<void> {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     autoWorkIntakeLockKey(target),
@@ -55,10 +65,14 @@ function linkSupersededWorkItems(
   ]);
 }
 
+function reviewReplacesEverySource(target: AutoWorkSupersedeTarget): boolean {
+  return target.kind === "review" && target.scope === "push";
+}
+
 function supersedeSelector(target: AutoWorkSupersedeTarget): TransitionSelector {
-  // A push replaces every in-progress review. Description and verification stay
-  // on their automatic rows; slash runs of those kinds keep their own intake.
-  return target.kind === "review"
+  // A push replaces every in-progress review. Open, approval admission,
+  // description, and verification stay on automatic rows.
+  return reviewReplacesEverySource(target)
     ? { resourceKey: target.resourceKey, type: "review" }
     : { resourceKey: target.resourceKey, type: target.kind, source: "auto" };
 }
@@ -67,7 +81,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   sql: string;
   params: unknown[];
 } {
-  const sourcePredicate = target.kind === "review" ? "" : "AND source = 'auto'";
+  const sourcePredicate = reviewReplacesEverySource(target) ? "" : "AND source = 'auto'";
   return {
     // Lock and retain the prior request bit so relinking an already-cancelled
     // running row preserves replacement behavior without reporting a new request.
@@ -92,7 +106,8 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 
 /**
  * Supersede queued work and request cancel on running rows under the intake
- * lock. Review covers auto and slash. Other kinds stay on automatic rows.
+ * lock. Push-scoped review covers auto and slash. Automatic review and other
+ * kinds stay on automatic rows.
  * Running rows stay `running` with `cancel_requested_at` set while they wind
  * down; both sets release their PR actor lease holders in the same transaction so
  * the replacement acquires immediately instead of hop-looping till TTL.

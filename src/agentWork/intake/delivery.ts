@@ -178,6 +178,7 @@ async function applyPlannedAutomatedPullRequestIntake(
         target: {
           kind: "review",
           resourceKey,
+          scope: "automatic",
         },
         createWorkItem: () =>
           createReviewWorkItem(client, {
@@ -217,7 +218,7 @@ async function applyPlannedAutomatedPullRequestIntake(
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     const { workItemId, supersededIds, lifecycleChanges } = await replaceAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey },
+      target: { kind: "review", resourceKey, scope: "push" },
       createWorkItem: () =>
         createReviewWorkItem(client, {
           webhookEventId: event.id,
@@ -603,7 +604,7 @@ async function applyReviewApprovedIntake(
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
       ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
-        target: { kind: "review", resourceKey },
+        target: { kind: "review", resourceKey, scope: "automatic" },
         createWorkItem: () =>
           createReviewWorkItem(client, {
             webhookEventId: event.id,
