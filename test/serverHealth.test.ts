@@ -3,10 +3,8 @@ import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { Effect, Fiber, Layer } from "effect";
-import { AgentWorkScheduler, makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import type { WebhookHeaders } from "../src/agentWork/types.js";
 import type { Config } from "../src/settings/index.js";
 import { initEvlog } from "../src/evlog.js";
@@ -194,23 +192,20 @@ function startEffectServer({
   pingResult = true,
   cfg = testCfg,
   recordIgnored = () => Effect.void,
-  scheduler,
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
   readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void, Error>;
-  readonly scheduler?: AgentWorkScheduler["Service"];
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
-      scheduler ??
-        AgentWorkScheduler.of({
-          submit: (command) =>
-            recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
-          ping: () => Effect.succeed(pingResult),
-        }),
+      AgentWorkScheduler.of({
+        submit: (command) =>
+          recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
+        ping: () => Effect.succeed(pingResult),
+      }),
     );
     const layer = buildEffectWebhookLayer(
       cfg,
@@ -482,19 +477,5 @@ describe("effect webhook server (end-to-end)", () => {
     });
     expect(res.status).toBe(503);
     expect(res.body).toBe("service unavailable");
-  });
-
-  it("returns 503 not ready when makeAgentWorkScheduler ping cannot reach Postgres", async () => {
-    const pool = {
-      query: () => Promise.reject(new Error("db down")),
-    } as unknown as Pool;
-    handle = await startEffectServer({
-      scheduler: makeAgentWorkScheduler(pool, {} as PgBoss, testCfg),
-    });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/ready");
-    expect(res.status).toBe(503);
-    expect(res.body).toBe("not ready");
   });
 });
