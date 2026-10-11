@@ -1,4 +1,4 @@
-import { Data, Duration, Effect } from "effect";
+import { Data, Duration, Effect, Exit, Fiber, Ref } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
@@ -70,6 +70,8 @@ class WebhookIntakeUnavailable extends Data.TaggedError("WebhookIntakeUnavailabl
   readonly reason: "failed" | "timeout";
 }> {}
 
+type SubmitFiber = Fiber.Fiber<void, WebhookIntakeUnavailable>;
+
 type DispatchInput = {
   readonly cfg: Config;
   readonly headers: WebhookHeaders;
@@ -77,10 +79,32 @@ type DispatchInput = {
   readonly payload: Record<string, unknown>;
   readonly githubEvent: string;
   readonly logDelivery: string;
+  readonly submitFiber: Ref.Ref<SubmitFiber | undefined>;
 };
 
+// `interruptible` is runtime fiber state. It is not on the Fiber interface.
+// A pending timeout interrupt discards success when this flag flips back to true,
+// so the budget handler must not interrupt a submit that is still uninterruptible.
+function fiberIsInterruptible(fiber: Fiber.Fiber<unknown, unknown>): boolean {
+  return "interruptible" in fiber && fiber.interruptible === true;
+}
+
+function detachedCommitLanded(
+  fiber: SubmitFiber | undefined,
+): Effect.Effect<boolean, WebhookIntakeUnavailable> {
+  return Effect.gen(function* () {
+    if (fiber === undefined) return false;
+    const finished = fiber.pollUnsafe();
+    if (finished && Exit.isSuccess(finished)) return true;
+    if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
+    if (fiberIsInterruptible(fiber)) return false;
+    yield* Fiber.join(fiber);
+    return true;
+  });
+}
+
 const dispatchGithubEvent = Effect.fn("webhook.dispatch")(function* (input: DispatchInput) {
-  const { cfg, headers, intakeLog, payload, githubEvent, logDelivery } = input;
+  const { cfg, headers, intakeLog, payload, githubEvent, logDelivery, submitFiber } = input;
   yield* Effect.annotateCurrentSpan({
     event: githubEvent,
     delivery_id: logDelivery,
@@ -138,18 +162,28 @@ const dispatchGithubEvent = Effect.fn("webhook.dispatch")(function* (input: Disp
       );
       return yield* new WebhookIntakeUnavailable({ reason: "failed" });
     }
-    yield* scheduler.submit(command, intakeLog).pipe(
-      Effect.mapError((err) => {
-        const message = errorMessage(err);
-        recordEvent(
-          intakeLog,
-          "webhook_handler_error",
-          { event, delivery: logDelivery, message },
-          "error",
+    const detached = yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkDetach(
+          scheduler.submit(command, intakeLog).pipe(
+            Effect.mapError((err) => {
+              const message = errorMessage(err);
+              recordEvent(
+                intakeLog,
+                "webhook_handler_error",
+                { event, delivery: logDelivery, message },
+                "error",
+              );
+              return new WebhookIntakeUnavailable({ reason: "failed" });
+            }),
+          ),
+          { startImmediately: true },
         );
-        return new WebhookIntakeUnavailable({ reason: "failed" });
+        yield* Ref.set(submitFiber, fiber);
+        return fiber;
       }),
     );
+    yield* Fiber.join(detached);
     return yield* Effect.annotateCurrentSpan({ outcome: "accepted" });
   }).pipe(Effect.tapError(() => Effect.annotateCurrentSpan({ outcome: "rejected" })));
 });
@@ -217,6 +251,7 @@ const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhoo
       },
     });
 
+    const submitFiber = yield* Ref.make<SubmitFiber | undefined>(undefined);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
       event: githubEvent,
@@ -229,10 +264,17 @@ const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhoo
       payload,
       githubEvent,
       logDelivery,
+      submitFiber,
     }).pipe(
       Effect.timeout(Duration.millis(responseBudgetMs)),
       Effect.catchTag("TimeoutError", () =>
         Effect.gen(function* () {
+          const fiber = yield* Ref.get(submitFiber);
+          if (yield* detachedCommitLanded(fiber)) return;
+          const finished = fiber?.pollUnsafe();
+          if (finished && Exit.isSuccess(finished)) return;
+          if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
+          if (fiber !== undefined) yield* Fiber.interrupt(fiber);
           recordEvent(
             input.intakeLog,
             "webhook_timeout_budget_exceeded",
@@ -244,7 +286,7 @@ const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhoo
             },
             "warn",
           );
-          return yield* new WebhookIntakeUnavailable({ reason: "timeout" });
+          yield* new WebhookIntakeUnavailable({ reason: "timeout" });
         }),
       ),
     );

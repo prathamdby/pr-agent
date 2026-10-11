@@ -23,7 +23,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 
 ## Current implementation
 
-- [`processWebhookRequestEffect`](../../src/effect/programs/processWebhookRequestEffect.ts): signature verification and parsing, followed by pure `toIntakeCommand` mapping and `AgentWorkScheduler.submit`. Bot identity resolution remains explicit on the request fiber. `webhook.handle` and `webhook.dispatch` are the stable spans (event, delivery id, and outcome only). Tagged failures are captured in evlog, then `catchTags` maps them to the existing plain-text statuses: `401`, `400`, `422`, and `503`. `submit` stays uninterruptible around `runDelivery`.
+- [`processWebhookRequestEffect`](../../src/effect/programs/processWebhookRequestEffect.ts): signature verification and parsing, followed by pure `toIntakeCommand` mapping and `AgentWorkScheduler.submit`. Bot identity resolution remains explicit on the request fiber. `webhook.handle` and `webhook.dispatch` are the stable spans (event, delivery id, and outcome only). Tagged failures are captured in evlog, then `catchTags` maps them to the existing plain-text statuses: `401`, `400`, `422`, and `503`. `submit` stays uninterruptible around `runDelivery` on a detached fiber. A response-budget timeout joins that fiber instead of interrupting it, and a successful commit still returns `200`.
 - [`makeAgentWorkScheduler`](../../src/agentWork/scheduler.ts): `runDelivery` in `intake/delivery.ts` owns delivery-event insertion, body-hash replay reservation, work-item creation, pg-boss enqueue, and post-commit events. `DeliveryTx.withReviewIntake` locks before a separate retained lifecycle read; decisions are final when inserted.
 
 ## Reversal

@@ -35,7 +35,7 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 ## Consequences
 
 - Ask runs may take longer than upstream's single-call `/ask` but can trace symbols across the repo beyond the inline hunk and continue a natural conversation in-thread.
-- The webhook returns **`200`** after durable intake and enqueue; the ask **answer** is posted asynchronously by `ROLE=worker`. If intake exceeds the configured webhook response budget, the request returns **`503`** before GitHub reports a delivery timeout.
+- The webhook returns **`200`** after durable intake and enqueue; the ask **answer** is posted asynchronously by `ROLE=worker`. If interruptible intake exceeds the configured webhook response budget, the request returns **`503`**. A commit already inside uninterruptible `submit` still returns **`200`** when it succeeds.
 - `CONTEXT.md` **Ask run** documents mention triggers and thread context.
 
 ## Current implementation

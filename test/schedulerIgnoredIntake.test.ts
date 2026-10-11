@@ -5,6 +5,7 @@ import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import * as evlog from "../src/evlog.js";
 import * as appAuth from "../src/github/appAuth.js";
+import * as githubPayload from "../src/webhook/parseGithubPayload.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const cfg = makeTestConfig({ webhook: { secret: "secret" } });
@@ -141,6 +142,27 @@ describe("webhook request admission boundary", () => {
     expect(
       record.mock.calls.find((call) => call[1] === "webhook_timeout_budget_exceeded")?.[2],
     ).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
+  });
+  it("returns 503 when payload parsing throws outside the codec", async () => {
+    vi.spyOn(githubPayload, "parseGithubPayload").mockImplementation(() => {
+      throw new TypeError("parse blew up");
+    });
+    const submit = vi.fn(() => Effect.void);
+    const body = Buffer.from(JSON.stringify({ action: "opened" }));
+    expect(await run(request("pull_request", body), submit)).toEqual({
+      status: 503,
+      body: "service unavailable",
+    });
+    expect(submit).not.toHaveBeenCalled();
+  });
+  it("returns 200 when an uninterruptible submit outlasts the response budget", async () => {
+    const tightCfg = makeTestConfig({ webhook: { secret: "secret", timeoutMs: 1 } });
+    const submit = vi.fn(() => Effect.sleep("20 millis").pipe(Effect.uninterruptible));
+    expect(await run(request("ping", Buffer.from("{}")), submit, tightCfg)).toEqual({
+      status: 200,
+      body: "ok",
+    });
+    expect(submit).toHaveBeenCalledOnce();
   });
   it("keeps bot authentication failure ahead of association rejection", async () => {
     vi.spyOn(appAuth, "getAppBotIdentity").mockRejectedValue("auth failed");
