@@ -17,7 +17,6 @@ import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 
 const HOST_CALL_INPUT_CHARS = 2_048;
 const HOST_CALL_PREVIEW_CHARS = 4_096;
-const HOST_CALL_REDACT_LOOKAHEAD_CHARS = 8_192;
 const TRUNCATED = "[trace content truncated]";
 const REPEAT_TOP = 3;
 
@@ -508,8 +507,8 @@ function boundedText(
   limit: number,
   redact: (text: string) => string,
 ): { readonly text: string; readonly truncated: boolean } {
-  if (text.length <= limit) return { text: redact(text), truncated: false };
-  const redacted = redact(text.slice(0, limit + HOST_CALL_REDACT_LOOKAHEAD_CHARS));
+  const redacted = redact(text);
+  if (redacted.length <= limit) return { text: redacted, truncated: redacted !== text };
   return { text: `${redacted.slice(0, limit)}\n${TRUNCATED}`, truncated: true };
 }
 
