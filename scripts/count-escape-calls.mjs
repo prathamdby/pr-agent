@@ -3,7 +3,6 @@ import path from "node:path";
 import * as ts from "typescript/unstable/ast";
 import { API } from "typescript/unstable/sync";
 
-/** Count calls, including type arguments and import aliases, without counting the declaration. */
 export function countEscapeCalls(root) {
   let count = 0;
   const api = new API();

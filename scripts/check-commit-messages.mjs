@@ -1,16 +1,10 @@
 import { execFileSync } from "node:child_process";
 
-// PR commit-message gate: conventional formatting rules mirrored from the
-// /commit skill. Diff-trace, type-vs-hunks, and what-vs-why are reviewer-owned
-// semantic checks this linter does not perform.
 const ALLOWED_TYPES = ["feat", "fix", "refactor", "docs", "test", "chore", "style", "perf"];
 const MAX_SUBJECT = 50;
 const MAX_BODY_LINE = 72;
 const MAX_BULLETS = 5;
 
-// Non-imperative first words the skill rejects ("fixed", "fixes", "adding",
-// and matching inflections), plus vague verbs (update/change/address/improve)
-// the shared rejection check only allows when no concrete verb fits.
 const NON_IMPERATIVE = new Set([
   "fixed",
   "fixes",
@@ -28,8 +22,6 @@ const NON_IMPERATIVE = new Set([
 const VAGUE =
   /^(updates?|updated|updating|changes?|changed|changing|address(es)?|addressed|addressing|improv(es?|ed|ing))$/;
 
-// Review-session framing the shared rejection check bans, matched
-// case-insensitively against subject and body.
 const REVIEW_PHRASES = [
   "address review feedback",
   "address review findings",
@@ -39,13 +31,9 @@ const REVIEW_PHRASES = [
   "per review",
 ];
 
-// Banned trailer keys in `Key: value` form and harness footers as
-// case-insensitive whole-line substring matches.
 const BANNED_TRAILER_KEYS = ["co-authored-by", "signed-off-by", "made-with"];
 const BANNED_FOOTERS = ["made with cursor", "generated with claude"];
 
-// Standards identifiers (UTF-8, SHA-256, ISO-8601, CVE-...) and six-digit
-// hex colors are content, not ticket references.
 const STANDARD_ID = /\b(?:UTF|SHA|ISO|RFC|ECMA|AES|TLS|CVE)-[0-9][0-9-]*\b/g;
 const HEX_COLOR = /#[0-9a-fA-F]{6}\b/;
 

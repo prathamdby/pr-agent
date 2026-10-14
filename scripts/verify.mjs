@@ -81,7 +81,5 @@ try {
 } finally {
   try {
     execFileSync("docker", ["rm", "-f", name], { encoding: "utf8", stdio: "pipe" });
-  } catch {
-    // Container already gone; teardown is best-effort.
-  }
+  } catch {}
 }
