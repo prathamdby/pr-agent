@@ -94,3 +94,10 @@ export function buildVerificationUserContent(params: {
   lines.push("", "Inspect the current code, then call submitVerification once.");
   return lines.join("\n");
 }
+
+export const VERIFICATION_SUBMIT_ONLY_NUDGE =
+  "Your last reply was text only, and the server reads only the submitVerification call. Call submitVerification now with a complete VerificationPayload.";
+
+export function renderVerificationRepairPrompt(validationError: string): string {
+  return [validationError, "Fix the payload and call submitVerification again."].join("\n\n");
+}

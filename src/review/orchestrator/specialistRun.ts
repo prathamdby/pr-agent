@@ -30,19 +30,11 @@ import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.js";
 import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.js";
 import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.js";
 import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.js";
+import { MISSING_REPORT_ERROR, renderSpecialistReportRepair } from "../../prompts/shared/repair.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
 const RETRY_BACKOFF_BASE_MS = 500;
-export const MISSING_REPORT_ERROR =
-  "No valid SpecialistReport was submitted. Call submit_findings_report with the complete report.";
-
-export function renderSpecialistReportRepair(validationError: string): string {
-  return [
-    validationError,
-    "Fix the report and call submit_findings_report now. This repair turn allows only a couple of tool calls, so submit from the evidence you already have.",
-  ].join("\n\n");
-}
 
 export type RunSpecialistParams = {
   readonly onValidatedReport?: (report: SpecialistReport) => Promise<void>;

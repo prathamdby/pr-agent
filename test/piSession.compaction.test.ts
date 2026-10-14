@@ -25,6 +25,8 @@ import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.j
 import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
+} from "../src/prompts/compaction/prompt.js";
+import {
   compactAgentMessages,
   compactIfNeeded,
   findSafeCutIndex,

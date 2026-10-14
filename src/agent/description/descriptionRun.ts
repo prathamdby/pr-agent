@@ -8,7 +8,7 @@ import {
 } from "../../settings/index.js";
 import {
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
-  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
+  renderDescriptionRepairPrompt,
 } from "../../prompts/description/prompt.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
@@ -25,14 +25,6 @@ export type DescriptionRunResult = {
   published: boolean;
   publishSuperseded: boolean;
 };
-
-export function renderDescriptionRepairPrompt(validationError: string): string {
-  return [
-    validationError,
-    "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
-    `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
-  ].join("\n\n");
-}
 
 export async function runFullPrDescription(params: {
   cfg: Config;

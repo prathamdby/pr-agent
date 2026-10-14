@@ -246,3 +246,46 @@ export function buildTrustedReviewContextForReview(params: {
   }
   return blocks.join("\n");
 }
+
+export const ORCHESTRATOR_MISSING_BRIEF_ERROR = "No specialist brief was submitted.";
+
+export const ORCHESTRATOR_MISSING_SUMMARY_ERROR = "The summary was not published.";
+
+export const ORCHESTRATOR_RECOVER_SUMMARY_INSTRUCTION =
+  "Call publish_summary now with the complete final review. Do not reply with prose only.";
+
+export function renderOrchestratorRecoveryBootstrap(params: {
+  readonly userContent: string;
+  readonly briefSerialized: string;
+  readonly reportsSerialized: readonly {
+    readonly specialist: string;
+    readonly reportSerialized: string;
+  }[];
+  readonly ledgerSerialized: string;
+  readonly prompt: string;
+}): string {
+  return [
+    params.userContent,
+    wrapUntrustedEvidence("cached_review_brief", params.briefSerialized),
+    ...params.reportsSerialized.map(({ specialist, reportSerialized }) =>
+      wrapUntrustedEvidence(`cached_report_${specialist}`, reportSerialized),
+    ),
+    wrapUntrustedEvidence("reconstructed_finding_ledger", params.ledgerSerialized),
+    params.prompt,
+  ].join("\n\n");
+}
+
+export function renderOrchestratorReconTurn(userContent: string): string {
+  return [userContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n");
+}
+
+export function renderOrchestratorBriefRepair(validationError: string): string {
+  return [
+    validationError,
+    "Fix the brief and call submit_specialist_brief now. This repair turn allows only a couple of tool calls, so submit from what you already found.",
+  ].join("\n\n");
+}
+
+export function renderOrchestratorSummaryRepair(validationError: string): string {
+  return [validationError, "Fix the summary and call publish_summary now."].join("\n\n");
+}

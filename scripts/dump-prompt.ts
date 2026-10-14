@@ -8,6 +8,13 @@ import {
   renderSynthesisTurn,
   renderBriefMessage,
   buildTrustedReviewContextForReview,
+  ORCHESTRATOR_MISSING_BRIEF_ERROR,
+  ORCHESTRATOR_MISSING_SUMMARY_ERROR,
+  ORCHESTRATOR_RECOVER_SUMMARY_INSTRUCTION,
+  renderOrchestratorRecoveryBootstrap,
+  renderOrchestratorReconTurn,
+  renderOrchestratorBriefRepair,
+  renderOrchestratorSummaryRepair,
 } from "../src/prompts/orchestrator/prompt.js";
 import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
 import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
@@ -19,7 +26,7 @@ import {
   SUMMARIZATION_PROMPT,
   SUMMARIZATION_SYSTEM_PROMPT,
   renderCompactionUserPrompt,
-} from "../src/agent/runtime/transcriptCompaction.js";
+} from "../src/prompts/compaction/prompt.js";
 import type { Config } from "../src/settings/index.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
@@ -35,11 +42,21 @@ import {
   descriptionSystemPrompt,
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   buildDescriptionUserContent,
+  renderDescriptionRepairPrompt,
 } from "../src/prompts/description/prompt.js";
-import { triageSystemPrompt, buildTriageUserContent } from "../src/prompts/triage/prompt.js";
+import {
+  triageSystemPrompt,
+  buildTriageUserContent,
+  TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT,
+  TRIAGE_SUBMIT_ONLY_NUDGE,
+  TRIAGE_VALIDATION_REPAIR_HINT,
+  renderTriageRepairPrompt,
+} from "../src/prompts/triage/prompt.js";
 import {
   verificationSystemPrompt,
   buildVerificationUserContent,
+  VERIFICATION_SUBMIT_ONLY_NUDGE,
+  renderVerificationRepairPrompt,
 } from "../src/prompts/verification/prompt.js";
 import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/prompts/ci/prompt.js";
 import {
@@ -108,30 +125,11 @@ import {
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
 } from "../src/prompts/shared/safety.js";
-import {
-  ORCHESTRATOR_MISSING_BRIEF_ERROR,
-  ORCHESTRATOR_MISSING_SUMMARY_ERROR,
-  ORCHESTRATOR_RECOVER_SUMMARY_INSTRUCTION,
-  renderOrchestratorRecoveryBootstrap,
-  renderOrchestratorReconTurn,
-  renderOrchestratorBriefRepair,
-  renderOrchestratorSummaryRepair,
-} from "../src/review/orchestrator/orchestratorRun.js";
+
 import {
   MISSING_REPORT_ERROR,
   renderSpecialistReportRepair,
-} from "../src/review/orchestrator/specialistRun.js";
-import {
-  TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT,
-  TRIAGE_SUBMIT_ONLY_NUDGE,
-  TRIAGE_VALIDATION_REPAIR_HINT,
-  renderTriageRepairPrompt,
-} from "../src/agent/triage/triageRun.js";
-import {
-  VERIFICATION_SUBMIT_ONLY_NUDGE,
-  renderVerificationRepairPrompt,
-} from "../src/agent/verification/verificationRun.js";
-import { renderDescriptionRepairPrompt } from "../src/agent/description/descriptionRun.js";
+} from "../src/prompts/shared/repair.js";
 
 function unavailable(): never {
   throw new Error("Prompt inspection must not execute workspace, config, or provider actions");
