@@ -1,9 +1,12 @@
+export const findingDetailFieldContract =
+  "detail (required): two or three short sentences that state the trigger, the observable consequence, the line that proves it, the rule or invariant it breaks, and any unconfirmed step, one clause each. Leave out quoted code, restated diffs, tool-use explanations, and the fix direction that belongs in fixPrompt.";
+
 export const fixPromptFieldContract =
   "fixPrompt (required on every finding, P3 included): one or two sentences naming the defect and the direction of the fix. `/triage` hands this text to an autofix agent, so it must stand alone. The server adds the file and line header, so leave those out.";
 
 export const suggestedCodeAndConfidenceFieldContract = [
   "suggestedCode (optional): the exact replacement for the anchored startLine..endLine lines. GitHub applies it as a suggestion over exactly those lines, so leave it out when the fix touches other lines or only part of the range.",
-  "confidence: integer 1-5 for how well the evidence you read supports the finding. 5 means the failure is traced end to end in reviewed-head code; 2 means the trigger is plausible but a step is unconfirmed. Judgment uses it to weigh the finding, so state the unconfirmed step in detail.",
+  "confidence: integer 1-5 for how well the evidence you read supports the finding. 5 means the failure is traced end to end in reviewed-head code; 2 means the trigger is plausible but a step is unconfirmed. Judgment uses it to weigh the finding, so name the unconfirmed step in one clause of `detail`.",
 ].join("\n- ");
 
 export const categoryFieldContract = [
@@ -40,7 +43,7 @@ export const causalPublicationContract = [
   "Cite only what a reader can resolve at the reviewed head: repo files, diff lines, `.pr-agent/` rules, or root agent instruction files in trusted context. APIs, behaviour, call sites, and line numbers all come from code you read.",
   "When a claim depends on unread code, read it first. When checkout coverage is sparse or a search is truncated, the absence of callers or references is unproven.",
   "One root cause with several symptoms is one finding. Separately fixable root causes are separate findings, so split a compound candidate and keep each part that meets this contract.",
-  'Lead the title and detail with the causal defect. A demonstrated trigger replaces hedges such as "might" or "consider checking", and the detail explains the failure rather than restating the diff.',
+  'Lead the title and detail with the causal defect. A demonstrated trigger replaces hedges such as "might" or "consider checking", and `detail` states the trigger, proving line, broken invariant, and consequence in two or three short sentences rather than restating the diff or quoting code.',
   "A candidate that does not meet the contract is simply not reported; praise, diff summaries, and general warnings are not findings.",
   "Each specialist adds its own gates for correctness, security mitigations, present-harm quality, or precise test gaps on top of this floor.",
 ].join("\n");
@@ -108,6 +111,7 @@ export const specialistFindingsReportContract = [
 ].join("\n");
 
 export const reviewPayloadPerFindingContracts = [
+  findingDetailFieldContract,
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
@@ -127,7 +131,7 @@ export const compactInvestigationMethod: readonly string[] = [
   "- Library behavior the finding depends on: confirm it in reviewed-head code or with Context7 (`resolveLibraryId`, then `getLibraryDocs`).",
   "A pattern match alone is not a finding: tie it to a reachable trigger and observable wrong behavior. A pattern that appears unchanged elsewhere may be deliberate. When citing a test, check that its assumptions match production behaviour.",
   "",
-  "Done means each finding stands alone with its trigger, wrong path, consequence, and violated invariant; the title names the defect and the fix direction addresses the cause. Bounded uncertainty can qualify a plausible P2 but cannot replace the trigger or consequence. A clean investigation ends in a no_findings report.",
+  "Done means each finding stands alone in two or three short sentences with its trigger, proving line, consequence, and violated invariant; the title names the defect and the fix direction in fixPrompt addresses the cause. Bounded uncertainty can qualify a plausible P2 in one clause of detail but cannot replace the trigger or consequence. A clean investigation ends in a no_findings report.",
 ];
 
 export const compactBugPatternCatalogue: readonly string[] = [

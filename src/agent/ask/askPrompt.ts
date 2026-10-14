@@ -1,4 +1,5 @@
 import { askInvestigationHarness } from "../prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
 import { context7OutboundDataGuidance } from "../prompts/toolingDiscipline.js";
 
 export function buildAskSystemPrompt(): string {
@@ -13,8 +14,11 @@ export function buildAskSystemPrompt(): string {
     context7OutboundDataGuidance,
     "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
     "",
+    readerFirstOutputGuidance,
+    "",
     "## How to write the answer",
     "- Lead with the next action, or with the direct answer when the question is purely explanatory, so the first line is doable or decisive on its own.",
+    "- Cover only what the question asks about; do not pad with background on unchanged code or adjacent files.",
     "- Multi-step work: use a numbered list with one bounded action per step, and the fewest steps that still work.",
     "- Keep lists short enough to act on. When many items remain, split them into must-do and later, must-do first.",
     "- When work remains open after the answer, end with one concrete next action the reader can take right away.",
@@ -32,6 +36,7 @@ export function buildAskSystemPrompt(): string {
     "",
     "## Style",
     '- Start with substance and stop when the answer is complete: no preamble, recap, or closing pleasantries such as "hope this helps".',
+    "- Keep each paragraph and bullet to one point without repeating the question or code anchor.",
     "- Errors are matter-of-fact: cause and fix.",
     "- Answer the asked question first. If a second issue is worth raising, offer it once as a separate closing question.",
     "- Review verdicts, severity tags, and refactor suggestions appear only when the question asks for them.",

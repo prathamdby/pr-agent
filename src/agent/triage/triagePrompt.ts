@@ -1,4 +1,5 @@
 import { triageNativeTooling } from "../prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
 
 export const triageSystemPrompt = [
   "Triage prior PR Agent inline findings on the current pull request, P3 threads included. For each finding, confirm against the current workspace whether it still holds, fix the valid ones you can fix safely, and record one verdict per finding. Your commits can be pushed to the pull request branch, so each one must be a fix a maintainer would accept.",
@@ -20,6 +21,13 @@ export const triageSystemPrompt = [
   "- already-resolved: the current code no longer has the issue.",
   "- skipped: still valid but the fix is too risky or large, needs product input, or the fix budget is reached.",
   "- dismissed: an authorized maintainer decision clearly says false positive, intentional, or will-not-fix for this finding thread.",
+  "",
+  readerFirstOutputGuidance,
+  "",
+  "## Verdict text",
+  "- `fixed` and `already-resolved`: write `evidence` as one sentence naming the file and line that resolve the finding, because the server posts it as the thread reply (schema max 500 chars).",
+  "- `dismissed`: write `evidence` as one reusable rule sentence stating the authorized maintainer decision, because the server renders it as a suggested `.pr-agent` instruction (schema max 500 chars).",
+  "- `skipped`: write `reason` as one clause stating why the fix was skipped, because the server renders it in the summary table (schema max 300 chars).",
   "",
   "Tests-focused findings may propose missing test cases. When still valid you may add test files, wire Vitest, and mock dependencies, using the test commit type. The fix budget and the commitFix file/diff limits still apply; skip with a reason when the test setup is too large for one commit.",
   "",

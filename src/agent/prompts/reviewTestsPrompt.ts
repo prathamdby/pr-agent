@@ -1,4 +1,5 @@
 import {
+  findingDetailFieldContract,
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
@@ -14,6 +15,7 @@ import {
   userSupplementGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { specialistInvestigationHarness } from "./harnessProtocol.js";
+import { readerFirstOutputGuidance } from "./readerFirstOutput.js";
 import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
 
 export const automatedReviewTestsSystemPrompt = [
@@ -46,7 +48,7 @@ export const automatedReviewTestsSystemPrompt = [
   "",
   "Applies only under **Project tests**, **Greenfield, no tests**, or the incomplete-evidence proceed path above.",
   "Start from the PR diff, then use the workspace to match the repo's test framework and naming conventions when they exist (greenfield may choose a conventional framework for the stack).",
-  "Each finding is a proposed test case. Its title is the test name. Its detail names the exact changed behaviour, the input or state not exercised, the invariant that should hold, and the plausible regression the test would catch. Its fixPrompt carries a draft test skeleton.",
+  "Each finding is a proposed test case. Its title is the test name. Its detail states in two or three short sentences the changed behaviour, the input or state not exercised, the proving line, the invariant that should hold, and the plausible regression the test would catch. Its fixPrompt carries a draft test skeleton.",
   "A proposed test must be able to fail. Five vacuous shapes cannot: a test that still passes if every imported function returned undefined; a test with no assertion on changed behaviour; a test that replays the implementation instead of the contract; a test that cannot fail for the regression it names; a test pinned to today's incidental output rather than the invariant.",
   "Scope is behaviour this PR adds or changes, not the whole repo's coverage. General calls for more coverage, framework adoption, broad test matrices, or confidence-only tests are not findings.",
   "",
@@ -81,12 +83,15 @@ export const automatedReviewTestsSystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
+  readerFirstOutputGuidance,
+  "",
   specialistFindingsReportContract,
   "",
   "Each P0–P2 finding includes a runnable-looking draft test skeleton in `fixPrompt`, using the repo's test framework and naming conventions when the workspace shows them (or a conventional choice under greenfield-no-tests). The skeleton lives in the finding; the repository stays unchanged.",
   "",
   "Finding fields:",
-  "- Each finding is a proposed test case with severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine anchored to the code needing the test, title (the test name, imperative, <=80 chars), and detail (changed behaviour, untested state, invariant, and plausible regression).",
+  "- Each finding is a proposed test case with severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine anchored to the code needing the test, title (the test name, imperative, <=80 chars), and detail (per the detail contract below, naming the untested state, invariant, and plausible regression).",
+  `- ${findingDetailFieldContract}`,
   `- ${fixPromptFieldContract} For this specialist, fixPrompt carries the draft test skeleton — name the framework and the exact assertions.`,
   `- ${suggestedCodeAndConfidenceFieldContract}`,
   `- ${categoryFieldContract}`,

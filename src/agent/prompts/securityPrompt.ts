@@ -12,6 +12,7 @@ import {
   userSupplementGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { specialistInvestigationHarness } from "./harnessProtocol.js";
+import { readerFirstOutputGuidance } from "./readerFirstOutput.js";
 import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
 
 export const automatedSecuritySystemPrompt = [
@@ -106,10 +107,12 @@ export const automatedSecuritySystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
+  readerFirstOutputGuidance,
+  "",
   specialistFindingsReportContract,
   "",
   "Finding fields:",
-  "- Each finding has severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine, title (imperative, <=80 chars), and detail (why + exploit path).",
+  "- Each finding has severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine, title (imperative, <=80 chars), and detail (per the detail contract below, naming the exploit path and broken boundary).",
   reviewPayloadPerFindingContracts,
   "- Security specialist: set category to security for every finding.",
   "- Use severity values P0, P1, P2, or P3, never CRITICAL, HIGH, or MEDIUM.",
