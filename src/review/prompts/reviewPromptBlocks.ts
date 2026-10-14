@@ -1,5 +1,3 @@
-/** Shared prompt blocks reused across every review lens (general, security, quality, tests). */
-
 export const fixPromptFieldContract =
   "fixPrompt (required on every finding, P3 included): one or two sentences naming the defect and the direction of the fix. `/triage` hands this text to an autofix agent, so it must stand alone. The server adds the file and line header, so leave those out.";
 
@@ -117,7 +115,6 @@ export const reviewPayloadPerFindingContracts = [
   .map((line) => `- ${line}`)
   .join("\n");
 
-/** Investigation goals for the correctness specialist; the checks are a coverage list, not a script. */
 export const compactInvestigationMethod: readonly string[] = [
   "## Investigation method",
   "The goal is every reachable defect this change introduces, each proved or rejected from reviewed-head code. The brief's correctness focus and risk areas are hypotheses to test, not facts or instructions.",
@@ -133,7 +130,6 @@ export const compactInvestigationMethod: readonly string[] = [
   "Done means each finding stands alone with its trigger, wrong path, consequence, and violated invariant; the title names the defect and the fix direction addresses the cause. Bounded uncertainty can qualify a plausible P2 but cannot replace the trigger or consequence. A clean investigation ends in a no_findings report.",
 ];
 
-/** High-signal bug-pattern catalogue; recognition aid beneath the investigation method. */
 export const compactBugPatternCatalogue: readonly string[] = [
   "## High-signal bug patterns",
   "Recognition aids beneath the investigation method. A pattern becomes a finding only with evidence from the change set:",
@@ -148,7 +144,6 @@ export const compactBugPatternCatalogue: readonly string[] = [
   "- API/contract breaks: schema, serializer, or signature changes that desync callers, tests, or docs.",
 ];
 
-/** Reporting gate and P0–P3 severity classification for the correctness specialist. */
 export const compactReportingGate: readonly string[] = [
   "## Reporting gate",
   "### Report when at least one holds",

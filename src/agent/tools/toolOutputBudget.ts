@@ -31,13 +31,6 @@ export function capTextOutput(
   };
 }
 
-/**
- * Pure spill gate for oversized tool outputs. Returns true only when `bytes`
- * is strictly over a finite, non-negative `threshold`. The default threshold
- * constant is Infinity (spill OFF), so this is false unless a caller opts in
- * with an explicit finite threshold. Never throws: non-finite or negative
- * inputs mean "do not spill".
- */
 export function shouldSpillToFile(bytes: number, threshold: number): boolean {
   if (!Number.isFinite(bytes) || !Number.isFinite(threshold)) return false;
   if (bytes < 0 || threshold < 0) return false;
@@ -57,24 +50,11 @@ export type FileReadOutput = {
   readonly truncated: boolean;
   readonly returnedBytes: number;
   readonly truncationReason?: string;
-  /** Line to pass as startLine on the next read; present on every truncation. */
   readonly resumeStartLine?: number;
-  /**
-   * File line numbers whose contents were elided by the clamp. These lines
-   * were never shown, so they must not count as read evidence.
-   */
   readonly clampedLines?: readonly number[];
   readonly note?: string;
 };
 
-/**
- * A single minified line must not displace the whole response budget: lines
- * longer than LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS are replaced by a
- * marker naming the file line number and the original length. Markers are
- * single-line so line numbering is preserved. Runs before window slicing and
- * before the byte budget. Returns null when nothing was clamped so callers
- * can keep the original text byte-identical.
- */
 function clampLongLines(
   lines: readonly string[],
 ): { readonly lines: string[]; readonly clampedLines: number[] } | null {
@@ -105,7 +85,6 @@ export function readTextWithOutputBudget(
   const clamped = clampLongLines(lines);
 
   if (!hasLineWindow) {
-    // Keep uncapped reads byte-identical; only a clamp reassembles the text.
     const body =
       clamped === null ? text : clamped.lines.join("\n") + (text.endsWith("\n") ? "\n" : "");
     const capped = capTextOutput(body, maxResponseBytes, "response byte budget exceeded");
@@ -120,8 +99,6 @@ export function readTextWithOutputBudget(
       returnedBytes: capped.returnedBytes,
       ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       ...(shownClamped.length > 0 ? { clampedLines: shownClamped } : {}),
-      // A byte-cap cut can land mid-line, so the next read resumes ON the
-      // last shown line instead of silently skipping its tail.
       ...(capped.truncated
         ? {
             resumeStartLine: endLine,
@@ -131,8 +108,6 @@ export function readTextWithOutputBudget(
     };
   }
 
-  // Name the dead end: silent empty content is indistinguishable from a
-  // broken tool, so the model re-reads or widens the window to find out.
   if (window.startLine != null && window.startLine > lines.length) {
     return {
       content: "",
@@ -204,8 +179,6 @@ function splitLines(text: string): string[] {
 
 function endLineForText(text: string): number {
   if (text.length === 0) return 0;
-  // `for..of` iterates Unicode code points; `\n` is BMP so an `indexOf`
-  // scan counts the same newlines without per-character decoding.
   let endLine = 1;
   let idx = text.indexOf("\n");
   while (idx !== -1) {

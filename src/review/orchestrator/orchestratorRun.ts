@@ -94,9 +94,7 @@ export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly gate: ReviewRunGate;
   readonly prTitle: string;
   readonly prBody: string | null;
-  /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
   readonly escalation?: EscalationPlan;
-  /** Session factory for the orchestrator and every specialist; production passes the shared one. */
   readonly createSession: typeof createFeaturePiSession;
 };
 
@@ -222,7 +220,6 @@ function coverage(state: OrchestratedRunState): ReviewCoverage {
   };
 }
 
-/** Specialist completion ticks occupy revisions 3–6 (1 worker-start, 2 recon-done). */
 function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
   switch (revision) {
     case 0:
@@ -334,7 +331,6 @@ export async function runOrchestratedPrReview(
       canonical.kind === "threads" &&
       !(await revalidateEvidenceDescriptors(setup.evidenceLedger, canonical.evidence, readEvidence))
     ) {
-      // Never let a cache miss authorize a fresh mutation of an interrupted plan.
       recovery?.discardEvidenceCache();
       evidenceMisses.add(decision.prepared.artifact.sequence);
     }
@@ -375,8 +371,6 @@ export async function runOrchestratedPrReview(
       commentId = params.progressCommentIdHint;
     }
     if (recovery && commentId == null) {
-      // A final-summary claim can replace the progress detail before its receipt lands.
-      // This read supplies only the link, never evidence that a mutation was accepted.
       commentId = (await params.prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL))?.id;
     }
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
@@ -625,7 +619,6 @@ export async function runOrchestratedPrReview(
     return true;
   };
 
-  /** Map a non-continue gate result onto the shared stop path; true when the run stopped. */
   const stopFromGateResult = async (gate: ReviewRunGateResult): Promise<boolean> => {
     if (gate.kind === "continue") return false;
     state.lifecycle =
@@ -650,7 +643,6 @@ export async function runOrchestratedPrReview(
   ): Promise<SendResult> => {
     phaseRef.current = phase;
     if (recoveryBootstrapPending) {
-      // New sessions get the normal trusted bootstrap. Saved output is evidence only.
       prompt = [
         setup.orchestratorUserContent,
         wrapUntrustedEvidence("cached_review_brief", JSON.stringify(cachedBrief ?? {})),
@@ -783,8 +775,6 @@ export async function runOrchestratedPrReview(
           return { kind: "failed", error: appError };
         }
         if (isProviderRefusalError(appError)) {
-          // Repair and recovery turns would resend the declined context, so the
-          // run falls back to deterministic output with no further model sends.
           await retireSession();
           break;
         }
@@ -807,9 +797,6 @@ export async function runOrchestratedPrReview(
         context: { phase },
       });
 
-    // Per-report degrade keeps the session alive for remaining judgment turns
-    // and synthesis. Retire only via cancel/deadline paths above; a failed
-    // judgment turn degrades that report without killing the session.
     const failure = classifyFailure(terminalError, { phase });
     recordClassifiedFailure(failure);
     return {
@@ -852,7 +839,6 @@ export async function runOrchestratedPrReview(
     });
   };
 
-  /** Edit queued stub → active roster as soon as the review worker starts agents. */
   const writeWorkerStartTick = async (): Promise<void> => {
     if (state.progressRevision !== 0) return;
     state.progressRevision = 1;
@@ -864,7 +850,6 @@ export async function runOrchestratedPrReview(
     for (const specialist of SPECIALIST_IDS) {
       state.specialists[specialist] = { phase: "running" };
     }
-    // 0 → 1 if worker-start was skipped; 1 → 2 after worker-start (recon running).
     if (state.progressRevision === 0) {
       state.progressRevision = 1;
       await writeTick();
@@ -958,7 +943,6 @@ export async function runOrchestratedPrReview(
     try {
       result = await publishThread.executor({ findings: outcome.report.findings });
     } catch (error) {
-      // Real publish breakage only. Successful salvage must not trip publish_retry.
       publishAttempts += 1;
       throw error;
     }
@@ -1012,9 +996,6 @@ export async function runOrchestratedPrReview(
         ...errorLogFields(appError),
       });
     }
-    // Per-report degrade: keep the session alive for remaining specialists and
-    // synthesis. Retire only when the session is genuinely dead (unavailable).
-    // Cancel/deadline paths already retired via stopFromGateResult/deadline handling.
     if (cause.reason === "judgment_unavailable") {
       await retireSession();
     }
@@ -1045,7 +1026,6 @@ export async function runOrchestratedPrReview(
         coverage: coverage(state),
       });
     } catch (error) {
-      // Real publish breakage only. Successful salvage must not trip publish_retry.
       publishAttempts += 1;
       throw error;
     }
@@ -1222,10 +1202,6 @@ export async function runOrchestratedPrReview(
                 return;
               }
               const judgmentSession = session;
-              // Per-report degrade: a prior crowded report must not cascade into
-              // judgment_unavailable for the rest. Unavailable is only for a
-              // genuinely dead session (creation failed, retired for
-              // cancel/deadline).
               if (sessionRetired || !judgmentSession) {
                 await degradeReport(outcome, { reason: "judgment_unavailable" });
                 return;
@@ -1251,8 +1227,6 @@ export async function runOrchestratedPrReview(
               }
               lastText = judgment.text;
               if (await applyPublishStop()) return;
-              // The judgment prompt requires one publish_thread call (zero findings is valid),
-              // so an unchanged call count means the turn ended without deciding this report.
               if (
                 outcome.report.findings.length > 0 &&
                 publishThread.getLedger().threadCallCount === ledgerBefore.threadCallCount
@@ -1294,8 +1268,6 @@ export async function runOrchestratedPrReview(
             if (state.outcomes[outcome.specialist] != null) continue;
             await recordOutcome(outcome);
             if (outcome.kind === "report") {
-              // Unavailable only for a genuinely dead session; otherwise this is a
-              // missed judgment turn that degrades per-report without retiring.
               if (sessionRetired || !session) {
                 await degradeReport(outcome, { reason: "judgment_unavailable" });
               } else {
@@ -1346,12 +1318,6 @@ export async function runOrchestratedPrReview(
       }
       case "synthesis": {
         if (recoveredSummary) break;
-        // Synthesis runs on the accepted ledger whenever the session is alive —
-        // even on degraded runs, and even when the ledger is empty. A
-        // zero-findings review is a legitimate published review, not a degraded
-        // run: the summary turn still authors Size, Mergeability, and Blast
-        // Radius. Deterministic publish stays as the final fallback when
-        // synthesis fails or never lands.
         publishStepCount += 1;
         const synthesisPrompt = renderSynthesisTurn({
           acceptedFindings: publishThread.getLedger().accepted,
@@ -1411,10 +1377,6 @@ export async function runOrchestratedPrReview(
         } else if (summaryState.published) {
           state.summary = { kind: "published" };
         } else {
-          // Synthesis was attempted on a live session but never landed
-          // publish_summary after recovery. Salvage accepted findings
-          // deterministically as the final fallback (success must not trip
-          // publish_retry; only a real throw increments publishAttempts).
           if (!sessionRetired) {
             const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
             logWarn("review_synthesis_publish_salvage", {
@@ -1433,8 +1395,6 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "deterministic_summary": {
-        // The session is dead or retired: deterministic fallback directly
-        // without spending a synthesis turn.
         await publishDeterministicSummary();
         markCompleteUnlessStopped();
         break;
@@ -1453,8 +1413,6 @@ export async function runOrchestratedPrReview(
     let step = nextStep(null, stepFacts());
     while (step.kind !== "done") {
       await runStep(step);
-      // Tool executors and the completion pump absorb callback errors, so a
-      // failed artifact write surfaces here rather than at its call site.
       recovery?.throwIfFailed();
       step = nextStep(step.kind, stepFacts());
     }

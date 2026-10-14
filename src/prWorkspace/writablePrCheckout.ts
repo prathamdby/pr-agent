@@ -43,9 +43,7 @@ export type CommitArgs = {
   readonly files: readonly string[];
   readonly subject: string;
   readonly body?: readonly string[];
-  /** When set, overrides author and committer for this commit via GIT_* env. */
   readonly person?: GitPerson;
-  /** Co-authored-by trailers appended after body bullets (blank line before trailers). */
   readonly coAuthoredBy?: readonly GitPerson[];
 };
 
@@ -78,15 +76,8 @@ type WritablePrCheckoutParams = {
   readonly headSha: string;
   readonly installationToken: string;
   readonly botIdentity: BotIdentity;
-  /**
-   * Default identity for every commit in this checkout.
-   * Human path: triggerer as author+committer and App as Co-authored-by.
-   * Omitted or App source: bot author+committer with no App Co-authored-by.
-   */
   readonly commitAttribution?: TriageCommitAttribution;
-  /** Final PR-state guard invoked immediately before creating a commit. */
   readonly beforeCommit?: () => Promise<void>;
-  /** Final PR-state guard invoked immediately before pushing the branch. */
   readonly beforePush?: () => Promise<void>;
   readonly remoteUrlOverride?: string;
 };
@@ -231,7 +222,6 @@ export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
     : ["commit", "-n", "-m", args.subject, "-m", messageBody];
 }
 
-/** Env overrides so author and committer match without rewriting global user.* mid-run. */
 export function gitIdentityEnv(person: GitPerson): Record<string, string> {
   validateGitPerson(person, "person");
   return {
@@ -374,7 +364,6 @@ export async function withWritablePrCheckout<T>(
       });
     }
     await stripWorkspaceSymlinks(dir);
-    // Fallback identity for git ops that do not set GIT_* env (commit always sets env).
     await git(["config", "user.name", botPerson.name], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(["config", "user.email", botPerson.email], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const checkout: WritablePrCheckout = {

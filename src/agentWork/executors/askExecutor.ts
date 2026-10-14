@@ -35,7 +35,6 @@ function replyTargetKindFromIntentDetail(
 function askReplyLookupKeys(resourceKey: string, operationKey: string): readonly string[] {
   const scopedKey = askReplyOperationKey(resourceKey);
   if (operationKey === scopedKey) return [operationKey];
-  // Failure-reply keys must not adopt a legacy ask:reply comment as already published.
   if (operationKey.startsWith(`ask:reply:${resourceKey}`)) {
     return [operationKey, scopedKey];
   }
@@ -128,16 +127,11 @@ async function publishAskAnswer(
   }
 }
 
-/** Reasons an ask run completed with reduced output. */
 type AskDegradationReason =
   | "reply_recovery_degraded"
   | "reply_outcome_unknown"
   | "publish_record_failed";
 
-/**
- * Recover a GitHub ask reply that was accepted but not yet recorded locally.
- * Returns the comment id when delivery can complete without remutation/model rerun.
- */
 type AskReplyRecovery =
   | {
       readonly kind: "recovered";
@@ -168,8 +162,6 @@ async function recoverDeliveredAskReplyCommentId(params: {
     };
   }
 
-  // Scan only while the mutation may still be in flight or outcome-unknown.
-  // Skip failed/reconciled so an older identical-question reply is not reused.
   if (intent == null || (intent.status !== "pending" && intent.status !== "outcome_unknown")) {
     return null;
   }
@@ -209,7 +201,6 @@ async function recoverDeliveredAskReplyCommentId(params: {
 
 type AskFailureReplyDecision = "skip" | "publish";
 
-/** Confirmed delivery only. An outcome_unknown answer mutation is not delivery. */
 async function decideAskFailureReply(params: {
   readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly pool: Pool;
@@ -344,8 +335,6 @@ export function createAskWorkExecution({
         };
       }
       if (recoveredReply?.kind === "outcome_unknown") {
-        // The provider may have accepted the reply, but no exact marker was
-        // found. Do not rerun the model or create a fallback reply.
         return {
           kind: "completed",
           degradation: ["reply_outcome_unknown"] satisfies readonly AskDegradationReason[],

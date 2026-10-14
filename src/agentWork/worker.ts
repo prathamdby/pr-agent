@@ -120,9 +120,6 @@ function registerMetadataQueue<T extends JobCorrelation>(
   return boss.work<T, void, MetadataWorkOptions>(queue, workOptions, async ([job]) => {
     await executions.track(() =>
       runWithOperationLogger(workerJobMeta(queue, job.data, job.id), () =>
-        // The inner durable lane covers the work-item outcome, not the logger
-        // flush: shutdown gives this dispatch a bounded reserve after the
-        // general settle, before the pool may end.
         executions.track(() => dispatch(job), { durable: true }),
       ),
     );
@@ -136,10 +133,6 @@ export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
   };
 }
 
-/**
- * Stop accepting new jobs without waiting for in-flight handlers.
- * `stopBoss`'s drain timeout bounds how long those handlers may finish.
- */
 export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
   await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
 }
@@ -311,12 +304,6 @@ export const AgentWorkerLive = (
     ).pipe(Effect.andThen(Effect.never)),
   );
 
-/**
- * Worker role: full queue consumers for agent work items.
- * Provide Boss, then executions, then Pool so finalizers run
- * worker → boss drain → handler settle → durable reserve + analytics → pool.end.
- * A draining handler can still record its outcome while the Pool is alive.
- */
 export const agentWorkWorkerLive = (cfg: Config) =>
   Layer.effectDiscard(
     Effect.gen(function* () {

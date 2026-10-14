@@ -3,7 +3,6 @@ export type PaginatedOctokitResult<T> = {
   readonly truncated: boolean;
 };
 
-/** A full page at `maxPages` calls `done()` so the product cap stays the last page fetched. */
 export function stopPaginatedPage<T>(
   state: { page: number; truncated: boolean },
   data: readonly T[],

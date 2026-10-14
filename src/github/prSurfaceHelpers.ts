@@ -18,7 +18,6 @@ export function findCommentIdByMarker<T extends PrConversationComment>(
   return null;
 }
 
-/** Find the newest bot-authored review carrying an exact hidden operation marker. */
 export async function findPublishedThreadBatch(
   surface: Pick<PrSurface, "getBotLogin" | "listPullRequestReviews">,
   marker: string,

@@ -16,17 +16,12 @@ export function thinkingLevelIndex(level: ThinkingLevel): number {
   return index < 0 ? 0 : index;
 }
 
-/** Clamp to the nearest level that does not exceed the ceiling. */
 export function clampThinkingLevel(level: ThinkingLevel, ceiling: ThinkingLevel): ThinkingLevel {
   const levelIndex = thinkingLevelIndex(level);
   const ceilingIndex = thinkingLevelIndex(ceiling);
   return THINKING_ORDER[Math.min(levelIndex, ceilingIndex)] ?? "off";
 }
 
-/**
- * Clamp to the nearest model-supported level at or below the desired level.
- * Empty support list → `off` (fail safe).
- */
 export function clampToModelSupportedLevel(
   desired: ThinkingLevel,
   supported: readonly ThinkingLevel[],
@@ -43,13 +38,11 @@ export function clampToModelSupportedLevel(
     }
   }
   if (best) return best;
-  // Desired below all supported — pick the lowest supported.
   return (
     [...supported].toSorted((a, b) => thinkingLevelIndex(a) - thinkingLevelIndex(b))[0] ?? "off"
   );
 }
 
-/** Phases one orchestrator session sends, in order. */
 export const ORCHESTRATOR_SESSION_PHASES: readonly AgentSessionPhase[] = [
   "recon",
   "judgment",
@@ -62,11 +55,6 @@ export function resolveThinkingLevel(params: {
   readonly policy: ThinkingPolicy;
   readonly phase: AgentSessionPhase;
   readonly modelSupportedLevels?: readonly ThinkingLevel[];
-  /**
-   * Resolve one level for every phase in this list instead of the current phase.
-   * Anthropic keys the prompt cache on top-level effort, so a per-phase change
-   * inside one session rewrites the whole cached transcript.
-   */
   readonly holdAcrossPhases?: readonly AgentSessionPhase[];
 }): ThinkingLevel {
   const phases = params.holdAcrossPhases?.includes(params.phase)

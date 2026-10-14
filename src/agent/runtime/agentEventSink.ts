@@ -278,9 +278,7 @@ export function safeEmitAgentEvent(
 ): void {
   try {
     safeAppendAgentEvents(context.pool, cfg, [row]);
-  } catch {
-    // Optional audit persistence must not alter feature execution or analytics.
-  }
+  } catch {}
 }
 
 export function safeEmitDecisionEvent(

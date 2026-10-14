@@ -7,7 +7,6 @@ import {
   GITHUB_SHA_MAX_CHARS,
 } from "../../settings/index.js";
 
-/** PR numbers persisted on `agent_work_items.pr_number` (Postgres integer). */
 export const githubPrNumberSchema = v.pipe(
   v.number(),
   v.integer(),
@@ -15,7 +14,6 @@ export const githubPrNumberSchema = v.pipe(
   v.maxValue(GITHUB_INT32_ID_MAX),
 );
 
-/** Installation, comment, user, and Actions ids (JS-safe positive integers). */
 export const githubSafeIdSchema = v.pipe(
   v.number(),
   v.integer(),

@@ -26,7 +26,6 @@ export type TriageRunResult = {
   }[];
 };
 
-/** Shared finalize instruction so nudge + validation-repair wording cannot drift. */
 const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
   "call commitFix for each pending finding first, then call submitTriage once with a complete TriagePayload";
 

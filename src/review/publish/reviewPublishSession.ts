@@ -23,11 +23,6 @@ type VerdictTarget = {
   readonly leaseEpoch: number | null | undefined;
 };
 
-/**
- * Everything the two review publishers share for one run: identity, the summary
- * coordination record, and the single abort policy. Per-call inputs (findings,
- * ledger, payload, coverage) stay with the caller.
- */
 export type ReviewPublishSession = {
   readonly recovery?: ReviewRecovery;
   readonly cfg: ReviewPublishConfig;
@@ -39,20 +34,13 @@ export type ReviewPublishSession = {
   readonly progressCommentIdHint?: number | null;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly agentEvents?: AgentEventsContext;
-  /** Identity stored on inline batch records; absent when no batch record is wanted. */
   readonly workItemId?: string;
   readonly operationIntent?: OperationIntentContext;
   readonly pool?: Pool;
   readonly installationId?: number;
   readonly boss?: PgBoss;
-  /** Where the own verdict closes after the summary lands. */
   readonly verdict?: VerdictTarget;
   readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
-  /**
-   * Returns why publication must stop, or undefined to continue. A failing check
-   * propagates so the durable job retries; it never reads as supersession and
-   * never authorizes publication.
-   */
   readonly stopReason: () => Promise<PublishStopReason | undefined>;
 };
 

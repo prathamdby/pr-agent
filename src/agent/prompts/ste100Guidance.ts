@@ -1,5 +1,3 @@
-/** Shared ASD-STE100 prose rules for PR-visible agent text. */
-
 export const ste100WritingGuidance = [
   "## Writing style (ASD-STE100)",
   "",

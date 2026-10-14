@@ -11,14 +11,8 @@ import { isAppError } from "../errors/appError.js";
 import type { AppErrorCode } from "../errors/appErrorCodes.js";
 import { isStaleHeadReplacementExhausted } from "./reviewReschedule.js";
 
-/** Whether a failed attempt may return to the queue, and under which budget. */
 export type RetryDisposition = "transient" | "deterministic" | "terminal";
 
-/**
- * Runs that ended without a valid terminal submit after their own repair loops. The
- * model already saw the validation error and could not fix it, so an identical replay
- * cannot submit either.
- */
 const DETERMINISTIC_FAILURE_CODES: ReadonlySet<AppErrorCode> = new Set([
   "verification.missing_submit",
   "triage.missing_submit",
@@ -26,7 +20,6 @@ const DETERMINISTIC_FAILURE_CODES: ReadonlySet<AppErrorCode> = new Set([
 ]);
 
 export function retryDispositionFor(error: unknown): RetryDisposition {
-  // One-shot stale-head replacement: a second replay can only repeat the same stale head.
   if (isStaleHeadReplacementExhausted(error)) return "terminal";
   if (isCancelAbortError(error)) return "terminal";
   if (isAppError(error) && error.code === "agent_work.attempts_exhausted") return "terminal";
@@ -47,21 +40,15 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
     return "terminal";
   }
   if (isAppError(error) && DETERMINISTIC_FAILURE_CODES.has(error.code)) return "deterministic";
-  // Everything classifyProviderError and classifyGithubError can return keeps its queue
-  // budget: transport, 5xx, rate limit, timeout, auth, quota, billing, and unknown.
-  // Timeout is intentionally transient — unlike the deleted fallback-eligibility table,
-  // which folded it into a deadline-ineligible branch.
   return "transient";
 }
 
-/** Durable claim budget per work item: the first attempt plus `QUEUE_RETRY_LIMIT` retries. */
 export function maxAttempts(cfg: Pick<Config, "queue">): number {
   return cfg.queue.retryLimit + 1;
 }
 
 export type EscalationKind = "tool_rounds" | "fallback_model";
 
-/** Deterministic escalation for attempts after the first. Undefined means "attempt 1, unchanged". */
 export type EscalationPlan = {
   readonly attempt: number;
   readonly kinds: readonly EscalationKind[];
@@ -83,11 +70,6 @@ export function escalatedToolRounds(base: number, plan: EscalationPlan | undefin
   return Math.min(Math.ceil(base * ESCALATED_TOOL_ROUNDS_MULTIPLIER), ESCALATED_TOOL_ROUNDS_CAP);
 }
 
-/**
- * Bounded subset for an escalated verification attempt. The caller passes the
- * inventory in its canonical oldest-first order, so the subset is deterministic
- * for a given inventory and attempt count.
- */
 export function escalatedVerificationInventory<T>(
   inventory: readonly T[],
   plan: EscalationPlan | undefined,

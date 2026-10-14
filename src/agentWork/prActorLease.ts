@@ -4,7 +4,6 @@ import { queryOne } from "../db/postgres.js";
 import { AppError } from "../errors/appError.js";
 import type { WorkType } from "./types.js";
 
-/** Seconds a lease-blocked delivery waits before its deferred copy retries acquisition. */
 export const PR_ACTOR_LEASE_DEFER_SECONDS = 15;
 
 export type PrActorLeaseKey = {
@@ -16,16 +15,10 @@ export type PrActorLeaseAcquisition =
   | { readonly acquired: true; readonly leaseEpoch: number }
   | {
       readonly acquired: false;
-      /** Advisory only (read after the atomic attempt misses); drives log fields and deferral. */
       readonly heldByWorkItemId: string | null;
       readonly leaseEpoch: number;
     };
 
-/**
- * Single atomic admission decision: insert epoch 1 for a never-leased key, or steal
- * from a released (`work_item_id IS NULL`) or lapsed holder. No returned row means
- * the lease is currently held by a live holder.
- */
 export async function acquirePrActorLease(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & {
@@ -67,7 +60,6 @@ export async function acquirePrActorLease(
   };
 }
 
-/** Extend the deadline for this work item's live epoch; false when the holder is gone or a newer epoch owns the key. */
 export async function renewPrActorLease(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & {
@@ -91,19 +83,9 @@ export async function renewPrActorLease(
 
 export type PrActorLeaseHolder = {
   readonly workItemId: string;
-  /** Lease epoch recorded on the work item row at claim time; unknowns never reach here. */
   readonly leaseEpoch: number;
 };
 
-/**
- * Intake cancel knows the cancelled work item ids and the lease epoch each one
- * recorded at claim time. Clear only exact (id, epoch) pairs so a predecessor
- * cancel never clears a newer epoch when a replacement reuses a cancelled
- * identifier. Empty holders skip the UPDATE entirely (fail closed): expiry and
- * the lease watchdog recover the holder within TTL. Never pass unknown epochs
- * (`0`/NULL from pre-fix rows or never-acquired queued items) — the caller
- * filters those before building pairs.
- */
 export async function releasePrActorLeaseHeldByWorkItems(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & { readonly holders: readonly PrActorLeaseHolder[] },
@@ -131,10 +113,6 @@ export async function releasePrActorLeaseHeldByWorkItems(
   );
 }
 
-/**
- * Clear the holder in place for the caller's epoch. The row is never deleted so the
- * epoch stays monotonic; a stale holder cannot clear a live lease.
- */
 export async function releasePrActorLease(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & { readonly leaseEpoch: number },
@@ -151,7 +129,6 @@ export async function releasePrActorLease(
   );
 }
 
-/** True while this holder's epoch still owns the lease for the work item. */
 export async function isPrActorLeaseHeld(
   db: Pool | PoolClient,
   workItemId: string,
@@ -191,7 +168,6 @@ export async function lockPrActorLeaseForUpdate(
   });
 }
 
-/** Fencing check before any durable write or GitHub mutation from a leased execution. */
 export async function assertPrActorLeaseHeld(
   db: Pool | PoolClient,
   workItemId: string,
@@ -207,18 +183,9 @@ export async function assertPrActorLeaseHeld(
 }
 
 function isPendingWatchdogHop(job: Pick<JobWithMetadata, "state">) {
-  // An active job may be firing this handler and will complete without a successor.
   return job.state === "created" || job.state === "retry";
 }
 
-/**
- * Arm one throttled watchdog hop for a lease-blocked delivery. Same send options
- * and live-hop verification the failed-acquire branch has always used; the
- * pre-claim seed calls it best-effort (`warn-and-proceed`) so a pg-boss send
- * failure never blocks a holder whose lease is free, while the failed-acquire
- * branch keeps strict (`throw`) semantics. Returns whether a live hop exists so
- * the failed-acquire branch can skip a second send when the seed just armed one.
- */
 export async function armLeaseWatchdogHop(
   boss: Pick<PgBoss, "send" | "findJobs" | "getDb">,
   params: {
@@ -252,8 +219,6 @@ export async function armLeaseWatchdogHop(
     )
     .map((job) => job.id);
   if (terminalIds.length > 0) {
-    // pg-boss retains terminal rows in its throttle index. Free only the two
-    // candidate slots; live hops and unrelated archive slots keep their guard.
     await boss.getDb().executeSql(
       `WITH slots AS (
          SELECT 'epoch'::timestamp + interval '1 second'

@@ -24,17 +24,9 @@ export type AskIntakeInput = {
   readonly codeAnchor?: CodeAnchor;
   readonly ackTargets: readonly AckTarget[];
   readonly askQuota: AskQuotaConfig;
-  /** App bot login for `@mention` ask parsing (optional; slash `/ask` does not need it). */
   readonly botLogin?: string;
 };
 
-/**
- * Policy when an existing ask matches this intake:
- * - `skip` — slash/mention webhook path: work was already ensured; do not re-enqueue
- * - `recover` — retry path for the same webhook event: re-enqueue ack/ask
- *   idempotently for the existing id. A retained ask for the same mention but a
- *   different event is always a quiet join, never a re-enqueue.
- */
 export type ExistingAskWorkItemPolicy = "skip" | "recover";
 
 export type AskIntakeOutcome =
@@ -67,11 +59,6 @@ function baseAck(input: AskIntakeInput): AckJobData {
   };
 }
 
-/**
- * Canonical ask intake shared by `/ask` slash commands and `@bot` mentions.
- * Owns question parsing, usage/too-long acknowledgement, idempotent ask
- * work-item ensure, ack enqueue, and ask enqueue.
- */
 export async function promoteAskFromWebhookEvent(
   boss: PgBoss,
   client: PoolClient,

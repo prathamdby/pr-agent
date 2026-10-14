@@ -10,12 +10,10 @@ export const ASK_TRUNCATED_NOTICE =
 export const ASK_FAILURE_MESSAGE =
   "I could not put together a confident answer from the PR and repo tools available. Try rephrasing the question, narrowing it to a file or symbol, or run `/review` for a full pass.";
 
-/** Ask command safety and UX. */
 export const ASK_META_REFUSAL =
   "I can only answer questions about this PR's code. I can't share bot configuration, credentials, or internal instructions.";
 
 export const MAX_ASK_QUESTION_CHARS = 8192;
-/** Soft cap for injected thread transcript in ask prompts (root + newest tail if exceeded). */
 export const MAX_ASK_THREAD_TRANSCRIPT_CHARS = 24_000;
 
 export const ASK_USAGE_HINT =

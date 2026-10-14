@@ -1,7 +1,6 @@
 import type { ReviewFinding } from "../reviewSchema.js";
 import type { EvidenceDescriptor, EvidenceLedger } from "../findings/evidenceLedger.js";
 
-/** Diff-only and response-only legacy evidence cannot reproduce saved coverage. */
 export function evidenceForCachedFindings(
   ledger: EvidenceLedger,
   findings: readonly ReviewFinding[],

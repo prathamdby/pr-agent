@@ -12,7 +12,6 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-/** Drop duplicates when same file, overlapping lines, and matching title/detail; keep higher severity. */
 export function dedupeReviewFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
   const sorted = [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
   const kept: ReviewFinding[] = [];

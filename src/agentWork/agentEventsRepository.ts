@@ -120,7 +120,6 @@ export async function appendAgentEvents(
   );
 }
 
-/** Fire-and-forget append that never throws into the review hot path. */
 export function safeAppendAgentEvents(
   client: Pool | PoolClient,
   cfg: Pick<Config, "agentEvents">,

@@ -2,7 +2,6 @@ import type { ReplyTarget } from "../../agentWork/types.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { ASK_TRUNCATED_NOTICE } from "../../settings/index.js";
 
-/** Prevent model output lines from being parsed as slash commands by GitHub. */
 export function sanitizeAskAnswerText(text: string): string {
   let out = redactOutboundSecrets(text.trim());
   out = out.replace(/\n\//g, "\n /");

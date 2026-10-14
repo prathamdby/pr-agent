@@ -79,10 +79,6 @@ async function discoverAgentInstructionFile(
   return { filename, kind: "loaded", body };
 }
 
-/**
- * Statically load well-known root agent instruction files from a PR checkout.
- * Discovery (stat + read) runs in parallel; budget caps apply in filename order.
- */
 export async function loadAgentInstructionFiles(
   checkoutRoot: string,
   maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
@@ -150,7 +146,6 @@ export async function loadAgentInstructionFiles(
   return { kind: "ok", files, drops };
 }
 
-/** True when head and base repo full_name match; missing metadata is untrusted. */
 export function isSameRepoPullRequest(pullRequest: unknown): boolean {
   if (pullRequest == null || typeof pullRequest !== "object") return false;
   const pr = pullRequest as {
@@ -162,7 +157,6 @@ export function isSameRepoPullRequest(pullRequest: unknown): boolean {
   return validRepositoryName(headName) && validRepositoryName(baseName) && headName === baseName;
 }
 
-/** Neutralize forged server trust headers inside author-controlled file bodies. */
 function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
@@ -174,7 +168,6 @@ function neutralizeForgedTrustHeaders(body: string): string {
 
 export function renderAgentInstructionFilesBlock(params: {
   readonly files: readonly AgentInstructionFile[];
-  /** Same-repo → trusted/binding; omit/false → untrusted (fail closed). */
   readonly sameRepo?: boolean;
 }): string {
   if (params.files.length === 0) {
@@ -199,7 +192,6 @@ export function renderAgentInstructionFilesBlock(params: {
     if (sameRepo) {
       lines.push(file.body);
     } else {
-      // Fence author-controlled fork bodies so forged Trusted/binding labels cannot win.
       lines.push(
         wrapUntrustedBlock("agent_instruction_file", neutralizeForgedTrustHeaders(file.body)),
       );

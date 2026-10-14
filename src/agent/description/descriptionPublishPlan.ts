@@ -12,10 +12,6 @@ export type DescriptionPublishPlan = {
   readonly bodyUpdated: boolean;
 };
 
-/**
- * Merge the generated block into the live pull request. The caller writes only
- * when a field changes, so a replay over an already-merged body sends nothing.
- */
 export function planDescriptionPublish(params: {
   readonly cfg: Pick<Config, "features">;
   readonly pullRequest: Pick<PullRequestForFileList, "title" | "body">;

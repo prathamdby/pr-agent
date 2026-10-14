@@ -1,8 +1,3 @@
-/**
- * Orchestration step selection as data. `nextStep` reads only the last executed
- * step and facts about the run; it performs no I/O, so every route through
- * recon, specialists, synthesis, and deterministic fallback is a table case.
- */
 export type ReviewStep =
   | { readonly kind: "recon" }
   | { readonly kind: "repair_brief" }
@@ -21,7 +16,6 @@ export type ReviewStep =
 export type ReviewStepKind = ReviewStep["kind"];
 
 export type ReviewStepFacts = {
-  /** A model session was created for this run. */
   readonly hasSession: boolean;
   readonly sessionRetired: boolean;
   readonly briefSubmitted: boolean;

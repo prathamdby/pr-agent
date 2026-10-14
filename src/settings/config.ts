@@ -42,7 +42,6 @@ import {
   type RuntimeSlice,
 } from "./slices/service.js";
 
-/** Nested by owner. A consumer takes `Pick<Config, "queue">`, never the whole object. */
 export type Config = {
   readonly runtime: RuntimeSlice;
   readonly github: GithubSlice;

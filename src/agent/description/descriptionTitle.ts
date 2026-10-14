@@ -13,7 +13,6 @@ export function formatDescriptionTitleHardRule(): string {
   ].join(" ");
 }
 
-/** Normalize a description title to make-pr default title rules before publish. */
 export function enforceDescriptionTitle(title: string): string {
   const trimmed = title.trim();
   if (trimmed.length === 0) return trimmed;

@@ -43,12 +43,10 @@ export type FindingHistorySlice = {
   readonly lookbackDays: number;
 };
 
-/** Which executor Code Mode scripts run in. Derived from the build, not from an env var. */
 export type CodeModeSlice = {
   readonly executorKind: CodeModeExecutorKind;
 };
 
-/** Specialist timeout plus the publish caps that are code constants, not env knobs. */
 export type ReviewSlice = {
   readonly specialistTimeoutMs: number;
   readonly recoveryEnabled: boolean;
@@ -102,11 +100,6 @@ export function readFindingHistorySlice(): FindingHistorySlice {
   };
 }
 
-/**
- * Compiled production runs worker threads. TypeScript sources (dev, Vitest) stay
- * in-process so the interrupt remains observable and the worker file need not
- * exist beside `.ts` sources.
- */
 export function readCodeModeSlice(): CodeModeSlice {
   return { executorKind: import.meta.url.endsWith(".js") ? "worker_threads" : "in_process" };
 }

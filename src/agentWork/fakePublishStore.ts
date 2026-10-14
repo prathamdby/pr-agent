@@ -52,7 +52,6 @@ function toRow(stored: StoredIntent): OperationIntentRow {
   };
 }
 
-/** In-process adapter for the publication persistence seam. Create a new adapter for each independent store. */
 export function createFakePublishStore(): PublishIntentStore {
   const rows = new Map<string, StoredIntent>();
   let clockMs = 1;
@@ -172,7 +171,6 @@ export function createFakePublishStore(): PublishIntentStore {
   };
 }
 
-/** Completion adapter with the same resource/work scopes as Postgres. */
 export function createFakePublishRecords(
   publishStepSpecs: typeof import("./publishOnce.js").publishStepSpecs,
 ): PublishRecordStore {

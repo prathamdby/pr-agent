@@ -18,7 +18,6 @@ export function askReplyBodyWithOperationMarker(
   return `${operationIntentMarker(operationKey, operationInstance)}\n${body}`;
 }
 
-/** Extract a stashed GitHub comment id from operation-intent detail. */
 export function askReplyCommentIdFromIntentDetail(
   detail: Record<string, unknown> | undefined,
 ): number | null {
@@ -34,7 +33,6 @@ export function askReplyBodyMatchesQuestion(
   replyTarget: ReplyTarget,
 ): boolean {
   if (replyTarget.kind === "inlineReviewThread") {
-    // Inline replies are answer-only; shape matching is not reliable.
     return false;
   }
   const redactedQuestion = redactOutboundSecrets(question.trim());
@@ -42,10 +40,6 @@ export function askReplyBodyMatchesQuestion(
   return body.includes(`**Question:** ${redactedQuestion}`) && body.includes("**Answer:**");
 }
 
-/**
- * When local intent/publish state is ambiguous, look for an already-posted ask
- * reply on the PR conversation before remutating or rerunning the model.
- */
 export async function findExistingAskReplyComment(params: {
   readonly prSurface: PrSurface;
   readonly replyTarget: ReplyTarget;

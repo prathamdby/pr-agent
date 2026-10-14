@@ -7,7 +7,6 @@ export type ReviewRunFooterMeta = {
 
 const FOOTER_SEP = " ⋅ ";
 
-/** Compact wall-clock duration (`45s`, `11m 20s`, `1h 2m`). */
 export function formatReviewDuration(durationMs: number): string {
   const totalSeconds = Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs / 1000)) : 0;
   const hours = Math.floor(totalSeconds / 3600);
@@ -23,11 +22,6 @@ export function formatReviewDuration(durationMs: number): string {
   return `${seconds}s`;
 }
 
-/**
- * Footer wall-clock: review worker start → freeze before final summary.
- * Never includes queue wait (stub post time is ignored).
- * Start precedence: metricsStartedAtMs (worker start) → endedAtMs (duration 0).
- */
 export function resolveReviewWallClockMs(params: {
   readonly stubPostedAtMs?: number | null | undefined;
   readonly metricsStartedAtMs: number | null | undefined;
@@ -42,7 +36,6 @@ function finiteTimestampMs(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** Normalized 7–40 hex SHA, or null when invalid. */
 export function normalizeGitHeadSha(headSha: string): string | null {
   const normalized = headSha.trim().toLowerCase();
   return /^[0-9a-f]{7,40}$/.test(normalized) ? normalized : null;
@@ -52,7 +45,6 @@ export function shortHeadSha(headSha: string): string {
   return normalizeGitHeadSha(headSha)?.slice(0, 7) ?? "unknown";
 }
 
-/** Muted provenance line: `<sub>a1b2c3d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>`. */
 export function renderReviewRunFooter(params: {
   readonly headSha: string;
   readonly durationMs: number;

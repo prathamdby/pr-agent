@@ -77,11 +77,6 @@ export const TriagePayloadSchema = v.object({
 export type TriageVerdict = v.InferOutput<typeof TriageVerdictSchema>;
 export type TriagePayload = v.InferOutput<typeof TriagePayloadSchema>;
 
-/**
- * Same verdict vocabulary as triage, but read-only.
- * "fixed" cites the user's pushed commit sha (no committed-by-bot check).
- * "dismissed" still requires an authorized maintainer decision for the thread.
- */
 const VerificationVerdictSchema = TriageVerdictSchema;
 
 export const VerificationPayloadSchema = v.object({

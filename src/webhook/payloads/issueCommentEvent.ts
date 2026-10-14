@@ -23,7 +23,6 @@ export const issueCommentWebhookSchema = v.object({
     user: githubUserSchema,
     author_association: v.nullish(v.string()),
     body: v.nullish(v.string()),
-    /** Present when the comment is a reply in a PR conversation thread. */
     in_reply_to_id: v.nullish(githubSafeIdSchema),
   }),
 });

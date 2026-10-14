@@ -631,10 +631,6 @@ async function applyReviewApprovedIntake(
   return events;
 }
 
-/**
- * Enqueues one head-scoped projection for a completed workflow_run / check_suite.
- * Does not write facts. Empty pull_requests still enqueue (ADR 0035).
- */
 async function applyCompletedRunCiIntake(
   boss: PgBoss,
   tx: DeliveryTx,
@@ -685,10 +681,6 @@ export type CiStateFactInput = {
   readonly fact: CiCheckFact;
 };
 
-/**
- * Writes `pr_head_ci_state` for a check_run or status delivery and enqueues a
- * debounced projection. Does not resolve PRs and does not call GitHub.
- */
 async function applyCiStateIntake(
   boss: PgBoss,
   tx: DeliveryTx,
@@ -853,7 +845,6 @@ async function insertWebhookEvent(
   };
 }
 
-/** Durable work kinds scheduled from automated pull_request webhooks. */
 type AutomatedPrIntakeKind =
   | "review"
   | "reviewSupersede"
@@ -877,7 +868,6 @@ function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
   return "automated_work_enqueued";
 }
 
-/** Pure planner: maps webhook action + feature modes → agent work kinds (no I/O). */
 function planAutomatedPullRequestIntake(
   action: string,
   features: Pick<Features, "review" | "describe" | "verification">,
@@ -1060,21 +1050,15 @@ export async function runDelivery(
     tx.events.push(...events);
     return tx;
   });
-  // Analytics is best effort. An accepted delivery remains accepted even when
-  // the sink fails, and no deferred metadata escapes a rolled-back transaction.
   for (const action of completed.afterCommit) {
     try {
       action();
-    } catch {
-      // The committed durable state remains the source of truth.
-    }
+    } catch {}
   }
   for (const event of completed.lifecycleEvents) {
     try {
       captureEvent(event);
-    } catch {
-      // A failed capture must not suppress another changed item's event.
-    }
+    } catch {}
   }
   for (const event of completed.events)
     recordEvent(log, event.name, event.fields, event.level ?? "info");

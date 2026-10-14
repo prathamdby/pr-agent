@@ -1,21 +1,13 @@
 export type TrackOptions = {
-  /**
-   * Durable queue dispatches carry terminal work-item marks. Shutdown settles
-   * all handlers first, then gives only these dispatches one more bounded wait
-   * before the pool may end.
-   */
   readonly durable?: boolean;
 };
 
 export type SettleOptions = {
-  /** Wait only for dispatches tracked with `durable: true`. */
   readonly durableOnly?: boolean;
 };
 
 export type SettleResult = {
-  /** Queue callbacks still in flight, excluding the inner durable dispatches. */
   readonly pendingHandlers: number;
-  /** Durable dispatches still in flight. */
   readonly pendingDurable: number;
 };
 

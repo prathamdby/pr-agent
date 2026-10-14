@@ -10,7 +10,6 @@ const COMPACTION_ENABLED: Readonly<Record<AgentSessionRole, boolean>> = {
   verification: true,
 };
 
-/** SDK auto-compaction enabled flag by agent role (prompt-cache prefix safety). */
 export function compactionPolicyForRole(role: AgentSessionRole): CompactionPolicy {
   return { enabled: COMPACTION_ENABLED[role] };
 }

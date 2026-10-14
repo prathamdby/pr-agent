@@ -46,7 +46,6 @@ import {
   saveGithubCapabilityObservation,
 } from "../githubCapabilityRepository.js";
 
-/** True when this ack may still write the shared progress comment for its work item. */
 export async function canAckPublishProgress(
   pool: Pool,
   params: {
@@ -118,7 +117,6 @@ async function publishAckProgress(
       });
     }
   }
-  // Queued stub: Head/Source/(Queue)/(CI) only — no Recon/specialist rows until the review worker starts.
   const body = renderReviewProgressComment({
     mode: data.progress.lens,
     headSha,
@@ -144,8 +142,6 @@ async function publishAckProgress(
     { installationId: data.installationId, owner: data.owner, repo: data.repo, headSha },
     { kind: "when_due", pool, renderedVersion: rendered.version },
   );
-  // Deferred-head reviews resolve the binding head at claim time; starting the
-  // check run here would pin it to an earlier SHA if another push lands first.
   if (data.workItemId && !deferredHead) {
     await reviewVerdict({
       pool,
@@ -187,10 +183,8 @@ async function publishCancelProgress(
     progressWorkItemId: data.cancelProgress.workItemId,
   });
 
-  // Comment I/O must not block check cancellation — stale checks stuck in_progress are worse.
   try {
     if (!commentsAvailable) {
-      // Verdict receipts remain applicable even when a cancellation notice cannot be written.
     } else if (ownsStub && existing != null) {
       await prSurface.editComment(existing.id, body);
     } else {
@@ -208,7 +202,6 @@ async function publishCancelProgress(
     });
   }
 
-  // Stale pre-deploy ack jobs may omit cancelledWorkItemIds; fall back to the primary id.
   const cancelledWorkItemIds = data.cancelProgress.cancelledWorkItemIds ?? [
     data.cancelProgress.workItemId,
   ];
@@ -242,7 +235,6 @@ async function publishTriageCancellation(
   }
 }
 
-/** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(
   cfg: Config,
   pool: Pool,
@@ -315,8 +307,6 @@ export async function executeAckJob(
     });
   }
 
-  // Cancel before progress: `/review force` acks carry both, and the new run's
-  // queued stub must be the final state after the cancelled notice lands.
   if (data.cancelProgress) {
     try {
       await publishCancelProgress(
@@ -393,13 +383,11 @@ export async function executeAckJob(
     await prSurface.replyAt(data.reply.target, data.reply.body);
   }
 
-  // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
   if (data.reply && data.workItemId == null) {
     await reactBestEffort(prSurface, data.targets, GITHUB_REACTION_PLUS_ONE);
   }
 }
 
-/** A reaction never blocks the replies and progress that follow it in the same job. */
 async function reactBestEffort(
   prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
   targets: AckJobData["targets"],

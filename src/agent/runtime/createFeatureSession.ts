@@ -55,9 +55,7 @@ export async function createFeaturePiSession(params: {
   readonly sessionContext?: Omit<FeatureSessionContext, "pool"> & {
     readonly pool: Pool | PoolClient;
   };
-  /** Durable job/lease abort; combined with the session abort and the loop signal. */
   readonly hostSignal?: AbortSignal;
-  /** Model this durable attempt runs on; defaults to the role policy when omitted. */
   readonly attemptModel?: ModelAssignment;
 }): Promise<PiSession> {
   const policy = resolveModelPolicy(params.cfg);
@@ -69,9 +67,7 @@ export async function createFeaturePiSession(params: {
   const eventSink = (event: AgentLifecycleEvent): void => {
     try {
       params.eventSink?.(event);
-    } catch {
-      // Custom observers must not suppress the independent telemetry sink.
-    }
+    } catch {}
     durableEventSink?.(event);
   };
   const executors = { ...params.executors };

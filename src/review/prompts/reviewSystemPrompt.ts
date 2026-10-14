@@ -20,7 +20,6 @@ import {
 import { specialistInvestigationHarness } from "../../agent/prompts/harnessProtocol.js";
 import { context7OutboundDataGuidance } from "../../agent/prompts/toolingDiscipline.js";
 
-/** Correctness specialist prompt: investigation methodology plus a structured findings report. */
 export function buildAutomatedSystemPrompt(): string {
   const investigationMethod = [...compactInvestigationMethod];
   const bugPatterns = [...compactBugPatternCatalogue];

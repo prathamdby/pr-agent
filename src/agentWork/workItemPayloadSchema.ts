@@ -15,7 +15,6 @@ import type {
   WorkType,
 } from "./types.js";
 
-/** Dual-read current and deployed parent payloads for a replacement work-item id. */
 export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
           payload->'staleHeadReplacement'->>'replacementWorkItemId',
           NULLIF(payload->>'staleHeadReplacementWorkItemId', '')
@@ -29,7 +28,6 @@ function asReplacementState(value: unknown): StaleHeadReplacementState | undefin
   return value === "pending-enqueue" || value === "enqueued" ? value : undefined;
 }
 
-/** Normalize nested or legacy stale-head fields. Impossible fragments become absent. */
 export function normalizeStaleHeadReplacement(raw: {
   readonly staleHeadRescheduled?: unknown;
   readonly staleHeadReplacement?: unknown;
@@ -39,7 +37,6 @@ export function normalizeStaleHeadReplacement(raw: {
   const nested = isRecord(raw.staleHeadReplacement) ? raw.staleHeadReplacement : undefined;
   const nestedId = nonEmptyString(nested?.replacementWorkItemId);
   const legacyId = nonEmptyString(raw.staleHeadReplacementWorkItemId);
-  // One-shot replacement rows copied the parent id; that is not parent lifecycle.
   const replacementWorkItemId =
     nestedId ?? (raw.staleHeadRescheduled === true ? undefined : legacyId);
   if (!replacementWorkItemId) return undefined;

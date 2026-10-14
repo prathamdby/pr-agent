@@ -3,11 +3,6 @@ import type { ReviewCancelAttribution } from "../../settings/index.js";
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
-/**
- * Accepted findings already published from earlier `publish_thread` calls in
- * the same run slim to `{findingId, file, startLine, endLine, title}` in the
- * judgment envelope; undecided findings always keep full JSON.
- */
 export type AcceptedFindingSlimReference = {
   readonly findingId: string;
   readonly file: string;
@@ -94,7 +89,6 @@ export type OrchestratedRunState = {
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;
-  /** 0 queued ack · 1 worker start (recon running) · 2 recon done · 3–6 specialist ticks · 7 terminal/summary */
   progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
   summary: OrchestratedSummaryState;
 };
@@ -177,12 +171,10 @@ export function applyFindingLedgerDelta(
   };
 }
 
-/** Accepted placements for a specialist (inline posted/resumed + summary-only). */
 export function countAcceptedForSource(ledger: FindingLedger, source: FindingSource): number {
   return ledger.accepted.filter((placement) => placement.source === source).length;
 }
 
-/** Specialist tick after publish: accepted ledger count for that specialist, not inline-only. */
 export function specialistDonePhase(
   ledgerBefore: FindingLedger,
   ledgerAfter: FindingLedger,

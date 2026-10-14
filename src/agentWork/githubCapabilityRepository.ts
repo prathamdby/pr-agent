@@ -34,7 +34,6 @@ type SourceRow = {
   unknown_read_count: number;
 };
 
-/** Allocate before provider I/O so completion order cannot overwrite a newer attempt. */
 export async function nextGithubCapabilityObservationGeneration(
   db: Pool | PoolClient,
 ): Promise<string> {
@@ -59,11 +58,6 @@ export async function loadGithubCapabilityObservation(
     : { generation: Number(row.generation), capabilities: row.capabilities };
 }
 
-/**
- * Repository observations serialize before ordered head locks. CI fact writers
- * only lock heads; no head holder acquires a repository row lock.
- * Fanout touches existing scoped heads only, never historical network state.
- */
 export async function saveGithubCapabilityObservation(
   pool: Pool,
   input: GithubRepositoryScope & {
@@ -125,7 +119,6 @@ export async function saveGithubCapabilityObservation(
   }
 }
 
-/** Operation-time denial only belongs to the metadata generation that admitted it. */
 export async function recordGithubCapabilityDenial(
   pool: Pool,
   input: GithubRepositoryScope & {
@@ -226,7 +219,6 @@ async function syncSources(
   }
 }
 
-/** Lazily reconciles heads outside the bounded observation fanout, atomically. */
 export async function loadGithubCiSourceAvailability(
   pool: Pool,
   scope: GithubHeadScope,
@@ -270,7 +262,6 @@ export async function loadGithubCiSourceAvailability(
   }
 }
 
-/** A listing begun under an older observation cannot erase a new denial. */
 export async function recordGithubCiSourceRead(
   pool: Pool,
   input: GithubHeadScope & {
@@ -339,7 +330,6 @@ export async function changeGithubPreflightFailureCount(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Lease first, as with terminal writes: release cannot race the counter write.
     await client.query(
       `SELECT work_item_id FROM pr_actor_leases
         WHERE work_item_id = $1 AND lease_epoch = $2 FOR UPDATE`,

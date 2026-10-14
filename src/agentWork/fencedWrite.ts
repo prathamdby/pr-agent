@@ -8,11 +8,6 @@ function epochOf(fence: WriteFence | number | null | undefined): number | null {
   return fence.epoch;
 }
 
-/**
- * SQL predicates remain with their writers. This boundary owns only the
- * existing precheck/write/rejected-write recheck order; SQL-only state writers
- * deliberately request neither read.
- */
 export async function fencedWrite<T>(
   client: Pool | PoolClient,
   workItemId: string,

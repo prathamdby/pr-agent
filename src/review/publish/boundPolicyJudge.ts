@@ -66,7 +66,6 @@ function extractJsonObject(text: string): unknown {
   return JSON.parse(candidate.slice(start, end + 1)) as unknown;
 }
 
-/** Keep only asked pair ids. Extra or unparsable entries drop. */
 export function parseBoundPolicyYesIds(
   text: string,
   askedIds: ReadonlySet<string>,

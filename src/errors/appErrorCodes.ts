@@ -1,8 +1,3 @@
-/**
- * Closed registry of structured failures. The persisted and logged code string is
- * `${domain}.${kind}`; renaming or adding a kind changes durable `failure_code`
- * values and analytics, so edit this table deliberately.
- */
 export const APP_ERROR_KINDS = {
   agent: ["session_aborted"],
   agent_work: [
@@ -183,7 +178,6 @@ export type AppErrorDomain = keyof typeof APP_ERROR_KINDS;
 export type AppErrorKind<D extends AppErrorDomain = AppErrorDomain> =
   (typeof APP_ERROR_KINDS)[D][number];
 
-/** Every legal `{domain, kind}` pair as a discriminated union on `domain`. */
 export type AppErrorShape = {
   readonly [D in AppErrorDomain]: { readonly domain: D; readonly kind: AppErrorKind<D> };
 }[AppErrorDomain];

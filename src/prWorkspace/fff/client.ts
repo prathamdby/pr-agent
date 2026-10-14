@@ -14,7 +14,6 @@ type Pending = {
   readonly timer: NodeJS.Timeout;
 };
 
-// Development and tests run TypeScript sources directly; the build emits host.js.
 const hostPath = fileURLToPath(
   new URL(import.meta.url.endsWith(".ts") ? "./host.ts" : "./host.js", import.meta.url),
 );
@@ -59,7 +58,6 @@ function onMessage(message: unknown): void {
 }
 
 function spawnHost(): ChildProcess {
-  // The host gets no environment: it reads checkouts and never needs credentials.
   const spawned = fork(hostPath, [], {
     env: {},
     execArgv: [],

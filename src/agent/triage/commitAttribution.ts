@@ -1,11 +1,9 @@
 import type { BotIdentity } from "../../github/appAuth.js";
-/** Git author/committer or Co-authored-by person. */
 export type GitPerson = {
   readonly name: string;
   readonly email: string;
 };
 
-/** Per-run triage commit identity: human triggerer path or App fallback. */
 export type TriageCommitAttribution = {
   readonly person: GitPerson;
   readonly coAuthoredBy: readonly GitPerson[];
@@ -23,10 +21,6 @@ export function botGitPerson(bot: BotIdentity): GitPerson {
   };
 }
 
-/**
- * Build commit attribution for a triage run.
- * Human path when `triggerer` is set; otherwise App author+committer with no App co-author trailer.
- */
 export function buildTriageCommitAttribution(params: {
   readonly botIdentity: BotIdentity;
   readonly triggerer: GitPerson | null;
@@ -42,11 +36,6 @@ export function buildTriageCommitAttribution(params: {
   };
 }
 
-/**
- * Map a GitHub user profile to a git person.
- * Bot accounts and missing login/id return null (caller falls back to App).
- * Private/missing profile email uses id-based noreply (still human path).
- */
 export function gitPersonFromGithubUser(user: {
   readonly id: number;
   readonly login: string;

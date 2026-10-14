@@ -1,4 +1,3 @@
-/** GFM table cell: escape pipes/newlines, then HTML-sensitive characters. */
 export function escapeTableCell(text: string): string {
   return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
@@ -15,7 +14,6 @@ export function escapeTableCellContent(text: string): string {
   return escapeTableHtml(escapeTableCell(text));
 }
 
-/** Plain text in HTML table cells (no GFM pipe escaping). */
 export function escapeTablePlainCell(text: string): string {
   return escapeTableHtml(text.replace(/\r?\n/g, " "));
 }
@@ -40,7 +38,6 @@ export function renderTableLink(title: string, href: string): string {
   return `<strong><a href="${escapeHtmlAttr(href)}">${escapeTableHtml(title)}</a></strong>`;
 }
 
-/** Inline link with monospace label (e.g. file paths in PR description walkthrough). */
 export function renderInlineCodeLink(label: string, href: string): string {
   return `<a href="${escapeHtmlAttr(href)}">${renderTableCode(label)}</a>`;
 }
@@ -57,7 +54,6 @@ export function renderTableLocationMeta(marker: string, file: string, lineRange:
   return `<em>${escapeTableHtml(marker)} · ${renderTableCode(file)} · ${escapeTableHtml(lineRange)}</em>`;
 }
 
-/** Key-value table without a GFM header row (avoids the empty `| | |` header strip on GitHub). */
 export function renderKeyValueTable(rows: ReadonlyArray<readonly [string, string]>): string {
   const body = rows
     .map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`)

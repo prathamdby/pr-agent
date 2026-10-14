@@ -48,9 +48,7 @@ export function createFakePiSession(
     events.push(correlated);
     try {
       params.eventSink(correlated);
-    } catch {
-      // Match the real runtime's best-effort observers.
-    }
+    } catch {}
   };
   const emitSession = emitForGeneration();
 

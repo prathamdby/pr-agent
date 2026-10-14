@@ -11,12 +11,6 @@ import {
 } from "../../github/sharedRateLimitCircuit.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 
-/**
- * Per-run GitHub rate-limit circuit shared by ask and review. A tripped circuit is
- * published to the installation row; a run that starts inside an open window
- * hydrates from it. The shared read is best-effort: a database blip must not
- * abort the run.
- */
 export async function openRunRateLimitCircuit(params: {
   readonly pool: Pool | undefined;
   readonly installationId: number;

@@ -123,9 +123,7 @@ export async function replayPreviewHunks(params: {
     } catch (error) {
       try {
         await resetUncommitted(params.checkout.dir);
-      } catch {
-        // Keep the first apply/commit error. Reset is best-effort so later hunks can proceed.
-      }
+      } catch {}
       commitErrors.push({
         threadRootCommentId: hunk.threadRootCommentId,
         error: errorMessage(error),

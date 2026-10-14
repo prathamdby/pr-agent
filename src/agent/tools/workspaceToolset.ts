@@ -74,7 +74,6 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
   searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 };
 
-/** Recovery reads use the investigation path policy and ordinary file/output clamps. */
 export function createGovernedReviewEvidenceReader(
   workspace: PinnedRepositoryReader,
   headSha: string,
@@ -95,7 +94,6 @@ export function createGovernedReviewEvidenceReader(
       return null;
     remainingReads -= 1;
     try {
-      // A freshly reintroduced symlink must not exploit the stripped-checkout assumption.
       await assertContainedWorkspacePath(workspace.agentCwd, descriptor.path);
       const result = await workspace.readFile(descriptor.path, policy, {
         maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -202,8 +200,6 @@ function sameDirEntries(
 }
 
 function canonicalizeFilename(name: string): string {
-  // NFC collapses composed/decomposed accents; the space/quote pairs below
-  // render identically in a terminal (macOS screenshot names, Finder renames).
   return name
     .normalize("NFC")
     .replace(/[\u202f\u00a0]/g, " ")
@@ -220,9 +216,6 @@ function findUnicodeEquivalentPath(
   const matches = entries.filter(
     (entry) => entry !== normalized && canonicalizeFilename(basenameOf(entry)) === target,
   );
-  // Exactly one equivalent spelling is an unambiguous repair. Zero or several
-  // falls through to suggestions; guessing among homoglyph collisions would
-  // silently read the wrong file.
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -438,10 +431,6 @@ function buildInvestigationTools(
         };
       };
 
-      // Invisible unicode differences (NFC/NFD, narrow no-break space, curly
-      // quotes) make a visually-correct path not-found forever; the byte
-      // mismatch doesn't render, so no amount of model reasoning recovers.
-      // Repairing is the tool's job — but only on a single unambiguous match.
       const respondToMissing = async () => {
         const resolved = findUnicodeEquivalentPath(normalized, workspace.sortedCheckoutPaths);
         if (resolved !== undefined && policy.allows(resolved)) {
@@ -510,10 +499,6 @@ function buildInvestigationTools(
           allowedPaths,
         });
       }
-      // Full-tree coverage searches the same on-disk tree either way
-      // (symlinks are stripped at checkout, `.git` lives outside the
-      // worktree), so use the single-shot scan instead of one git grep
-      // process per 256-pathspec chunk.
       const fullCoverage = allowedPaths.length === workspace.sortedCheckoutPaths.length;
       const result = fullCoverage
         ? await workspace.grepLiteral({

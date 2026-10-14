@@ -75,7 +75,6 @@ import { ciSourcesComplete } from "../../review/ci/ciFacts.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
-/** Same floor as circuit deferral; keeps pending-refresh retry job-local, not a sweeper. */
 const PENDING_CI_REFRESH_RETRY_SECONDS = 5;
 
 export type CiProjectionSurfaceFactory = (prNumber: number) => Promise<PrSurface>;
@@ -231,11 +230,6 @@ function findHeadSummaryComments(
   });
 }
 
-/**
- * Latest summary comment when its review ran on another head. Its gate may move
- * to `headSha` only after that run is terminal and GitHub reports `headSha` as
- * the PR head; review meta and footer keep the reviewed head.
- */
 async function findSupersededSummaryComment(params: {
   readonly pool: Pool;
   readonly prSurface: PrSurface;
@@ -350,8 +344,6 @@ async function projectOnePr(params: {
       : "current";
   if (nextCell == null) return noGateResult;
 
-  // Work items lag a push that plans no review, so a stale-looking head may
-  // still be the PR head; GitHub decides before a gate crosses heads.
   let targets = staleHead ? [] : findHeadSummaryComments(comments, params.data.headSha);
   let supersededHead = false;
   if (targets.length === 0) {
@@ -497,10 +489,6 @@ function captureListingRollupChange(
   });
 }
 
-/**
- * One Checks listing per job. Seeds an unseeded head or pending-refreshes a
- * seeded pending/unknown head. Terminal non-unknown heads do not list.
- */
 async function applyGithubCiListingIfNeeded(params: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -570,8 +558,6 @@ async function applyGithubCiListingIfNeeded(params: {
   if (params.availability == null) return listedRow;
   for (const source of ["checks", "statuses"] as const) {
     const detail = snapshot.sources?.[source];
-    // Legacy injected surfaces have complete statuses; production surfaces provide
-    // explicit access and completeness for both independent read boundaries.
     await recordGithubCiSourceRead(params.pool, {
       ...params.data,
       source,
@@ -620,11 +606,6 @@ function withSourceAvailability(
   };
 }
 
-/**
- * Renders `pr_head_ci_state` onto every review summary for the head.
- * One `getCiStatus` read per job seeds or pending-refreshes, then patches.
- * Unleased writer.
- */
 export async function executeCiProjectionJob(
   cfg: Config,
   pool: Pool,

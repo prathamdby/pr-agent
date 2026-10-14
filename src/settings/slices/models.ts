@@ -23,12 +23,10 @@ import {
   readPositiveNumber,
 } from "../envReaders.js";
 
-/** Placeholder api for ROLE=web; worker boot validates and resolves the real Pi api. */
 const WEB_UNVALIDATED_PI_API = "web-unvalidated";
 
 const PI_THINKING_CEILINGS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
-/** Model selection, the optional `models.json` catalog, and provider API keys. */
 export type ModelsSlice = {
   readonly provider: string;
   readonly model: string;
@@ -46,7 +44,6 @@ export type ModelsSlice = {
   };
 };
 
-/** Provider call budget and transport retry. */
 export type ProviderSlice = {
   readonly promptTimeoutMs: number;
   readonly retryMax: number;
@@ -90,7 +87,6 @@ export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSli
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
-  // Web never creates Pi sessions; worker validates before any agent run.
   let piApi = WEB_UNVALIDATED_PI_API;
   if (role === "worker") {
     const { assertPiModelSelection } = await import("../../agent/runtime/modelsJson.js");

@@ -36,7 +36,6 @@ export function snapshotFindingLedger(ledger: FindingLedger): FindingLedgerSnaps
 
 export type ReviewRecovery = ReturnType<typeof openReviewRecovery>;
 
-/** Review-owned cache and ordered decision journal; it never grants remote acceptance. */
 export function openReviewRecovery(binding: ReviewArtifactBinding, store: ReviewArtifactStore) {
   let caching = true;
   let nextSequence = 0;
@@ -197,7 +196,6 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
     async settle(decision: RecoveryDecision | null, githubId?: number) {
       if (!decision || decision.settled) return;
       const { prepared } = decision;
-      // An admitted plan retains its reserve even when new caching was disabled.
       const result = await guarded(() =>
         store.save(
           createReviewArtifactEnvelope(binding, {

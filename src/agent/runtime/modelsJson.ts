@@ -178,15 +178,10 @@ function builtinPiApi(piProvider: string, piModel: string): string {
   });
 }
 
-/**
- * Validate PI_PROVIDER / PI_MODEL against built-ins, or built-ins ∪ models.json when present.
- * Returns the resolved Pi `api` type for AssistantMessage stubs.
- */
 export async function assertPiModelSelection(options: {
   readonly modelsJsonPath: string | null;
   readonly piProvider: string;
   readonly piModel: string;
-  /** Path shown in the missing-catalog error (cwd `models.json` or MODELS_JSON_PATH). */
   readonly catalogCandidatePath?: string;
 }): Promise<string> {
   const { modelsJsonPath, piProvider, piModel } = options;

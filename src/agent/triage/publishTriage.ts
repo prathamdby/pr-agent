@@ -233,8 +233,6 @@ function storedTriagePushRecord(params: {
     headRef: params.headRef,
   };
   if (params.outcome === "stale" || params.outcome === "closed") {
-    // Preserve attempted SHAs for terminal no-push outcomes; staleHead keeps
-    // the stale variant compatible with older workers.
     return {
       ...shared,
       ...(params.outcome === "stale" ? { staleHead: true } : {}),
@@ -455,7 +453,6 @@ type RecoveryTriageParams = Omit<PublishTriageParams, "checkout" | "payload"> & 
   readonly recoveryInventory?: readonly BotFindingThread[];
 };
 
-/** Recovery selects its own retained evidence; callers cannot invent push success. */
 export async function recoverTriagePublication(
   params: RecoveryTriageParams,
 ): Promise<PublishTriageResult | null> {
@@ -537,8 +534,6 @@ export async function recoverTriagePublication(
             ? { kind: "reconciled", value: undefined }
             : { kind: "absent" };
         },
-        // An interrupted push has no checkout authority. Outcome-unknown rows
-        // resolve by the retained plan; no remote read can mint a new push plan.
         mutate: async () => ctx.failClosed(intent),
       });
     } catch (error) {
@@ -722,9 +717,6 @@ async function publishTriageBody(
           await publication.checkout.push();
         },
       });
-      // After intent, not inside mutate(): recover can reconcile a landed
-      // push without calling push(), and a throw inside mutate() after git
-      // succeeded would let that recovery publish pushed.
       await assertTriagePublicationActive(params);
       await assertTriagePullRequestWritable(params.prSurface);
       pushOutcome = "pushed";

@@ -27,7 +27,6 @@ export function createCachedPrDiffIndex(): CachedPrDiffIndex {
 
 const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 
-/** Parse unified diff patch into contiguous RIGHT-side line ranges (additions + context). */
 export function parseCommentableRightLineRanges(patch: string): CommentableRightLineRanges {
   const ranges: CommentableRightLineRanges = [];
   let rightLine = 0;
@@ -136,7 +135,6 @@ export function ingestListPullRequestFilesResult(
   }
 }
 
-/** Pick first commentable RIGHT line inside the finding range, or null for summary-only. */
 export function resolveInlineAnchorLine(
   index: CachedPrDiffIndex | undefined,
   file: string,

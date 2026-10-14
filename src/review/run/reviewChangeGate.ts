@@ -31,7 +31,6 @@ function isRootDocBasename(base: string): boolean {
   return ROOT_DOC_STEM.test(stem);
 }
 
-/** Strict docs-only allowlist per ADR 0010. */
 export function isDocsOnlyPath(filename: string): boolean {
   const base = path.basename(filename);
   const lower = filename.toLowerCase();

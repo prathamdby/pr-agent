@@ -82,9 +82,6 @@ type DispatchInput = {
   readonly submitFiber: Ref.Ref<SubmitFiber | undefined>;
 };
 
-// `interruptible` is runtime fiber state. It is not on the Fiber interface.
-// A pending timeout interrupt discards success when this flag flips back to true,
-// so the budget handler must not interrupt a submit that is still uninterruptible.
 function fiberIsInterruptible(fiber: Fiber.Fiber<unknown, unknown>): boolean {
   return "interruptible" in fiber && fiber.interruptible === true;
 }

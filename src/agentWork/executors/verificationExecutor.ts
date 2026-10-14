@@ -66,15 +66,11 @@ export function createVerificationWorkExecution({
       const unresolvedThreads = threads.filter(
         (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
       );
-      // Canonical oldest-first order, then the escalated subset. Prompt inventory,
-      // submit validation, and publish must all see this exact one value.
       const orderedThreads = unresolvedThreads.toSorted(
         (a, b) => a.rootCommentId - b.rootCommentId,
       );
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
-        // An aborted job signal with a held lease is not a skip; completing here would
-        // drop the run instead of leaving the row for redelivery or the lost-running sweep.
         throwIfExecutionAborted(env.signal, { workItemId: item.id });
         if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
@@ -147,8 +143,6 @@ export function createVerificationWorkExecution({
       ]);
 
       const compareFilesTruncated = pushDeltaFiles?.truncated === true;
-      // A manual run has no push delta, so an empty file set must not read as
-      // "nothing changed": membership is unknown, not complete.
       const changedMembershipTruncated = compareFilesTruncated || payload.pushBeforeSha == null;
       const changedFilePaths =
         pushDeltaFiles != null
@@ -173,7 +167,6 @@ export function createVerificationWorkExecution({
           prFiles,
         },
         async (view) => {
-          // Load policy while the checkout still exists; publish runs after the view closes.
           const policyResult = await loadRepoPolicy(view.workspace.agentCwd, MAX_REPO_POLICY_BYTES);
           const runResult = await runVerification({
             cfg,

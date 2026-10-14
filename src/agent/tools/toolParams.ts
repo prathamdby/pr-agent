@@ -8,10 +8,6 @@ function isSchemaNode(value: unknown): value is JsonSchemaNode {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Closed objects tell the model which keys exist. Validation stays in valibot,
- * which already strips unknown keys, so this only changes what the model sees.
- */
 function closeObjects(node: unknown): void {
   if (Array.isArray(node)) {
     for (const entry of node) closeObjects(entry);
@@ -28,7 +24,6 @@ function closeObjects(node: unknown): void {
   for (const value of Object.values(node)) closeObjects(value);
 }
 
-/** JSON Schema for a model-facing tool's parameters. */
 export function toToolParameters(schema: v.GenericSchema): PiTool["parameters"] {
   const json = toJsonSchema(schema, { errorMode: "ignore" });
   closeObjects(json);

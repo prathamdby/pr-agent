@@ -45,16 +45,10 @@ export function isLineResolutionPublishError(error: unknown): boolean {
   );
 }
 
-/** A review retry is safe only when the provider proves rejection before acceptance. */
 export function isTransientGitHubReviewError(error: unknown): boolean {
   return isKnownNoAcceptanceMutationError(error) && !isLineResolutionPublishError(error);
 }
 
-/**
- * A retry is safe only when the provider explicitly proves that the review was
- * rejected before acceptance, or when the error is a validation-only anchor
- * rejection handled by the placement fallback.
- */
 export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {
   return isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error);
 }

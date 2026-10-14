@@ -3,7 +3,6 @@ import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.js";
 import { ANALYTICS_SHUTDOWN_TIMEOUT_MS } from "../settings/index.js";
 import type { AnalyticsSink } from "./types.js";
 
-/** AI-lane client. No `before_send`: that sanitizer strips tool bodies. */
 export type AiCapture = {
   capture(input: {
     readonly distinctId: string;

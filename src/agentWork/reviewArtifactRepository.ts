@@ -15,7 +15,6 @@ import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
 export const REVIEW_ARTIFACT_BUDGET_BYTES = 1_048_576;
 export const REVIEW_SETTLEMENT_RESERVE_BYTES = 8_192;
 
-/** Misses disable new caching. Other errors reach the durable retry/stop policy. */
 export type ReviewArtifactWriteResult = "stored" | "existing" | "capacity" | "incompatible";
 
 type ArtifactRow = {
@@ -73,8 +72,6 @@ async function lockRunningReview(
       context: { workItemId: binding.workItemId },
     });
   }
-  // Match admission and intake's lease-first ordering. The later item read sees
-  // cancellation committed while lease acquisition was waiting.
   await lockPrActorLeaseForUpdate(client, binding.workItemId, leaseEpoch);
   const item = await queryOne<{
     type: string;
@@ -145,8 +142,6 @@ async function dependencyMismatch(db: Pool | PoolClient, envelope: ReviewArtifac
     pending.push(prior);
     return prior;
   }
-  // Every edge must descend in logical order, including implicit journal links.
-  // Visit each key once without recursion; the byte budget bounds total traversal.
   async function firstMismatch() {
     while (pending.length > 0) {
       const current = pending.pop();
@@ -190,19 +185,15 @@ async function dependencyMismatch(db: Pool | PoolClient, envelope: ReviewArtifac
 }
 
 export type ReviewArtifactStore = {
-  /** Current matching envelopes only. Reads do not grant evidence or remote acceptance. */
   load: (logicalKey: string) => Promise<ReviewArtifactEnvelope | null>;
-  /** "capacity"/"incompatible" disable new caching; other failures throw. */
   save: (envelope: unknown) => Promise<ReviewArtifactWriteResult>;
 };
 
-/** Flag gating belongs to the review consumer. FK retention is unconditional. */
 export function openReviewArtifactStore(
   pool: Pool,
   binding: ReviewArtifactBinding,
   leaseEpoch: number | null,
 ): ReviewArtifactStore {
-  // Snapshot the caller's binding so later object mutation cannot widen the store.
   const identity: ReviewArtifactBinding = { ...binding };
   return {
     async load(logicalKey) {
@@ -230,8 +221,6 @@ export function openReviewArtifactStore(
           return "existing";
         }
         const mismatch = await dependencyMismatch(client, envelope);
-        // The walk counts only stored rows plus this envelope, so overflowing it
-        // proves the insert cannot fit the work budget either.
         if (mismatch === "artifact_budget") return "capacity";
         if (mismatch) reviewArtifactInvalid(mismatch);
         let preparedKey: string | null = null;
@@ -263,7 +252,6 @@ export function openReviewArtifactStore(
              FROM review_run_artifacts WHERE work_item_id = $1`,
           [identity.workItemId],
         );
-        // The item lock serializes the whole work budget, not just one logical key.
         if (
           Number(usage?.bytes ?? 0) + encodedBytes + reserve - releasedReserve >
           REVIEW_ARTIFACT_BUDGET_BYTES

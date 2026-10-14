@@ -16,7 +16,6 @@ export class TriageClosedPullRequestError extends AppError {
   }
 }
 
-/** Pre-commit, pre-push, and post-push recheck share this open-state rule. */
 export async function assertTriagePullRequestWritable(prSurface: PrSurface): Promise<void> {
   const { pullRequest } = await prSurface.getHead();
   if (!isPullRequestOpenAndUnmerged(pullRequest)) {

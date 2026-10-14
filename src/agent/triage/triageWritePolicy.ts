@@ -5,11 +5,6 @@ import type { AppErrorKind } from "../../errors/appErrorCodes.js";
 import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
 
-/**
- * Execution-control and package-publishing surfaces triage must not modify.
- * Kept separate from credential-oriented SENSITIVE_PATH_PATTERNS so ask/review
- * tooling is not unexpectedly broadened.
- */
 export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)\.github(\/|$)/i,
   /(^|\/)\.husky(\/|$)/i,
@@ -73,7 +68,6 @@ export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)deno\.lock$/i,
 ];
 
-/** New files may only be created under these explicitly safe path classes. */
 export const TRIAGE_SAFE_NEW_FILE_PATTERNS: readonly RegExp[] = [
   /(^|\/)(__)?tests?(__)?\//i,
   /(^|\/)docs?\//i,
@@ -121,11 +115,6 @@ async function assertResolvedInsideRoot(root: string, candidate: string): Promis
   return realCandidate;
 }
 
-/**
- * Resolve a writable triage path, denying control-plane surfaces, path traversal,
- * and symlink escapes. Edits are limited to finding-implicated paths; creates must
- * match an explicitly safe path class.
- */
 export async function assertTriageWritablePath(params: {
   readonly root: string;
   readonly path: string;

@@ -30,8 +30,6 @@ const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite"]);
 const COMPAT_FLAG_KEYS = [
   "supportsDeveloperRole",
   "supportsReasoningEffort",
-  // Anthropic Messages flags. Without them a models.json-declared adaptive-only
-  // model (Opus 4.7+, Opus 5.x) gets budget thinking and a temperature field.
   "forceAdaptiveThinking",
   "supportsTemperature",
   "supportsStrictTools",

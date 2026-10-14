@@ -67,7 +67,6 @@ export async function upsertFindingHistoryOpen(
 ): Promise<void> {
   if (fingerprints.length === 0) return;
 
-  // One INSERT cannot carry repeated ON CONFLICT keys; first-seen wins.
   const uniqueFingerprints = [...new Set(fingerprints)];
 
   await client.query(
@@ -111,7 +110,6 @@ export async function recordFindingHistoryOutcome(
 ): Promise<void> {
   const dismissIncrement = outcome === "dismissed" ? 1 : 0;
   const fixIncrement = outcome === "fixed" || outcome === "already-resolved" ? 1 : 0;
-  // Idempotent for same work item + outcome (retries after durable GitHub ops).
   await client.query(
     `INSERT INTO repo_finding_history (
        installation_id, owner, repo, fingerprint, last_outcome,
@@ -158,7 +156,6 @@ export async function loadCrossPrSuppressionFingerprints(
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
   if (!cfg.findingHistory.enabled) return [];
-  // Lift suppression once last_outcome is no longer dismissed.
   const result = await client.query<{ fingerprint: string }>(
     `SELECT fingerprint
        FROM repo_finding_history
@@ -246,7 +243,6 @@ export async function lookupThreadFingerprint(
   return null;
 }
 
-/** Fire-and-forget open upsert that never throws into the publish hot path. */
 export function safeUpsertFindingHistoryOpen(
   client: Pool | PoolClient,
   cfg: Pick<Config, "findingHistory">,
@@ -264,7 +260,6 @@ export function safeUpsertFindingHistoryOpen(
   });
 }
 
-/** Fire-and-forget thread outcome write resolved from publish-record placements. */
 export function safeRecordThreadFindingHistoryOutcome(
   client: Pool | PoolClient,
   cfg: Pick<Config, "findingHistory">,

@@ -40,10 +40,6 @@ const defaultSubmitOnlySend: SubmitOnlySend = (activeSession, activePrompt, opts
   });
 };
 
-/**
- * Send a submit-focused repair nudge without mutating the active tool list.
- * Tool definitions stay registered for the session lifetime (prompt-cache stability).
- */
 export async function runSubmitOnlyRound(
   session: PiSession,
   prompt: string,
@@ -98,11 +94,9 @@ export type SubmitSpec<P> = {
   readonly nudgeRounds: number;
   readonly repairRounds: number;
   readonly repairPrompt: (validationError: string) => string;
-  /** Description keeps the last diagnostic turn rather than a failed nudge. */
   readonly preserveTextOnNudgeError?: boolean;
 };
 
-/** Own session lifetime and submit/repair ordering; tools stay registered. */
 export async function runFeatureAgent<P>(
   spec: SubmitSpec<P>,
   rt: {

@@ -72,7 +72,6 @@ function leaseEpochParam(
   return epoch == null ? {} : { leaseEpoch: epoch };
 }
 
-/** P0–P2 findings fail the check; empty or P3-only payloads pass. */
 export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
   conclusion: ReviewCheckRunConclusion;
   summary: string;
@@ -106,7 +105,6 @@ function logCheckRunWarning(
   error: unknown,
   fields: Record<string, string | number | undefined>,
 ): void {
-  // Missing Checks (403) is an install-permission miss. 404 is a missing run.
   if (
     isMissingActionsPermissionError(error) ||
     (error instanceof Error && isMissingActionsPermissionError(error.cause))
@@ -143,7 +141,6 @@ type EnsureReviewCheckRunParams = {
   resourceKey: string;
   reviewLens: AnyReviewLens;
   leaseEpoch?: number | null;
-  /** Gates starting a check only. An accepted check is still recorded after an abort. */
   signal?: AbortSignal;
 };
 
@@ -230,8 +227,6 @@ async function createGithubCheckRunOnSurface(
   const operationKey = reviewCheckOperationKey(params.workItemId);
   try {
     throwIfExecutionAborted(params.signal, { workItemId: params.workItemId, operationKey });
-    // The signal stays out of publishOnce: its after-mutate check would
-    // drop the stash for a check GitHub already accepted.
     return await publishOnce<GithubCheckRunRef>({
       decodeResult: decodeCheckRef,
       fence: fenceForEpoch(params.leaseEpoch),
@@ -265,7 +260,6 @@ async function createGithubCheckRunOnSurface(
         ),
     });
   } catch (createError) {
-    // Proven duplicate recovery lives in prSurfaceImpl.startReviewCheck.
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
@@ -629,10 +623,8 @@ export type ReviewVerdictParams = {
   readonly reviewLens: AnyReviewLens;
   readonly headSha: string;
   readonly commitStatusEnabled: boolean;
-  /** Null and omitted epochs are terminal-only for close, including acknowledgement. */
   readonly leaseEpoch?: number | null;
   readonly signal?: AbortSignal;
-  /** A just-written notice can precede its durable record; null retains no-link output. */
   readonly summaryCommentId?: string | number | null;
 };
 type CloseReviewVerdictParams = ReviewVerdictParams & {
@@ -663,7 +655,6 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
     params.state,
   );
   const retained = await getOperationIntent(params.pool, params.workItemId, operationKey);
-  // Exact saved acceptance is authority even after access is revoked.
   if (!acceptedIntent(retained) && !hasAccess(params.prSurface, "statusesWrite")) return false;
   if (
     !acceptedIntent(retained) &&
@@ -844,7 +835,6 @@ export async function closeReviewVerdictsForWorkItems(
 
 export type TerminalOwnCheckStatus = "completed" | "failed" | "cancelled" | "superseded";
 
-/** GitHub finish is in `detail`, not `publish_records.status`. */
 export function isOwnCheckOpen(detail: Record<string, unknown> | null): boolean {
   if (detail == null) return true;
   if (isRecord(detail.selectedOwnVerdict)) {
@@ -947,7 +937,6 @@ export async function resolveOwnVerdictForTerminalReview(params: {
   }
 }
 
-/** Owns start, first-output selection, both acceptance receipts, and terminal repair. */
 export function reviewVerdict(params: ReviewVerdictParams) {
   const detailsUrl = async () =>
     reviewCheckDetailsUrl(

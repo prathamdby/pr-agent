@@ -21,10 +21,6 @@ import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 import { transition } from "../workItemTransitions.js";
 import { unleasedFence } from "../writeFence.js";
 
-/**
- * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
- * Keep ON CONFLICT inference in lockstep with that index.
- */
 const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type IN ('review', 'description', 'triage')
        AND status IN ('queued', 'running')
@@ -33,11 +29,6 @@ const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
 const SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
      WHERE ${SLASH_ACTIVE_INDEX_PREDICATE}`;
 
-/**
- * Partial unique index predicate from
- * migrations/027_verification_slash_active_uniqueness.sql.
- * Keep ON CONFLICT inference in lockstep with that index.
- */
 const VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type = 'verification'
        AND status IN ('queued', 'running')
@@ -46,7 +37,6 @@ const VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
 const VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
      WHERE ${VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE}`;
 
-/** Partial unique index from migrations/015_thread_reply_classification.sql */
 const ASK_WEBHOOK_CONFLICT_TARGET = `(webhook_event_id)
 		   WHERE type = 'ask' AND webhook_event_id IS NOT NULL`;
 
@@ -92,7 +82,6 @@ export async function reviewLifecycleObservationAccepted(
   return rows[0]?.accepted ?? false;
 }
 
-/** Call only after acquiring the review intake lock, in its transaction. */
 export async function recordReviewLifecycleObservation(
   client: PoolClient,
   resourceKey: string,
@@ -181,7 +170,6 @@ function insertParams(params: AgentWorkInsert): unknown[] {
   ];
 }
 
-/** Resolve atomically and hold the winner through intake commit without changing its domain values. */
 async function insertOnSlashActiveConflict(
   client: PoolClient,
   values: unknown[],
@@ -646,16 +634,6 @@ function mapCancelledTriageRows(
   });
 }
 
-/**
- * Cancel every queued/running review for a PR (auto or slash).
- * Both queued and running become `cancelled` immediately so the slash uniqueness
- * slot frees without depending on pg-boss redelivery (cancelled jobs never redeliver).
- * Also sets `cancel_requested_at` on former running rows for in-process skip checks.
- * Writes `cancelAttribution` on the payload for the cancelled progress notice.
- * Clears any PR actor lease still held by those rows so a replacement can acquire
- * without waiting for cooperative worker exit or lease TTL.
- * Returns running rows first (newest), then queued — ack primary owns the stub.
- */
 export async function cancelActiveReviews(
   client: PoolClient,
   resourceKey: string,
@@ -682,10 +660,6 @@ export async function cancelActiveReviews(
     ...mapCancelledReviewRows(running.rows),
     ...mapCancelledReviewRows(queued.rows),
   ];
-  // Exact (id, epoch) pairs from the rows just cancelled. Unknown epochs
-  // (0/NULL: pre-fix rows or never-acquired queued items that never held the
-  // lease) are filtered out, and an empty set skips the lease UPDATE entirely
-  // (fail closed — expiry plus the lease watchdog recover within TTL).
   const holders = [...running.rows, ...queued.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);
@@ -711,13 +685,6 @@ function triageAckTargets(
   ];
 }
 
-/**
- * Cancel every queued/running slash triage for a PR on close/merge.
- * Running rows carry cancel_requested_at so an in-process Pi session stops at
- * its next tool checkpoint; both states become terminal immediately.
- * Clears any PR actor lease still held by those rows so the next triage run can
- * acquire without waiting for cooperative worker exit or lease TTL.
- */
 export async function cancelActiveTriage(
   client: PoolClient,
   resourceKey: string,

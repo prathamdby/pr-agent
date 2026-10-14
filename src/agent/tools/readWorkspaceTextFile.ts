@@ -17,7 +17,6 @@ import {
 export const MISSING_FROM_CHECKOUT_REASON = "Path is missing from the checkout.";
 export const BINARY_FILE_REASON = "Binary file cannot be read as text.";
 
-/** Sample size for the `\0` sniff that names binary files instead of returning mojibake. */
 const BINARY_SAMPLE_BYTES = 8192;
 
 export type WorkspaceTextFileRefusal = {
@@ -39,11 +38,6 @@ type StatReadTarget =
   | WorkspaceTextFileRefusal
   | { readonly refused?: undefined; readonly size: number };
 
-/**
- * Human name for non-regular file types whose reads would block or return
- * non-text. `stat` follows symlinks, so a symlink-to-FIFO is caught here.
- * Returns undefined for regular files.
- */
 function specialFileKind(info: Stats): string | undefined {
   if (info.isFile()) return undefined;
   if (info.isDirectory()) return "a directory";
@@ -54,11 +48,6 @@ function specialFileKind(info: Stats): string | undefined {
   return "a special (non-regular) file";
 }
 
-/**
- * Stat-level classification shared by every workspace read tool. Names why
- * a path cannot be read instead of reporting everything as missing: a FIFO
- * or directory that exists but can never be read sends the model spelunking.
- */
 async function statReadTarget(fullPath: string, maxFileBytes: number): Promise<StatReadTarget> {
   const info = await stat(fullPath).catch(() => null);
   if (!info) {
@@ -82,11 +71,6 @@ async function statReadTarget(fullPath: string, maxFileBytes: number): Promise<S
   return { size: info.size };
 }
 
-/**
- * The classification above as a refusal-or-null guard for callers that do
- * not read the file themselves (e.g. git blame, which must never open a
- * FIFO either).
- */
 export async function refuseWorkspaceTextFileRead(
   fullPath: string,
   maxFileBytes: number,
@@ -95,19 +79,10 @@ export async function refuseWorkspaceTextFileRead(
   return target.refused ? target : null;
 }
 
-/**
- * Strip a leading BOM and normalize CRLF to LF at the single decode point,
- * so line numbers and content hashes agree with what diff and blame report.
- */
 export function normalizeTextFileEncoding(text: string): string {
   return text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 }
 
-/**
- * Guarded read of a workspace text file: the refusal above, or the decoded
- * content. Empty files carry a note — silent empty content is
- * indistinguishable from a broken tool, so the model re-reads to find out.
- */
 export async function readWorkspaceTextFile(
   fullPath: string,
   maxFileBytes: number,
@@ -128,25 +103,8 @@ export type BudgetedWorkspaceTextFileRead =
   | WorkspaceTextFileRefusal
   | (FileReadOutput & { readonly refused?: undefined });
 
-/**
- * Spill gate key: only a cut by the response byte budget overflows. A
- * line-window cut alone ("line window limit exceeded") is a satisfied
- * evidence read, so it must return inline and record evidence normally.
- */
 const RESPONSE_BYTE_BUDGET_TRUNCATION_REASON = "response byte budget exceeded";
 
-/**
- * The one budgeted read path every feature shares: stat-level refusal, then
- * the binary sniff, then the response budget with its per-line clamp, line
- * windows, and precomputed resume offsets. Reads whose full size is strictly
- * over the spill threshold AND whose budgeted read was cut by the response
- * byte budget (truncationReason "response byte budget exceeded") spill the
- * full text to a session file and carry a tail inline. A line-window cut
- * alone ("line window limit exceeded") is a satisfied evidence read, not
- * overflow, so it returns inline and records evidence normally. The 1MB-style
- * file-size refusal stays the outer ceiling; the response budget is the inner
- * one.
- */
 export async function readBudgetedWorkspaceTextFile(
   fullPath: string,
   opts: {
@@ -186,24 +144,11 @@ export async function readBudgetedWorkspaceTextFile(
   });
 }
 
-/**
- * Scope pinning a spill file to one tool call. Sanitized into the filename;
- * a random suffix keeps repeated calls for the same pair unique.
- */
 export type TextSpillScope = {
   readonly workItemId: string;
   readonly toolCall: string;
 };
 
-/**
- * Overflow envelope for an over-threshold read. `path`/`spillPath` name the
- * session-scoped spill file under the OS tmpdir holding the FULL text;
- * `tail` carries the last bytes inline so the caller keeps context without
- * spending the full token cost. `truncated: true` preserves
- * cannot-prove-absence semantics: the spill file itself is NOT read evidence.
- * A finding may only cite a path/line from a range actually read back through
- * `readWorkspaceFile` with explicit startLine/maxLines (ledger-recorded).
- */
 export type SpilledWorkspaceTextFileRead = {
   readonly refused?: undefined;
   readonly spilled: true;
@@ -215,11 +160,6 @@ export type SpilledWorkspaceTextFileRead = {
   readonly note: string;
 };
 
-/**
- * Write an over-threshold output to a session-scoped file under the OS
- * tmpdir, unique per work item + tool call (random suffix). Returns the
- * spill envelope; never records evidence.
- */
 export async function spillTextToSessionFile(
   text: string,
   scope: TextSpillScope,
@@ -232,8 +172,6 @@ export async function spillTextToSessionFile(
   const fileName = `pr-agent-read-spill-${cleanWorkItem.length > 0 ? cleanWorkItem : "call"}-${cleanToolCall.length > 0 ? cleanToolCall : "call"}-${randomUUID().slice(0, 8)}.txt`;
   const spillPath = join(tmpdir(), fileName);
   await writeFile(spillPath, text, "utf8");
-  // Last tailBytes without splitting a UTF-8 sequence: walk the cut forward
-  // past continuation bytes (10xxxxxx) so the tail stays valid UTF-8.
   const buf = Buffer.from(text, "utf8");
   let tail: string;
   if (buf.length <= tailBytes) {
@@ -256,22 +194,8 @@ export async function spillTextToSessionFile(
   };
 }
 
-/**
- * Filename prefix for every read-spill file (see spillTextToSessionFile).
- * Exported so a future tmp sweeper can recognize owned spill files without
- * tracking them globally; spillTextToSessionFile itself keeps building the
- * name inline (TailFix owns that body).
- */
 export const READ_SPILL_FILENAME_PREFIX = "pr-agent-read-spill-";
 
-/**
- * Best-effort cleanup for one spill file. Unlinks only paths whose basename
- * carries the spill prefix, so a stray caller path can never delete an
- * unrelated file; missing files are fine. Future run-release wiring point:
- * whoever owns the tool-call lifecycle collects `spillPath` from spilled
- * envelopes and calls this at release (workspace release/sweep owners live
- * elsewhere, so this helper tracks nothing global).
- */
 export async function disposeSpillFile(spillPath: string): Promise<void> {
   const base = spillPath.split(/[\\/]/).pop() ?? "";
   if (!base.startsWith(READ_SPILL_FILENAME_PREFIX)) {

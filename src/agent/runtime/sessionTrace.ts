@@ -438,9 +438,7 @@ function toolFailure(
               : value.accepted === false
                 ? "schema_validation"
                 : "tool_result_error";
-      } catch {
-        // A plain-text result is not a validation receipt.
-      }
+      } catch {}
     }
   }
   return error != null ? { status, error } : { status };

@@ -9,7 +9,6 @@ import { SPECIALIST_SYSTEM_PROMPTS } from "../orchestrator/specialistRun.js";
 import { orchestratorSystemPrompt } from "../orchestrator/prompts/orchestratorPrompts.js";
 import { encodeReviewArtifact, REVIEW_CONTRACT_VERSION } from "./reviewArtifacts.js";
 
-/** The surface's provider value retains base SHA even on its narrower shared view. */
 export function reviewRecoveryBaseSha(pullRequest: unknown): string | null {
   const parsed = v.safeParse(
     v.object({
@@ -51,7 +50,6 @@ export async function reviewRecoveryModelApis(cfg: Config, escalation?: Escalati
   );
 }
 
-/** Only the digest is stored. Never pass credentials, prior feedback or our run output. */
 export function reviewRecoveryInputDigest(input: {
   readonly cfg: Config;
   readonly diff: unknown;
@@ -102,7 +100,6 @@ export function reviewRecoveryInputDigest(input: {
         },
         codeMode: input.cfg.codeMode,
         context7Enabled: input.cfg.context7.apiKey.length > 0,
-        // Pinned so the retired setting leaves existing review bindings unchanged.
         codeIndexMode: "off",
         personas: {
           orchestrator: orchestratorSystemPrompt,

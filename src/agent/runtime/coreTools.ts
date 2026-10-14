@@ -37,9 +37,7 @@ function toolResultSize(result: unknown): { resultBytes: number; resultCharacter
 function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
   try {
     recordReviewMetric(event);
-  } catch {
-    // metrics are best-effort outside review runs
-  }
+  } catch {}
 }
 
 function asToolArgs(args: unknown): Record<string, unknown> {
@@ -54,11 +52,6 @@ function isAcceptedTerminalResult(result: unknown): boolean {
   return result.accepted === true || result.ok === true;
 }
 
-/**
- * A terminal submit that refuses its input must surface as a tool error: the turn
- * budget treats any non-error terminal result as success and ends the turn, which
- * would leave the model no room to correct the submission.
- */
 function isRejectedTerminalResult(result: unknown): boolean {
   if (!isRecord(result)) return false;
   return (result.accepted === false || result.ok === false) && typeof result.error === "string";

@@ -74,11 +74,6 @@ function cacheKey(
   return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
 }
 
-/**
- * Uncached preparation always fetches the canonical capped file list.
- * Caller-supplied lists are SHA-checked then ignored so truncated, warning,
- * or otherwise incomplete provenance cannot become first-writer cache state.
- */
 async function resolveCanonicalFileList(
   params: PreparePrRepositoryViewParams,
   token: string,

@@ -17,7 +17,6 @@ import type { ParsedGithubEvent } from "./parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.js";
 import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/ciHeadSource.js";
 
-/** Missing identity is explicit. The caller resolves it, then repeats this pure mapping. */
 export function toIntakeCommand(
   cfg: Pick<Config, "features" | "associations" | "github">,
   headers: WebhookHeaders,

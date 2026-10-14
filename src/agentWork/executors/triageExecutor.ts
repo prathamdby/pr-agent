@@ -62,7 +62,6 @@ import { toError } from "../../errors/errorMessage.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
-/** Reasons a triage run completed with reduced output. */
 type TriageDegradationReason =
   | "push_stale"
   | "push_closed"
@@ -380,11 +379,6 @@ async function tryResumeStoredPush(params: {
   return completedFromPublish(publish);
 }
 
-/**
- * Resolve the /triage command issuer to a git person.
- * Falls back to null (App authorship) for missing id, bot/app commenter, or lookup failure.
- * Private profile email still yields human path via id-based noreply.
- */
 async function resolveTriggererGitPerson(params: {
   readonly prSurface: PrSurface;
   readonly commenterId?: number;

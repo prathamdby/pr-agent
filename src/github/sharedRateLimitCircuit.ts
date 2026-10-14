@@ -65,7 +65,6 @@ export async function isSharedRateLimitCircuitOpen(
   return row.openUntil.getTime() > now.getTime();
 }
 
-/** Mark shared circuit open for the default MVP cooldown window. */
 export async function openSharedRateLimitCircuit(
   client: Pool | PoolClient,
   params: {
@@ -86,10 +85,6 @@ export async function openSharedRateLimitCircuit(
   return openUntil;
 }
 
-/**
- * Best-effort shared open write from throttle/circuit paths.
- * Failures must not break the local circuit or the GitHub call path.
- */
 export function openSharedRateLimitCircuitBestEffort(
   client: Pool | PoolClient | undefined,
   params: {

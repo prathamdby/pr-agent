@@ -11,7 +11,6 @@ import {
 } from "../../settings/index.js";
 import type { CiFailureDetail, CiRollup, CiSummary } from "./ciFacts.js";
 
-/** Current CI projection marker format. Unknown attrs stay backward-readable. */
 export const CI_PROJECTION_FORMAT = 1;
 
 const CI_SUMMARY_CELL_RE =
@@ -20,7 +19,6 @@ const CI_SUMMARY_CELL_RE =
 const CI_ACTION_MARKER_RE =
   /<!--\s*pr-agent:ci-action((?:\s+\w+=[^\s]+)*)\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-action\s*-->/;
 
-/** Known completed-review action-line CI phrases, longest first for bounded legacy repair. */
 export const KNOWN_REVIEW_ACTION_CI_PHRASES = [
   "No CI checks ran on this head",
   "CI has not started",
@@ -37,7 +35,6 @@ export type CiSummaryMarker = {
 };
 
 export type CiProjectionBodyOptions = {
-  /** Caller confirmed `headSha` is the PR head, so a marker on another head is superseded. */
   readonly supersededHead?: boolean;
 };
 
@@ -168,11 +165,6 @@ export type ApplyCiProjectionBodyResult = {
   readonly kind: "updated" | "current";
 };
 
-/**
- * Replaces the marked CI cell (and optional completed-review action phrase) when
- * head matches (or the marker head is superseded) and the next revision/format is
- * allowed. The supplied `nextCell` is authoritative for verification-failure injection.
- */
 export function applyCiProjectionBodyUpdate(
   body: string,
   nextCell: string,
@@ -191,10 +183,6 @@ export function applyCiProjectionBodyUpdate(
   return next === body ? { body, kind: "current" } : { body: next, kind: "updated" };
 }
 
-/**
- * Replaces the marked CI cell when `head` matches and marker `v` / format allows.
- * Returns null when the cell is missing or the write would be a no-op.
- */
 export function replaceCiSummaryCellIfNewer(
   body: string,
   nextCell: string,
@@ -228,7 +216,6 @@ export function renderReviewActionLineCiStatus(summary: CiSummary | null | undef
   return renderCiActionPhrase(formatReviewActionLineCiStatus(summary));
 }
 
-/** HTML comment markers for surgical CI-cell refresh (ADR 0018 / 0035). */
 export const CI_SUMMARY_CELL_START = "<!-- pr-agent:ci-summary -->";
 export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 
@@ -238,7 +225,6 @@ export type CiSummarySections = {
   readonly permissionNote?: string;
 };
 
-/** Shared field selection for the CI table cell and agent-fix plain-text digest. */
 export function selectCiSummarySections(summary: CiSummary): CiSummarySections {
   const failures =
     summary.status === "failing" && summary.failures.length > 0 ? [...summary.failures] : [];
@@ -250,10 +236,6 @@ export function selectCiSummarySections(summary: CiSummary): CiSummarySections {
   };
 }
 
-/**
- * Plain-text CI digest for the agent fix prompt.
- * Same section selection as the table cell; includes failure URL when present.
- */
 export function formatCiSummaryPlainText(summary: CiSummary): string {
   const sections = selectCiSummarySections(summary);
   const parts: string[] = [sections.headline];
@@ -271,7 +253,6 @@ export function formatCiSummaryPlainText(summary: CiSummary): string {
   return parts.join("\n\n");
 }
 
-/** Renders the CI gate cell for the review summary / progress stub table. */
 export function renderCiSummaryCell(
   summary: CiSummary,
   headSha?: string,
@@ -306,7 +287,6 @@ export type RenderableCiSummary = CiSummary & {
   readonly status: "passing" | "failing" | "pending" | "unavailable" | "none";
 };
 
-/** Visible gate predicate: progress and completed summary tables. */
 export function shouldRenderCiSummaryRow(
   summary: CiSummary | null | undefined,
 ): summary is RenderableCiSummary {
@@ -320,7 +300,6 @@ export function shouldRenderCiSummaryRow(
   );
 }
 
-/** Agent-fix prompt omits seeded-empty `none` digests. */
 export function shouldIncludeCiInAgentFixPrompt(
   summary: CiSummary | null | undefined,
 ): summary is Exclude<RenderableCiSummary, { status: "none" }> {

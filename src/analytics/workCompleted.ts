@@ -3,7 +3,6 @@ import type { ReviewRunMetricsSnapshot } from "../review/run/reviewRunMetrics.js
 import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
 import { captureEvent } from "./index.js";
 
-/** Duplicate of agent-work `WorkType`. Analytics must not import that module. */
 export type TelemetryWorkType = "review" | "ask" | "description" | "triage" | "verification";
 
 export type WorkCompletedOutcome =
@@ -56,9 +55,7 @@ export function installationDistinctId(installationId: number): AnalyticsDistinc
 }
 
 export type PublishTelemetry = {
-  /** Recovery-only. Starts at 0. Increments only on real publish throw/failure, not successful deterministic salvage. */
   readonly publishAttempts: number;
-  /** Healthy step shape: specialist reports plus synthesis, plus salvage extras. */
   readonly publishStepCount: number;
 };
 
@@ -86,7 +83,6 @@ export type ReviewProfileFields = {
   readonly specialistError?: number;
 };
 
-/** Closed feature results, not a bag of optional fields shared by unrelated features. */
 export type WorkCompletion =
   | ({ readonly kind: "ask"; readonly replyTargetKind: string } & (
       | PublishedCompletion
@@ -107,7 +103,6 @@ export type WorkCompletion =
     ))
   | ({
       readonly kind: "review-profile";
-      /** Captured at the original executor boundary, before verdict cleanup or runner IO. */
       readonly durationMs: number;
       readonly attemptCount: number;
       readonly publish: PublishTelemetry;
@@ -259,7 +254,6 @@ function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | 
   };
 }
 
-/** Called by the durable runner only after its terminal state write wins. */
 export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
   const { item, completion, ci } = input;
   const profile = completion.kind === "review-profile" ? completion : undefined;
@@ -356,9 +350,7 @@ export function captureWorkRetried(input: WorkItemRetried): void {
         ...failureEnvelopeProperties(input.failure),
       },
     });
-  } catch {
-    // Telemetry must not replace the error that the durable queue will retry.
-  }
+  } catch {}
 }
 
 export type WorkExecutionStopReason =
@@ -367,7 +359,6 @@ export type WorkExecutionStopReason =
   | "job_aborted"
   | "execution_aborted";
 
-/** An execution stopped. This says nothing about the item's durable terminal state. */
 export function captureWorkExecutionStopped(
   input: WorkIdentity & {
     readonly executionId: string;
@@ -393,12 +384,9 @@ export function captureWorkExecutionStopped(
         head_sha: input.headSha,
       },
     });
-  } catch {
-    // Stopping work never depends on analytics availability.
-  }
+  } catch {}
 }
 
-/** Caller must have acknowledged a winning terminal write and its transaction commit. */
 export function captureWorkTerminal(
   input: WorkIdentity & {
     readonly outcome: "cancelled" | "superseded";
@@ -426,9 +414,7 @@ export function captureWorkTerminal(
         head_sha: input.headSha,
       },
     });
-  } catch {
-    // A committed lifecycle transition must not become another queue attempt.
-  }
+  } catch {}
 }
 
 export type CiStateChanged = {

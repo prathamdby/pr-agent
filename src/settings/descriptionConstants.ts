@@ -1,4 +1,3 @@
-/** PR description agent block boundaries (merge-by-marker). */
 export const DESCRIPTION_AGENT_BODY_BEGIN = "<!-- PR_AGENT_DESCRIPTION_BEGIN -->";
 export const DESCRIPTION_AGENT_BODY_END = "<!-- PR_AGENT_DESCRIPTION_END -->";
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";
@@ -11,23 +10,15 @@ export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
 export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
 export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 
-/** Map mode omit when file count and line changes stay under these and the set is not truncated. */
 export const DESCRIPTION_MAP_OMIT_MAX_FILES = 5;
 export const DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES = 300;
 export const DESCRIPTION_MAP_MAX_ENTRIES = 5;
-/** Schema ceiling above publish cap so enforce can cap-and-publish. */
 export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
 export const DESCRIPTION_REVIEW_MAP_HEADING = "### Review map";
 
-/**
- * Body scale M upper bounds.
- * At or above either bound (or truncated) becomes L.
- * S uses the map-omit thresholds above.
- */
 export const DESCRIPTION_BODY_M_MAX_FILES = 20;
 export const DESCRIPTION_BODY_M_MAX_LINE_CHANGES = 1500;
 
-/** Bullet and word budgets per body scale (injected as hard prompt rules). */
 export const DESCRIPTION_BODY_S_BULLET_MIN = 2;
 export const DESCRIPTION_BODY_S_BULLET_MAX = 5;
 export const DESCRIPTION_BODY_S_MAX_WORDS_PER_BULLET = 25;

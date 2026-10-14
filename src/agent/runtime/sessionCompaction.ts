@@ -17,7 +17,6 @@ type SessionCompactionRuntime = {
   readonly trace?: SessionTrace;
 };
 
-/** Window compaction is role-controlled; overflow recovery has an independent cap. */
 export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCompactionRuntime) {
   let overflowCompacts = 0;
   const prepareNextTurn: NonNullable<AgentLoopConfig["prepareNextTurn"]> = async ({ context }) => {

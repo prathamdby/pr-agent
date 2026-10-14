@@ -84,7 +84,6 @@ function walkErrors(error: unknown): unknown[] {
 
 type InternalErrorKind = Extract<ClassifiedErrorKind, "validation" | "publish">;
 
-/** Structured failures that classify beyond `unknown`; every other `{domain, kind}` is `unknown`. */
 const INTERNAL_ERROR_KIND: {
   readonly [D in AppErrorDomain]?: { readonly [K in AppErrorKind<D>]?: InternalErrorKind };
 } = {
@@ -107,8 +106,6 @@ function classifyFromErrorChain(error: unknown): {
   kind: ClassifiedErrorKind;
 } {
   const nodes = walkErrors(error);
-  // Structured origin and terminal mutation/lifecycle boundaries outrank wrapper
-  // wording. Review publish kinds remain fallbacks so real API causes survive.
   for (const node of nodes) {
     if (isCancelAbortError(node)) return { domain: "internal", kind: "cancelled" };
     if (!isAppError(node)) continue;
@@ -146,11 +143,6 @@ function classifyFromErrorChain(error: unknown): {
   return { domain: "unknown", kind: "unknown" };
 }
 
-/**
- * Logs/analytics classification for terminal and soft-fail agent-work paths.
- * Precedence: lifecycle hint → explicit domain hint → structured origin/boundary
- * (incl. cause) → GitHub-shaped → provider text → AppError/internal → unknown.
- */
 export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): ClassifiedFailure {
   if (hints?.lifecycle === "superseded") {
     return finalize(error, "internal", "superseded", hints);
@@ -257,13 +249,6 @@ type ClassifiedFailureFieldDescriptor = {
   readonly omitFromPostHog?: boolean;
 };
 
-/**
- * One inventory for classified-failure telemetry. Log keys stay camelCase;
- * PostHog keys stay snake_case. Adding a ClassifiedFailure field without a
- * descriptor here fails typecheck so the two public projections cannot drift.
- * Sanitized, length-bounded error_message is included on PostHog. cause_chain
- * stays log-only. http_status and request_path omit when unknown.
- */
 const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
   failureDomain: { logKey: "failureDomain", posthogKey: "failure_domain", required: true },
   errorKind: { logKey: "errorKind", posthogKey: "error_kind", required: true },

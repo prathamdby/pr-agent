@@ -22,7 +22,6 @@ export type VerificationThreadState = {
   readonly completion?: VerificationThreadCompletion;
 };
 
-/** Resource-scoped history is not completion evidence without this exact attempt receipt. */
 export type VerificationThreadCompletion = {
   readonly workItemId: string;
   readonly operationKey: string;
@@ -177,7 +176,6 @@ export function parseVerificationThreadLedger(detail: unknown): VerificationThre
     return withParsedFailureSignal(threads, record);
   }
 
-  // Legacy shape from per-work-item actedThreadIds checkpoints.
   const acted = record.actedThreadIds;
   if (!Array.isArray(acted)) {
     return withParsedFailureSignal({}, record);

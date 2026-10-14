@@ -1,7 +1,3 @@
-/**
- * Public barrel for code constants.
- * Domain modules live beside this file; import sites may keep using `./constants.js` or `./index.js`.
- */
 export * from "./queueConstants.js";
 export * from "./workspaceConstants.js";
 export * from "./descriptionConstants.js";

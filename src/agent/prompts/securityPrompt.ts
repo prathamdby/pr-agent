@@ -1,9 +1,3 @@
-/**
- * Adapted from vercel-labs/deepsec (Apache-2.0):
- * packages/processor/src/prompt/core.ts — CORE_PROMPT
- * https://github.com/vercel-labs/deepsec
- */
-
 import {
   reviewPayloadPerFindingContracts,
   causalPublicationContract,

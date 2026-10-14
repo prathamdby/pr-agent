@@ -83,9 +83,7 @@ export function gitCountObjectsStoreBytes(countObjectsOutput: string): number {
   return (sizeKiB + sizePackKiB) * 1024;
 }
 
-/** Read-only investigation checkout temp-root prefix. */
 export const READONLY_WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
-/** Writable triage checkout temp-root prefix. */
 export const WRITABLE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 
 const WORKSPACE_ROOT_PREFIXES = [
@@ -95,7 +93,6 @@ const WORKSPACE_ROOT_PREFIXES = [
 
 type WorkspaceRootPrefix = (typeof WORKSPACE_ROOT_PREFIXES)[number];
 
-/** On-disk ownership marker. Heartbeat, not the in-process live set, is sweep safety. */
 const WORKSPACE_OWNER_MARKER_NAME = ".pr-agent-workspace-owner.json";
 
 type WorkspaceOwnerMarker = {
@@ -124,7 +121,6 @@ type SweepStaleOwnedWorkspacesOptions = {
   readonly staleAgeSeconds?: number;
 };
 
-/** In-process optimization only. Sweeps must still honor the on-disk marker. */
 const liveWorkspaceRoots = new Set<string>();
 
 function ownerHeartbeatIntervalMs(staleAgeSeconds: number): number {
@@ -214,10 +210,6 @@ export async function statIfPresent(path: string) {
   });
 }
 
-/**
- * Allocate a temp root, persist an ownership marker, then create credentials.
- * Every failure after mkdtemp uses the same idempotent release path.
- */
 export async function allocateWorkspaceResource(
   params: AllocateWorkspaceResourceParams,
 ): Promise<WorkspaceResource> {
@@ -319,7 +311,6 @@ export async function sweepStaleOwnedWorkspaces(
     const ageMs = nowMs - entryStat.mtimeMs;
     if (ageMs <= staleAgeMs) continue;
 
-    // Re-read immediately before delete so a heartbeat that landed during the walk wins.
     const latest = await readWorkspaceOwnerMarker(full).catch(() => null);
     if (liveWorkspaceRoots.has(full)) continue;
     if (isLiveWorkspaceOwnerMarker(latest, nowMs, staleAgeMs, isPidAlive)) continue;

@@ -17,7 +17,6 @@ export type PullRequestFileEntry = {
 export type ListPullRequestFilesResult = {
   readonly files: readonly PullRequestFileEntry[];
   readonly truncated: boolean;
-  /** Omitted file count after the list-files cap is applied. */
   readonly omittedCountLowerBound: number;
   readonly totalChanges: number;
   readonly headSha?: string;
@@ -62,12 +61,6 @@ export function pullRequestBranchInfo(pullRequest: PullRequestForFileList): Pull
   };
 }
 
-/**
- * A triage checkout may write only while GitHub still considers the PR open and
- * unmerged. Missing lifecycle fields fail closed because callers use this
- * predicate immediately before branch mutations and again after a push settles,
- * where a close or merge that raced the push must read as closed.
- */
 export function isPullRequestOpenAndUnmerged(pullRequest: PullRequestForFileList): boolean {
   return (
     pullRequest.state === "open" && pullRequest.merged === false && pullRequest.merged_at === null

@@ -41,10 +41,7 @@ export function createReviewWorkExecution({
     onTerminalFailure: async (item, prSurface, error, leaseEpoch) => {
       try {
         await cancelPendingStaleHeadReplacement(pool, item, error);
-      } catch {
-        // Already logged at error level as agent_work_replacement_cancel_failed; the
-        // verdict close below must still run.
-      }
+      } catch {}
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;

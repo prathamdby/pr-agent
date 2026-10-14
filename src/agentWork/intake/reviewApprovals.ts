@@ -10,7 +10,6 @@ type ApprovalTarget = {
   head_sha: string;
 };
 
-/** Writes require the review intake lock; head lookup is advisory until approval under that lock. */
 export async function insertAwaitingApproval(client: PoolClient, ref: PrRef, eventId: string) {
   const result = await client.query(
     `INSERT INTO pr_review_approvals
@@ -94,7 +93,6 @@ export async function findAwaitingForHead(
   return result.rows;
 }
 
-/** Reread under the progress-publication lock so a delayed notice cannot restore waiting over a queued stub. */
 export async function canPublishApprovalNotice(
   client: PoolClient,
   resourceKey: string,

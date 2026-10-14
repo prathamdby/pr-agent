@@ -5,7 +5,6 @@ export type AgentRunnerUsageMetadata = {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
-  /** Subset of cacheWriteTokens written with 1h retention when the provider reports it. */
   readonly cacheWrite1hTokens?: number;
   readonly totalTokens?: number;
   readonly estimated: boolean;
@@ -16,10 +15,6 @@ export type AgentRunnerPromptMetadata = {
   readonly inputBytes: number;
 };
 
-/**
- * How a send ended. `output_limit` means the final assistant message hit the
- * provider's output cap; `tool_budget` means `maxToolRounds` stopped the loop.
- */
 export type TurnEnd = "completed" | "output_limit" | "tool_budget";
 
 export type AgentRunnerTurn = {

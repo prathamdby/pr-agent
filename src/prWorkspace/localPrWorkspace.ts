@@ -67,7 +67,6 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly maxFetchBytes?: number;
 };
 
-/** Remove symbolic links under a checkout tree. Skips `.git` so object stores stay intact. */
 export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
   const entries = await readdir(dir, { withFileTypes: true });
   for (let i = 0; i < entries.length; i += LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY) {

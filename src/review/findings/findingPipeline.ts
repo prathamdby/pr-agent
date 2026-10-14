@@ -27,7 +27,6 @@ export type PreparedReviewPayload = {
 };
 
 export type PreparedFindingTargets = {
-  /** Fingerprinted placements before historical suppression and inline caps. */
   readonly planned: readonly FingerprintedInlinePlacement[];
   readonly placements: readonly FingerprintedInlinePlacement[];
   readonly inline: readonly FingerprintedInlinePlacement[];

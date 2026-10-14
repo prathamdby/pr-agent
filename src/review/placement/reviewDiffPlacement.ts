@@ -7,7 +7,6 @@ export type InlinePlacement = {
   readonly finding: ReviewFinding;
   readonly inlineLine: number | null;
   readonly inlinePosted: boolean;
-  /** Set at publish time when the inline thread exists on the Files tab. */
   readonly inlineCommentUrl?: string;
 };
 
@@ -78,7 +77,6 @@ export function downgradePlacementsAfterInlineFailure(
   );
 }
 
-/** Stable lookup key for placement ↔ finding within one publish run. */
 export function reviewFindingPlacementKey(finding: ReviewFinding): string {
   return `${finding.file}:${finding.startLine}:${finding.endLine}:${finding.severity}:${finding.title}`;
 }

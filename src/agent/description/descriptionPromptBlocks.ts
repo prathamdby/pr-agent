@@ -1,5 +1,3 @@
-/** Prompt blocks for PR description generation (writing style, visuals, review map). */
-
 export const descriptionBodyScaleGuidance = [
   "## Description body scale",
   "",

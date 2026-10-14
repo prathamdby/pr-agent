@@ -31,7 +31,6 @@ import {
   readStrictBoolean,
 } from "../envReaders.js";
 
-/** pg-boss delivery, retry, expiry, and PR actor lease timing. */
 export type QueueSlice = {
   readonly retryLimit: number;
   readonly retryDelaySeconds: number;
@@ -46,7 +45,6 @@ export type QueueSlice = {
   readonly shutdownDrainTimeoutSeconds: number;
 };
 
-/** Per-lane worker concurrency. */
 export type ConcurrencySlice = {
   readonly review: number;
   readonly ask: number;
@@ -57,7 +55,6 @@ export type ConcurrencySlice = {
   readonly installationGroup: number;
 };
 
-/** Database retention sweep for webhook events and agent work. */
 export type RetentionSlice = {
   readonly webhookEventsSeconds: number;
   readonly agentWorkSeconds: number;

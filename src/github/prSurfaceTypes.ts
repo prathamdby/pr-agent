@@ -35,11 +35,9 @@ export type IssueCommentRef = {
   readonly body?: string;
 };
 export type ProgressCommentUpsert = { readonly id: number; readonly updated: boolean };
-/** One pull request review comment as GitHub returns it, with bounded pagination. */
 export type PrReviewComment = ReviewThreadComment & { readonly authorLogin: string };
 export type ListReviewCommentsResult = {
   readonly comments: readonly PrReviewComment[];
-  /** True when the provider pagination cap stopped the listing early. */
   readonly truncated: boolean;
 };
 export type PrReview = {
@@ -72,7 +70,6 @@ export type ReviewCheckOutcome = {
 };
 export type CiStatusSnapshot = {
   readonly checkRuns: readonly CiCheckRunSnapshot[];
-  /** False when the provider pagination cap prevented a complete check-run view. */
   readonly checkRunsComplete?: boolean;
   readonly legacyStatuses: readonly CiLegacyStatus[];
   readonly legacyStatusesComplete?: boolean;
@@ -104,10 +101,6 @@ export type PullRequestUpdate = {
   readonly body: string;
 };
 
-/**
- * Stable metadata for one PR-surface mutation. The boundary stores this before
- * invoking the external call and reconciles its result afterward.
- */
 export type PrSurfaceMutation = {
   readonly operationKey: string;
   readonly mutationKind: string;
@@ -120,10 +113,6 @@ export type PrSurfaceMutation = {
   readonly decodeResult: (value: unknown) => unknown;
 };
 
-/**
- * Durable executions inject this boundary into the PR surface. Read methods do
- * not cross it, so recovery can still inspect GitHub after a lease is lost.
- */
 export type PrSurfaceMutationBoundary = {
   readonly signal: AbortSignal;
   readonly run: (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => Promise<unknown>;
@@ -132,13 +121,11 @@ export type PrSurfaceMutationBoundary = {
 export type CreatePrSurfaceParams = PrResource & {
   readonly cfg: Pick<Config, "github">;
   readonly installationId: number;
-  /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
   readonly capabilities?: ReviewCapabilityPolicy;
   readonly tokenResolver?: () => Promise<InstallationToken>;
 };
 
-/** Methods that cross the PR-surface mutation boundary. Keep this type exhaustive. */
 export type PrSurfaceMutationMethods = {
   setAcknowledgementReaction(
     targets: readonly AcknowledgementTarget[],
@@ -164,7 +151,6 @@ export type PrSurfaceMutationMethods = {
   ): Promise<{ readonly prNumber: number }>;
 };
 
-/** Read-only methods remain callable while a leased execution is fenced. */
 export type PrSurfaceReadMethods = PrResource & {
   readonly capabilities?: ReviewCapabilityPolicy;
   getHead(): Promise<PullRequestHeadResolution>;
@@ -186,7 +172,6 @@ export type PrSurfaceReadMethods = PrResource & {
   getLabels(): Promise<readonly string[]>;
   findReviewCheck(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
-  /** Independent, complete status evidence. Legacy adapters may omit it. */
   getReviewCommitStatuses?(headSha: string): Promise<readonly CiLegacyStatus[]>;
   listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;

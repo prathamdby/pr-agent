@@ -19,7 +19,6 @@ import {
 import type { FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-// Derived from the payload schema: synthesis authors these gates; findings stay ledger-owned.
 const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_SUMMARY_FIELDS);
 
 export type PublishSummaryState = {

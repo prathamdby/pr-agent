@@ -217,7 +217,6 @@ export function sanitizeTelemetryString(value: string): string {
   return sanitizeString(value);
 }
 
-/** Return a JSON-safe, recursively redacted value without mutating the input. */
 export function sanitizeTelemetryValue(value: unknown): unknown {
   return sanitizeValue(value, new WeakSet<object>(), 0).value;
 }

@@ -28,7 +28,6 @@ export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
   readonly workItemId: string;
   readonly resourceKey: string;
-  /** When set, mutate/publish is rejected unless this lease epoch still owns the work item. */
   readonly leaseEpoch?: number | null;
 };
 
@@ -49,40 +48,25 @@ export type PublishOnceParams<T> = {
   readonly operationKey: string;
   readonly mutationKind: string;
   readonly detail?: Record<string, unknown>;
-  /** Selected attempt evidence; saved with the in-flight marker only after the owner permits delegation. */
   readonly mutationDetail?: Record<string, unknown>;
   readonly mutate: () => Promise<T>;
-  /** Validate replayed evidence before exposing a typed mutation result. */
   readonly decodeResult?: (value: unknown) => T;
   readonly publishRecordId?: string | null;
   readonly reconcileDetail?: Record<string, unknown> | ((result: T) => Record<string, unknown>);
-  /**
-   * Reconcile a remote mutation by an exact marker or provider id. A missing
-   * match is not permission to remutate an outcome-unknown operation.
-   */
   readonly recover?: (
     intent: OperationIntentRow,
     publishRecordId: string | null,
   ) => Promise<OperationIntentRecovery<unknown>>;
-  /**
-   * True when `undefined` is a valid success (void mutate, or `T | undefined`).
-   * Typed recoveries stay outcome_unknown when they cannot rebuild T.
-   */
   readonly allowsUndefinedResult?: boolean;
-  /** True only when the provider contract proves no mutation was accepted. */
   readonly isKnownNoAcceptanceError?: (error: unknown) => boolean;
   readonly leaseEpoch?: number | null;
-  /** Required. Agrees with `leaseEpoch`: a number is a lease fence, null is unleased. */
   readonly fence: WriteFence;
-  /** Aborted when the owning worker loses its lease or the job is cancelled. */
   readonly signal?: AbortSignal;
-  /** Own-verdict delegation has a retryable local gate before any provider write. */
   readonly delegation?: { readonly resourceKey: string; readonly reviewLens: PublishLens };
 };
 
 const operationIntentFrame = new AsyncLocalStorage<{ readonly operationKey: string }>();
 
-/** Run work as the current operation-intent key so nested PR-surface mutations share it. */
 export function runInOperationIntentFrame<T>(operationKey: string, fn: () => T): T {
   return operationIntentFrame.run({ operationKey }, fn);
 }
@@ -100,7 +84,6 @@ export type OperationIntentRecovery<T> =
     }
   | { readonly kind: "absent" };
 
-/** Durable marker: mutate() was entered; crash before __result must not remutate. */
 export const OPERATION_INTENT_MUTATING_KEY = "__mutating";
 export const OPERATION_INTENT_RESULT_KEY = "__result";
 
@@ -124,7 +107,6 @@ export function reviewInlineBatchOperationKey(batchId: string): string {
   return `review:inline:${batchId}`;
 }
 
-/** Stable inline-batch identity for operation-intent keys across retries. */
 export function deterministicInlineBatchId(params: {
   readonly workItemId: string;
   readonly specialist: string;
@@ -182,7 +164,6 @@ export function reviewLabelsOperationKey(resourceKey: string): string {
   return `review:labels:${resourceKey}`;
 }
 
-/** Stable hidden marker for reconciling one provider-side mutation attempt. */
 export function operationIntentMarker(operationKey: string, operationInstance: string): string {
   return `<!-- pr-agent:operation-intent ${crypto
     .createHash("sha256")
@@ -234,7 +215,6 @@ function hasStashedResult(detail: Record<string, unknown>): boolean {
 }
 
 function stashedResultValue(detail: Record<string, unknown>): unknown {
-  // null is the durable sentinel for a successful void mutate() return.
   const value = detail[OPERATION_INTENT_RESULT_KEY];
   return value === null ? undefined : value;
 }
@@ -394,8 +374,6 @@ async function recoverAfterMutatingWithoutResult<T>(
   }
   if (recovered.found) return recovered.value;
 
-  // Publish-record success is void-only. A recover hook that cannot rebuild T
-  // stays outcome_unknown so callers do not receive undefined as a typed result.
   if (publishRecordId != null && allowsUndefinedSuccess(params)) {
     return finishVoidSuccess(
       params,
@@ -440,7 +418,6 @@ async function recoverAfterMutatingWithoutResult<T>(
   );
 }
 
-/** Throw the abort reason as an AppError when the signal has fired. */
 export function throwIfExecutionAborted(
   signal: AbortSignal | undefined,
   context: Record<string, unknown>,
@@ -469,11 +446,6 @@ async function assertMutationReady<T>(params: PublishOnceParams<T>): Promise<voi
   }
 }
 
-/**
- * A retained description child keeps its original key and hash even when the
- * Config fields that built them are gone. Selection is scoped by work item,
- * parent scope, method, and exact marker; ambiguity fails closed.
- */
 async function withRetainedDescriptionIdentity<T>(
   params: PublishOnceParams<T>,
 ): Promise<PublishOnceParams<T>> {
@@ -590,25 +562,17 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
   );
   await assertMutationReady(params);
 
-  // Mutation outcome already stashed (reconciled, or crash/DB blip after mutate).
-  // Never remutate when __result is present — finish status reconciliation only.
   if (hasStashedResult(intent.detail)) {
     return finishWithStashedResult(params, intent);
   }
 
-  // A completed evidence decision stays fail-closed even if the worker died
-  // before it could mark the owning work item failed.
   if (intent.status === "outcome_unknown" && intent.detail.unknownResolution === "terminal") {
     throw unknownOutcomeError(params, UNKNOWN_MUTATION_MESSAGE, true);
   }
 
-  // Reconciled without a stashed return value (void mutate, or recovered
-  // publish_records). Side effect is done — never remutate. If recover can
-  // rebuild a typed result, stash it so later retries do not return undefined.
   if (intent.status === "reconciled") {
     const recovered = await recoverByExactEvidence(params, intent, null);
     if (recovered.found) return recovered.value;
-    // Void-only. A typed recover that cannot rebuild T stays outcome_unknown.
     if (allowsUndefinedSuccess(params)) {
       return finishVoidSuccess(params, {}, intent.publishRecordId);
     }
@@ -619,13 +583,10 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     );
   }
 
-  // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.
   if (intent.status === "outcome_unknown") {
     return recoverAfterMutatingWithoutResult(params, intent);
   }
 
-  // A provider-proven pre-acceptance failure is the only retryable path.
-  // Do not enter recovery — __mutating may still be present on older failed rows.
   if (intent.status !== "failed" && intent.detail[OPERATION_INTENT_MUTATING_KEY] === true) {
     return recoverAfterMutatingWithoutResult(params, intent);
   }
@@ -646,10 +607,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     const result = await params.mutate();
     mutateSucceeded = true;
     decodePublishResult(params, result);
-    // A lease can be lost while GitHub is processing the request. Do not let a
-    // stale worker persist completion after that ambiguous remote outcome.
     await assertMutationReady(params);
-    // Always stash __result (null = void) so redelivery is idempotent without remutate.
     const resultDetail = {
       ...resolveReconcileDetail(params, { value: result }),
       [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : result,
@@ -670,8 +628,6 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     });
     return result;
   } catch (error) {
-    // After mutate() returns, never mark failed — leave __mutating so redelivery
-    // takes the no-remutate recovery path instead of calling mutate() again.
     const knownNoAcceptance =
       params.isKnownNoAcceptanceError?.(error) ?? isKnownNoAcceptanceMutationError(error);
     if (!mutateSucceeded) {
@@ -695,7 +651,6 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
         ...leaseEpochDetail(params),
         detail: {
           ...resolveReconcileDetail(params),
-          // Clear marker only when the provider proved that no mutation landed.
           [OPERATION_INTENT_MUTATING_KEY]: false,
           errorCode: knownNoAcceptance
             ? ("operation_intent.mutation_failed" satisfies AppErrorCode)
@@ -811,10 +766,6 @@ async function recordPublishStep(
     step: SharedPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
-    /**
-     * Lease epoch that owns this write. Pass `null` only for unleased writers
-     * (e.g. ack progress stubs, ask); leased executors must pass the live epoch.
-     */
     leaseEpoch: number | null;
   },
 ): Promise<void> {
@@ -945,7 +896,6 @@ async function recordAskPublishStep(
   );
 }
 
-/** Persisted identities and their completion scope. Check creation has a separate CAS owner. */
 export const publishStepSpecs = {
   progress_comment: { scope: "resource", merge: "progress" },
   inline_review: { scope: "resource", merge: "batches" },
@@ -1023,7 +973,6 @@ export const postgresPublishRecords: PublishRecordStore = {
   },
 };
 
-/** One scoped owner for completion evidence, records, and thread checkpoints. */
 export function createPublishContext(
   client: Pool | PoolClient,
   identity: PublicationIdentity,

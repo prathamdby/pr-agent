@@ -45,10 +45,6 @@ export type RepoPolicyResult =
 
 function matchesPathGlob(filename: string, pattern: string): boolean {
   const normalizedPattern = pattern.replace(/\\/g, "/");
-  // NUL-delimited sentinels: a literal NUL can never appear in a real
-  // filename, so even a glob containing sentinel-like text can only fail
-  // closed (no match) instead of expanding to a wildcard. The previous
-  // double-underscore sentinels collided with literal glob text.
   const globstarMiddle = "\0GLOBSTAR_MIDDLE\0";
   const globstarTrailing = "\0GLOBSTAR_TRAILING\0";
   const globstarLeading = "\0GLOBSTAR_LEADING\0";
@@ -74,7 +70,6 @@ function sanitizeRenderedPolicyText(value: string): string {
   return value.split(/\r?\n/).join(" ").trim();
 }
 
-/** Neutralize forged server trust labels before wrapping fork-controlled policy. */
 function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
@@ -105,7 +100,6 @@ function globMatchesFile(rule: RepoPolicyRule, file: string): boolean {
   return rule.globs.some((pattern) => matchesPathGlob(file, pattern));
 }
 
-/** Always-apply, or this file matches a glob. Prompt bind and footer prefilter share this. */
 export function ruleConsidersFile(rule: RepoPolicyRule, file: string): boolean {
   return rule.alwaysApply || globMatchesFile(rule, file);
 }
@@ -120,10 +114,6 @@ export type PolicyCandidatePair<T extends { readonly file: string }> = {
   readonly rule: RepoPolicyRule;
 };
 
-/**
- * Finding × bound same-repo rule pairs that consider `finding.file`.
- * Fork, absent, invalid, or empty policy yields nothing. Order is findings then loader rules.
- */
 export function candidatePolicyPairs<T extends { readonly file: string }>(params: {
   readonly policy: RepoPolicyResult;
   readonly sameRepo?: boolean;
@@ -335,7 +325,6 @@ export async function loadRepoPolicy(
 export function renderRepoPolicyBlock(params: {
   policy: RepoPolicy;
   changedFiles?: readonly string[];
-  /** Same-repo → trusted/binding; omit/false → untrusted (fail closed). */
   sameRepo?: boolean;
 }): string {
   const { policy, changedFiles } = params;
@@ -394,11 +383,6 @@ function renderNewMdcSuggestion(params: {
   return lines.join("\n");
 }
 
-/**
- * Render a paste-ready `.pr-agent/*.mdc` suggestion for a dismissed finding.
- * When exactly one existing rule matches the finding path, emit an append
- * fragment; otherwise emit a full starter `.mdc` file.
- */
 export function renderPolicySuggestionForDismissed(params: {
   readonly filePath: string;
   readonly dismissalEvidence: string;

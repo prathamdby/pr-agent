@@ -4,7 +4,6 @@ import type { PiSessionSendOptions } from "./types.js";
 
 type BudgetToolResult = Pick<ToolResultMessage, "toolName" | "isError">;
 
-/** Keep Core's finish-before-event ordering and reserved-tool budgets in one owner. */
 export function createTurnToolBudget(
   opts: Pick<PiSessionSendOptions, "maxToolRounds" | "reservedTerminalTool">,
 ) {
@@ -24,7 +23,6 @@ export function createTurnToolBudget(
     );
   };
 
-  // finishTurn precedes turn_end: include the current round without charging it twice.
   const finishTurn: FinishTurn = ({ toolResults }) => {
     if (opts.maxToolRounds == null) return undefined;
     if (toolResults.length === 0) return undefined;

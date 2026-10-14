@@ -12,7 +12,6 @@ import type { WorkSource } from "../review/reviewSchema.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 
-/** Queue name for each durable work type. A missing key fails typecheck. */
 export const WORK_QUEUES = {
   review: REVIEW_QUEUE,
   ask: ASK_QUEUE,
@@ -54,9 +53,7 @@ export type ReplyTarget =
 
 export type PrRef = PrResource & {
   readonly installationId: number;
-  /** Commit SHA, or DEFERRED_HEAD_SHA for worker-side pulls.get resolution */
   readonly headSha: string;
-  /** GitHub webhook repository.size, in KB, captured at intake time when available. */
   readonly repositorySizeKb?: number;
 };
 
@@ -85,17 +82,13 @@ export type AckJobData = JobCorrelation & {
     readonly headSha: string;
     readonly source: WorkSource;
   };
-  /** Cancelled notice for the progress stub plus check-run completion for each cancelled review. */
   readonly cancelProgress?: {
     readonly workItemId: string;
-    /** Absent on stale pre-deploy ack jobs; reader falls back to workItemId. */
     readonly cancelledWorkItemIds?: readonly string[];
     readonly attribution: ReviewCancelAttribution;
   };
-  /** Terminal acknowledgement for a queued/running triage cancelled by PR close. */
   readonly cancelTriage?: {
     readonly workItemId: string;
-    /** Absent on stale pre-deploy ack jobs; reader falls back to workItemId. */
     readonly cancelledWorkItemIds?: readonly string[];
     readonly attribution: ReviewCancelAttribution;
     readonly targets: readonly AckTarget[];
@@ -133,7 +126,6 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
-/** Head-scoped projection after a fact write, a first seed, or a completed-run webhook. */
 export type CiProjectionJobData = JobCorrelation & {
   readonly kind: "ci_projection";
   readonly installationId: number;
@@ -144,7 +136,6 @@ export type CiProjectionJobData = JobCorrelation & {
 
 export type StaleHeadReplacementState = "pending-enqueue" | "enqueued";
 
-/** Parent-persisted stale-head replacement. Identity and lifecycle stay coupled. */
 export type StaleHeadReplacement = {
   readonly replacementWorkItemId: string;
   readonly state: StaleHeadReplacementState;
@@ -157,13 +148,9 @@ export type ReviewWorkPayload = {
   readonly userSupplement?: string;
   readonly commenterId?: number;
   readonly ackTargets?: readonly AckTarget[];
-  /** Set when the run finished but structured publish did not succeed */
   readonly publishDegraded?: boolean;
-  /** Set on the one-time replacement run after stale-head detection. */
   readonly staleHeadRescheduled?: boolean;
-  /** Parent-owned replacement lifecycle. Absent when this review has no replacement. */
   readonly staleHeadReplacement?: StaleHeadReplacement;
-  /** Set when the review is cancelled (slash or merge); drives the cancelled progress notice. */
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
@@ -187,7 +174,6 @@ export type DescriptionWorkPayload = {
 
 export type TriageScope = "all" | "thread";
 
-/** Apply is the existing `/triage` path. Preview and bulk are the issue 542 pair. */
 export type TriageMode = "apply" | "preview" | "bulk";
 
 export type TriageWorkPayload = {
@@ -196,7 +182,6 @@ export type TriageWorkPayload = {
   readonly commenterId?: number;
   readonly commentId: number;
   readonly scope: TriageScope;
-  /** Absent on rows written before preview/bulk. Readers treat missing as `apply`. */
   readonly mode?: TriageMode;
   readonly excludeThreadRootCommentIds?: readonly number[];
   readonly threadAnchorCommentId?: number;
@@ -204,7 +189,6 @@ export type TriageWorkPayload = {
   readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
   readonly ackTargets?: readonly AckTarget[];
-  /** Set when close/merge intake cancels the triage work item. */
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
@@ -217,7 +201,6 @@ export type VerificationWorkPayload = {
   readonly repositorySizeKb?: number;
   readonly pushBeforeSha?: string;
   readonly ackTargets?: readonly AckTarget[];
-  /** Set when the run finished but structured publish did not succeed */
   readonly publishDegraded?: boolean;
 };
 

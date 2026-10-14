@@ -110,9 +110,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly cacheReadTokens: number | null;
   readonly cacheWriteTokens: number | null;
   readonly cacheWrite1hTokens: number | null;
-  /** cacheRead / (input + cacheRead + cacheWrite); null when usage unknown. */
   readonly cacheHitRate: number | null;
-  /** cacheWrite / max(cacheRead, 1); null when usage unknown. */
   readonly cacheWriteAmplification: number | null;
   readonly estimatedTurnCount: number;
   readonly findingsCount: number;

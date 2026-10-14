@@ -5,7 +5,6 @@ function isPostHogEventMessage(value: unknown): value is PostHogEventMessage {
   return isRecord(value) && (value.properties == null || isRecord(value.properties));
 }
 
-/** Structural subset of posthog-node EventMessage used by before_send (no SDK import). */
 export type PostHogEventMessage = {
   readonly properties?: Record<string | number, unknown> | null;
   readonly [key: string]: unknown;

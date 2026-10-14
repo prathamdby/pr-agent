@@ -13,7 +13,6 @@ export function buildVerificationUserContent(params: {
   readonly headSha: string;
   readonly pushedCommits: readonly PushedCommit[];
   readonly threads: readonly BotFindingThread[];
-  /** When true, GitHub compare file membership is incomplete (300-file cap). */
   readonly compareFilesTruncated?: boolean;
 }): string {
   const lines = [
