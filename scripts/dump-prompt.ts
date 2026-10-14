@@ -21,10 +21,18 @@ import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { buildAskSystemPrompt } from "../src/agent/ask/askPrompt.js";
+import {
+  buildAskSystemPrompt,
+  ASK_RETRY_NUDGE,
+  ASK_SHORTEN_NUDGE,
+  buildAskUserContent,
+} from "../src/prompts/ask/prompt.js";
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
-import { triageSystemPrompt } from "../src/agent/triage/triagePrompt.js";
-import { verificationSystemPrompt } from "../src/agent/verification/verificationPrompt.js";
+import { triageSystemPrompt, buildTriageUserContent } from "../src/prompts/triage/prompt.js";
+import {
+  verificationSystemPrompt,
+  buildVerificationUserContent,
+} from "../src/prompts/verification/prompt.js";
 import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/review/ci/ciAuthor.js";
 import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
@@ -63,11 +71,7 @@ import {
   createSubmitVerificationState,
 } from "../src/agent/verification/submitVerificationTool.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
-import { ASK_RETRY_NUDGE, ASK_SHORTEN_NUDGE } from "../src/settings/askConstants.js";
 import { DESCRIPTION_SUBMIT_ONLY_NUDGE } from "../src/settings/descriptionConstants.js";
-import { buildTriageUserContent } from "../src/agent/triage/triageUserMessage.js";
-import { buildVerificationUserContent } from "../src/agent/verification/verificationUserMessage.js";
-import { buildAskUserContent } from "../src/agent/ask/askUserContent.js";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
 import { buildDescriptionUserContent } from "../src/agent/description/descriptionUserMessage.js";
 import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";

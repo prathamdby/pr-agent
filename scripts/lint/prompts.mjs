@@ -44,10 +44,6 @@ export const INSIDE_IMPORTABLE_MODULES = [
 
 export const TRANSITION_IMPORTS = [
   {
-    importer: "src/agent/ask/askPrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
     importer: "src/agent/description/descriptionSystemPrompt.ts",
     modules: ["src/prompts/shared/communication.ts"],
   },
@@ -77,22 +73,6 @@ export const TRANSITION_IMPORTS = [
       "src/prompts/shared/output.ts",
       "src/prompts/shared/tools.ts",
     ],
-  },
-  {
-    importer: "src/agent/triage/triagePrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
-    importer: "src/agent/triage/triageUserMessage.ts",
-    modules: ["src/prompts/shared/context.ts"],
-  },
-  {
-    importer: "src/agent/verification/verificationPrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
-    importer: "src/agent/verification/verificationUserMessage.ts",
-    modules: ["src/prompts/shared/context.ts"],
   },
   {
     importer: "src/review/ci/ciAuthor.ts",

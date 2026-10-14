@@ -3,8 +3,10 @@ import type { Config } from "../../settings/index.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
-import { verificationSystemPrompt } from "./verificationPrompt.js";
-import { buildVerificationUserContent } from "./verificationUserMessage.js";
+import {
+  verificationSystemPrompt,
+  buildVerificationUserContent,
+} from "../../prompts/verification/prompt.js";
 import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
 import {
   buildSubmitVerificationTool,
