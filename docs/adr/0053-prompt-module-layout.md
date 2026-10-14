@@ -112,12 +112,12 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    prompt-bearing argument or property, never session options or tool
    descriptions.
 
-   | Sink                                                                         | Prompt value                              |
-   | ---------------------------------------------------------------------------- | ----------------------------------------- |
-   | `session.send(...)`, `activeSession.send(...)`                               | Argument 0                                |
-   | `sendWithRetry(...)`, `runSubmitOnlyRound(...)`, specialist `send(...)`      | Argument 1                                |
-   | Object-literal `systemPrompt`, `userContent`, `nudge`, `repairPrompt` fields | Property value                            |
-   | Compaction `streamFn(...)`                                                   | `messages[].content[].text` in argument 1 |
+   | Sink                                                                                         | Prompt value                              |
+   | -------------------------------------------------------------------------------------------- | ----------------------------------------- |
+   | `session.send(...)`, `activeSession.send(...)`                                               | Argument 0                                |
+   | `sendWithRetry(...)`, `runSubmitOnlyRound(...)`, specialist `send(...)`                      | Argument 1                                |
+   | Object-literal `systemPrompt`, `userContent`, `nudge`, `repairPrompt`, `briefMessage` fields | Property value                            |
+   | Compaction `streamFn(...)`                                                                   | `messages[].content[].text` in argument 1 |
 
    The receiver list is explicit. Queue `boss.send` and IPC `target.send` are
    not prompt sinks. String and template literals are forbidden anywhere in
@@ -130,6 +130,9 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    arguments. A conditional checks both value branches, not its test
    expression: the test selects a source but is not sent. `??` and `||`
    check both operands. These checks apply recursively.
+   Literal operands in comparisons and `typeof` checks inside prompt-builder
+   arguments select values and are exempt, unlike literal argument values or
+   callback return values.
 
    Prompt-field properties establish carrier provenance at their origin.
    A read such as `setup.userContent`, `params.systemPrompt`, or `spec.nudge`
@@ -147,6 +150,8 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    `send`, `defaultSubmitOnlySend`, `createFeaturePiSession`, and
    `runFeatureAgent`. Their prompt parameters cannot be reassigned, including
    destructuring assignments and writes to their prompt carrier fields.
+   A sender callback in argument 2 of `runSubmitOnlyRound` has the same
+   allowance and reassignment ban for its prompt parameter at argument 1.
 
 4. `test/architectureRules.test.ts` holds must-catch and must-allow probes for
    each rule. The probe helper writes nested `src/prompts/<dir>/` paths into a

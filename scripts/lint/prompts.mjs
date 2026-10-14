@@ -63,7 +63,17 @@ export const PROMPT_WRAPPERS = {
   runFeatureAgent: 0,
 };
 
-export const PROMPT_FIELDS = ["systemPrompt", "userContent", "nudge", "repairPrompt"];
+export const PROMPT_SENDERS = {
+  runSubmitOnlyRound: { argument: 2, prompt: 1 },
+};
+
+export const PROMPT_FIELDS = [
+  "systemPrompt",
+  "userContent",
+  "nudge",
+  "repairPrompt",
+  "briefMessage",
+];
 
 function globPattern(glob) {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
@@ -285,13 +295,36 @@ export const promptSinks = {
       );
     }
 
-    function promptParameter(identifier) {
-      return variable(identifier)?.defs.some(
-        (def) =>
-          def.type === "Parameter" &&
-          Object.hasOwn(PROMPT_WRAPPERS, functionName(def.node)) &&
-          def.node.params[PROMPT_WRAPPERS[functionName(def.node)]] === def.name,
+    function promptBuilder(node) {
+      return (
+        promptExport(node) ||
+        (node.type === "MemberExpression" &&
+          !node.computed &&
+          propertyName(node) === "repairPrompt")
       );
+    }
+
+    function promptParameter(identifier) {
+      return variable(identifier)?.defs.some((def) => {
+        if (def.type !== "Parameter") return false;
+        if (
+          Object.hasOwn(PROMPT_WRAPPERS, functionName(def.node)) &&
+          def.node.params[PROMPT_WRAPPERS[functionName(def.node)]] === def.name
+        )
+          return true;
+        const call = def.node.parent;
+        if (
+          call?.type !== "CallExpression" ||
+          call.callee.type !== "Identifier" ||
+          !Object.hasOwn(PROMPT_SENDERS, call.callee.name)
+        )
+          return false;
+        const sender = PROMPT_SENDERS[call.callee.name];
+        return (
+          call.arguments[sender.argument] === def.node &&
+          def.node.params[sender.prompt] === def.name
+        );
+      });
     }
 
     function constResult(identifier) {
@@ -306,16 +339,34 @@ export const promptSinks = {
       return bad == null;
     }
 
-    function literal(node) {
+    function literal(node, runtime = false) {
+      node = expression(node);
       if (node.type === "ConditionalExpression")
-        return literal(node.consequent) ?? literal(node.alternate);
+        return literal(node.consequent, runtime) ?? literal(node.alternate, runtime);
       if (
         node.type === "TemplateLiteral" ||
         (node.type === "Literal" && typeof node.value === "string")
       )
         return node;
+      if (node.type === "CallExpression") {
+        const calleeText = literal(node.callee, runtime);
+        if (calleeText) return calleeText;
+        for (const argument of node.arguments) {
+          const text = literal(argument, runtime || promptBuilder(node.callee));
+          if (text) return text;
+        }
+        return null;
+      }
+      const selection =
+        runtime &&
+        ((node.type === "BinaryExpression" &&
+          ["===", "!==", "==", "!=", "<", ">", "<=", ">=", "in", "instanceof"].includes(
+            node.operator,
+          )) ||
+          (node.type === "UnaryExpression" && node.operator === "typeof"));
       for (const child of childNodes(node)) {
-        const found = literal(child);
+        if (selection && ["Literal", "TemplateLiteral"].includes(expression(child).type)) continue;
+        const found = literal(child, runtime);
         if (found) return found;
       }
       return null;
@@ -359,11 +410,7 @@ export const promptSinks = {
         );
       }
       if (node.type === "CallExpression") {
-        const promptCall =
-          promptExport(node.callee) ||
-          (node.callee.type === "MemberExpression" &&
-            !node.callee.computed &&
-            propertyName(node.callee) === "repairPrompt");
+        const promptCall = promptBuilder(node.callee);
         const badCallee = invalid(node.callee, runtime);
         if (badCallee) return badCallee;
         for (const argument of node.arguments) {
@@ -402,13 +449,13 @@ export const promptSinks = {
         if (
           current.parent.type === "CallExpression" &&
           current.parent.arguments.includes(current) &&
-          promptExport(current.parent.callee)
+          promptBuilder(current.parent.callee)
         ) {
           runtime = true;
           break;
         }
       }
-      const text = literal(node);
+      const text = literal(node, runtime);
       const bad = text ?? invalid(node, runtime);
       if (bad) context.report({ node: bad, messageId: text ? "literal" : "origin" });
     }

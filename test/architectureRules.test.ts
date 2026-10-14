@@ -368,6 +368,19 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
     "const selected = runtime.flag ? render(runtime) : prompts.render(runtime); session.send(selected);",
     "const templated = `inline ${prompt}`; session.send(templated);",
     "const cyclic = cyclic; session.send(cyclic);",
+    'const filtered = runtime.flag ? render({ items: runtime.items.filter((item) => item.phase !== "done") }) : prompt; session.send(filtered);',
+    'const inlineCallback = render({ items: runtime.items.map(() => "inline") }); session.send(inlineCallback);',
+    "runSubmitOnlyRound(session, prompt, (active, text, opts) => send(active, text, opts));",
+    "runSubmitOnlyRound(session, prompt, (active, text) => { text = prompt; return activeSession.send(text); });",
+    "otherWrapper(session, prompt, (active, text) => session.send(text));",
+    "runSubmitOnlyRound(session, prompt, opts, (active, text) => session.send(text));",
+    "runSubmitOnlyRound(session, prompt, (active, text) => { const alias = text; return activeSession.send(alias); });",
+    "runSubmitOnlyRound(session, prompt, (active, text) => { function nested(text: string) { session.send(text); } return activeSession.send(text); });",
+    "runSubmitOnlyRound(session, prompt, (active, text) => { ({ text } = runtime); return activeSession.send(text); });",
+    "runSubmitOnlyRound(session, prompt, (active, text) => session.send(active));",
+    'session.send(render({ matches: runtime.value === "done", kind: typeof "value", has: "x" in runtime }));',
+    "session.send(render({ items: runtime.items.map(() => `inline`) }));",
+    'session.send(render({ matches: helper("inline") === runtime.value }));',
     "",
   ].join("\n"),
   "src/agent/specs.ts": [
@@ -397,6 +410,9 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
     "session.send(spec.repairPrompt(runtime));",
     "session.send(render({ userContent: runtime.other }));",
     "const TYPED_MAP = { ask: prompt } satisfies Record<string, string>; createSession({ systemPrompt: TYPED_MAP[role] });",
+    "const task = { briefMessage: render(runtime) }; send(session, task.briefMessage);",
+    'const taskWithLiteral = { briefMessage: "inline" }; send(session, taskWithLiteral.briefMessage);',
+    "send(session, params.briefMessage);",
     "",
   ].join("\n"),
   "src/agent/compaction.ts": [
@@ -455,9 +471,10 @@ describe("architecture rules", () => {
   it("locks prompt arguments without treating runtime options or other sends as prompts", () => {
     expect(lintWithPlugin(PROMPT_SINKS_PROBE).lines("prompt-sinks")).toEqual({
       "src/agent/sinks.ts": [
-        4, 5, 6, 7, 8, 9, 12, 14, 19, 21, 23, 27, 28, 29, 31, 33, 35, 39, 41, 42,
+        4, 5, 6, 7, 8, 9, 12, 14, 19, 21, 23, 27, 28, 29, 31, 33, 35, 39, 41, 42, 44, 46, 47, 48,
+        50, 51, 52, 54, 55,
       ],
-      "src/agent/specs.ts": [3, 4, 5, 6, 8, 9, 15, 16, 18, 19, 20, 21, 23],
+      "src/agent/specs.ts": [3, 4, 5, 6, 8, 9, 15, 16, 18, 19, 20, 21, 23, 28],
       "src/agent/compaction.ts": [3, 4, 5],
       "src/prompts/ask/prompt.ts": [],
       "test/promptSinks.ts": [],
