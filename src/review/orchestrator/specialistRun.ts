@@ -26,10 +26,10 @@ import {
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
 } from "./specialistTools.js";
-import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
-import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
+import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.js";
+import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.js";
+import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.js";
+import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
