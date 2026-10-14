@@ -12,7 +12,6 @@ import {
 import { requestOrigin } from "./site.js";
 import { DOCUMENT_CACHE_CONTROL } from "./siteHttp.js";
 
-/** Profile URI from RFC 9727. The parameter tells a linkset client this is an API catalog. */
 export const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
 
 export const API_CATALOG_CONTENT_TYPE = `${API_CATALOG.mediaType}; charset=utf-8; profile="${API_CATALOG_PROFILE}"`;
@@ -20,7 +19,6 @@ export const API_CATALOG_CONTENT_TYPE = `${API_CATALOG.mediaType}; charset=utf-8
 const JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
 
-/** ai-catalog data model version. This is not the ARD spec version. */
 const AI_CATALOG_SPEC_VERSION = "1.0";
 
 const MCP_SERVER_NAME = "pr-agent-site";
@@ -36,13 +34,6 @@ function jsonDocument(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-/**
- * Discovery documents ignore Accept.
- *
- * The request middleware rewrites a non-HTML Accept to text/html before the router runs, so the
- * framework can still render a 404. Negotiating here would turn a linkset or JSON probe into 406.
- * Each of these paths has one canonical representation.
- */
 export function documentResponse(
   body: string,
   contentType: string,
@@ -102,7 +93,6 @@ export function apiCatalogResponse(origin: string): Response {
   return documentResponse(renderApiCatalog(origin), API_CATALOG_CONTENT_TYPE, { varyHost: true });
 }
 
-/** Hostname, or hostname%3Aport when the origin has a non-default port. Shared by did:web and urn:air. */
 function catalogHost(origin: string): string {
   const url = new URL(origin);
   return url.port === "" ? url.hostname : `${url.hostname}%3A${url.port}`;
@@ -250,9 +240,6 @@ export function mcpServerCardResponse(origin: string): Response {
   return documentResponse(renderMcpServerCard(origin), JSON_CONTENT_TYPE, { varyHost: true });
 }
 
-/**
- * Bytes served at the skill URL. The index digest is the sha256 of this exact string.
- */
 export function renderReadPrAgentSkill(): string {
   return `---
 name: read-pr-agent
@@ -311,10 +298,6 @@ export function skillMarkdownResponse(): Response {
   return documentResponse(renderReadPrAgentSkill(), MARKDOWN_CONTENT_TYPE);
 }
 
-/**
- * Self-contained because this origin has no authorization server.
- * The H1 contains auth.md so a scanner can recognize the document.
- */
 export function renderAuthMd(): string {
   return `# auth.md
 

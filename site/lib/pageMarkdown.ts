@@ -92,13 +92,6 @@ function fetchExample(language: ProgrammingLanguage): string {
   );
 }
 
-/**
- * The landing page as markdown.
- *
- * Every HTML section renders from the same constants as this document, so the shared copy cannot
- * drift. The markdown representation also carries the agent fetch example, whose fence follows the
- * negotiated programming language.
- */
 export function renderHomeMarkdown(
   language: ProgrammingLanguage = DEFAULT_PROGRAMMING_LANGUAGE,
 ): string {
@@ -135,7 +128,6 @@ function displayPath(pathname: string): string {
   return cleaned === "" ? "/" : cleaned;
 }
 
-/** Short recovery body for a 404, pointing an agent at every entry point that does exist. */
 export function renderNotFoundMarkdown(pathname: string): string {
   return `${block(
     "# 404 Not Found",
@@ -148,12 +140,6 @@ export function renderNotFoundMarkdown(pathname: string): string {
   )}\n`;
 }
 
-/**
- * `/agents.md`: when to reach for PR Agent and how to query this site.
- *
- * The audit asks for when-to-use guidance that names concrete jobs, so this states the cases PR
- * Agent is wrong for as plainly as the ones it fits.
- */
 export function renderAgentInstructionsMarkdown(): string {
   return `${block(
     "# PR Agent agent instructions",

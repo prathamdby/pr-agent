@@ -1,14 +1,7 @@
-/**
- * Tool definitions shared by the read-only MCP server and the WebMCP page script.
- *
- * The page script is serialized into HTML, so this module stays free of Node builtins.
- */
-
 export const QUERY_TOOL_NAME = "query_pr_agent";
 export const LIST_TOOL_NAME = "list_site_resources";
 export const OPEN_SECTION_TOOL_NAME = "open_section";
 
-/** Section ids on the landing page. `open_section` refuses anything else. */
 export const PAGE_SECTIONS = [
   "features",
   "examples",
@@ -84,10 +77,8 @@ export const OPEN_SECTION_TOOL: AgentToolDefinition = {
   inputSchema: OPEN_SECTION_SCHEMA,
 };
 
-/** Tools a remote MCP client can call. `open_section` needs the page, so it stays in WebMCP. */
 export const MCP_TOOLS: readonly AgentToolDefinition[] = [QUERY_TOOL, LIST_TOOL];
 
-/** Tools the landing page registers for a browser agent. */
 export const WEB_MCP_TOOLS: readonly AgentToolDefinition[] = [
   QUERY_TOOL,
   LIST_TOOL,

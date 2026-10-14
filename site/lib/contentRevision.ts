@@ -1,9 +1,5 @@
 import stampJson from "../content-revision.json" with { type: "json" };
 
-/**
- * Committed content revisions. The client graph imports this module for `dateModified`,
- * so it stays on the JSON import and never reads the filesystem.
- */
 export const REVISION_IDS = ["landing", "llms", "agents", "openapi"] as const;
 
 export type RevisionId = (typeof REVISION_IDS)[number];
@@ -31,7 +27,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const STAMP_HASH = /^[a-f0-9]{64}$/i;
-/** One document hash, or the sitemap join of those hashes. Quotes and breaks never match. */
 const ETAG_HASH = /^[a-f0-9]{64}(?:[a-f0-9]{64})*$/i;
 const ETAG_VARIANT = /^[A-Za-z0-9_-]+$/;
 
@@ -67,7 +62,6 @@ export function revisionFor(id: RevisionId): ContentRevision {
   return STAMP[id];
 }
 
-/** ISO instant for one sitemap URL. Throws when a new sitemap path has no revision. */
 export function lastmodForSitemapPath(path: string): string {
   const id = SITEMAP_REVISION[path];
   if (id === undefined) {
@@ -76,7 +70,6 @@ export function lastmodForSitemapPath(path: string): string {
   return revisionFor(id).revisedAt;
 }
 
-/** Sitemap validators move when any published document moves. */
 export function sitemapRevision(): ContentRevision {
   let latest = revisionFor(REVISION_IDS[0]).revisedAt;
   for (const id of REVISION_IDS) {
@@ -91,7 +84,6 @@ export function sitemapRevision(): ContentRevision {
   };
 }
 
-/** RFC 9110 IMF-fixdate. Sitemap and JSON-LD keep the ISO form. */
 export function httpDate(iso: string): string {
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) {
@@ -144,13 +136,6 @@ function freshSince(header: string | null, revisedAt: string): boolean {
   return since >= Date.parse(revisedAt);
 }
 
-/**
- * 304 when the caller's validators still match.
- *
- * `If-None-Match` wins over `If-Modified-Since` (RFC 9110). Markdown passes
- * `honorModifiedSince: false` because `Accept-Language` changes the example, and a
- * time check cannot name which language the client cached.
- */
 export function conditionalResponse(
   conditional: ConditionalHeaders,
   revision: ContentRevision,

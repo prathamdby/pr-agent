@@ -183,7 +183,6 @@ function handleRequest(message: Extract<ParsedRpc, { kind: "request" }>): Respon
   }
 }
 
-/** GET is not a session stream. Clients POST one JSON-RPC message at a time. */
 export function mcpMethodNotAllowed(): Response {
   return jsonResponse(
     405,
@@ -206,10 +205,6 @@ function declaredBodyTooLarge(request: Request): boolean {
   return Number(header) > MAX_BODY_BYTES;
 }
 
-/**
- * Stop once the cap is passed. `request.text()` would keep the whole body, so a
- * client could force a multi-megabyte allocation before the 64 KiB reject.
- */
 async function readCappedBody(request: Request): Promise<Uint8Array | null> {
   if (declaredBodyTooLarge(request)) {
     await request.body?.cancel();

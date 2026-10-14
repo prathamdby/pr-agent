@@ -7,13 +7,6 @@ import { renderOpenApiDocument } from "./openapi.js";
 import { renderAgentInstructionsMarkdown, renderHomeMarkdown } from "./pageMarkdown.js";
 import { SITE_ORIGIN } from "./site.js";
 
-/**
- * Placeholder substituted for the build host before hashing.
- *
- * `SITE_ORIGIN` is localhost in CI and the Vercel host in production. Hashing the
- * raw landing markdown or OpenAPI document would make the committed stamp fail
- * whichever build did not write it.
- */
 export const ORIGIN_TOKEN = "https://origin.invalid";
 
 export const CONTENT_REVISION_MISMATCH =
@@ -29,7 +22,6 @@ function sha256(body: string): string {
   return createHash("sha256").update(body).digest("hex");
 }
 
-/** Bytes that must stay identical on a laptop, in CI, and on Vercel. */
 export function stableDocumentBodies(): Record<RevisionId, string> {
   const landing = FETCH_MARKDOWN_LANGUAGES.map((language) =>
     redactOrigin(renderHomeMarkdown(language), SITE_ORIGIN),

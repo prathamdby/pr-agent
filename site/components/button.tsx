@@ -5,7 +5,6 @@ type Variant = "primary" | "secondary" | "ghost";
 type Common = {
   readonly variant?: Variant;
   readonly className?: string;
-  /** Icon after the label. Padding on that side shrinks so the pair looks centred. */
   readonly trailingIcon?: ReactNode;
   readonly leadingIcon?: ReactNode;
   readonly children: ReactNode;
@@ -25,7 +24,6 @@ function classes({ variant = "primary", className, trailingIcon, leadingIcon }: 
 
 type ButtonLinkProps = Common & {
   readonly href: string;
-  /** Opens in a new tab and marks the link as leaving the site. */
   readonly external?: boolean;
   readonly onClick?: () => void;
 };

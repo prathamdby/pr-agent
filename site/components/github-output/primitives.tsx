@@ -4,13 +4,11 @@ import { ChevronRight, Info } from "@/components/icons";
 type Frame = "inline" | "window";
 
 type GhCommentProps = {
-  /** Where this output lands on GitHub, shown in the comment header. */
   readonly surface: string;
   readonly frame?: Frame;
   readonly children: ReactNode;
 };
 
-/** A GitHub timeline comment authored by the App bot, in GitHub's light palette. */
 export function GhComment({ surface, frame = "inline", children }: GhCommentProps) {
   const chassis = frame === "window" ? "window" : "rounded-sm bg-surface shadow-soft";
   return (
@@ -39,12 +37,10 @@ export function GhComment({ surface, frame = "inline", children }: GhCommentProp
   );
 }
 
-/** Markdown `##` heading as GitHub renders it, with the rule underneath. */
 export function GhTitle({ children }: { readonly children: ReactNode }) {
   return <p className="border-b border-line pb-1.5 text-sm font-semibold text-text">{children}</p>;
 }
 
-/** GitHub `[!NOTE]` alert. */
 export function GhNote({ children }: { readonly children: ReactNode }) {
   return (
     <div className="border-l-[3px] border-accent-solid py-0.5 pl-3 text-text-secondary">
@@ -74,7 +70,6 @@ type KvRow = {
   readonly value: ReactNode;
 };
 
-/** Mirrors `renderKeyValueTable`: an HTML table with a bold first column and no header row. */
 export function GhKvTable({ rows }: { readonly rows: readonly KvRow[] }) {
   return (
     <table className="w-full border-collapse text-left">

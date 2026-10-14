@@ -35,11 +35,6 @@ type IconProps = {
   readonly className?: string;
 };
 
-/**
- * Hugeicons, stroke-rounded set. The 1.5 stroke matches Geist at 400–500 weight, so an icon beside
- * a label reads as the same ink. Every icon here is decorative: the text next to it carries the
- * meaning, so the SVG is hidden from assistive tech.
- */
 function fromGlyph(glyph: IconSvgElement) {
   return function Icon({ className }: IconProps) {
     return (

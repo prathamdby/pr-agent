@@ -49,7 +49,6 @@ function stampPath(): string {
   return resolve(siteDir, "content-revision.json");
 }
 
-/** Production build fails when the committed stamp disagrees. It does not rewrite it. */
 export function contentRevisionBuildPlugin(io: ContentRevisionIo = {}): Plugin {
   const read = io.readStamp ?? (() => readFileSync(stampPath(), "utf8"));
   const bodies = io.bodies ?? stableDocumentBodies;

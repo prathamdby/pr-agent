@@ -1,21 +1,10 @@
 import { REPO_URL, SITE_ORIGIN } from "./site.js";
 
-/**
- * Every machine-readable URL this site publishes, named once.
- *
- * llms.txt, agents.md, the 404 recovery body, the OpenAPI description, the sitemap, the HTTP Link
- * headers, and the page head links all render from this list, so a new endpoint cannot appear on
- * one surface and go missing on the others. Surfaces that point at one resource by identity use
- * the named entries rather than repeating a path literal.
- */
 export type AgentResource = {
-  /** Site-relative path, including any query template an agent should fill in. */
   readonly path: string;
-  /** Human title. Carries the product name so name-based searches have something to match. */
   readonly title: string;
   readonly mediaType: string;
   readonly description: string;
-  /** Listed in sitemap.xml. Query endpoints and robots.txt are not. */
   readonly inSitemap: boolean;
 };
 
@@ -182,22 +171,10 @@ export const AGENT_RESOURCES: readonly AgentResource[] = [
   ROBOTS_POLICY,
 ];
 
-/**
- * Absolute form for a document that must name a host.
- * The default is the build host. Pass the request origin when a preview or local
- * fetch must not advertise that build host.
- */
 export function resourceUrl(resource: AgentResource, origin: string = SITE_ORIGIN): string {
   return `${origin}${resource.path}`;
 }
 
-/**
- * Markdown link list in llms.txt "file list" shape: `- [name](url): notes`.
- *
- * Targets stay relative. llms.txt is generated at build time and committed, so an absolute origin
- * here would bake whichever host built it (a laptop, a preview deployment) into the repository.
- * Every consumer of these lists fetched them from the site, so the origin is already known.
- */
 export function renderResourceLinks(): string {
   return AGENT_RESOURCES.map(
     (resource) => `- [${resource.path}](${resource.path}): ${resource.description}`,
@@ -210,7 +187,6 @@ export type DocLink = {
   readonly description: string;
 };
 
-/** Product documentation, which lives in the repository rather than on this site. */
 export const DOC_LINKS: readonly DocLink[] = [
   {
     title: "PR Agent repository",
@@ -253,7 +229,6 @@ export function renderDocLinks(): string {
   return DOC_LINKS.map((doc) => `- [${doc.title}](${doc.url}): ${doc.description}`).join("\n");
 }
 
-/** The resources an assistant should read before helping someone install PR Agent, in reading order. */
 const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
   LLMS_TXT_PROFILE,
   AGENT_INSTRUCTIONS,
@@ -262,13 +237,6 @@ const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
   OPENAPI_DOCUMENT,
 ];
 
-/**
- * Prompt behind the hero's "Copy prompt" button: paste it into any AI tool and that tool has every
- * machine-readable surface this site publishes, plus the job it is being asked to do.
- *
- * Takes the origin from the caller so the copied links follow the host the visitor is on. Build
- * inputs like SITE_ORIGIN bake at build time and go stale on custom domains and local runs.
- */
 export function renderSetupPrompt(origin: string): string {
   const links = SETUP_PROMPT_RESOURCES.map(
     (resource) => `- ${resource.title}: ${origin}${resource.path}`,

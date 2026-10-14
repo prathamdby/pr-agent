@@ -6,12 +6,6 @@ import { Eyebrow } from "@/components/section";
 import { AGENT_RESOURCES } from "@/lib/agentResources";
 import { REPO_URL } from "@/lib/site";
 
-/**
- * The HTML half of the 404 response.
- *
- * Agents asking for markdown get the same list from `renderNotFoundMarkdown`. Both exist so a
- * dead link ends in a site map rather than a dead end, whichever representation was negotiated.
- */
 export function NotFound() {
   return (
     <>

@@ -99,7 +99,6 @@ function CaseMock({ kind }: { readonly kind: CaseKind }) {
 
 export function UseCases() {
   const [active, setActive] = useState<CaseKind>("review");
-  // Only a pointer pick animates the panel in. Page load and arrow-key browsing switch instantly.
   const [animate, setAnimate] = useState(false);
   const baseId = useId();
   const tabs = useRef(new Map<CaseKind, HTMLButtonElement>());
@@ -226,10 +225,6 @@ export function UseCases() {
             </div>
 
             <div className="wash wash-clouds tabs-media p-4 sm:p-6 lg:p-8">
-              {/*
-                Same height for every tab: long outputs scroll behind a bottom fade. At desktop widths
-                the preview is taken out of flow, so its content can never stretch the row.
-              */}
               <div className="h-[24rem] [mask-image:linear-gradient(to_bottom,black_78%,transparent_100%)] sm:h-[27rem] lg:absolute lg:inset-8 lg:h-auto">
                 <div
                   role="region"

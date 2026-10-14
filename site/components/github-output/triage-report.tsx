@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
 import { GhCode, GhComment, GhLabel, GhPre, GhTitle } from "@/components/github-output/primitives";
 
-/**
- * Mirrors `renderTriageReport` under `## PR Agent Triage`: scope, evaluated head, verdict counts,
- * pushed commits, the findings table, and policy suggestions for dismissed findings.
- */
 type TriageRow = {
   readonly severity: string;
   readonly finding: string;
@@ -75,7 +71,7 @@ function GhGfmTable({ rows }: { readonly rows: readonly TriageRow[] }) {
               <GhCode>{row.path}</GhCode> L{row.line}
             </td>
             <td className="py-1.5 pr-2 whitespace-nowrap text-text-secondary">{row.verdict}</td>
-            {/* Styled as GitHub's link, but inert: a mock has no real thread to open. */}
+
             <td className="py-1.5">
               <span className="text-accent-text underline decoration-line">thread</span>
             </td>

@@ -10,7 +10,6 @@ type CodeBlockProps = {
   readonly language: Language;
 };
 
-/** Minimal display colouring: enough to separate comments, commands, keys and values. */
 function highlight(code: string, language: Language): ReactNode[] {
   return code.split("\n").map((line, index) => {
     const key = `${index}-${line}`;
@@ -48,10 +47,6 @@ function highlight(code: string, language: Language): ReactNode[] {
   });
 }
 
-/**
- * Same shell as the use-case tabs: a grey frame with a hairline edge holds the label row, and
- * the code sits in a white box inset by the frame's padding, one radius step smaller.
- */
 export function CodeBlock({ label, code, language }: CodeBlockProps) {
   return (
     <figure className="rounded-md bg-surface-raised p-1.5 shadow-ring">

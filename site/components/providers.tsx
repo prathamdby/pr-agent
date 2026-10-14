@@ -1,6 +1,5 @@
 import { PROVIDER_MARKS } from "@/components/provider-logos";
 
-/** Provider strip under the hero. Marks only: the keys and the bill stay with you. */
 export function Providers() {
   return (
     <section id="providers" aria-labelledby="providers-heading" className="scroll-mt-5">

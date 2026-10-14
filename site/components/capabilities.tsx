@@ -8,7 +8,6 @@ type IconComponent = ComponentType<{ readonly className?: string }>;
 
 const BY_ID = new Map(CAPABILITIES.map((item) => [item.id, item]));
 
-/** Every card below reads its copy from `CAPABILITIES`; only the arrangement lives here. */
 function capability(id: CapabilityId) {
   const item = BY_ID.get(id);
   if (item === undefined) {
@@ -73,10 +72,6 @@ function Card({
   );
 }
 
-/**
- * Dashed rail segment. A wrapper takes the insets because an absolutely positioned SVG is a
- * replaced element and would keep its intrinsic height instead of stretching between them.
- */
 function Rail({ className }: { readonly className: string }) {
   return (
     <span aria-hidden="true" className={`pointer-events-none absolute left-0 w-10 ${className}`}>
@@ -87,11 +82,6 @@ function Rail({ className }: { readonly className: string }) {
   );
 }
 
-/**
- * Review and verify share one card: the first pass, then the recheck that follows every push.
- * One dashed rail runs from the review tile through a small info mark and behind the verify
- * tile, then turns with a rounded corner into the middle of the verify copy.
- */
 function ReviewLoopCard() {
   const review = capability("review");
   const verify = capability("verify");
@@ -164,11 +154,9 @@ const VERDICTS: readonly Verdict[] = [
   { finding: "Docs skip ack wait", tone: "warning", verdict: "Dismissed" },
 ];
 
-/** The verdicts a triage run leaves behind, sized for a card. Decorative. */
 function TriageVerdicts() {
   return (
     <div className="wash wash-grid flex items-center rounded-md p-4 sm:p-5" aria-hidden="true">
-      {/* The wash padding exceeds its 12px radius, so the window steps down a size to stay concentric. */}
       <div className="window w-full overflow-hidden rounded-sm text-xs leading-snug text-text">
         <div className="border-b border-line bg-surface-raised px-3 py-2 font-semibold">
           PR Agent Triage

@@ -7,11 +7,6 @@ type SectionProps = {
   readonly children: ReactNode;
 };
 
-/**
- * Page band with the shared horizontal container. The anchor id sits on the container, not the
- * padded band, so every section's first line lands the same distance under the sticky header at
- * every breakpoint.
- */
 export function Section({ id, labelledBy, className, children }: SectionProps) {
   return (
     <section aria-labelledby={labelledBy} className={`py-16 sm:py-20 lg:py-24 ${className ?? ""}`}>
@@ -37,7 +32,6 @@ type SectionTitleProps = {
   readonly children: ReactNode;
 };
 
-/** The eyebrow and section `h2` pair. Side-column sections place it themselves. */
 export function SectionTitle({ id, eyebrow, children }: SectionTitleProps) {
   return (
     <>
@@ -57,7 +51,6 @@ type SectionHeadingProps = {
   readonly eyebrow: string;
   readonly title: string;
   readonly description?: string;
-  /** Rendered beside the copy on wide screens, under it on narrow ones. */
   readonly action?: ReactNode;
 };
 

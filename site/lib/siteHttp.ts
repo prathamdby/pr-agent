@@ -28,40 +28,21 @@ import {
 const HTML_TYPE = "text/html";
 const MARKDOWN_TYPE = "text/markdown";
 
-/** Server preference for the landing page: HTML unless the client asks for markdown. */
 const PAGE_TYPES = [HTML_TYPE, MARKDOWN_TYPE] as const;
 
-/**
- * Server preference for the 404 recovery document: markdown first.
- *
- * A browser still lands on HTML because it asks for `text/html` explicitly, above the catch-all
- * it appends. Everything that hits a dead path with a bare catch-all, or no Accept at all, is
- * tooling, and tooling recovers faster from a link list than from a rendered page.
- */
 const RECOVERY_TYPES = [MARKDOWN_TYPE, HTML_TYPE] as const;
 
-/**
- * Vercel strips `s-maxage` and `stale-while-revalidate` before the response reaches the browser,
- * so clients keep revalidating while the CDN serves both negotiated variants from its edge.
- */
 const PAGE_CACHE_CONTROL = "public, max-age=0, s-maxage=600, stale-while-revalidate=86400";
-/** Fixed-format documents (`/agents.md`, `/openapi.json`): long edge cache, no negotiation. */
 export const DOCUMENT_CACHE_CONTROL =
   "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400";
 const ERROR_CACHE_CONTROL = "no-store";
 
 const MARKDOWN_CONTENT_TYPE = `${MARKDOWN_TYPE}; charset=utf-8`;
 
-/**
- * RFC 8288 links. `describedby` points at the llms.txt covering this path, per llmstxt.org.
- * Targets come from the resource registry so the headers cannot drift from the sitemap, the
- * OpenAPI description, or the markdown link lists.
- */
 const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
-/** Add a request header to Vary without dropping whatever the framework already varies on. */
 export function varyOn(headers: Headers, field: string): void {
   const existing = headers.get("Vary");
   if (existing === null || existing.trim() === "") {
@@ -91,11 +72,6 @@ function markdownResponse(body: string, init: { status: number; cacheControl: st
   });
 }
 
-/**
- * 406 for a client that refused every representation we have.
- *
- * RFC 9110 asks for a body listing what is available so the client can retry with a usable Accept.
- */
 export function notAcceptableResponse(produces: readonly string[]): Response {
   return new Response(`Not Acceptable\n\nAvailable: ${produces.join(", ")}\n`, {
     status: 406,
@@ -117,7 +93,6 @@ function homeMarkdown(
 ): Response {
   const language = negotiateProgrammingLanguage(acceptLanguage, FETCH_MARKDOWN_LANGUAGES);
   const varyHeader = vary.join(", ");
-  // Time revalidation cannot name the cached language, so only the language-specific ETag 304s.
   const cached = conditionalResponse(conditional, revisionFor("landing"), {
     variant: language,
     honorModifiedSince: false,
@@ -141,7 +116,6 @@ function homeMarkdown(
   return response;
 }
 
-/** `/` negotiated to markdown. HTML shares the URL, so both axes are declared. */
 export function homeMarkdownResponse(
   acceptLanguage: string | null,
   conditional: ConditionalHeaders = NO_VALIDATORS,
@@ -149,13 +123,6 @@ export function homeMarkdownResponse(
   return homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"], conditional);
 }
 
-/**
- * `/index.md`, the markdown sibling advertised by `rel="alternate"` and llms.txt.
- *
- * It serves markdown whatever the client asks for: crawlers that follow such links often send no
- * Accept header at all. Only the example language is negotiated, so only Accept-Language is
- * declared.
- */
 export function homeMarkdownDocumentResponse(
   acceptLanguage: string | null,
   conditional: ConditionalHeaders = NO_VALIDATORS,
@@ -163,7 +130,6 @@ export function homeMarkdownDocumentResponse(
   return homeMarkdown(acceptLanguage, ["Accept-Language"], conditional);
 }
 
-/** `/agents.md`: when to reach for PR Agent, and how an agent should query this site. */
 export function agentInstructionsResponse(
   conditional: ConditionalHeaders = NO_VALIDATORS,
 ): Response {
@@ -187,7 +153,6 @@ export function agentInstructionsResponse(
   return response;
 }
 
-/** `/llms.txt`. A route, so the static file cannot replace Last-Modified with the request time. */
 export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
   const revision = revisionFor("llms");
   const cached = conditionalResponse(conditional, revision, {
@@ -211,7 +176,6 @@ export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDAT
   return response;
 }
 
-/** `/openapi.json`. */
 export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
   const revision = revisionFor("openapi");
   const cached = conditionalResponse(conditional, revision, {
@@ -232,7 +196,6 @@ export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS)
   return Response.json(renderOpenApiDocument(), { headers });
 }
 
-/** `/sitemap.xml`. Each URL keeps its own lastmod. The document validator is the newest of those. */
 export function sitemapResponse(
   conditional: ConditionalHeaders = NO_VALIDATORS,
   origin: string = SITE_ORIGIN,
@@ -252,13 +215,6 @@ export function sitemapResponse(
   return response;
 }
 
-/**
- * Answer a landing-page request before the router renders.
- *
- * Media type is settled first. Only the markdown branch reads Accept-Language, because the HTML
- * page has no language-variant content and must not fragment its cache by locale. Returns null
- * when HTML won, which leaves the React page to render exactly as it always has.
- */
 export function negotiateHomeRequest(
   accept: string | null,
   acceptLanguage: string | null,
@@ -274,7 +230,6 @@ export function negotiateHomeRequest(
   return null;
 }
 
-/** 304 for the HTML landing page. Invalid conditional headers fall through to a 200. */
 export function landingHtmlConditional(
   ifNoneMatch: string | null,
   ifModifiedSince: string | null,
@@ -296,7 +251,6 @@ export function conditionalHeaders(request: Request): ConditionalHeaders {
   };
 }
 
-/** Copy a response so headers can be added even when the original guards them. */
 function withHeaders(response: Response, apply: (headers: Headers) => void): Response {
   const headers = new Headers(response.headers);
   apply(headers);
@@ -307,7 +261,6 @@ function withHeaders(response: Response, apply: (headers: Headers) => void): Res
   });
 }
 
-/** Declare the variant axis and advertise the markdown sibling on the rendered page. */
 export function decorateHtmlResponse(response: Response): Response {
   return withHeaders(response, (headers) => {
     varyOnAccept(headers);
@@ -321,17 +274,6 @@ export function decorateHtmlResponse(response: Response): Response {
   });
 }
 
-/**
- * Restate the negotiated representation in the header the renderer reads.
- *
- * TanStack Start renders a document only when some part of Accept starts with `text/html` or the
- * catch-all, matched literally. Without this, a spec-legal `text/*` on the landing page and any
- * `Accept: text/markdown` on a path with no route both end in a 500 instead of a page or a 404.
- * Negotiation has already decided by the time this runs, and the fixed-format routes ignore Accept
- * entirely, so the header can safely state HTML for whatever the renderer is about to do.
- *
- * Callers must read the client's real Accept header before calling this.
- */
 export function restateAcceptAsHtml(headers: Headers): void {
   const accept = headers.get("Accept");
   if (accept === null) {
@@ -346,16 +288,6 @@ export function restateAcceptAsHtml(headers: Headers): void {
   headers.set("Accept", HTML_TYPE);
 }
 
-/**
- * Turn the framework's bare 404 into something an agent can recover from.
- *
- * `accept` is passed in rather than read off the request: the renderer needs an HTML-shaped Accept
- * header to produce a 404 at all, so by this point the request no longer carries what the client
- * actually sent.
- *
- * The status stays 404 in every branch. A 200 carrying an app shell is what makes an agent
- * believe every path on a site exists.
- */
 export function notFoundResponse(
   pathname: string,
   accept: string | null,

@@ -6,7 +6,6 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 const SELF = ALTERNATIVE_ROWS.find((row) => row.name === PRODUCT_NAME)?.id ?? "pr-agent";
 
-/** Icon plus text for every state, so the mark never rests on colour alone. */
 function Mark({ value }: { readonly value: ComparisonMark }) {
   switch (value) {
     case "yes":
@@ -93,7 +92,6 @@ function ComparisonTable() {
   );
 }
 
-/** One card per criterion so the comparison stays two columns wide on a phone. */
 function ComparisonCards() {
   return (
     <ul className="space-y-4 md:hidden">

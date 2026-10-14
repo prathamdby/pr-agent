@@ -1,21 +1,9 @@
-/**
- * Accept negotiation per RFC 9110 section 12.5.1.
- *
- * Substring matching gets this wrong: a real Chrome header ends in a catch-all at q=0.8, so
- * `accept.includes("text/markdown")` is false while `startsWith("text/html")` is true only by
- * luck of ordering. Rank by q, break ties by specificity, and honour `q=0` as a refusal.
- */
-
 const WILDCARD = "*/*";
 
 type AcceptEntry = {
-  /** Lowercased media range: `text/markdown`, `text/*`, or the catch-all. */
   readonly type: string;
-  /** Quality factor, clamped to [0, 1]. Absent or unparseable means 1. */
   readonly q: number;
-  /** 2 for a full type, 1 for a subtype wildcard, 0 for the catch-all. */
   readonly specificity: 0 | 1 | 2;
-  /** Position in the header, used to break ties between equal ranges. */
   readonly index: number;
 };
 
@@ -72,12 +60,6 @@ function matches(entry: AcceptEntry, candidate: string): boolean {
   return entry.type === candidate;
 }
 
-/**
- * Rank two entries covering the same candidate. The more specific range speaks for it, per the
- * RFC; between equally specific ranges the higher q wins, then the one the client listed first.
- * The q tie-break matters for a duplicated range: `text/markdown;q=0, text/markdown;q=0.9` is a
- * 0.9 ask, not a refusal.
- */
 function coversBetter(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
   if (entry.specificity !== incumbent.specificity) {
     return entry.specificity > incumbent.specificity;
@@ -88,7 +70,6 @@ function coversBetter(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
   return entry.index < incumbent.index;
 }
 
-/** The header entry that speaks for `candidate`, or null when none covers it. */
 function bestEntryFor(entries: readonly AcceptEntry[], candidate: string): AcceptEntry | null {
   let best: AcceptEntry | null = null;
   for (const entry of entries) {
@@ -102,11 +83,6 @@ function bestEntryFor(entries: readonly AcceptEntry[], candidate: string): Accep
   return best;
 }
 
-/**
- * Rank two matched entries: quality first, then how specifically each was asked for, then the
- * order the client listed them. A full tie leaves the earlier `produces` entry in place, so
- * server preference settles whatever the client left open.
- */
 function outranks(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
   if (entry.q !== incumbent.q) {
     return entry.q > incumbent.q;
@@ -117,14 +93,6 @@ function outranks(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
   return entry.index < incumbent.index;
 }
 
-/**
- * Pick the representation to serve.
- *
- * `produces` is server preference order, so `produces[0]` is what an unconstrained client gets.
- * Returns null when every representation is unacceptable, which is the only case that earns a 406.
- * A missing header means "no constraint" rather than "nothing works"; an empty one is a real
- * constraint that nothing can satisfy.
- */
 export function negotiateType(
   header: string | null | undefined,
   produces: readonly string[],

@@ -5,10 +5,8 @@ import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
 
-/** Profile behind the repository, used as an entity anchor for brand-name queries. */
 const AUTHOR_URL = "https://github.com/prathamdby";
 
-/** Every URL that identifies this project, so search engines can tie the name to one entity. */
 const SAME_AS = [REPO_URL, AUTHOR_URL];
 
 export const SEO_TITLE = "PR Agent | AI PR reviews on Your Own Servers";

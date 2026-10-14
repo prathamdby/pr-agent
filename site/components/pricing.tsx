@@ -38,10 +38,6 @@ export function Pricing() {
               key={plan.title}
               className="flex flex-col rounded-xl bg-surface-raised p-2 shadow-ring"
             >
-              {/*
-                Grey shell: the wash graphic is inset at the top and the copy sits in the shell's
-                footer. The middle card flips, copy on top, so the cards alternate.
-              */}
               <div
                 className={`wash ${art.texture} flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft`}
               >

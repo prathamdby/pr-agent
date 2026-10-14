@@ -13,7 +13,6 @@ type FeatureItem = {
   summary: string;
 };
 
-/** Screen-reader H1. Leads with the product name so brand queries have something to match. */
 export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
 
 export const HERO_SUPPORT =
@@ -207,7 +206,6 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
-/** One id per compared tool. Marks in `components/brand-logos.tsx` are keyed by it. */
 export type AlternativeId = "pr-agent" | "coderabbit" | "greptile" | "cursor" | "macroscope";
 
 type AlternativeRow = {
@@ -254,14 +252,9 @@ export type ComparisonMark = "yes" | "partial" | "no";
 
 type ComparisonCriterion = {
   readonly label: string;
-  /** One mark per compared tool. Adding a tool to `ALTERNATIVE_ROWS` forces a mark here. */
   readonly marks: Readonly<Record<AlternativeId, ComparisonMark>>;
 };
 
-/**
- * Feature matrix behind the comparison table. Vendor claims come from each product's public
- * pages; a hosted reviewer with a self-host tier counts as partial for the ownership rows.
- */
 export const COMPARISON_CRITERIA: readonly ComparisonCriterion[] = [
   {
     label: "Runs on your servers",
@@ -331,7 +324,6 @@ export const COMPARISON_CRITERIA: readonly ComparisonCriterion[] = [
   },
 ];
 
-/** Plain-text form of a mark for the markdown page and llms.txt. */
 export function comparisonMarkLabel(mark: ComparisonMark): string {
   switch (mark) {
     case "yes":
@@ -436,17 +428,10 @@ OPENAI_API_KEY=sk-...`;
 type Variants = Readonly<Partial<Record<ProgrammingLanguage, string>>> &
   Readonly<Record<typeof DEFAULT_PROGRAMMING_LANGUAGE, string>>;
 
-/**
- * A code example with one body per language it can be served in.
- *
- * The default language's body is required, so a request for a language the example lacks still
- * has something to render without a runtime check.
- */
 export type VariantSnippet = {
   readonly variants: Variants;
 };
 
-/** Languages the snippet has a body for, default first, then allowlist order. */
 export function servableLanguages(snippet: VariantSnippet): ServableLanguages {
   const rest = PROGRAMMING_LANGUAGES.filter(
     (language) =>
@@ -455,7 +440,6 @@ export function servableLanguages(snippet: VariantSnippet): ServableLanguages {
   return [DEFAULT_PROGRAMMING_LANGUAGE, ...rest];
 }
 
-/** The body to render for a negotiated language, falling back to the default body. */
 export function pickSnippet(
   snippet: VariantSnippet,
   preferred: ProgrammingLanguage,
@@ -521,5 +505,4 @@ markdown = http.request(request).body`,
   },
 };
 
-/** Server preference for the landing page's code example. `/` and `/index.md` negotiate against this set. */
 export const FETCH_MARKDOWN_LANGUAGES = servableLanguages(FETCH_MARKDOWN_SNIPPET);

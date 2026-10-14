@@ -2,15 +2,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/*
-  Social card at 1200×630. The layout is the hero of the landing page: wordmark, heading, pills,
-  and the PrWindow mock inside a wash card. Positions were measured from that markup at 1× and the
-  colours mirror the semantic tokens in app/globals.css, so a token change means a regeneration.
-
-  Text goes through librsvg and fontconfig, not a browser. Geist ships as woff2 for the page, which
-  that stack cannot read, so ../assets/fonts carries the same faces as TTF and the script points
-  fontconfig at only that directory. Every glyph then comes from Geist on any machine.
-*/
 const siteDir = join(import.meta.dirname, "..");
 const fontDir = join(siteDir, "assets", "fonts");
 const outPath = join(siteDir, "public", "og-image.png");
@@ -52,11 +43,9 @@ const color = {
 const sans = "Geist";
 const mono = "Geist Mono";
 
-/* Geist: ascender 1005 and descender 295 per 1000 units, so a line of text is 1.3em tall. */
 const ASCENT = 1.005;
 const CONTENT = 1.3;
 
-/** Baseline of line `index` in a block whose top edge is `top`, for CSS font-size and line-height. */
 const baseline = (top, size, lineHeight, index = 0) =>
   top + index * lineHeight + (lineHeight - CONTENT * size) / 2 + ASCENT * size;
 
@@ -88,7 +77,6 @@ const text = (x, y, content, opts = {}) => {
     .filter(Boolean)
     .join(" ");
   const body = Array.isArray(content) ? content.join("") : esc(content);
-  // Geist ships upright only here; a 12° skew stands in for the italic instance.
   return italic
     ? `<text transform="translate(${x} ${y}) skewX(-12)" ${attrs}>${body}</text>`
     : `<text x="${x}" y="${y}" ${attrs}>${body}</text>`;
@@ -119,7 +107,6 @@ const rect = (x, y, w, h, opts = {}) => {
 
 const hline = (x, y, w, fill = color.line) => rect(x, y, w, 1, { fill });
 
-/* Hugeicons stroke-rounded glyphs on a 24-unit grid, drawn at 1.5 stroke like components/icons.tsx. */
 const glyphs = {
   tick: ['<path d="M5 14L8.5 17.5L19 6.5"/>'],
   info: [
@@ -148,7 +135,6 @@ const countPill = (x, label) =>
     anchor: "middle",
   });
 
-/* Cloud puffs from .wash-clouds, given as fractions of the box that is the wash card grown by 20%. */
 const clouds = [
   [0.18, 0.82, 0.34, 0.26, 0.95],
   [0.36, 0.92, 0.2, 0.16, 0.9],
@@ -394,7 +380,6 @@ const svg = `<svg width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HE
   </g>
 </svg>`;
 
-/* Rasterise at 2× and downsample so text and hairlines get the same anti-aliasing a browser gives. */
 await sharp(Buffer.from(svg), { density: 144 })
   .resize(WIDTH, HEIGHT, { kernel: "lanczos3" })
   .png({ compressionLevel: 9 })
