@@ -59,7 +59,9 @@ export const reviewFindingEntries = {
     v.string(),
     v.minLength(1),
     v.maxLength(REVIEW_FINDING_DETAIL_MAX_CHARS),
-    v.description("The trigger, the observable consequence, and the code that proves it."),
+    v.description(
+      "Two or three short sentences stating the trigger, the observable consequence, the proving line, the broken rule or invariant, and any unconfirmed step, without restating the diff or fixPrompt.",
+    ),
   ),
   fixPrompt: v.pipe(
     v.string(),

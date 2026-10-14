@@ -18,6 +18,7 @@ import {
   userSupplementGuidance,
 } from "./reviewPromptBlocks.js";
 import { specialistInvestigationHarness } from "../../agent/prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../../agent/prompts/readerFirstOutput.js";
 import { context7OutboundDataGuidance } from "../../agent/prompts/toolingDiscipline.js";
 
 export function buildAutomatedSystemPrompt(): string {
@@ -66,10 +67,12 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     outOfScopeFilesGuidance,
     "",
+    readerFirstOutputGuidance,
+    "",
     specialistFindingsReportContract,
     "",
     "Finding fields:",
-    "- Each finding has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (trigger, wrong path, consequence, and violated invariant).",
+    "- Each finding has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant).",
     reviewPayloadPerFindingContracts,
   ].join("\n");
 }

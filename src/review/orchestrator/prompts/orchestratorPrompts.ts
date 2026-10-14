@@ -9,6 +9,7 @@ import type { ReviewFinding } from "../../reviewSchema.js";
 import type { SpecialistReport } from "../specialistReport.js";
 import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../../../agent/prompts/readerFirstOutput.js";
 import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
 import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
 import { causalPublicationContract } from "../../prompts/reviewPromptBlocks.js";
@@ -31,6 +32,7 @@ export const orchestratorSystemPrompt = [
   "",
   causalPublicationContract,
   ste100WritingGuidance,
+  readerFirstOutputGuidance,
   [
     "## Review gates",
     "",

@@ -1,4 +1,5 @@
 import {
+  findingDetailFieldContract,
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
@@ -14,6 +15,7 @@ import {
   userSupplementGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { specialistInvestigationHarness } from "./harnessProtocol.js";
+import { readerFirstOutputGuidance } from "./readerFirstOutput.js";
 import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
 
 export const automatedQualitySystemPrompt = [
@@ -75,12 +77,15 @@ export const automatedQualitySystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
+  readerFirstOutputGuidance,
+  "",
   specialistFindingsReportContract,
   "",
   "Each P0–P2 finding carries a bounded restructuring direction in `fixPrompt`, because the finding is only actionable with one. Cleaner structure for taste, file length, or future maintainability is not a finding.",
   "",
   "Finding fields:",
-  "- Each finding has severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine, title (imperative, <=80 chars), and detail (present harm, trigger, and observable consequence).",
+  "- Each finding has severity P0|P1|P2|P3 per the mapping above, file, startLine, endLine, title (imperative, <=80 chars), and detail (per the detail contract below, naming the present structural harm).",
+  `- ${findingDetailFieldContract}`,
   `- ${fixPromptFieldContract} For this specialist, fixPrompt names the structural fix for the current failure.`,
   `- ${suggestedCodeAndConfidenceFieldContract}`,
   `- ${categoryFieldContract}`,
