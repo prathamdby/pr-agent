@@ -1,10 +1,6 @@
+import { ASK_RETRY_NUDGE, ASK_SHORTEN_NUDGE } from "../src/prompts/ask/prompt.js";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import {
-  ASK_FAILURE_MESSAGE,
-  ASK_RETRY_NUDGE,
-  ASK_SHORTEN_NUDGE,
-  ASK_TRUNCATED_NOTICE,
-} from "../src/settings/index.js";
+import { ASK_FAILURE_MESSAGE, ASK_TRUNCATED_NOTICE } from "../src/settings/index.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
