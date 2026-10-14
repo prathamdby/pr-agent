@@ -151,7 +151,6 @@ export async function buildSymbolIndex(
   const symbolCount = { value: 0 };
   const indexable = paths.filter(isIndexableSourcePath);
 
-  // Concurrent reads per chunk; index in path order; stop after the symbol cap.
   for (let offset = 0; offset < indexable.length; offset += readConcurrency) {
     if (options?.signal?.aborted) break;
     const chunk = indexable.slice(offset, offset + readConcurrency);

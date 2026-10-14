@@ -18,7 +18,6 @@ export type {
   PromptCacheRetention,
 } from "./promptCachePolicy.js";
 
-/** Production factory for the Pi-specific session seam. */
 export async function createPiSession(params: PiSessionCreateParams): Promise<PiSession> {
   return createPiSessionImpl(params);
 }

@@ -15,15 +15,10 @@ export function parseSlashCommand(body: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** True when the first non-empty line is `/review force` (trailing text allowed). */
 export function isReviewForceCommand(body: string): boolean {
   return REVIEW_FORCE_RE.test(firstNonEmptyLine(body));
 }
 
-/**
- * Parse `/triage` subcommands on the first non-empty line.
- * Returns null when the command token is not `triage`.
- */
 export function parseTriageCommand(body: string): ParsedTriageCommand | null {
   if (parseSlashCommand(body) !== "triage") return null;
   const first = firstNonEmptyLine(body);

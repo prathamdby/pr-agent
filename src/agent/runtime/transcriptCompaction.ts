@@ -10,8 +10,6 @@ import type { SessionTrace } from "./sessionTrace.js";
 import { clampThinkingLevel } from "./thinkingPolicy.js";
 import type { ThinkingLevel } from "./types.js";
 
-// Summary framing and token estimates adapted from Pi (MIT, Copyright (c) 2025
-// Mario Zechner, earendil-works/pi packages/agent). Core 1.0 removed the exports.
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
 <summary>
@@ -156,7 +154,6 @@ function serializeForSummary(messages: readonly AgentMessage[]): string {
   return lines.join("\n");
 }
 
-/** First retained index. Never starts on a toolResult (that would split an assistant/tool pair). */
 export function findSafeCutIndex(
   messages: readonly AgentMessage[],
   keepRecentTokens: number,
@@ -191,7 +188,6 @@ async function summarizeMessages(
 ): Promise<string | undefined> {
   const conversationText = serializeForSummary(messages);
   if (conversationText.length === 0) return undefined;
-  // Thinking shares maxTokens with the summary; keep it short so the summary fits.
   const reasoning = clampThinkingLevel("low", thinkingCeiling);
   const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
   const maxTokens = Math.min(
@@ -234,11 +230,6 @@ async function summarizeMessages(
   }
 }
 
-/**
- * Adaptive-thinking Anthropic models bind each thinking block to the exact
- * prefix it was produced under. Compaction rewrites that prefix, so a retained
- * block would be rejected (or silently dropped) on replay.
- */
 function thinkingBoundToPrefix(model: Model<Api>): boolean {
   const compat = model.compat;
   return (
@@ -263,9 +254,6 @@ export async function compactAgentMessages(params: {
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
 }): Promise<AgentMessage[] | undefined> {
-  // Leading system messages carry the session prompt. Compaction summarizes
-  // conversation only, so keep them out of the summarized region and re-prepend
-  // them verbatim; otherwise an overflow compact would drop the system prompt.
   const leadingSystem: AgentMessage[] = [];
   let restStart = 0;
   while (restStart < params.messages.length && params.messages[restStart]?.role === "system") {
@@ -313,7 +301,6 @@ export async function compactIfNeeded(params: {
   return compactAgentMessages(params);
 }
 
-/** Error assistants must not become provider input on retry or overflow recovery. */
 export function dropTrailingErrorAssistant(messages: AgentMessage[]): void {
   const last = messages[messages.length - 1];
   if (last?.role === "assistant" && "stopReason" in last && last.stopReason === "error") {

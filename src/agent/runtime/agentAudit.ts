@@ -35,7 +35,6 @@ export type AgentAuditRecord = {
   readonly recordedAt: string;
 };
 
-/** Derive a metadata-only audit record from a sanitized lifecycle event. */
 export function agentAuditRecordFromLifecycleEvent(
   event: AgentLifecycleEvent,
   now: () => Date = () => new Date(),

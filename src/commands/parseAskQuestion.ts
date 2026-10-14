@@ -6,10 +6,6 @@ export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
 
 const ASK_COMMAND_RE = /^\/ask(?:\s+(.*))?$/;
 
-/**
- * Extract the question from `/ask ...` on the first non-empty line.
- * Supports optional surrounding quotes on the question text.
- */
 function askRestFromBody(body: string): string | null {
   const first = firstNonEmptyLine(body);
   const m = first.match(ASK_COMMAND_RE);
@@ -47,10 +43,6 @@ function parseMentionAskQuestion(body: string, botLogin: string): AskQuestionPar
   return { kind: "ok", question };
 }
 
-/**
- * Parse an ask question for slash `/ask` or an `@bot` mention.
- * Bare non-mention bodies are never treated as asks.
- */
 export function parseAskQuestion(body: string, botLogin?: string): AskQuestionParseResult {
   const result = parseAskQuestionResult(body);
   if (result.kind !== "not_ask") return result;

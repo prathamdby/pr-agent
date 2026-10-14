@@ -15,7 +15,6 @@ const CANCEL_ABORT_CODES = new Set<AppErrorCode>([
   "review.specialist_aborted",
 ]);
 
-/** Host-signal or session abort. Not a provider timeout and not retryable. */
 export function isCancelAbortError(error: unknown): boolean {
   if (isAppError(error) && CANCEL_ABORT_CODES.has(error.code)) return true;
   return (
@@ -26,15 +25,12 @@ export function isCancelAbortError(error: unknown): boolean {
   );
 }
 
-/** Safety-classifier decline. Resending the same request returns the same decline. */
 export function isProviderRefusalError(error: unknown): boolean {
   return isAppError(error) && error.code === "provider.refusal";
 }
 
-/** Logs-only classification for worker/provider failures. */
 export function classifyProviderError(error: unknown): ProviderErrorKind {
   if (isCancelAbortError(error)) return "cancelled";
-  // The specialist's host deadline participates in its existing local retry loop.
   if (isAppError(error) && error.code === "review.specialist_timeout") return "timeout";
   if (isAppError(error) && error.domain !== "provider") return "unknown";
   if (

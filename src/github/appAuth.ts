@@ -29,7 +29,6 @@ export type BotIdentity = { userId: number; login: string };
 export type InstallationToken = {
   readonly token: string;
   readonly expiresAtTs: number;
-  /** Observed TTL at mint (ms); used for token_age_seconds in logs */
   readonly ttlMs: number;
   readonly permissions?: InstallationPermissions;
   readonly repositories?: readonly string[];
@@ -84,7 +83,6 @@ export function parseRepositoryInstallation(value: unknown): RepositoryInstallat
   };
 }
 
-/** App JWT transport deliberately has neither throttling nor retry plugins. */
 export async function lookupRepositoryInstallation(
   cfg: Pick<Config, "github">,
   owner: string,
@@ -221,9 +219,6 @@ async function mintAppJwtToken(cfg: Pick<Config, "github">): Promise<string> {
   return appAuth.token;
 }
 
-/**
- * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
- */
 export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
   void getAppBotIdentity(cfg).catch((error: unknown) => {
     logDebug("app_bot_identity_prewarm_failed", {
@@ -233,7 +228,6 @@ export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
   });
 }
 
-/** Resolve the app's bot user id without minting an installation token. */
 export function createAppBotIdentityLookup() {
   const appBotIdentityByAppId = new Map<string, BotIdentity | Promise<BotIdentity>>();
   async function getAppBotIdentity(cfg: Pick<Config, "github">): Promise<BotIdentity> {

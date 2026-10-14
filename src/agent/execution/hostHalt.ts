@@ -49,7 +49,6 @@ export type EncodedHostCallFailure = {
   readonly error?: string;
 };
 
-/** Structured worker-thread payload. `instanceof` does not survive `postMessage`. */
 export function encodeHostCallFailure(error: unknown): EncodedHostCallFailure {
   if (isCodeModeHostHalt(error)) {
     return {

@@ -996,7 +996,6 @@ describe("review work definition", () => {
   it("does not create a stale-head replacement when a newer auto review already cancelled the parent", async () => {
     mockDurableExecution("auto");
     vi.spyOn(durableSurfaceBundle.surface, "getHeadSha").mockResolvedValue("new-head");
-    // Gate check (false) then post-orchestrator reschedule guard (true).
     mocks.shouldSkipWork.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();

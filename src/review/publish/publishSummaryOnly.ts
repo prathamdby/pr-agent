@@ -106,7 +106,6 @@ export async function publishReviewSummaryOnly(
   const mode = session.mode;
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const summaryPlacements = input.ledger.accepted.map((accepted) => accepted.placement);
-  // Prefer URLs already attached during inline publish; fetch the PR once for the rest.
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
@@ -430,7 +429,6 @@ function reviewCommentAnchorKey(path: string, line: number): string {
   return `${path}:${line}`;
 }
 
-/** Match GitHub review comments to inline placements in placement order (FIFO per anchor). */
 function enrichPlacementsWithInlineCommentUrls(
   placements: readonly InlinePlacement[],
   comments: readonly PublishedReviewComment[],

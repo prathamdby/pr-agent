@@ -110,7 +110,6 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("CI failing");
     expect(body).toContain("Unexpected any");
     expect(body).toContain("re-push");
-    // CI sits after Security in the overview gate table.
     expect(body.indexOf("<strong>Security</strong>")).toBeLessThan(
       body.indexOf("<strong>CI</strong>"),
     );

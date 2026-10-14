@@ -48,7 +48,6 @@ export function modelAssignmentForRole(
   }
 }
 
-/** Guard: a healthy live session must not switch models mid-conversation. */
 export function assertSameModelAssignment(
   current: ModelAssignment,
   next: ModelAssignment,

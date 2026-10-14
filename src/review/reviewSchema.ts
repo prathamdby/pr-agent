@@ -18,7 +18,6 @@ export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type ReviewMode = "review";
 
-/** How a review run was triggered (automated webhook vs slash command). */
 export type WorkSource = "auto" | "slash";
 
 const severitySchema = v.picklist(["P0", "P1", "P2", "P3"]);
@@ -102,7 +101,6 @@ export const reviewFindingSchema = v.pipe(
   ),
 );
 
-/** Synthesis-authored gates on `publish_summary`. Finding copy stays ledger-owned. */
 export const REVIEW_PUBLISH_SUMMARY_FIELDS = [
   "size",
   "followUps",
@@ -187,12 +185,10 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
   return { message: lines.join("\n"), failureKind, paths };
 }
 
-/** Severities that may post an inline review thread when a diff anchor resolves. */
 export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2" || severity === "P3";
 }
 
-/** Severities that fail the review check run (P3 stays advisory). */
 export function isCheckFailingSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2";
 }
@@ -209,10 +205,6 @@ export function reviewEventForFindings(findings: ReviewFinding[]): "REQUEST_CHAN
     : "COMMENT";
 }
 
-/** A payload whose findings are given and whose gates are neutral:
- *  size M, no follow-ups, Mergeability/Blast Radius unassessed.
- *  Used for the per-batch pointer payload (publishFindingBatch) and the
- *  terminal deterministic fallback (orchestratorRun publishDeterministicSummary). */
 export function reviewPayloadFromFindings(
   findings: readonly ReviewPayload["findings"][number][],
 ): ReviewPayload {

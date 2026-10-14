@@ -30,11 +30,6 @@ function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
   return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
 }
 
-/**
- * Serializes automated intake and slash reviews through commit or rollback.
- * Review callers acquire it before cancellation or insertion so a force sees
- * the preceding transaction's replacement, including ordinary slash inserts.
- */
 export async function acquireAutoWorkIntakeLock(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
@@ -66,8 +61,6 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   params: unknown[];
 } {
   return {
-    // Lock and retain the prior request bit so relinking an already-cancelled
-    // running row preserves replacement behavior without reporting a new request.
     sql: `WITH prior AS MATERIALIZED (
             SELECT id, cancel_requested_at
               FROM agent_work_items
@@ -86,13 +79,6 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   };
 }
 
-/**
- * Supersede queued auto work and request cancel on running rows under the intake
- * lock. Running rows stay `running` with `cancel_requested_at` set while they wind
- * down; both sets release their PR actor lease holders in the same transaction so
- * the replacement acquires immediately instead of hop-looping till TTL.
- * Returns the affected ids; an empty list means no active auto work.
- */
 async function supersedeActiveAutoWork(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
@@ -118,8 +104,6 @@ async function supersedeActiveAutoWork(
   const holders = [...queued.rows, ...running.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);
-  // Target kind is the lease work type; triage targets match zero rows today
-  // (planner never emits triage, triage rows are slash-only, supersede filters auto).
   await releasePrActorLeaseHeldByWorkItems(client, {
     resourceKey: target.resourceKey,
     workType: target.kind,
@@ -148,7 +132,6 @@ async function supersedeActiveAutoWork(
   };
 }
 
-/** Supersede queued auto work, request cancel on running, create replacement, link superseded rows. */
 export async function replaceAutoWorkItem(params: {
   readonly client: PoolClient;
   readonly target: AutoWorkSupersedeTarget;
@@ -169,11 +152,6 @@ export async function replaceAutoWorkItem(params: {
   return { workItemId, supersededIds, lifecycleChanges };
 }
 
-/**
- * Like replaceAutoWorkItem, but the replacement is created only when active auto
- * work exists. A push must not start a review on a PR whose review already
- * finished; it only redirects work that is still queued or running.
- */
 export async function replaceActiveAutoWorkItem(params: {
   readonly client: PoolClient;
   readonly target: AutoWorkSupersedeTarget;

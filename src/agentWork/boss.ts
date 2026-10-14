@@ -26,7 +26,6 @@ import { errorMessage } from "../errors/errorMessage.js";
 
 type BossConfig = Pick<Config, "runtime">;
 
-/** Dead-letter queues created at boot. Diagnostics import this list. */
 export const AGENT_DEAD_LETTER_QUEUES = [
   ACK_DEAD_LETTER_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -37,10 +36,8 @@ export const AGENT_DEAD_LETTER_QUEUES = [
   CI_PROJECTION_DEAD_LETTER_QUEUE,
 ] as const;
 
-/** Retired one-release shim. Boot deletes both after a drain check. */
 const RETIRED_CI_REFRESH_QUEUE = "agent-work-ci-refresh";
 const RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
-/** Retired with the code index. Its jobs only rebuilt that index, so boot drops them. */
 const RETIRED_CODE_INDEX_BUILD_QUEUE = "code-index-build";
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
@@ -67,13 +64,6 @@ export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
   };
 }
 
-/**
- * Repeat gate for pg-boss events. The first occurrence of a key in a window is
- * reported and returns the repeat count from the previous window; later
- * occurrences in the same window return null. A Postgres restart can emit the
- * same socket error on every connection in the pool, so repeats are counted
- * instead of logged.
- */
 export function createPgBossEventGate(
   windowMs: number,
 ): (key: string, now?: number) => number | null {
@@ -120,11 +110,8 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     deleteAfterSeconds: cfg.queue.deleteAfterSeconds,
     retentionSeconds: cfg.queue.retentionSeconds,
   };
-  // DLQ rows are archival only; no workers subscribe to these queue names.
   await Promise.all(AGENT_DEAD_LETTER_QUEUES.map((name) => boss.createQueue(name, dlq)));
 
-  // All work queues use the standard policy: per-PR mutual exclusion is owned by the
-  // pr_actor_leases table, not by pg-boss queue policies.
   const workQueues = [
     { name: ACK_QUEUE, deadLetter: ACK_DEAD_LETTER_QUEUE },
     { name: REVIEW_QUEUE, deadLetter: REVIEW_DEAD_LETTER_QUEUE },
@@ -144,9 +131,6 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ),
   );
 
-  // pg-boss never changes an existing queue's policy (createQueue is insert-only);
-  // migration 023 flips pre-lease deployments. Loudly catch a queue whose flip was
-  // skipped, since key_strict_fifo would silently re-block PRs with no repair left.
   for (const name of leasedWorkQueues()) {
     const queue = await boss.getQueue(name);
     if (queue?.policy !== "standard") {
@@ -173,7 +157,6 @@ function retiredQueueLiveCount(
   return (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + (stats?.deferredCount ?? 0);
 }
 
-/** Delete the retired refresh lane after it has no queued, active, or deferred jobs. */
 export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Promise<void> {
   for (const name of [RETIRED_CI_REFRESH_QUEUE, RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE]) {
     try {
@@ -196,7 +179,6 @@ export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Pro
   }
 }
 
-/** Delete the code-index build lane, including any queued, active, or deferred jobs. */
 export async function retireCodeIndexBuildQueue(boss: RetiredQueueBoss): Promise<void> {
   const name = RETIRED_CODE_INDEX_BUILD_QUEUE;
   try {

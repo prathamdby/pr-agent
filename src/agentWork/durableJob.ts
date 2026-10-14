@@ -86,20 +86,14 @@ export type DurableExecutionContext = {
   prSurface: PrSurface;
   headSha: string;
   pullRequest?: PullRequestForFileList;
-  /** Fencing token of the PR actor lease owning this execution; null for unleased work types. */
   leaseEpoch: number | null;
-  /** Combined job/lease signal; aborted when the worker is stopped, cancelled, or fenced. */
   signal: AbortSignal;
-  /** Admit fresh feature work once per dispatch, before preparing its workspace. */
   beginAttempt: () => Promise<WorkClaim>;
-  /** Fresh review grants gate new output only, after exact receipt recovery. */
   readonly ensureReviewAccess?: () => Promise<void>;
-  /** Admission precedes every read-only checkout; recovery callers need not acquire one. */
   withAdmittedRepositoryView: <T>(
     options: Pick<PreparePrRepositoryViewParams, "repositorySizeKb" | "prFiles">,
     run: (view: PrRepositoryView) => Promise<T>,
   ) => Promise<T>;
-  /** Session identity only, independent of snapshot/checkpoint storage. */
   readonly durability: {
     readonly pool: Pool;
     readonly workItemId: string;
@@ -110,11 +104,8 @@ export type DurableExecutionContext = {
     readonly executionId: string;
     readonly attemptCount?: number;
   };
-  /** Shared signal/cancellation/lease policy; feature-specific head checks stay with the feature. */
   shouldAbortPublish: () => Promise<boolean>;
-  /** Lifecycle timestamps and the latest acknowledged durable work count. */
   readonly claim?: WorkClaim;
-  /** Deterministic escalation for this attempt; undefined on attempt 1. */
   readonly escalation?: EscalationPlan;
 };
 
@@ -192,15 +183,9 @@ export function createDurableRuntime(dependencies: Partial<DurableRuntime> = {})
   };
 }
 
-/**
- * Executor-visible outcome. Completion-state interpretation stays in this module:
- * `kind` is the only branch the runtime may switch on. Invalid mixes (degradation +
- * rescheduled, or reschedule without replacement coordination) are unrepresentable.
- */
 export type DurableExecutionResult =
   | {
       readonly kind: "completed";
-      /** Feature-owned reasons, persisted and reported, never fatal. */
       readonly degradation?: readonly string[];
       readonly completion?: WorkCompletion;
     }
@@ -221,7 +206,6 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: T;
-  /** See `OpenLeasedExecutionParams.prActorLease`. */
   readonly prActorLease?: { readonly queue: string };
   readonly runtime?: DurableRuntime;
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
@@ -316,7 +300,6 @@ function workItemAccepted<T extends WorkType>(
   return !spec.acceptItem || spec.acceptItem(item);
 }
 
-/** Durable lifecycle phase. Skip checks run only in claiming and completing. */
 type WorkItemPhase = "claiming" | "executing" | "completing";
 
 type WorkItemPhaseState = { phase: WorkItemPhase };
@@ -329,12 +312,6 @@ function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
   return state.phase === "executing";
 }
 
-/**
- * Shared scaffolding for durable work items: skip/claim/mint-token/bot-skip/head-SHA/transition/retry.
- * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
- * Lease ordering and epoch-fenced status writes live in `leasedExecution.ts`.
- */
-/** Ask and pre-claim hooks have no lease boundary. The run calls the mutation and does not fence it. */
 function passthroughMutationBoundary(): PrSurfaceMutationBoundary {
   return {
     signal: new AbortController().signal,
@@ -379,7 +356,6 @@ export async function runDurableWorkItem<T extends WorkType>(
       prNumber: workItemCore.prNumber,
       installation: token,
       capabilities: reviewCapabilities,
-      // Terminal hooks must still close the cancelled verdict.
       mutationBoundary:
         lease?.mutationBoundary(workItemCore, { checkCancellation: false }) ??
         passthroughMutationBoundary(),
@@ -393,9 +369,6 @@ export async function runDurableWorkItem<T extends WorkType>(
   ): Promise<void> {
     if (!spec.onCancelled) return;
     const leaseEpoch = lease?.leaseEpoch ?? null;
-    // A leased item must never publish a cancellation side effect before it has
-    // acquired an epoch. The auxiliary acknowledgement lane owns pre-claim
-    // feedback separately.
     if (spec.prActorLease && leaseEpoch == null) {
       logInfo("agent_work_cancelled_hook_skipped_without_lease", {
         type: spec.type,
@@ -606,7 +579,6 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     const cancelIfSkippable = async (reason: string, notifyHook = true) => {
       if (isSkipCheckSuppressed(phaseState)) return false;
-      // A newer execution owns the lease — exit without terminalising its work item.
       if (!(await opened.owns())) {
         recordExecutionStopped("lease_lost");
         logInfo("agent_work_stale_execution_skipped", {
@@ -716,7 +688,6 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
 
     async function recordCompletion(completion: WorkCompletion): Promise<void> {
-      // Analytics must not turn a committed completion into another lifecycle attempt.
       try {
         const ci = await loadCiWorkTelemetry(spec.pool, item.owner, item.repo, item.headSha);
         recordWorkCompleted({
@@ -739,7 +710,6 @@ export async function runDurableWorkItem<T extends WorkType>(
     async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
       switch (result.kind) {
         case "rescheduled":
-          // Replacement enqueue before skip: execute may already have transferred progress ownership.
           await completeRescheduledResult(result);
           return;
         case "completed": {
@@ -782,8 +752,6 @@ export async function runDurableWorkItem<T extends WorkType>(
           workAdmissionAcknowledged,
           ...classifiedFailureLogFields(failure),
         });
-        // The next delivery re-reads the row; report the plan it will carry so escalation
-        // rate is observable without reading transcripts.
         if (workAdmissionAcknowledged) {
           const nextEscalation = escalationForAttempt(attemptCount + 1, spec.cfg);
           captureWorkRetried({
@@ -820,8 +788,6 @@ export async function runDurableWorkItem<T extends WorkType>(
         });
         return;
       }
-      // A surface that cannot be built must not hide hook steps that need no
-      // surface (review cancels its stale-head replacement first); hooks see undefined.
       let prSurface: PrSurface | undefined;
       try {
         prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
@@ -896,15 +862,11 @@ export async function runDurableWorkItem<T extends WorkType>(
       const message = errorMessage(error);
       const disposition = retryDispositionFor(error);
       const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
-      // pg-boss retryCount restarts on every lease hop job, so the durable attempt count
-      // is the budget that actually bounds re-execution.
       const budgetRemains =
         preflightFailureCount != null
           ? preflightFailureCount < maxAttempts(spec.cfg)
           : (!workAdmissionAcknowledged || attemptCount < maxAttempts(spec.cfg)) &&
             spec.job.retryCount < spec.job.retryLimit;
-      // Deterministic failures get exactly one escalated replay: after that attempt the
-      // work item is terminal even when budget remains.
       const mayRetry =
         disposition === "transient"
           ? budgetRemains
@@ -955,7 +917,6 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
       if (!(await opened.owns())) {
         recordExecutionStopped("lease_lost");
-        // A newer execution owns the lease — do not terminalise its work item.
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
           workItemId: item.id,
@@ -1071,10 +1032,6 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
   } finally {
     executionSignal.removeEventListener("abort", onExecutionAbort);
-    // Terminal marks and hooks above ran under the lease; release happens after them so
-    // no durable write from this epoch can be fenced out by an early clear. On retry
-    // (markRetryingOrCancel rethrows) the next delivery re-acquires with a fresh epoch.
-    // A failed SQL release leaves expiry as recovery.
     await opened.release();
   }
 }

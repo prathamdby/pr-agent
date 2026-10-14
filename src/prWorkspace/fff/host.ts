@@ -1,11 +1,6 @@
 import { FileFinder, type GrepCursor } from "@ff-labs/fff-node";
 import * as v from "valibot";
 
-// Child-process entry for the fff search engine. fff runs synchronous FFI on
-// its caller's thread, and a SIGBUS or Rust panic ends the process, so it is
-// never loaded into the worker itself. Node runs this file without a build
-// step in development, so it imports packages only, never relative modules.
-
 const requestSchema = v.variant("op", [
   v.object({
     id: v.number(),

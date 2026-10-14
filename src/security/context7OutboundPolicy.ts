@@ -131,7 +131,6 @@ export function prepareContext7OutboundText(
   return redacted;
 }
 
-/** Scrub provider-returned text so an echoed API key cannot reach logs or tools. */
 export function redactContext7Response(text: string, apiKey: string): string {
   const normalizedApiKey = apiKey.trim();
   const withoutApiKey =
@@ -139,7 +138,6 @@ export function redactContext7Response(text: string, apiKey: string): string {
   return redactOutboundSecrets(withoutApiKey);
 }
 
-/** Deep-clone JSON and redact the API key from every string key and string value. */
 export function redactContext7Json(value: unknown, apiKey: string): unknown {
   if (typeof value === "string") return redactContext7Response(value, apiKey);
   if (Array.isArray(value)) return value.map((entry) => redactContext7Json(entry, apiKey));

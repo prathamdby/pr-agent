@@ -252,11 +252,7 @@ describe("local workspace tools", () => {
       expect(out.size).toBeGreaterThan(256_000);
       expect(out.tail.length).toBeGreaterThan(0);
       expect(out.note).toContain("not read evidence");
-      // Spilled content is not read evidence: the ledger must stay empty even
-      // though the tool ran against a ledger-backed workspace.
       expect(evidenceLedger.snapshot()).toHaveLength(0);
-      // Spill filenames carry the owned prefix so a future tmp sweeper can
-      // recognize them; disposeSpillFile removes exactly this file.
       expect(basename(out.spillPath).startsWith(READ_SPILL_FILENAME_PREFIX)).toBe(true);
       await disposeSpillFile(out.spillPath);
       await expect(access(out.spillPath)).rejects.toThrow();
@@ -346,18 +342,14 @@ describe("local workspace tools", () => {
       expect(outA.spilled).toBe(true);
       expect(outB.spilled).toBe(true);
 
-      // Sabotage one spill: a non-empty directory at the spill path makes
-      // rm(force:true) reject with ERR_FS_EISDIR while keeping the path live.
       await rm(outA.spillPath, { force: true });
       await mkdir(outA.spillPath);
       await writeFile(join(outA.spillPath, "child.txt"), "blocked");
 
-      // Resolves with the failed path reported; the good spill is still deleted.
       expect(await disposeSpillFiles()).toEqual([outA.spillPath]);
       await expect(access(outB.spillPath)).rejects.toThrow();
       await expect(access(outA.spillPath)).resolves.toBeUndefined();
 
-      // Nothing left tracked: a second dispose reports no failures.
       await rm(outA.spillPath, { recursive: true, force: true });
       expect(await disposeSpillFiles()).toEqual([]);
     } finally {
@@ -955,8 +947,6 @@ describe("local workspace tools", () => {
   it("readWorkspaceFile does not record evidence for a clamped line", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
     try {
-      // The clamp elides the line's contents, so a finding on it must not
-      // pass the range-coverage check in assertFindingsHaveEvidence.
       await writeWorkspaceFiles(root, {
         "src/min.ts": `line one\n${"x".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 1)}\nline three\n`,
       });
@@ -1295,7 +1285,6 @@ describe("local workspace tools", () => {
   });
 
   it("readWorkspaceFile suggests a sibling at exactly the similarity threshold", async () => {
-    // bigramDiceSimilarity("ci.yml", "cd.yml") is exactly 0.6, the configured minimum.
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, {
@@ -1417,7 +1406,6 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "a\u2019b.txt", "a'b.txt"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      // Left single quote canonicalizes to the same spelling as both twins.
       const out = (await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" })) as {
         refused?: boolean;
         note?: string;
@@ -1823,7 +1811,6 @@ describe("local workspace tools", () => {
     describe("searchWorkspace and getWorkspaceDiff", () => {
       it("records a Git version supported by the NUL-delimited literal grep", async () => {
         const { stdout } = await exec("git", ["--version"]);
-        // Shared grep omits --max-count, preserving Git 2.39 compatibility.
         expect(stdout.trim()).toMatch(
           /^git version (?:2\.(?:(?:39|4[0-9])|[5-9]\d|\d{3,})|[3-9]|[1-9]\d)/,
         );
@@ -2420,7 +2407,6 @@ describe("local workspace tools", () => {
     });
 
     it("caps oversized reads at the shared response budget with a resume offset", async () => {
-      // Lines stay under the per-line clamp so the byte budget is what fires.
       const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
       const { executors } = await setup({ files: { "src/app.ts": bigFile } });
 
@@ -2435,7 +2421,6 @@ describe("local workspace tools", () => {
       expect(out.truncated).toBe(true);
       expect(out.truncationReason).toBe("response byte budget exceeded");
       expect(out.returnedBytes).toBeLessThanOrEqual(LOCAL_WORKSPACE_READ_RESPONSE_BYTES);
-      // A byte-cap cut lands mid-line, so the next read resumes on that line.
       expect(out.endLine).toBeGreaterThan(1);
       expect(out.resumeStartLine).toBe(out.endLine);
     });

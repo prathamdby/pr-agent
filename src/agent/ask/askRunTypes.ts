@@ -34,22 +34,18 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
-  /** Full containing-thread transcript for conversational asks (untrusted). */
   threadTranscript?: string;
   threadTranscriptTruncated?: boolean;
   cwd?: string;
   workspace: LocalPrWorkspace;
   sessionContext?: FeatureSessionContext;
   pool?: Pool;
-  /** Durable CI facts for this head. Loaded by the ask run from `pr_head_ci_state`. */
   ciState?: AskCiState;
-  /** Durable job/lease abort for tool execution. */
   signal?: AbortSignal;
 };
 
 export type AskRunResult = {
   answer: string;
   replied: boolean;
-  /** Exact provider usage when the provider returned token metadata. */
   usage?: AgentRunnerUsageMetadata;
 };

@@ -52,7 +52,6 @@ export type RunSpecialistParams = {
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly agentEvents?: AgentEventsContext;
-  /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
   readonly escalation?: EscalationPlan;
   readonly createSession?: typeof createFeaturePiSession;
 };
@@ -207,8 +206,6 @@ function buildSubmitTool(
       const status =
         report.status === "findings" && findings.length === 0 ? "no_findings" : report.status;
       report = { ...report, status, findings };
-      // The filtered report is recorded first, so a model that stops here still
-      // reports what it proved; one resubmission lets it ground the dropped ones.
       if (filtered.rejected.length > 0 && !evidenceFeedbackSent) {
         evidenceFeedbackSent = true;
         state.report = report;
@@ -528,7 +525,6 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
         : (outcome.report ?? { status: "no_findings", findings: [] }),
     );
   }
-  // This owner emits before the serialized judgment consumer receives the report.
   emitSpecialistStage(params, {
     stage: "run",
     outcome: outcome.kind,

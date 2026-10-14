@@ -1,6 +1,5 @@
 import { GhComment, GhLabel } from "@/components/github-output/primitives";
 
-/** Pull request conversation reply from `formatAskReply`: Question, then Answer. */
 export function AskReplyMock() {
   return (
     <GhComment surface="Pull request conversation reply" frame="window">

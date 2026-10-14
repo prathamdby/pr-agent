@@ -26,7 +26,6 @@ export async function loadRenderableHeadCi(
       : await loadGithubCiSourceAvailability(pool, { installationId, owner, repo, headSha });
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
   if (row == null) return waitingCiSummary(0);
-  // An unseeded head has not been listed yet; only a denied source is known to be missing.
   if (
     headCiNeedsSeed(row) &&
     sourceAvailability?.checks.access !== "denied" &&
@@ -43,12 +42,10 @@ function isHeadCiSeedPullRequestAction(action: string): boolean {
   return action !== "closed" && AUTOMATED_PR_ACTIONS.has(action);
 }
 
-/** True when this pull_request action and SHA may request a first head seed. */
 export function isHeadCiSeedPullRequest(action: string, headSha: string): boolean {
   return isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA;
 }
 
-/** True when this pull_request delivery should schedule the first head seed. */
 export function shouldSeedHeadCiFromPullRequest(
   action: string,
   headSha: string,
@@ -57,7 +54,6 @@ export function shouldSeedHeadCiFromPullRequest(
   return isHeadCiSeedPullRequest(action, headSha) && headCiNeedsSeed(row);
 }
 
-/** True when a claim-time writer should enqueue after stamping the cell. */
 export function ciProjectionDue(
   row: Pick<PrHeadCiStateRow, "seededAt" | "version"> | null,
   renderedVersion: number,
@@ -92,8 +88,6 @@ async function mergeCiProjectionCorrelations(
   singletonKey: string,
   correlations: readonly JobCorrelation[],
 ): Promise<void> {
-  // pg-boss tries the current slot, then the next. Its throttle index includes
-  // active and terminal rows; append against the locked row, not a stale read.
   const { rows } = await client.query<{ id: string }>(
     `UPDATE pgboss.job
         SET data = jsonb_set(data, '{correlations}', (
@@ -144,15 +138,6 @@ async function mergeCiProjectionCorrelations(
   }
 }
 
-/**
- * - `intake`: debounced inside the caller's transaction; a later write joins the
- *   next 5s slot and keeps its delivery identity in the job's `correlations`.
- * - `debounced`: the same slot without a transaction, for the projector and
- *   writers that hold none. It carries the identities the head already has.
- * - `after`: one job deferred until the rate-limit circuit closes.
- * - `when_due`: `debounced` only when the head still needs a seed or its row
- *   moved past the version the writer just rendered.
- */
 export type HeadCiProjectionSchedule =
   | { readonly kind: "intake"; readonly client: PoolClient }
   | { readonly kind: "debounced" }
@@ -161,7 +146,6 @@ export type HeadCiProjectionSchedule =
 
 export type HeadCiProjectionResult = "enqueued" | "already_present" | "skipped";
 
-/** The one way to ask for a `ci-projection` job for a head. */
 export async function requestHeadCiProjection(
   boss: PgBoss | undefined,
   head: Omit<CiProjectionJobData, "kind">,

@@ -23,7 +23,6 @@ type CircuitRow = {
   last_error_kind: string;
 };
 
-/** Minimal in-memory stand-in for two logical workers sharing one DB. */
 function createMemorySharedCircuitStore(): {
   poolA: Pool;
   poolB: Pool;
@@ -92,7 +91,6 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
       await isSharedRateLimitCircuitOpen(poolB, installationId, new Date(now.getTime() + 61_000)),
     ).toBe(false);
 
-    // Worker B: new local circuit hydrates from shared state — no mutate/burst.
     const circuitB = createRateLimitCircuit({
       installationId,
       now: () => now.getTime(),

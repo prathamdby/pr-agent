@@ -71,7 +71,6 @@ function isWideEventLevel(value: unknown): value is WideEventLevel {
   return typeof value === "string" && Object.hasOwn(LEVEL_RANK, value);
 }
 
-/** Append a named sub-event while accumulating one wide event per operation. */
 export function recordEvent(
   logger: RequestLogger,
   event: string,
@@ -262,9 +261,7 @@ export async function runWithOperationLogger<T>(
     } finally {
       try {
         await emitPrepared(opLog);
-      } catch {
-        // Do not mask the error thrown from fn()
-      }
+      } catch {}
     }
   });
 }

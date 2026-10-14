@@ -51,7 +51,6 @@ export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
-/** Shape-only example for tool/repair prompts. Active map hard rule decides `prFiles`. */
 export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
   title: "Add user session validation",
   type: ["Enhancement"],

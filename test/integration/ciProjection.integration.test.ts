@@ -480,7 +480,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     });
     const denied = await loadGithubCiSourceAvailability(pool, scope);
     expect(denied.checks.access).toBe("denied");
-    // A new caller has no in-memory state. Storage remains the authority.
     const restarted = await loadGithubCiSourceAvailability(pool, { ...scope });
     expect(restarted).toEqual(denied);
     expect(
@@ -1715,7 +1714,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         querySpy?.mockRestore();
         connectSpy?.mockRestore();
         sendSpy.mockRestore();
-        // inTransaction released the injected client; otherwise it is still held here.
         if (!connectSpy) client.release();
         const jobs = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
         const ids = jobs
@@ -1935,7 +1933,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(calls).toHaveLength(1);
     expect(getCiStatusCount(fake.controls.events)).toBe(1);
     const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    // Fact write was v=1; first seed advances once more. Authored cache must not bump again.
     expect(afterFirst?.version).toBe(2);
     expect(afterFirst?.seededAt).not.toBeNull();
     const authored = parseCiAuthoredCache(afterFirst?.authored);

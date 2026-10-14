@@ -79,9 +79,6 @@ function payloadAction(payload: unknown): string | undefined {
   return typeof action === "string" ? action : undefined;
 }
 
-/**
- * Validates payloads for events we handle with strict shapes; unknown `X-GitHub-Event` values pass through as `ignored`.
- */
 export function parseGithubPayload(eventName: string, payload: unknown): ParsedGithubEvent {
   switch (eventName) {
     case "pull_request":

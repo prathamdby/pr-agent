@@ -6,7 +6,6 @@ import { specialistReportSchema } from "./specialistReport.js";
 
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
 
-/** Frozen across specialist personas so only system prompts differ. */
 export const SUBMIT_FINDINGS_REPORT_DESCRIPTION =
   "Submit your final findings report. This ends your investigation. Use status `findings` with at least one finding, or `no_findings` with an empty findings array. Each finding's file and line range must fall within lines a file read or diff result returned in this session; findings without that evidence are dropped, and the first time that happens the result lists them with accepted:false so you can read the lines and resubmit.";
 
@@ -25,10 +24,6 @@ export function buildSubmitFindingsReportPiTool(): PiTool {
   };
 }
 
-/**
- * Assemble the specialist session tool list. Names, order, descriptions, and schemas
- * are identical for every specialist id; only executors may close over identity.
- */
 export function buildSpecialistSessionTools(
   workspaceTools: SpecialistWorkspaceTools,
   submit: {

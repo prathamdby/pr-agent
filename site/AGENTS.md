@@ -18,7 +18,7 @@ Before you add or change a section, a component, a style, a token, or a class re
 - Keep existing names. Renaming a working token costs every caller and helps nobody.
 - Add a token only when its role repeats in two or more places or someone would change it site-wide. It lands with its first use, a role comment in `app/globals.css`, and a row in the matching DESIGN.md table.
 - A new colour is a primitive in `:root`, then a semantic alias in `@theme`, then the utility. Never put a raw value in a component.
-- These stay plain values: a one-off layout offset (comment what it aligns to), a value set by content such as an aspect ratio, math between tokens, and brand art such as the wordmark sky.
+- These stay plain values: a one-off layout offset (in CSS, comment what it aligns to; in TS or TSX, name it after what it aligns to), a value set by content such as an aspect ratio, math between tokens, and brand art such as the wordmark sky.
 - No product words in token names.
 
 ## Changing what renders

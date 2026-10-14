@@ -38,7 +38,6 @@ export async function runVerification(params: {
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;
   readonly sessionContext?: FeatureSessionContext;
-  /** Escalation for attempts after the first; undefined leaves the base budget. */
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
 }): Promise<VerificationRunResult> {

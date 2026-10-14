@@ -29,7 +29,6 @@ export type SerializedAppError = {
   readonly errorCause?: SerializedCause;
 };
 
-/** Internal structured failure. Never use `.message` on PR-facing surfaces. */
 export class AppError extends Error {
   readonly domain: AppErrorShape["domain"];
   readonly kind: AppErrorShape["kind"];
@@ -180,7 +179,6 @@ function setSafeProperty(target: Error, key: string, value: unknown): void {
   });
 }
 
-/** Create an Error-shaped value whose message, cause, and custom fields are safe to forward. */
 export function sanitizeErrorForTelemetry(error: unknown): Error {
   const serialized = isAppError(error) ? serializeAppError(error) : undefined;
   const sanitizedRawValue = error instanceof Error ? undefined : sanitizeTelemetryValue(error);

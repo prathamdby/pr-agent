@@ -5,18 +5,11 @@ type CopyButtonProps = {
   readonly text: string;
   readonly label?: string;
   readonly variant?: "ghost" | "primary" | "secondary";
-  /** Put the copy icon after the label instead of before it. */
   readonly iconAfter?: boolean;
-  /** Decoration before the label, such as a row of small marks. */
   readonly prefix?: ReactNode;
-  /** Screen-reader-only words after the label, so repeated "Copy" buttons stay distinguishable. */
   readonly target?: string;
 };
 
-/**
- * Writes `text` to the clipboard and confirms with both an icon swap and a label change, so the
- * state never rests on colour alone. The live region repeats it for screen readers.
- */
 export function CopyButton({
   text,
   label = "Copy",
@@ -25,7 +18,6 @@ export function CopyButton({
   prefix,
   target,
 }: CopyButtonProps) {
-  // A timestamp rather than a flag, so copying again restarts the confirmation window.
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
   const copied = copiedAt !== null;
 
@@ -41,19 +33,15 @@ export function CopyButton({
     navigator.clipboard
       .writeText(text)
       .then(() => setCopiedAt(Date.now()))
-      .catch(() => {
-        // Clipboard access can be denied. The text stays visible and selectable beside the button.
-      });
+      .catch(() => {});
   };
 
   const chassis = {
     primary: "btn btn-primary btn-leading h-9 rounded-xs text-label",
-    // Marks before the label and the icon after it: both sides take the tighter icon padding.
     secondary: prefix ? "btn btn-secondary px-3" : "btn btn-secondary btn-trailing",
     ghost: "btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs",
   }[variant];
 
-  // The swap state sits on wrapper spans: the icon component does not forward data attributes.
   const icon = (
     <span className="swap size-4" aria-hidden="true">
       <span data-shown={!copied} className="grid place-items-center">
@@ -67,7 +55,6 @@ export function CopyButton({
 
   const targetText = target ? <span className="sr-only"> {target}</span> : null;
 
-  // The status region sits beside the button so the confirmation never joins the button's name.
   return (
     <>
       <button type="button" onClick={copy} className={chassis}>

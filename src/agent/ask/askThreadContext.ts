@@ -67,7 +67,6 @@ export function formatThreadTranscript(
   const full = lines.join("\n\n");
   if (full.length <= maxChars) return { text: full, truncated: false };
 
-  // Keep root (first) + newest tail that fits.
   const root = lines[0] ?? "";
   const sep = "\n\n";
   const budget = maxChars - root.length - 2 * sep.length - TRANSCRIPT_OMISSION_MARKER.length;
@@ -87,9 +86,6 @@ export function formatThreadTranscript(
   return { text, truncated: true };
 }
 
-/**
- * Load the containing comment thread for an ask. Soft-degrades to empty on failure.
- */
 export async function loadAskThreadTranscript(params: {
   readonly prSurface: PrSurface;
   readonly replyTarget: ReplyTarget;
@@ -110,7 +106,6 @@ export async function loadAskThreadTranscript(params: {
       return { text: "", truncated: false };
     }
     if (anchor.inReplyToId == null && !all.some((c) => c.inReplyToId === anchor.id)) {
-      // No reply threading available — single comment context.
       return formatThreadTranscript([anchor]);
     }
     const thread = commentsInThread(all, commentId);

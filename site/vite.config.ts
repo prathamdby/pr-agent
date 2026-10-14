@@ -26,14 +26,6 @@ import {
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
 
-/**
- * Serve the markdown routes, and `/llms.txt`, in `vite dev`.
- *
- * Vite's dev middleware claims `.md` requests and tries to resolve them as modules, so
- * `/index.md` and `/agents.md` 404 before the app router sees them. `public/llms.txt` would
- * otherwise be served as a static file whose `Last-Modified` is the request time. The built
- * server handles these paths itself; this only closes the gap locally, using the same responses.
- */
 function headerValue(value: string | string[] | undefined): string | null {
   if (value === undefined) {
     return null;
@@ -109,9 +101,6 @@ export default defineConfig({
       router: {
         routesDirectory: "app",
       },
-      // Prerendering wrote `/` to a static file, which Vercel's filesystem handler served before
-      // the server function ran. Accept negotiation, `Vary`, and 406 all need the request to
-      // reach the function, so `/` renders per request and the CDN caches both variants instead.
       prerender: {
         enabled: false,
       },
@@ -123,12 +112,7 @@ export default defineConfig({
         entryFormat: "node",
       },
       hooks: {
-        // `compiled` belongs to the Vercel preset. It writes `.vercel/output/config.json`.
-        // A user hook on that same name replaces it, and Vercel then looks for `dist`.
-        // `close` runs after public files are copied and before that preset hook.
         close() {
-          // Vercel serves files in `static/` ahead of the function, and stamps Last-Modified
-          // with the request time. The route is the response that carries the content date.
           rmSync(resolve(siteDir, ".vercel/output/static/llms.txt"), { force: true });
         },
       },

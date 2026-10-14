@@ -184,7 +184,6 @@ export function recordMarshalledEvidence(
   if (!isRecord(delivered)) return;
   const row = delivered;
   if (typeof row.path === "string" && typeof row.content === "string") {
-    // Missing clamp entries cannot authorize lines omitted by the governed reader.
     if (row.clampedLines != null && !Array.isArray(row.clampedLines)) return;
     const startLine = typeof row.startLine === "number" ? row.startLine : 1;
     const lineCount = row.content.length === 0 ? 0 : row.content.split("\n").length;
@@ -200,7 +199,6 @@ export function recordMarshalledEvidence(
       "fileContentTruncated" in row.truncation &&
       row.truncation.fileContentTruncated === true
     ) {
-      // The serializer can cut through a line, unlike the governed reader's windows.
       clampedLines.push(computedEnd);
     }
     recordDeliveredFileRead(params.ledger, {

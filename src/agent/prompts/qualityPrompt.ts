@@ -1,11 +1,3 @@
-/**
- * Adapted from the thermo-nuclear code quality review skill in cursor/plugins:
- * cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md
- * https://github.com/cursor/plugins/tree/main/cursor-team-kit/skills/thermo-nuclear-code-quality-review
- *
- * The prompt below is reworded for pr-agent; it is not a verbatim copy.
- */
-
 import {
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,

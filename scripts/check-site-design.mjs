@@ -18,7 +18,6 @@ const BASELINE_PATH = path.join(ROOT, "scripts", "baselines", "site-design-basel
 const BOOTSTRAP = args.includes("--bootstrap");
 const SCAN_DIRS = [path.join(SITE, "app"), path.join(SITE, "components")];
 
-// Short hex needs a letter so a pull request number such as `#284` is not read as a colour.
 const RAW_COLOR =
   /(?<![\w&-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|(?=[0-9]*[a-f])[0-9a-f]{3,4})\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(\s*[\d.][^)]*\)/gi;
 const COLOR_UTILITY =
@@ -54,7 +53,6 @@ function matchAll(file, text, pattern) {
   }));
 }
 
-/** String and template literal bodies, where class names live in TSX. */
 function stringLiterals(text) {
   return [...text.matchAll(/"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g)].map((m) => ({
     index: m.index,
@@ -73,10 +71,6 @@ function utilityOf(token) {
   return token.slice(start).replace(/^!|!$/g, "");
 }
 
-/**
- * Flat CSS walk: every declaration and block prelude with the stack of blocks around it. Enough
- * for globals.css, which never puts braces inside strings.
- */
 function parseCss(text) {
   const clean = text.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
   const blocks = [];
@@ -115,7 +109,6 @@ async function tailwindCompiler(css) {
   });
 }
 
-/** Utilities Tailwind generates nothing for: an undefined token, or the reset stock palette. */
 async function unbuiltColorUtilities(css, componentClasses, tsxFiles) {
   const candidates = new Map();
   for (const { file, text } of tsxFiles) {

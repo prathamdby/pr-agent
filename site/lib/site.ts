@@ -19,7 +19,6 @@ function resolveSiteOrigin(): string {
   return "http://localhost:3000";
 }
 
-/** Resolved at build time on Vercel. Override with SITE_ORIGIN for a custom domain. */
 export const SITE_ORIGIN = resolveSiteOrigin();
 
 function trustedDiscoveryHost(hostname: string): boolean {
@@ -30,13 +29,6 @@ function trustedDiscoveryHost(hostname: string): boolean {
   return host === "vercel.app" || host.endsWith(".vercel.app");
 }
 
-/**
- * Origin discovery documents may name.
- * Localhost and Vercel preview hosts are trusted. Any other host, including one
- * that fails to parse, falls back to the build origin so a forged Host is not
- * written into a cached sitemap or catalog. Canonical and OpenAPI stay on the
- * build origin.
- */
 export function requestOrigin(request: Request): string {
   try {
     const origin = new URL(request.url).origin;

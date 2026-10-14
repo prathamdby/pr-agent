@@ -72,7 +72,6 @@ function preflightUnavailable(cause?: unknown): AppError {
   });
 }
 
-/** One adapter owns credentials, concurrent cold lookups, and freshness policy. */
 export function openInstallationSurface(
   dependencies: InstallationSurfaceDependencies = {
     mintToken: (cfg, id, options) => mintInstallationToken(cfg, id, options),
@@ -266,7 +265,6 @@ export function openInstallationSurface(
     if (cached) {
       const value = await cached;
       if (!isInstallationTokenNearExpiry(value.expiresAtTs, dependencies.now())) return value;
-      // Another waiter may already have replaced the expired promise.
       if (tokens.get(key) !== cached) return token(cfg, installationId);
     }
     const pending = dependencies.mintToken(cfg, installationId).catch((error: unknown) => {

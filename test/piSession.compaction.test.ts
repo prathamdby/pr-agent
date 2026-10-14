@@ -306,7 +306,6 @@ describe("compactAgentMessages overflow", () => {
       "stop",
       reportedUsage(1),
     );
-    // AssistantMessage requires usage. The runtime still sees provider objects that omit it.
     const omittedUsage = { ...missingUsage, role: "assistant" } as AgentMessage;
 
     calls = 0;

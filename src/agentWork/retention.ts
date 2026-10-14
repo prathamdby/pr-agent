@@ -19,10 +19,6 @@ export type RetentionResult = {
   readonly reviewApprovalsDeleted: number;
 };
 
-/**
- * Delete aged workflow state in independent batches, so a large
- * backlog never holds one long transaction.
- */
 export async function runRetention(
   pool: Pool,
   cfg: Pick<Config, "retention" | "agentEvents">,

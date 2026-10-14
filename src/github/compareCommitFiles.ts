@@ -1,6 +1,5 @@
 import { installationOctokit } from "./appAuth.js";
 
-/** GitHub compare returns at most 300 files on the first response page. */
 const GITHUB_COMPARE_FILES_PAGE_CAP = 300;
 
 export type ListCommitCompareFilesResult = {

@@ -5,12 +5,6 @@ type LogoProps = {
   readonly className?: string;
 };
 
-/**
- * Competitor marks, taken from each company's own brand kit and reduced to bare geometry filled
- * with `currentColor`, so they take the text colour of the surface they sit on instead of
- * shipping a fixed palette. Sources: coderabbit.ai/press-kit (black mark), greptile.com/design
- * (dark logo mark), cursor.com/brand (2D cube), macroscope.com/brand-kit (black mark).
- */
 function mark(viewBox: string, children: ReactNode) {
   return function Mark({ className }: LogoProps) {
     return (
@@ -65,7 +59,6 @@ type BrandLogoProps = LogoProps & {
   readonly name: AlternativeId;
 };
 
-/** One logo per comparison row. PR Agent keeps its full-colour raster mark. */
 export function BrandLogo({ name, className }: BrandLogoProps) {
   switch (name) {
     case "pr-agent":

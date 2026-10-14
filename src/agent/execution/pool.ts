@@ -62,9 +62,7 @@ function postToWorker(worker: Worker, message: unknown): void {
   try {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.
     worker.postMessage(message);
-  } catch {
-    // Worker already exited or terminated.
-  }
+  } catch {}
 }
 
 async function runInWorker(params: QuickJsCellParams): Promise<QuickJsCellResult> {

@@ -28,7 +28,6 @@ const accepted = v.variant("kind", [
   }),
 ]);
 
-/** Canonical deltas stay in budgeted prepared rows, never the settlement reserve. */
 export const findingLedgerSnapshotSchema = v.strictObject({
   accepted: v.array(accepted),
   suppressionFingerprints: v.array(v.string()),

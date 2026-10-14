@@ -13,7 +13,6 @@ export type RateLimitCircuit = {
   readonly recordFailure: (kind: RateLimitFailureClass) => boolean;
   readonly isOpen: () => boolean;
   readonly consecutiveFailures: () => number;
-  /** Open from shared DB state without firing onOpened. */
   readonly hydrateOpenFromShared: (kind?: RateLimitFailureClass, openUntil?: Date) => void;
 };
 
@@ -22,7 +21,6 @@ const circuitStore = new AsyncLocalStorage<RateLimitCircuit>();
 export const CIRCUIT_OPEN_TOOL_RESULT =
   "Rate-limit circuit open: further nonessential GitHub tools are blocked for this run. Prefer publish/submit tools with evidence already gathered.";
 
-/** Tools that must keep working after the circuit opens (publish / submit paths). */
 export const ESSENTIAL_GITHUB_TOOL_NAMES: ReadonlySet<string> = new Set([
   "publish_thread",
   "publish_summary",
@@ -32,10 +30,6 @@ export const ESSENTIAL_GITHUB_TOOL_NAMES: ReadonlySet<string> = new Set([
   "submitDescription",
 ]);
 
-/**
- * Tools that call GitHub REST/GraphQL (vs local workspace). Nonessential members are
- * short-circuited when the per-run circuit is open.
- */
 export const GITHUB_API_TOOL_NAMES: ReadonlySet<string> = new Set([
   ...ESSENTIAL_GITHUB_TOOL_NAMES,
   "searchCode",
@@ -51,7 +45,6 @@ export function createRateLimitCircuit(params: {
   const now = params.now ?? (() => Date.now());
   let consecutive = 0;
   let open = false;
-  /** Null means the circuit stays open for the rest of the run (local threshold trip). */
   let openUntilMs: number | null = null;
 
   function clearExpiredSharedOpen(): boolean {

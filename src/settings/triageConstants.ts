@@ -1,4 +1,3 @@
-/** PR triage agent block (upserted by sentinel). */
 import { sanitizeGithubLogin, type ReviewCancelAttribution } from "./reviewConstants.js";
 
 export const TRIAGE_SUMMARY_SENTINEL = "## PR Agent Triage";
@@ -56,7 +55,6 @@ export const TRIAGE_VALIDATION_REPAIR_ROUNDS = 3;
 export const TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const VERIFICATION_VALIDATION_REPAIR_ROUNDS = 3;
 export const VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
-/** HTML marker in the single verification stub reply owned per finding thread. */
 export const VERIFICATION_STUB_MARKER = "<!-- pr-agent:verification-stub -->";
 export const MAX_TRIAGE_FINDINGS = 128;
 export const TRIAGE_VERDICT_EVIDENCE_MAX_CHARS = 500;
@@ -74,7 +72,6 @@ export const TRIAGE_COMMIT_TYPES = [
 ] as const;
 export const TRIAGE_COMMIT_BODY_MAX_BULLETS = 5;
 export const TRIAGE_COMMIT_MAX_FILES = 20;
-/** Staged-diff size cap per commitFix call (added + removed lines). */
 export const TRIAGE_MAX_COMMIT_DIFF_LINES = 200;
 export const TRIAGE_NEW_FILE_MAX_BYTES = 32_768;
 

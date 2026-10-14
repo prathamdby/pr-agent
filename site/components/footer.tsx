@@ -19,7 +19,6 @@ const PRODUCT_LINKS = [
   { href: "/#usage", label: "Installation" },
 ] as const;
 
-/** Registry titles carry the product name for search. In a column headed by it, drop it. */
 function shortTitle(title: string): string {
   const stripped = title.replace(new RegExp(`^${PRODUCT_NAME} `), "");
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
@@ -66,7 +65,7 @@ export function Footer() {
               AI pull request reviews on servers you run. MIT licensed, no per-seat fee, your GitHub
               credentials and model keys stay with you.
             </p>
-            {/* From lg the column stretches to the link columns, so mt-auto lines the row up with their last link. */}
+
             <ul className="mt-auto flex items-center gap-2 pt-6">
               {SOCIAL_LINKS.map(({ href, label, Icon }) => (
                 <li key={href}>

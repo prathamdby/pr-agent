@@ -80,7 +80,7 @@ describe("readTextWithOutputBudget", () => {
 
   it("resumes on the last shown line when the byte budget cuts mid-line", () => {
     const text = "aaaa\nbbbb\ndddd\n";
-    const out = readTextWithOutputBudget(text, 6); // fits "aaaa\n" plus a byte of "bbbb"
+    const out = readTextWithOutputBudget(text, 6);
     expect(out.truncated).toBe(true);
     expect(out.truncationReason).toBe("response byte budget exceeded");
     expect(out.endLine).toBe(2);

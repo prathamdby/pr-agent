@@ -152,17 +152,11 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
-/** Wait-queue rank for the queued progress stub (`#N of M`). */
 export type ReviewQueuePosition = {
   readonly position: number;
   readonly total: number;
 };
 
-/**
- * Rank of a still-queued review among queued reviews for the same resource key;
- * null when not waiting. `resource_key` is already indexed
- * (`agent_work_items_resource_type_status_idx`).
- */
 export async function getReviewQueuePosition(
   pool: Pool,
   workItemId: string,
@@ -221,19 +215,9 @@ export type WorkClaim = {
   readonly createdAt: Date;
   readonly startedAt: Date;
   readonly attemptCount: number;
-  /** The row was already `running`: a crash, deploy, or lease-hop resume. */
   readonly resumed: boolean;
 };
 
-/**
- * Claim queued work or resume a redelivered job while the row is still running.
- * Claims and resumes do not spend the work budget; fresh feature admission does.
- * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
- * needs the lease before any durable write.
- * When `leaseEpoch` is provided (leased work types), the claim also records it
- * on the row as this holder's epoch for intake-cancel release pairs (#660).
- * Unleased callers omit it and leave `execution_epoch` untouched.
- */
 export async function claimWorkForExecution(
   db: Pool | PoolClient,
   id: string,
@@ -264,7 +248,6 @@ export type WorkAttemptResult =
   | { readonly kind: "exhausted"; readonly attemptCount: number }
   | { readonly kind: "unavailable" };
 
-/** Charge fresh work under the same lease-first locking discipline as claim. */
 export async function beginWorkAttempt(
   pool: Pool,
   id: string,
@@ -273,7 +256,6 @@ export async function beginWorkAttempt(
 ): Promise<WorkAttemptResult> {
   return inTransaction(pool, async (client) => {
     if (leaseEpoch != null) await lockPrActorLeaseForUpdate(client, id, leaseEpoch);
-    // A separate statement observes cancellation/takeover committed before the lock.
     const row = await queryOne<{
       status: WorkStatus;
       cancel_requested_at: Date | null;
@@ -347,7 +329,6 @@ export async function markWorkCompleted(
   return result.rowCount > 0;
 }
 
-/** Complete a parent work item that already persisted a stale-head replacement marker. */
 export async function forceMarkRescheduledParentCompleted(
   pool: Pool,
   id: string,
@@ -386,7 +367,6 @@ export async function updateRunningWorkHeadSha(
   return (result.rowCount ?? 0) > 0;
 }
 
-/** A diagnostics snapshot cannot authorize failure after a lease or delivery revives. */
 export async function markLostRunningWorkFailed(
   pool: Pool,
   id: string,
@@ -413,11 +393,9 @@ export async function markLostRunningWorkFailed(
         WHERE resource_key = $1 AND work_type = $2 FOR UPDATE NOWAIT`;
       const lease = await client.query(leaseSql, [target.resource_key, target.type]);
       if (lease.rows.length === 0) {
-        // A missing key has no row to lock against first acquisition.
         await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
         await client.query(leaseSql, [target.resource_key, target.type]);
       }
-      // Exclude fresh delivery inserts as well as updates, including partitions.
       await client.query("LOCK TABLE pgboss.job IN SHARE MODE NOWAIT");
       await client.query("LOCK TABLE agent_work_items IN ROW EXCLUSIVE MODE NOWAIT");
       const locked = await client.query(
@@ -429,7 +407,6 @@ export async function markLostRunningWorkFailed(
         protectedQuery = false;
         return false;
       }
-      // Locks precede this statement so its snapshot includes prior revivals.
       const result = await transition(client, {
         selector: { id, resourceKey: target.resource_key, type: target.type },
         from: ["running"],
@@ -476,7 +453,6 @@ export async function markWorkFailed(
   return result.rowCount > 0;
 }
 
-/** Cancel queued work, or its claim winner under the replacement's recorded epoch. */
 export async function markQueuedWorkCancelled(
   pool: Pool,
   id: string,
@@ -498,7 +474,6 @@ export async function markQueuedWorkCancelled(
   if (target.status === "cancelled") return true;
   const observedEpoch = Number(target.execution_epoch);
   if (target.status === "queued") {
-    // Finish this item-only statement before any lease-first transaction.
     const queuedEpoch = target.execution_epoch;
     const retry = await transition(pool, {
       ...cancel,

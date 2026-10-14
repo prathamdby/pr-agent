@@ -26,7 +26,6 @@ export function decodeVoidResult(value: unknown): void {
   v.assert(v.void(), value);
 }
 
-/** Validate without parsing or replacing the provider's original result. */
 export function decodePrSurfaceMutationResult(
   method: keyof PrSurfaceMutationMethods,
   value: unknown,

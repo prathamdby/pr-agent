@@ -27,7 +27,6 @@ import {
 } from "./ciFacts.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 
-/** Structured fields the CI-summary LLM must return (status/names come from server facts). */
 export const ciSummaryLlmSchema = v.object({
   headline: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS)),
   failures: v.pipe(
@@ -47,7 +46,6 @@ export const ciSummaryLlmSchema = v.object({
 });
 export type CiSummaryLlmFields = v.InferOutput<typeof ciSummaryLlmSchema>;
 
-/** System-side contract for the dedicated CI-summary LLM turn (Option B). */
 export const ciGateRowContract = [
   "## CI gate row contract",
   "You are given a <ci_context> block with server-fetched check status and condensed logs.",
@@ -91,7 +89,6 @@ export function buildCiContextUserMessage(params: {
   ].join("\n");
 }
 
-/** Runner / toolchain noise that must not beat a real test/lint/build failure. */
 export const DEPRECATION_NOISE_RE =
   /\b(Node\.js\s*20\s+is\s+deprecated|actions\/[\w-]+@[\w./-]+\s+.*Node\.js|The following actions target Node\.js|Node\.js\s+\d+\s+actions?\s+are\s+deprecated)\b/i;
 
@@ -159,11 +156,6 @@ function textHasCiErrorSignal(text: string): boolean {
   return false;
 }
 
-/**
- * Bounds raw job-log intake to `perJobMaxChars * RAW_TAIL_MULTIPLE`.
- * Keeps the tail when that window already has an error signal.
- * Otherwise keeps a cap-sized window that still includes the last error line.
- */
 export function boundRawLogIntake(
   raw: string,
   perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
@@ -202,10 +194,6 @@ function collapseBlankLines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/**
- * Keeps failed-step tails and error lines; drops Node/Actions deprecation noise unless
- * it is the only remaining signal.
- */
 export function condenseJobLogText(
   raw: string,
   maxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
@@ -273,9 +261,6 @@ function pushKeptLine(kept: string[], keptChars: number, line: string, maxChars:
   return nextChars;
 }
 
-/**
- * Merges per-job condensed logs under a global byte budget. Earlier (first failing) jobs win.
- */
 export function mergeCondensedJobLogs(
   jobs: readonly CondensedJobLog[],
   options: CondenseCiLogsOptions = {},
@@ -302,10 +287,6 @@ export function mergeCondensedJobLogs(
   return redactReviewText(parts.join("\n\n"));
 }
 
-/**
- * Caps an already-condensed context to the global CI-summary byte budget.
- * Keeps the tail, matching per-job char truncation (failures usually land last).
- */
 export function boundCondensedLogBytes(
   text: string,
   maxBytes: number = REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
@@ -318,10 +299,6 @@ export function boundCondensedLogBytes(
   return redactReviewText(bounded);
 }
 
-/**
- * Picks one redacted, size-bounded CI context: Actions job logs win; otherwise
- * condensed check output; otherwise empty. Author/prompt must not see a second raw field.
- */
 export function selectEffectiveCiContext(params: {
   readonly jobs: readonly CondensedJobLog[];
   readonly checkOutput?: string;
@@ -344,10 +321,6 @@ export type CiAuthorInput = {
   readonly checkNames: readonly string[];
   readonly failingNames: readonly string[];
   readonly failingUrls: ReadonlyMap<string, string | undefined>;
-  /**
-   * One already-selected CI context: condensed, redacted, and size-bounded.
-   * Empty when no Actions logs or check output are available.
-   */
   readonly condensedLogs: string;
 };
 
@@ -374,10 +347,6 @@ export function parseCiSummaryLlmText(text: string): CiSummaryLlmFields {
   return v.parse(ciSummaryLlmSchema, parsed);
 }
 
-/**
- * Merges model-authored fields with server facts. Status and failure names are owned by
- * the server; the model supplies headline/reason/fixHint prose.
- */
 export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmFields): CiSummary {
   const byName = new Map(llm.failures.map((f) => [f.name.toLowerCase(), f]));
   const failures: CiFailureDetail[] = [];

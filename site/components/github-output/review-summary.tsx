@@ -42,12 +42,10 @@ const FOLLOW_UPS: readonly string[] = [
 ];
 
 type ReviewSummaryMockProps = {
-  /** Drop the trailing rows so the comment fits a cropped preview. */
   readonly compact?: boolean;
   readonly frame?: "inline" | "window";
 };
 
-/** Mirrors the `## PR Agent Review` summary comment. */
 export function ReviewSummaryMock({ compact = false, frame = "inline" }: ReviewSummaryMockProps) {
   const rows = [
     { label: "Size", value: <GhCode>M</GhCode> },

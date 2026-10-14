@@ -3,7 +3,6 @@ import { REPO_URL } from "@/lib/site";
 
 const CLONE_COMMAND = `git clone ${REPO_URL}`;
 
-/** Hand-drawn underline: one quick stroke, stretched under the word. */
 function Scribble({ className }: { readonly className?: string }) {
   return (
     <svg

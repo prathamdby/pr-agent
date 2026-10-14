@@ -49,7 +49,6 @@ type ProgressRoster = {
   readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
 };
 
-/** In-progress and non-cancel terminal roster ticks (cancelled uses renderReviewCancelledNotice). */
 export type SpecialistTickState =
   | ({
       readonly kind: "specialists";
@@ -98,7 +97,6 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
   }
 }
 
-/** Active roster once the review worker starts: Recon running, specialists waiting. */
 export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
   return {
     kind: "specialists",
@@ -131,10 +129,6 @@ function terminalProgressNote(reason: "superseded" | "stale_head", source: WorkS
   }
 }
 
-/**
- * Cancelled review notice — same layout as the failure notice: sentinel + alert only.
- * No Head/Source/CI/Recon/specialist table.
- */
 export function renderReviewCancelledNotice(params: {
   attribution: ReviewCancelAttribution;
   progressRevision?: number;
@@ -160,12 +154,7 @@ export function renderReviewProgressComment(params: {
   source: WorkSource;
   ciSummary?: CiSummary | null;
   ciVersion?: number;
-  /**
-   * When omitted, the stub is in the queued presentation: Head/Source/(Queue)/(CI) only,
-   * no Recon or specialist rows, and a queued note (not “in progress”).
-   */
   tickState?: SpecialistTickState;
-  /** Shown only on the queued stub (no tickState) when lookup succeeded. */
   queuePosition?: ReviewQueuePosition | null;
   progressRevision?: number;
   progressWorkItemId?: string;

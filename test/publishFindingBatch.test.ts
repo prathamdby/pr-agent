@@ -248,15 +248,6 @@ describe("publishFindingBatch", () => {
       }),
     ).not.toBe(digest);
   });
-  // Recovery failure inventory (before implementation):
-  // - a cache grants stale coverage, or stores a diff-response hash as a range hash;
-  // - a crash loses summary-only reasons, suppression, footers, counts or budget state;
-  // - settlement exceeds its reserved 8 KiB by duplicating a large canonical delta;
-  // - journal acceptance substitutes for the actual operation receipt;
-  // - replay doubles resumed placements or redoes settled judgment/provider generations;
-  // - capacity/incompatibility prevents settling an already admitted decision;
-  // - database/lease failures become successful reports or deterministic degradation;
-  // - recovery bypasses admission, changes mutation keys, or runs while disabled.
   it.each([true, false])(
     "retains a local decision only with reproducible evidence (%s)",
     async (reproducible) => {

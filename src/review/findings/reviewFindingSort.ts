@@ -1,7 +1,6 @@
 import { REVIEW_SEVERITY_RANK } from "../../settings/index.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 
-/** Canonical ordering: severity, file path, start line. */
 export function compareReviewFindingsBySeverityFileLine(
   a: ReviewFinding,
   b: ReviewFinding,

@@ -167,10 +167,6 @@ function reviewRunGate(args: {
   };
 }
 
-/**
- * Build a deferred-head replacement when the parent can still own reschedule.
- * Runs optional pre-work (check-run cancel) only after the skip guard passes.
- */
 async function scheduleStaleHeadReplacement(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
@@ -194,7 +190,6 @@ async function scheduleStaleHeadReplacement(args: {
   );
 }
 
-/** Resume a parent that already persisted a replacement marker but has not finished enqueue. */
 async function handleStaleHeadReschedule(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
@@ -607,11 +602,6 @@ async function handleReviewPublishResult(args: {
   };
 }
 
-/**
- * Trusted-context assembly. Repository policy and agent instruction files are
- * read from the pinned checkout under their own byte caps; fork heads render as
- * untrusted evidence inside the loaders.
- */
 async function assembleTrustedReviewContext(args: {
   readonly repositoryView: PrRepositoryView;
   readonly pullRequest: PullRequestForFileList | undefined;
@@ -661,7 +651,6 @@ async function assembleTrustedReviewContext(args: {
     checkoutCoverage,
     symbolIndexStatus: repositoryView.workspace.reader.getSymbolIndexStatus(),
   });
-  // Exclude our evolving summary, inline comments and history from cache identity.
   const recoveryContext = encodeReviewArtifact({
     sameRepo,
     repoPolicyBlock,
@@ -768,8 +757,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishAbortState,
     staleHeadAtPublish,
   });
-  // This entry is already inside the admitted view. Recovery never prepares a
-  // workspace or performs model work before beginAttempt spends its attempt.
   const baseSha = cfg.review.recoveryEnabled ? reviewRecoveryBaseSha(pullRequest) : null;
   const recoveryDiff = baseSha
     ? {
@@ -1140,7 +1127,6 @@ export type ReviewRunDependencies = {
   readonly createSession: typeof createFeaturePiSession;
 };
 
-/** Feature entry for one claimed review work item. */
 export async function runReviewForWorkItem(
   item: ReviewWorkItem,
   env: DurableExecutionContext,
@@ -1149,7 +1135,6 @@ export async function runReviewForWorkItem(
   const { cfg, pool, boss } = deps;
   const reviewLens = item.reviewLens;
   const payload = item.payload;
-  // Wall-clock starts at worker start (now), never at progress-stub post (queue wait).
   initReviewRunMetrics({
     provider: cfg.models.provider,
     model: cfg.models.model,

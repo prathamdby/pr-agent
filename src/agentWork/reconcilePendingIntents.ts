@@ -36,11 +36,6 @@ function verificationThreadRootFromOperationKey(operationKey: string): number | 
   return match ? Number(match[1]) : null;
 }
 
-/**
- * Find a completed publish_record that proves this operation already landed.
- * Match on operation identity (key + kind-specific ledger shape), never on
- * shared detail alone — triage reply vs :resolve share threadRootCommentId.
- */
 export async function findCompletedPublishRecordId(
   client: Pool | PoolClient,
   workItemId: string,
@@ -60,7 +55,6 @@ export async function findCompletedPublishRecordId(
   ) {
     return null;
   }
-  // Resolve has no publish_records row; never borrow the reply ledger.
   if (triageThread?.isResolve) {
     return null;
   }

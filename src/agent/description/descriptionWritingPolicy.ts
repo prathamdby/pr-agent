@@ -16,21 +16,10 @@ import {
 } from "../../settings/index.js";
 import type { DescriptionPayload } from "./descriptionSchema.js";
 
-/** Whether the description agent block publishes a review map. */
 export type DescriptionMapMode = "omit" | "read_first";
 
-/**
- * How much prose and technical detail the description body should carry.
- * Derived once per run from workspace size stats.
- */
 export type DescriptionBodyScale = "S" | "M" | "L";
 
-/**
- * How deep the bullets go for reviewers.
- * - what_why: what changed and why it matters
- * - what_why_risk: also notable risks or contracts
- * - what_why_how: also key modules, paths, and review risks
- */
 export type DescriptionTechnicalDepth = "what_why" | "what_why_risk" | "what_why_how";
 
 export type DescriptionSizeInput = {
@@ -93,23 +82,14 @@ export function resolveDescriptionBodyScale(input: DescriptionSizeInput): Descri
   return "L";
 }
 
-/** Pair map mode with body scale: S omits the review map; larger scales keep it. */
 export function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
   return bodyScale === "S" ? "omit" : "read_first";
 }
 
-/**
- * Map mode follows body scale. Truncation forces L body scale, so truncated
- * sets always get read_first.
- */
 export function resolveDescriptionMapMode(input: DescriptionSizeInput): DescriptionMapMode {
   return mapModeForBodyScale(resolveDescriptionBodyScale(input));
 }
 
-/**
- * Single size→behaviour decision for a description run.
- * Owns map mode, bullet budgets, and technical depth together.
- */
 export function resolveDescriptionWritingPolicy(
   input: DescriptionSizeInput,
 ): DescriptionWritingPolicy {
@@ -126,7 +106,6 @@ export function resolveDescriptionWritingPolicy(
   };
 }
 
-/** Hard-rule prose for technical depth; shared by description body and review overview. */
 export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
   const rules: Record<DescriptionTechnicalDepth, string> = {
     what_why: "Cover what changed and why it matters for reviewers.",

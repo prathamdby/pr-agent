@@ -17,7 +17,6 @@ import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import type { OperationIntentRow } from "./operationIntentRepository.js";
 
-/** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
 export async function claimSummaryCommentCreation(
   pool: Pool | PoolClient,
   workItemId: string,
@@ -69,7 +68,6 @@ export async function getSummaryCommentGithubId(
   return Number.isFinite(id) ? id : null;
 }
 
-/** Current progress-comment owner for a PR resource (any status). */
 export async function getProgressCommentOwner(
   pool: Pool | PoolClient,
   resourceKey: string,
@@ -112,7 +110,6 @@ export async function getProgressCommentRevision(
   return row?.revision == null ? null : { workItemId: row.work_item_id, revision: row.revision };
 }
 
-/** Epoch ms when the progress stub (revision 0) was first recorded, if known. */
 export async function getProgressStubPostedAtMs(
   pool: Pool | PoolClient,
   resourceKey: string,
@@ -183,7 +180,6 @@ const ownVerdictMutationKinds = {
 
 function ownVerdictSurfaceState(value: unknown, applied: boolean): OwnVerdictSurfaceState {
   if (applied) return "applied";
-  // A state label alone is never an acceptance receipt.
   return value === "skipped-for-this-run" || value === "blocked" ? value : "unresolved";
 }
 type OwnVerdictIdentity = {
@@ -245,7 +241,6 @@ export async function getOwnVerdictCloseRecord(
   };
 }
 
-/** Accepted or uncertain starts remain applicable even when current access is denied. */
 export async function hasOwnVerdictSurfaceAcceptance(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
@@ -264,7 +259,6 @@ export async function hasOwnVerdictSurfaceAcceptance(
   return row?.applicable === true;
 }
 
-/** A legacy delegated status with unknown acceptance cannot be evaded by a new verdict key. */
 export async function hasUnresolvedDelegatedOwnStatus(
   client: Pool | PoolClient,
   workItemId: string,
@@ -335,11 +329,6 @@ export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity): string 
   return `review:check_run_close:${params.workItemId}:${params.reviewLens}`;
 }
 
-/**
- * The finish mutation delegated under this close's parent intent, if any. The
- * parent key is unique to the lane, so the boundary child is found by
- * parentage instead of replicating the boundary's input-hash encoding.
- */
 export async function getDelegatedOwnVerdictFinish(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
@@ -356,12 +345,6 @@ export async function getDelegatedOwnVerdictFinish(
   );
 }
 
-/**
- * Legacy finish intents block a fresh verdict selection only while they are
- * still actionable: accepted, awaiting recovery, or mid-mutation. An
- * outcome_unknown row the boundary already resolved `terminal` is inert
- * evidence — the terminal failure close must still run.
- */
 export async function hasLegacyOwnVerdictCompletion(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,

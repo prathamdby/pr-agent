@@ -183,7 +183,6 @@ export async function getIssueCommentIfSentinel(
 
 export type IssueCommentWithBody = IssueCommentRef & { readonly body: string };
 
-/** Latest issue comment whose body starts with `sentinel` (includes body text). */
 export async function findIssueCommentBySentinel(
   token: string,
   owner: string,

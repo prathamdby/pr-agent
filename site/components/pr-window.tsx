@@ -9,10 +9,6 @@ const TABS = [
   { label: "Files changed", count: 6, active: false },
 ] as const;
 
-/**
- * A pull request page on GitHub with the review already posted. Decorative: it sits behind the
- * hero copy, cropped by the wash card, so the real output examples live in the use-cases section.
- */
 export function PrWindow() {
   return (
     <div

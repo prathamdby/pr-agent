@@ -33,7 +33,6 @@ export async function initAnalytics(opts: {
     const nextSink = createPostHogSink({ projectToken, host: opts.host.trim() });
     state = { sink: nextSink, enabled: true };
   } catch (error) {
-    // Failed reinitialization restores no-op + enabled false (audit policy).
     state = disabledState;
     throw error;
   }

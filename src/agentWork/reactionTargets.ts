@@ -1,6 +1,5 @@
 import type { AckTarget, AgentWorkItem } from "./types.js";
 
-/** Prefer persisted intake targets; otherwise rebuild from PR + known comment fields. */
 export function reactionTargetsForWorkItem(item: AgentWorkItem): readonly AckTarget[] {
   const stored = item.payload.ackTargets;
   if (stored != null && stored.length > 0) return stored;

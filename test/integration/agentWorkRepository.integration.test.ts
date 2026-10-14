@@ -957,8 +957,6 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     }
   });
 
-  // Failure modes: optional denial suppressing the other surface, accepted pending
-  // work forgotten on restart, skips becoming receipts, and uncertainty becoming a skip.
   it.each([
     "status_only",
     "both_denied",
@@ -1243,8 +1241,6 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     },
   );
 
-  // Failure modes: a legacy accepted finish being replaced by a new selection,
-  // saved status acceptance not reconciled, and uncertain status writes being skipped.
   it.each([
     "completed",
     "unknown",
@@ -1373,7 +1369,6 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
           status: { headSha: "h", enabled: true, state: "failure" },
         },
       });
-      // Observe the real write conflict, not a sleep that might miss the race.
       await expect
         .poll(
           async () => {

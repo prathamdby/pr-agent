@@ -50,7 +50,6 @@ function isTurnEnd(value: string): value is TurnEnd {
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
 
-/** Count fields. The forbidden regex matches `token` inside `*Tokens`. */
 const TOKEN_COUNT_KEYS: Record<string, true> = {
   inputTokens: true,
   outputTokens: true,
@@ -71,7 +70,6 @@ function asFiniteNumber(value: unknown): number | undefined {
 function sanitizeStableCode(value: unknown): string | undefined {
   const raw = asString(value);
   if (!raw) return undefined;
-  // Stable codes are dotted identifiers — reject free-form exception text.
   if (!/^[a-z][a-z0-9_.]{0,127}$/i.test(raw)) return undefined;
   return raw;
 }
@@ -88,7 +86,6 @@ function sanitizeReason(value: unknown): string | undefined {
   if (!raw) return undefined;
   const cleaned = sanitizeLogMessage(raw);
   if (!cleaned) return undefined;
-  // Reject long free-form blobs that look like model/repo content.
   if (cleaned.length > 64) return cleaned.slice(0, 64);
   return cleaned;
 }
@@ -120,10 +117,6 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
   };
 }
 
-/**
- * Allowlist + redact Agent lifecycle events before they leave the Pi session seam.
- * Returns null when the event cannot be represented safely.
- */
 export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
   if (!isPlainObject(raw)) return null;
   for (const key of Object.keys(raw)) {

@@ -865,7 +865,6 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    // Per-report degrade keeps the session alive: no retire on judgment_failed.
     expect(testState.sessionAborts).toBe(0);
     expect(runner.createSession).toHaveBeenCalledTimes(1);
     expect(runner.createSession.mock.calls[0]?.[0]?.attemptModel).toEqual({
@@ -1569,12 +1568,8 @@ describe("runOrchestratedPrReview", () => {
     const result = await run;
     expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    // First degrade no longer retires the session.
     expect(testState.sessionAborts).toBe(0);
-    // Later report still gets model judgment turns (2 failed attempts + 1 success).
     expect(testState.judgmentPrompts).toHaveLength(3);
-    // Synthesis runs on the partial ledger even though the run degraded;
-    // deterministic salvage success must not trip publish_retry.
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
       true,
     );
@@ -1607,7 +1602,6 @@ describe("runOrchestratedPrReview", () => {
     const result = await run;
     expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    // First degrade keeps the session alive for the next model judgment turn.
     expect(testState.sessionAborts).toBe(0);
     expect(testState.judgmentPrompts).toHaveLength(2);
     expect(testState.ledger?.accepted.map((item) => item.source).toSorted()).toEqual(
@@ -1621,7 +1615,6 @@ describe("runOrchestratedPrReview", () => {
         turnEnd: "tool_budget",
       }),
     ]);
-    // Degraded run with accepted placements runs synthesis before deterministic fallback.
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
       true,
     );
@@ -1665,9 +1658,7 @@ describe("runOrchestratedPrReview", () => {
     const result = await run;
     expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    // Per-report degrade keeps the session alive; later reports still get judgment.
     expect(testState.sessionAborts).toBe(0);
-    // Both reports preserved on the ledger; synthesis runs before any deterministic fallback.
     expect(testState.ledger?.accepted).toHaveLength(2);
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
       true,
@@ -1933,9 +1924,6 @@ describe("runOrchestratedPrReview", () => {
 
     const result = await run;
     expect(result).toMatchObject({ published: true, publishAttempts: 0 });
-    // Guard-removal proof: an empty ledger still spends the summary turn, so
-    // Size, Mergeability, and Blast Radius are model-authored instead of the
-    // deterministic `Not assessed.` fallback.
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
       true,
     );
@@ -1967,23 +1955,6 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("degrades a judgment turn without retiring so later specialists still get judgment", async () => {
-    // Closest expressible variant for the missed-pump drain at
-    // orchestratorRun.ts:1106-1127 (degrade reason judgment_failed with code
-    // review.orchestrator_outcome_unhandled, sessionAborts 0).
-    //
-    // Limitation: a true post-pump arrival is not expressible with the existing
-    // harness without production changes. pumpSpecialistCompletions awaits all
-    // four pending runSpecialist promises before returning, so resolving a
-    // deferred "after pump completes" cannot happen while the run is live: the
-    // mock resolves on abort as failed and any late deferred resolve is then
-    // swallowed by the already-settled promise. Likewise, any lifecycle stop
-    // (stop/finalize/deadline) retires the session via retireSession, so the
-    // drain's session-alive branch (judgment_failed vs judgment_unavailable)
-    // cannot be reached by stopping the lifecycle first. This test therefore
-    // covers the same per-report degrade invariant through the in-pump
-    // judgment-failure path: degrade reason judgment_failed, session stays
-    // alive (sessionAborts 0), and the next specialist still gets a model
-    // judgment turn.
     testState.judgmentFailuresRemaining = 2;
     testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview({
@@ -2008,7 +1979,6 @@ describe("runOrchestratedPrReview", () => {
     const result = await run;
     expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    // Per-report degrade keeps the session alive: no retire on judgment_failed.
     expect(testState.sessionAborts).toBe(0);
     expect(testState.decisionEvents).toEqual([
       expect.objectContaining({
@@ -2016,8 +1986,6 @@ describe("runOrchestratedPrReview", () => {
         degradedReason: "judgment_failed",
       }),
     ]);
-    // Later specialist still got a model judgment turn (2 failed attempts for
-    // correctness + 1 success for security).
     expect(testState.judgmentPrompts).toHaveLength(3);
   });
 });

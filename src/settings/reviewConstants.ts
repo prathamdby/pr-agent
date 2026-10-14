@@ -1,14 +1,9 @@
-/** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
 export const LABEL_REVIEW_SIZE_PREFIX = "size:";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
-/**
- * How often a leased durable execute observes cancel or hold-loss and aborts
- * the host signal. Immediate first tick, then this interval as a backstop.
- */
 export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
@@ -17,18 +12,14 @@ export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
 export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
 
-/** Review comment formatting (GitHub markdown). */
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
-/** Progress stub while the review work item is still queued (before the review worker claims it). */
 export const REVIEW_PROGRESS_QUEUED_NOTE = "Review queued on the latest commit.";
 export const REVIEW_AWAITING_APPROVAL_NOTE =
   "Review waiting for maintainer approval. A maintainer can approve the workflow runs, approve this pull request, or comment `/review`.";
-/** Queued progress stub table label for wait-queue rank among queued reviews for the same pull request (resource key). */
 export const REVIEW_PROGRESS_QUEUE_LABEL = "Queue";
 
-/** Sanitize a GitHub login for public progress-stub attribution. */
 export function sanitizeGithubLogin(login: string): string {
   const trimmed = login.trim().replace(/^@+/, "");
   if (trimmed.length > 0 && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)) {
@@ -37,7 +28,6 @@ export function sanitizeGithubLogin(login: string): string {
   return "user";
 }
 
-/** Why a review progress stub was cancelled (slash `/cancel` vs PR close). */
 export type ReviewCancelAttribution =
   | { readonly kind: "user"; readonly login: string }
   | { readonly kind: "merged" }
@@ -47,10 +37,6 @@ export function reviewCancelAttributionForClosedPr(merged: boolean): ReviewCance
   return merged ? { kind: "merged" } : { kind: "closed" };
 }
 
-/**
- * Progress stub body for a cancelled review (failure-notice layout: alert only).
- * Slash names the issuer. Close names the PR terminal state.
- */
 export function reviewProgressCancelledNote(attribution: ReviewCancelAttribution): string {
   switch (attribution.kind) {
     case "merged":
@@ -89,18 +75,15 @@ export const REVIEW_POINTER_NOTE_LEAD =
 export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
 export const REVIEW_PROGRESS_SOURCE_SLASH = "Slash command";
 
-/** Lightweight review completion (docs-only auto-review skip). */
 export const LIGHTWEIGHT_REVIEW_COMPLETION_LEAD =
   "No deep review run: this automated review was skipped because the change set is documentation-only.";
 export const LIGHTWEIGHT_REVIEW_COMPLETION_REASON = "Documentation-only change set";
 export const LIGHTWEIGHT_REVIEW_COMPLETION_HINT = "Use /review for a full review.";
 
-/** Review budget tier thresholds (advisory hints only). */
 export const REVIEW_SIZE_TIER_SMALL_MAX_FILES = 10;
 export const REVIEW_SIZE_TIER_MEDIUM_MAX_FILES = 50;
 export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
 
-/** Per-repo review policy directory of `.mdc` rules at checkout root. */
 export const REPO_POLICY_DIRNAME = ".pr-agent";
 export const REPO_POLICY_EXTENSION = ".mdc";
 export const MAX_REPO_POLICY_BYTES = 32 * 1024;
@@ -109,15 +92,10 @@ export const MAX_REPO_POLICY_FILES = 20;
 export const MAX_REPO_POLICY_PATH_PATTERN_CHARS = 200;
 export const MAX_REPO_POLICY_INSTRUCTION_CHARS = 1000;
 
-/**
- * Root agent-instruction files loaded into review trusted context (parallel to
- * `.pr-agent/*.mdc` repo policy). Order is load/render order.
- */
 export const AGENT_INSTRUCTION_FILENAMES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"] as const;
 export const MAX_AGENT_INSTRUCTION_BYTES = 64 * 1024;
 export const MAX_AGENT_INSTRUCTION_FILE_BYTES = 32 * 1024;
 
-/** Risk path hints for trusted review context (prompt guidance). */
 export const REVIEW_RISK_PATH_PATTERNS: Readonly<
   Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>
 > = {
@@ -136,10 +114,8 @@ export const REVIEW_RISK_PATH_PATTERNS: Readonly<
 
 export const MAX_REVIEW_FOLLOW_UPS = 5;
 
-/** Review size scale (t-shirt sizes), ordered smallest to largest. */
 export const REVIEW_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
 
-/** ReviewPayload public field size limits (unlimited finding count; bounded text). */
 export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
 export const REVIEW_FINDING_DETAIL_MAX_CHARS = 4000;
 export const REVIEW_FINDING_FIX_PROMPT_MAX_CHARS = 2000;
@@ -150,9 +126,7 @@ export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
 export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
 export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
-/** Shared cap for synthesis-authored Mergeability and Blast Radius lines. */
 export const REVIEW_GATE_PROSE_MAX_CHARS = 280;
-/** Deterministic fallback when synthesis does not author gate prose. */
 export const REVIEW_GATE_PROSE_UNASSESSED = "Not assessed.";
 
 export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
@@ -161,61 +135,36 @@ export const REVIEW_SUMMARY_COMPACTION_NOTE =
 export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
   "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
 export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
-/** Max wait for a peer (e.g. ack job) to persist a started check run id. */
 export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
 export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 
-/** Commit status context posted when FEATURE_COMMIT_STATUS is on. Excluded from CI facts. */
 export const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
 
-/** Max named checks stored on one `pr_head_ci_state` row. Overflow drops the oldest observation. */
 export const CI_STATE_MAX_CHECKS = 200;
 
-/** Review CI summary: max failing checks named in the facts-only headline. */
 export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;
-/** Max bytes of condensed CI log context injected into the CI-summary LLM call. */
 export const REVIEW_CI_SUMMARY_LOG_MAX_BYTES = 24_000;
-/** Max characters kept from a single Actions job log before cross-job capping. */
 export const REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS = 12_000;
-/** Max jobs whose logs are downloaded for one CI summary. */
 export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
-/**
- * Parallel annotation and job-log fetches for one CI summary.
- * Small enough to stay far below GitHub secondary rate-limit territory.
- */
 export const REVIEW_CI_SUMMARY_FETCH_CONCURRENCY = 4;
-/**
- * Raw job-log intake is this many times the per-job condensed budget.
- * The bound keeps the tail when it already has an error signal; otherwise a
- * same-sized window that still includes the last error line.
- */
 export const REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE = 4;
-/** Max chars for model-authored CI headline / reason / fixHint fields. */
 export const REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS = 240;
 export const REVIEW_CI_SUMMARY_REASON_MAX_CHARS = 400;
 export const REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS = 280;
 
-/** User-visible CI row when Checks API is blocked for the installation. */
 export const REVIEW_CI_SUMMARY_GRANT_CHECKS =
   "PR Agent can't see check runs on this head. In the GitHub App settings, set Checks to Read, then run /review again.";
 
-/** User-visible note when Actions API is blocked while CI is failing. */
 export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
   "CI failed, but PR Agent can't download the job logs. Set Actions to Read on the GitHub App so the next summary can explain what broke.";
 
-/** Generic CI row when status fetch fails for a non-permission reason. */
 export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 
-/** CI row when the retrieved check-run list is truncated and no failure is known. */
 export const REVIEW_CI_SUMMARY_INCOMPLETE =
   "CI results are incomplete; additional checks were not retrieved.";
-/** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
-/** Max findings accepted from one specialist report. */
 export const MAX_SPECIALIST_FINDINGS = 20;
-/** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
-/** Max incremental COMMENT review calls accepted during one orchestrated review run. */
 export const MAX_THREAD_PUBLISH_CALLS = 8;
 
 export const REVIEW_SEVERITY_RANK = {
@@ -228,10 +177,8 @@ export const REVIEW_SEVERITY_RANK = {
 export const VALIDATION_REPAIR_ROUNDS = 3;
 export const PUBLISH_RECOVERY_ROUNDS = 2;
 
-/** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
 
-/** ReviewPayload validation failure kinds for harness metrics and repair prompts. */
 export type ReviewValidationFailureKind =
   | "missing_field"
   | "wrong_type"
@@ -242,7 +189,6 @@ export type ReviewValidationFailureKind =
   | "custom_predicate"
   | "other";
 
-/** Review phase names for harness metrics (see CONTEXT.md). */
 export type ReviewPhase =
   | "investigation"
   | "pre_submit"
@@ -250,11 +196,8 @@ export type ReviewPhase =
   | "publish_recovery"
   | "plaintext_fallback";
 
-/** Recon and specialist investigation rounds. The specialist timeout and the review deadline stop the run before this budget. */
 export const MAX_TOOL_ROUNDS = 2_000;
-/** Evidence rounds per specialist judgment turn. A reserved publish round is additional (at most one extra round), so evidence gathering can never starve `publish_thread`. */
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
-/** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
 export const MAX_PR_FILES_LISTED = 300;
 export const MAX_PR_FILES_PATCH_BYTES = 500_000;
 export const REVIEW_ANCHOR_MENU_MAX_FILES = 40;

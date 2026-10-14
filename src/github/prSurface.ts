@@ -37,7 +37,6 @@ export { createFakePrSurface } from "./fakePrSurface.js";
 export type { FakePrSurfaceControls, FakePrSurfaceEvent } from "./fakePrSurface.js";
 export { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
 
-/** Production factory for the PR GitHub surface seam. */
 export function createPrSurface(params: FencedPrSurfaceParams): PrSurface {
   const mutationBoundary = isUnfencedSurface(params.mutationBoundary)
     ? undefined

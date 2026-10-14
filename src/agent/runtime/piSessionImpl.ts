@@ -56,8 +56,6 @@ function asAssistantMessage(message: AgentMessage | undefined): AssistantMessage
 function convertToLlm(messages: AgentMessage[]): Message[] {
   const converted: Message[] = [];
   for (const message of messages) {
-    // System messages carry the session prompt (and later tool declarations)
-    // since pi-agent-core moved the prompt out of AgentContext into the transcript.
     if (
       message.role === "system" ||
       message.role === "user" ||
@@ -75,7 +73,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   let traceSpanId: string | undefined;
   const emitForGeneration = (generationId?: string) =>
     createSanitizedEventSink((event) => {
-      // Correlation is runtime-owned and added after the content allowlist.
       try {
         params.eventSink({
           ...event,
@@ -84,14 +81,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           ...(generationId != null ? { generationId } : {}),
           ...(params.specialistId != null ? { specialistId: params.specialistId } : {}),
         });
-      } catch {
-        // Observers cannot fail or retry an agent send.
-      }
+      } catch {}
     });
   const emitSession = emitForGeneration();
   const sessionAbort = new AbortController();
-  // pi-agent-core no longer takes a separate systemPrompt on AgentContext: the
-  // prompt travels as the leading system message of the transcript instead.
   const sessionMessages: AgentMessage[] = [
     { role: "system", content: params.systemPrompt, timestamp: Date.now() },
   ];
@@ -365,8 +358,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Agent runner session aborted",
           });
         }
-        // A refusal can arrive as a normal stop with no text. Callers that nudge
-        // on empty text would otherwise resend the declined request.
         if (refused) {
           throw new AppError({
             domain: "provider",
@@ -454,9 +445,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               kind: "session_send_span",
               sendMs: Date.now() - sendStartedAt,
             });
-          } catch {
-            // metrics are best-effort
-          }
+          } catch {}
         }
         activity.dispose();
       }

@@ -141,10 +141,6 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
   return resolved;
 }
 
-/**
- * Ensure a repo-relative path stays inside root after symlink resolution.
- * Missing paths are allowed (caller decides); existing symlinks and escapes are denied.
- */
 export async function assertContainedWorkspacePath(
   root: string,
   requestedPath: string,
@@ -260,7 +256,6 @@ async function gitGrepWorkspaceChunk(
   pathspecs: readonly string[],
 ): Promise<GitGrepChunkResult> {
   try {
-    // Omit `--max-count`; some supported Git builds reject it. Result and byte caps stay after parse.
     const { stdout } = await runWorkspaceGit(
       ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs],
       {
@@ -405,8 +400,6 @@ export function createPinnedRepositoryReader(params: {
     if (!isPathInCheckout(normalized)) {
       return "";
     }
-    // Blame is immutable at this workspace's pinned headSha, and the four
-    // specialists routinely blame the same path: one git process per path.
     const cached = blameCache.get(normalized);
     if (cached !== undefined) return cached;
     const pending = (async () => {
@@ -475,7 +468,6 @@ export function createPinnedRepositoryReader(params: {
   };
 }
 
-/** The common read seam has pinned and mutable-checkout production adapters. */
 export type RepositoryReader = {
   readonly agentCwd: string;
   readonly readSource: (path: string, maxFileBytes: number) => Promise<string | null>;
@@ -493,7 +485,6 @@ export type RepositoryReader = {
   readonly getDiffForPath: (path: string) => Promise<string>;
 };
 
-/** Raw source decoding for navigation indexes, not delivered evidence. */
 export async function readRepositorySource(
   root: string,
   path: string,
@@ -603,8 +594,6 @@ async function isAllowedTriageSearchPath(
     const resolvedPath = normalizeRepoRelativePath(relative(realRoot, realCandidate));
     return !isTriageControlPath(resolvedPath);
   } catch {
-    // A missing, malformed, or escaping result is not safe to expose. Git grep
-    // should only return paths that resolve, so this is a defensive dead end.
     return false;
   }
 }

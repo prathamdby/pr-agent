@@ -7,7 +7,6 @@ import {
   repositorySchema,
 } from "./common.js";
 
-/** Picked check_run fields only. `output` is never stored. */
 export const checkRunBodySchema = v.object({
   id: githubSafeIdSchema,
   head_sha: githubShaSchema,

@@ -30,8 +30,6 @@ describe("parseToolInput", () => {
   });
 
   it("drops null on an optional field wrapped in a pipe", () => {
-    // Every production optional routed through the seam is optional(pipe(...))
-    // — workspace maxResults, startLine/maxLines, reviewSchema confidence.
     const result = parseToolInput(schema, { path: "a", limit: null }, { toolName: "t" });
     expect(result).toMatchObject({ ok: true, value: { path: "a" } });
     expect(result.ok && result.repairs).toEqual(["null_optional_dropped"]);
@@ -123,7 +121,6 @@ describe("parseToolInput", () => {
     if (!result.ok) {
       expect(result.error).toContain("tags.1");
     }
-    // The applied repair is still logged even though the payload stayed invalid.
     expect(logDebug).toHaveBeenCalledWith("tool_input_repaired", {
       tool: "t",
       repairs: ["stringified_json_array"],

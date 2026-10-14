@@ -1,7 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS, type AnyReviewLens } from "../settings/index.js";
 
-// Both retained-session lanes reserve from the same pool budget.
 const reservations = new WeakMap<Pool, { count: number }>();
 
 export type SessionLockKey =
@@ -105,7 +104,6 @@ export async function withSessionLock<T>(
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt++] ??
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1) ??
         0;
-      // No session or admission reservation survives contention backoff.
       await new Promise<void>((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
     } while (performance.now() < deadline);
     if (retained == null && options.mode === "wait") throw options.timeoutError;

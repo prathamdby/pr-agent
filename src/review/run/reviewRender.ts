@@ -56,7 +56,6 @@ const CODE_FENCE_RE = /```/g;
 const HTML_COMMENT_DASH_RE = /--/g;
 const HTML_COMMENT_CLOSE_RE = />/g;
 
-/** Prevent model-authored text from closing a surrounding markdown code fence. */
 function escapeCodeFenceBreakers(text: string): string {
   return text.replace(CODE_FENCE_RE, "\\`\\`\\`");
 }
@@ -334,7 +333,6 @@ export function renderReviewPointerLensMarker(mode: AnyReviewLens): string {
   return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
 }
 
-/** Files-tab pull request review body for one specialist batch (Note + tagline only). */
 export function renderSpecialistReviewBody(params: {
   readonly specialist: FindingSource;
   readonly progressCommentUrl: string;
@@ -364,13 +362,11 @@ type ReviewSummaryRenderCtx = RenderContext & {
   runFooter: ReviewRunFooterMeta;
   staleReview?: boolean;
   cachedDiffIndex?: CachedPrDiffIndex;
-  /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
   ciSummary?: CiSummary | null;
   ciVersion?: number;
   coverage?: ReviewActionLineCoverage;
 };
 
-/** Count of findings on the same list the findings table renders (every P0–P3). */
 export function countReviewFindingsForActionLine(
   rows: readonly { severity: "P0" | "P1" | "P2" | "P3" }[],
 ): number {
@@ -404,7 +400,6 @@ export function renderReviewActionLine(input: {
 }
 
 function formatFindingCountClause(count: number): string {
-  // N counts every P0–P3 table row (design copy; check failure remains P0–P2 only).
   if (count === 0) return "No findings, ready to merge";
   if (count === 1) return "1 finding blocks merge";
   return `${count} findings block merge`;
@@ -414,9 +409,6 @@ function formatFollowUpCountClause(count: number): string {
   return count === 1 ? "1 follow-up" : `${count} follow-ups`;
 }
 
-/** Server-rendered numbered list for the Follow-ups gate cell.
- *  Each item goes through the plain-cell escape every cell already uses;
- *  returns "" when the list is empty. No other normalization exists. */
 export function renderFollowUpsCell(items: readonly string[]): string {
   return items.map((item, index) => `${index + 1}. ${escapeTablePlainCell(item)}`).join("<br>");
 }
@@ -428,7 +420,6 @@ function formatFailedSpecialistNames(failed: readonly string[]): string {
   return `${failed.slice(0, -1).join(", ")}, and ${failed[failed.length - 1]}`;
 }
 
-/** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,

@@ -118,7 +118,6 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
   }
 }
 
-/** Replace the progress comment with the failure-style cancelled notice (no roster table). */
 export async function writeCancelledProgressComment(
   args: WriteCancelledProgressCommentArgs,
 ): Promise<void> {

@@ -158,9 +158,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       await sendCopy();
       expect((await deferredRows(pool, key)).length).toBeLessThanOrEqual(2);
 
-      // Completed copies keep their rows for days, so the watchdog chain dies unless
-      // the next hop lands in a fresh slot. Once the clock crosses a slot boundary a
-      // new arm must succeed.
       await pool.query(
         `UPDATE pgboss.job SET state = 'completed', completed_on = now()
           WHERE name = $1 AND singleton_key = $2`,
@@ -541,8 +538,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         [REVIEW_QUEUE, workItemId],
       );
       const before = await deferredRows(pool, workItemId);
-      // Inject at the existing database boundary after the first real singleton
-      // miss. All other statements, including the cleanup, use real Postgres.
       let reads = 0;
       let cleaned = false;
       vi.spyOn(db, "executeSql").mockImplementation(async (text, values) => {
@@ -674,8 +669,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
           WHERE resource_key = $1 AND work_type = 'review'`,
         [resourceKey],
       );
-      // Only this test's recovery row becomes deliverable; do not fetch another
-      // test's jobs from the shared queue.
       await pool.query(
         `UPDATE pgboss.job SET state = 'active', started_on = now() WHERE name = $1 AND id = $2`,
         [REVIEW_QUEUE, hop?.id],
@@ -750,9 +743,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       [first, resourceKey],
     );
     try {
-      // Drive the production entry (real transaction, no seam) with a fault
-      // injected between acquire and claim: the pair must roll back together,
-      // never parking a held lease on the queued row.
       const coreRow = await pool.query(`SELECT id FROM agent_work_items WHERE id = $1`, [first]);
       expect(coreRow.rowCount).toBe(1);
       const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
@@ -774,8 +764,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
             }),
         }),
       ).rejects.toThrow("fault between acquire and claim");
-      // No parked lease: the row is still queued and the lease is free, so a
-      // successor acquires immediately with no TTL wait.
       const successor = await acquirePrActorLease(pool, {
         resourceKey,
         workType: "review",
@@ -858,8 +846,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       [id, resourceKey],
     );
     try {
-      // Claim throws after a good acquire inside the real transaction: the
-      // pair rolls back, so no partial commit parks a held lease.
       const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
@@ -920,9 +906,6 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       [id, resourceKey],
     );
     try {
-      // Intake cancel already terminalized the row; the first attempt throws
-      // 40P01, so the retry must re-read the cancelled row, claim-null, and
-      // free the just-acquired epoch in-tx.
       const { getWorkItemCore: getCore } =
         await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getCore(pool, id);

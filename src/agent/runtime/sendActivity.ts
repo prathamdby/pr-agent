@@ -1,6 +1,5 @@
 import { AppError } from "../../errors/appError.js";
 
-/** A send may race several Core invocations; all of its monitors share activity. */
 export function createSendActivity(timeoutMs: number, sendAbort: AbortController) {
   const enabled = typeof timeoutMs === "number" && timeoutMs > 0;
   const timers: Array<ReturnType<typeof setInterval>> = [];
@@ -55,7 +54,6 @@ export function createSendActivity(timeoutMs: number, sendAbort: AbortController
   };
 }
 
-/** Retry waits share the send signal and release their abort listener on settlement. */
 export function sleepForRetry(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {

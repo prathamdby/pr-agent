@@ -19,10 +19,6 @@ function validationErrors(error: unknown): readonly RecordLike[] {
   return errors.filter(isRecord);
 }
 
-/**
- * Check-run creation recovery is safe only for a structured duplicate signal.
- * A bare 422 is a generic validation failure and must remain unresolved.
- */
 export function isDuplicateCheckRunCreationError(error: unknown): boolean {
   if (httpStatus(error) !== 422) return false;
 
@@ -52,10 +48,6 @@ export type GithubErrorKind =
 
 const MAX_GITHUB_REQUEST_PATH_LEN = 200;
 
-/**
- * Pathname from a structured Octokit/GitHub error only.
- * Query strings and free-text blobs are dropped so tokens never become a path.
- */
 export function githubRequestPath(error: unknown): string | undefined {
   if (!isRecord(error)) return undefined;
   const request = isRecord(error.request) ? error.request : undefined;
@@ -87,7 +79,6 @@ function allowlistedRequestPath(value: unknown): string | undefined {
   return path;
 }
 
-/** Message string for unknown errors (GitHub helpers share this). */
 export function githubErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error != null && "message" in error) {
@@ -101,7 +92,6 @@ function githubErrorText(error: unknown): string {
   return githubErrorMessage(error).toLowerCase();
 }
 
-/** Logs/analytics-only classification for GitHub API failures. */
 export function classifyGithubError(error: unknown): GithubErrorKind {
   if (
     isAppError(error) &&
@@ -150,14 +140,10 @@ export function looksLikeGithubError(error: unknown): boolean {
       if (typeof url !== "string") continue;
       try {
         if (new URL(url).hostname === "api.github.com") return true;
-      } catch {
-        // Relative paths cannot establish which API served the request.
-      }
+      } catch {}
     }
   }
   const text = githubErrorText(error);
-  // Require GitHub-shaped signals — do not treat bare 401/403 strings as GitHub
-  // (provider adapters often surface those without an HTTP status field).
   return /resource not accessible by integration|graphqlresponseerror|octokit|github api|secondary rate|api rate limit exceeded/.test(
     text,
   );

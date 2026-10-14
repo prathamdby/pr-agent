@@ -38,17 +38,14 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 
 export type ThinkingPolicy = {
   readonly ceiling: ThinkingLevel;
-  /** Resolve the desired thinking level for a phase before clamping. */
   readonly levelForPhase: (phase: AgentSessionPhase) => ThinkingLevel;
 };
 
 export type CompactionPolicy = {
-  /** When true, the session compact-and-continues through Core `prepareNextTurn`. */
   readonly enabled: boolean;
 };
 
 export type ToolPolicy = {
-  /** Built-in shell/write/edit/filesystem tools stay disabled. */
   readonly allowBuiltin: false;
 };
 
@@ -65,7 +62,6 @@ export type PiSessionCreateParams = {
   readonly traceRole?: "judge";
   readonly traceWorkItemId?: string;
   readonly role: AgentSessionRole;
-  /** Specialist persona for lifecycle correlation and the unchanged cache identity. */
   readonly specialistId?: string;
   readonly primary: ModelAssignment;
   readonly thinkingPolicy: ThinkingPolicy;
@@ -79,7 +75,6 @@ export type PiSessionCreateParams = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  /** Durable job/lease abort; combined with the session abort and the loop signal. */
   readonly hostSignal?: AbortSignal;
 };
 

@@ -146,7 +146,6 @@ export function installationCapabilitiesFromPermissions(params: {
   );
   return { ...params, availability };
 }
-/** A timed-out preflight persists "unknown"; reusing that observation never confirms access. */
 export function capabilityObservationUnconfirmed(
   availability: Partial<Record<InstallationOperation, CapabilityAvailability>>,
 ): boolean {
@@ -198,7 +197,6 @@ export function createReviewCapabilityPolicy(
   };
 }
 
-/** A 403 alone may be throttling; a 404 may be a missing resource. Neither proves denial. */
 export function isConfirmedCapabilityDenial(error: unknown): boolean {
   if (httpStatus(error) !== 403 || !(error instanceof Error)) return false;
   return /resource not accessible by integration|resource not accessible by personal access token|insufficient permissions/i.test(

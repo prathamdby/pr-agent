@@ -59,7 +59,6 @@ type PublishVerificationParams = {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly payload: VerificationPayload;
   readonly changedFilePaths: readonly string[];
-  /** When true, changedFilePaths is incomplete (GitHub compare 300-file cap). */
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
   readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
@@ -184,7 +183,6 @@ async function recoverVerificationMutation(params: {
         detail.__result === false &&
         (params.verdict === "fixed" || params.verdict === "already-resolved")
       ) {
-        // The exact edit receipt proves deletion; a missing listing does not.
         stubProven = true;
       }
     }
@@ -398,8 +396,6 @@ async function withVerificationThreadOperation(
       ...(requirements.threadNodeId != null ? { threadNodeId: requirements.threadNodeId } : {}),
     },
     recover: async (intent, publishRecordId) => {
-      // A proven denial is already the terminal decision for this dispatch.
-      // Do not mask it with a failing observational read after partial acceptance.
       if (resolutionDenied) return { kind: "absent" };
       return recoverVerificationMutation({
         pool: params.pool,
@@ -418,7 +414,6 @@ async function withVerificationThreadOperation(
         expectedBody: requirements.body(operationMarker),
       });
     },
-    // A later child denial cannot undo a stub that was already accepted.
     isKnownNoAcceptanceError: (error) => {
       resolutionDenied =
         isAppError(error) && error.code === "github.review_thread_resolution_denied";
@@ -537,7 +532,6 @@ export async function publishVerification(
         break;
       }
       case "skipped": {
-        // When compare is truncated, omitted paths must not suppress still-open stubs.
         if (changedMembershipComplete && !changedFiles.has(thread.path)) break;
         const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,

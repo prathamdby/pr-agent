@@ -154,10 +154,6 @@ function throwIfAborted(signal: AbortSignal): void {
   });
 }
 
-/**
- * Wrap every mutating method at the PR-surface seam. The implementation and
- * fake share this wrapper so tests exercise the same fence as production.
- */
 export function withPrSurfaceMutationBoundary(
   surface: PrSurface,
   boundary: PrSurfaceMutationBoundary,

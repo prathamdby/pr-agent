@@ -186,7 +186,6 @@ async function closeOpenOwnVerdict(params: {
   }).repairIfOpen();
 }
 
-/** Mark lost running items failed, then close any review whose check is still open. */
 export async function reconcileLostRunningWork(params: {
   readonly cfg: Config;
   readonly pool: Pool;

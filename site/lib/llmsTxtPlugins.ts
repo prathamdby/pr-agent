@@ -29,7 +29,6 @@ function watchedModules(): readonly string[] {
   ].map((name) => resolve(siteDir, "lib", name));
 }
 
-/** Production build fails when the committed file disagrees. It does not rewrite it. */
 export function llmsTxtBuildPlugin(io: LlmsTxtIo = {}): Plugin {
   const read = io.readFileSync ?? readFileSync;
   const render = io.render ?? renderLlmsTxt;
@@ -47,7 +46,6 @@ export function llmsTxtBuildPlugin(io: LlmsTxtIo = {}): Plugin {
   };
 }
 
-/** Dev rewrites the file. `apply: "serve"` keeps this hook off the production build. */
 export function llmsTxtServePlugin(io: LlmsTxtIo = {}): Plugin {
   const write = io.writeFileSync ?? writeFileSync;
   const render = io.render ?? renderLlmsTxt;

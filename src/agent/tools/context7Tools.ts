@@ -218,9 +218,7 @@ async function context7Get(
       } catch {
         detail = rawBody;
       }
-    } catch {
-      /* response body is unreadable; keep detail empty */
-    }
+    } catch {}
     detail = redactContext7Response(detail, apiKey);
     throw new AppError({
       domain: "context7",
@@ -299,12 +297,6 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
 const CONTEXT7_TOOL_ENTRIES = Object.entries(CONTEXT7_TOOLS);
 const CONTEXT7_PI_TOOLS = CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => toPiTool(name, tool));
 
-/**
- * Library-docs lookup tools the review agent uses to verify upstream API claims.
- * Calls https://context7.com/api directly; SDK was avoided because its constructor
- * rejects missing API keys, which would break anonymous fallback.
- * See docs/adr/0002-context7-docs-tool.md.
- */
 export function buildContext7Tools({
   apiKey,
   maxResponseBytes,

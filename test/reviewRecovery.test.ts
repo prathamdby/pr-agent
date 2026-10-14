@@ -16,9 +16,6 @@ import type { CanonicalReviewDecision } from "../src/review/recovery/reviewRecov
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
-// Replay failure modes:
-// - a saved summary decision replays through the thread publisher and posts threads;
-// - a saved final summary that no longer validates is published as the review summary.
 const binding = createReviewArtifactBinding(
   {
     workItemId: "00000000-0000-4000-8000-000000000001",

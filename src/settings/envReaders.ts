@@ -85,10 +85,6 @@ export function readEnum<T extends string>(
   });
 }
 
-/**
- * Boolean env that rejects typos instead of silently reading them as false.
- * Empty or whitespace-only values fall back to the default (operator blank = unset).
- */
 export function readStrictBoolean(name: string, defaultValue: boolean): boolean {
   const raw = process.env[name];
   if (raw == null || raw.trim() === "") {
@@ -105,7 +101,6 @@ export function readStrictBoolean(name: string, defaultValue: boolean): boolean 
   return raw === "true";
 }
 
-/** `NODE_ENV` is read here so slice readers stay free of direct `process.env` access. */
 export function isProductionNodeEnv(): boolean {
   return process.env.NODE_ENV === "production";
 }

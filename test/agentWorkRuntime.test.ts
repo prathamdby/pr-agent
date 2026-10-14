@@ -106,7 +106,6 @@ describe("agent work runtime teardown", () => {
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
 
     const Worker = Context.Service<"Worker", void>("Worker");
-    // Same provide order as worker.ts: Boss, executions, then Pool → pool.end last.
     const workerLive = Layer.effect(
       Worker,
       Effect.acquireRelease(
@@ -305,7 +304,6 @@ describe("agent work runtime teardown", () => {
     await Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
     const elapsed = Date.now() - started;
 
-    // Five seconds of general settle plus five seconds of durable-only reserve.
     expect(elapsed).toBeGreaterThanOrEqual(9_000);
     expect(elapsed).toBeLessThan(15_000);
     expect(runtimeMocks.warnings).toContain("agent_worker_shutdown_incomplete");

@@ -1,13 +1,6 @@
 import { AGENT_RESOURCES } from "./agentResources.js";
 import { PAGE_SECTIONS, WEB_MCP_TOOLS } from "./agentTools.js";
 
-/**
- * Inline script for the landing page.
- *
- * It runs from the HTML, not the app bundle, so a browser agent sees the tools on first parse.
- * `document.modelContext` is preferred. Older Chrome builds expose the same API on
- * `navigator.modelContext`. The signal unregisters the tools when the page is discarded.
- */
 export function renderWebMcpScript(): string {
   const payload = JSON.stringify({
     tools: WEB_MCP_TOOLS,

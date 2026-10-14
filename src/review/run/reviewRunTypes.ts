@@ -46,7 +46,6 @@ export type ReviewRunParams = {
   readonly severityFloor?: number;
   readonly sameRepo?: boolean;
   readonly repoPolicy?: RepoPolicyResult;
-  /** Durable job/lease abort for tool execution. */
   readonly signal?: AbortSignal;
 };
 
@@ -56,7 +55,6 @@ export type ReviewRunResult = {
   readonly publishAttempts: number;
   readonly publishStepCount: number;
   readonly publishSuperseded: boolean;
-  /** Last classified external/internal failure from the run (soft-fail diagnostics). */
   readonly lastFailure?: ClassifiedFailure;
   readonly publishedFindings?: readonly Pick<ReviewFinding, "severity">[];
   readonly coverage?: ReviewCoverage;

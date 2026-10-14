@@ -31,7 +31,6 @@ export type WorkExecutionDependencies = {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly installationSurface?: InstallationSurface;
-  /** Pi session factory for features that run agent sessions in-process; review injects it. */
   readonly createSession?: typeof createFeaturePiSession;
 };
 
@@ -62,7 +61,6 @@ async function resolveReviewHead(prSurface: PrSurface, item: ReviewWorkItem) {
   }
 }
 
-/** Closed registration table. Auxiliary lanes never acquire a durable work kind. */
 export function createWorkDefinitions(
   dependencies: WorkExecutionDependencies & { readonly runtime?: DurableRuntime },
 ) {

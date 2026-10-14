@@ -6,7 +6,6 @@ import { ArrowUpRight, ChevronRight, GitHubMark, Menu, X } from "@/components/ic
 import { PRODUCT_NAME } from "@/lib/seo";
 import { REPO_URL } from "@/lib/site";
 
-/** Absolute hashes so the same header works from the 404 page. */
 const NAV = [
   { href: "/#features", label: "How it works" },
   { href: "/#examples", label: "Examples" },
@@ -21,7 +20,6 @@ export function Header() {
   const sentinel = useRef<HTMLDivElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
 
-  // A hairline above the header leaves the viewport the moment the header sticks.
   useEffect(() => {
     const node = sentinel.current;
     if (node === null) {
@@ -50,7 +48,6 @@ export function Header() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  // The panel must be gone before the browser measures the anchor it is about to scroll to.
   const closeForNavigation = () => {
     if (!open) {
       return;

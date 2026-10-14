@@ -89,7 +89,6 @@ export type FindingBatchResult =
   | { readonly kind: "budget_exhausted"; readonly delta: FindingLedgerDelta }
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
-/** Per-call inputs; shared run identity and the abort policy live on the session. */
 export type FindingBatchInput = {
   readonly recoveryDecision?: RecoveryDecision;
   readonly recoveryWithoutEvidence?: boolean;

@@ -30,12 +30,9 @@ export type WorkspaceFileSearchResult = {
 type FffIndexState = {
   readonly indexed: readonly string[];
   readonly indexedSet: ReadonlySet<string>;
-  /** Tracked paths fff reads; everything else in the checkout goes to git grep. */
   readonly searchable: ReadonlySet<string>;
 };
 
-// fff 0.11.0 skips these extensions without reading them (`is_binary_extension_str`
-// in fff-core). git grep -I still inspects their content, so they stay on git grep.
 const FFF_SKIPPED_EXTENSIONS = new Set(
   (
     "png jpg jpeg gif bmp ico webp tiff tif avif heic heif jxl jp2 j2k psd icns cur cr2 nef dng " +
@@ -56,11 +53,6 @@ function fffSkipsExtension(path: string): boolean {
   return dot > 0 && dot < name.length - 1 && FFF_SKIPPED_EXTENSIONS.has(name.slice(dot + 1));
 }
 
-/**
- * Case-insensitive path ranking for paths fff does not index, and for every
- * path when the host is unavailable: basename substring, then path substring,
- * then an in-order character match; shorter paths first within a tier.
- */
 export function rankPathsByQuery(query: string, paths: readonly string[]): string[] {
   const needle = query.toLowerCase();
   const scored: { path: string; tier: number }[] = [];
@@ -89,12 +81,6 @@ function matchBytes(match: WorkspaceSearchMatch): number {
   );
 }
 
-/**
- * Literal search over a pinned checkout. fff answers for the files it indexes;
- * git grep answers for tracked files fff hides (dotfiles, ignored directories,
- * `.ignore` entries, large or binary-named files) and for the whole call when
- * the fff host is unavailable. Results keep git grep's path order and line text.
- */
 export function createFffWorkspaceSearch(params: {
   readonly root: string;
   readonly checkoutPaths: ReadonlySet<string>;
@@ -169,7 +155,6 @@ export function createFffWorkspaceSearch(params: {
       let lines = linesByPath.get(hit.path);
       if (lines == null) {
         const fullPath = join(root, hit.path);
-        // Pinned checkouts strip symlinks; a link that reappears is never read.
         lines = lstat(fullPath)
           .then(async (info) =>
             info.isFile() ? (await readFile(fullPath, "utf8")).split("\n") : null,
@@ -184,7 +169,6 @@ export function createFffWorkspaceSearch(params: {
   }
 
   async function search(request: GitGrepWorkspaceParams): Promise<GitGrepWorkspaceResult> {
-    // git grep reads a newline as several patterns; fff cannot take a NUL. Keep both on git.
     if (/[\n\0]/.test(request.query)) return gitGrep(request);
     index ??= openIndex();
     const state = await index;
@@ -204,7 +188,6 @@ export function createFffWorkspaceSearch(params: {
         key,
         patterns: [request.query],
         denied,
-        // A file never needs more lines than the whole result to fill it in path order.
         maxMatchesPerFile: limit,
         maxMatches: LOCAL_WORKSPACE_FFF_MAX_COLLECTED_MATCHES,
         maxFileBytes: LOCAL_WORKSPACE_FFF_MAX_FILE_BYTES,

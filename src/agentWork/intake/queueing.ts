@@ -63,10 +63,6 @@ async function enqueueLeasedWork(
   });
 }
 
-/**
- * Send a job with a deterministic id.
- * `null` from pg-boss means the job already exists — treat as success.
- */
 async function sendBossJobIdempotent(
   boss: PgBoss,
   queue: string,
@@ -89,9 +85,6 @@ export async function enqueueAck(
   });
 }
 
-/**
- * Idempotent ack for ask promotion: same webhook event reuses one pg-boss job id.
- */
 export async function enqueueAskAckIdempotent(
   boss: PgBoss,
   client: PoolClient,

@@ -42,7 +42,6 @@ function assignsWorkItemStatus(text: string): boolean {
   return /\bstatus\s*=/.test(clause);
 }
 
-/** Walk source, skipping comments and string interiors, and record the forms a code row cares about. */
 export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: string): boolean {
   void fileName;
   let typeOnlyStatement = false;
@@ -127,7 +126,6 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
     }
     if (/\s/.test(ch)) {
       if (ch === ";" || ch === "\n") {
-        /* keep */
       }
       i += 1;
       continue;
@@ -200,7 +198,6 @@ export function isCodeRowAllowed(rel: string, allow: readonly string[]): boolean
   );
 }
 
-/** Collect full exported declaration signatures, including multi-line parameter lists. */
 export function exportedSignatureTexts(text: string): string[] {
   const lines = text.split("\n");
   const signatures: string[] = [];

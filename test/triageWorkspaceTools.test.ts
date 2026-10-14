@@ -232,8 +232,6 @@ describe("buildTriageWorkspaceTools", () => {
     const { root, executors } = await setup({
       files: { "src/app.ts": "alpha\r\nbeta\ngamma\r\n" },
     });
-    // oldText spans a line break, so it only matches in the normalized space
-    // the model was shown — the raw fast path cannot serve this edit.
     const out = await executors.editWorkspaceFile({
       path: "src/app.ts",
       oldText: "alpha\nbeta",

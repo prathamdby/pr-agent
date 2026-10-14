@@ -15,9 +15,7 @@ export type ReviewThreadResolutionStatus = "ok" | "permission_denied" | "partial
 export type ListReviewThreadResolutionResult = {
   readonly byRootCommentId: Map<number, ReviewThreadResolution>;
   readonly status: ReviewThreadResolutionStatus;
-  /** True when pagination stopped at MAX_REVIEW_THREAD_PAGES with more pages remaining. */
   readonly truncated?: boolean;
-  /** One actionable warning when resolution is incomplete or unavailable. */
   readonly warning?: string;
 };
 
@@ -267,7 +265,6 @@ export async function resolveReviewThread(
   }
 }
 
-/** A denial proves nonacceptance of this mutation only, never its calling workflow. */
 function throwResolutionDenial(response: unknown, threadNodeId: string): void {
   if (!isRecord(response) || classifyGithubError(response) === "rate_limit") return;
   const errors = response.errors;
@@ -298,7 +295,6 @@ function throwResolutionDenial(response: unknown, threadNodeId: string): void {
   });
 }
 
-/** Log when resolution fetch is degraded. */
 export function warnReviewThreadResolutionDegraded(
   result: ListReviewThreadResolutionResult,
   context: Record<string, unknown>,

@@ -32,7 +32,6 @@ import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTes
 export type PublishTestState = {
   inlineReviewIds: number[];
   threadCallCount: number;
-  /** Set when publish is skipped (superseded, cancelled, or abort-check failed). */
   publishSuperseded: boolean;
 };
 
@@ -47,13 +46,6 @@ export function createPublishTestState(initial?: {
   };
 }
 
-/**
- * Test-only composer mirroring the orchestrated tool order (finding batch,
- * then summary) through the live production functions. Validation,
- * redaction, and rendering all execute inside publishFindingBatch and
- * publishReviewSummaryOnly, so keep this order in sync with the orchestrator
- * tools when that order changes.
- */
 export async function runTestPublishFlow(
   params: ReviewPublishContext & {
     prSurface: PrSurface;
@@ -147,7 +139,6 @@ export async function runTestPublishFlow(
   }
 }
 
-/** Summary publication from one flat argument bag: session fields plus per-call input. */
 export function publishSummaryForTest(
   params: ReviewPublishSessionInput &
     Parameters<typeof publishReviewSummaryOnly>[1] & {
@@ -176,7 +167,6 @@ export function publishSummaryForTest(
   );
 }
 
-/** Runs pre-publish pipeline then the test publish flow (legacy test harness). */
 export async function publishReviewForTest(
   params: Parameters<typeof runTestPublishFlow>[0] & {
     mode?: AnyReviewLens;

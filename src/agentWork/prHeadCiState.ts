@@ -411,7 +411,6 @@ export async function seedPrHeadCiStateFromSnapshot(
     }
     const merged = mergeLockedGithubSnapshot(row, input, "initial-seed");
     previousRollup = asRollup(row.rollup);
-    // First seed always advances the projection revision once, even when facts are identical.
     const nextVersion = Number(row.version) + 1;
     await client.query(
       `UPDATE pr_head_ci_state
@@ -494,8 +493,6 @@ export async function refreshPrHeadCiFromGithubSnapshot(
         previousRollup,
       };
     }
-    // Rollup-only unknown→none/passing must persist so later jobs stop listing.
-    // Version still advances when rollup changes because that is rendered CI.
     const nextVersion =
       materialChange || rollupChanged ? Number(row.version) + 1 : Number(row.version);
     await client.query(
@@ -569,10 +566,6 @@ export function isEffectiveVerificationSignalTransition(
   return wasActive && prior?.headSha === next.headSha;
 }
 
-/**
- * Lock the head row and advance `version` when a verification signal effectively changes.
- * Call inside an open transaction with the same `PoolClient`.
- */
 export async function advancePrHeadCiRevisionForVerificationSignal(
   client: PoolClient,
   input: {

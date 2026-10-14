@@ -32,7 +32,6 @@ function tryDecodeJsonStringBody(value: string): string | null {
   }
 }
 
-/** Unwrap model output where JSON string escapes were emitted literally (e.g. `\\n` instead of newline). */
 export function fixDoubleEscapedString(value: string): {
   text: string;
   fixed: boolean;
@@ -48,9 +47,7 @@ export function fixDoubleEscapedString(value: string): {
       if (typeof parsed === "string" && parsed !== value) {
         return { text: parsed, fixed: true };
       }
-    } catch {
-      // fall through to single-level string-body decode
-    }
+    } catch {}
   }
 
   if (isAmbiguousBackslashInput(value)) {

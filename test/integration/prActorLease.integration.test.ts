@@ -791,7 +791,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             }
           ).commentId
         : 555;
-      // The provider marker is gone; the exact accepted child result remains authoritative.
       fake.controls.setReviewComments([]);
       fake.controls.setThreads(new Map([[9, { threadNodeId: "PRRT_9", isResolved: true }]]));
       await expect(publishVerification(params)).resolves.toEqual({ degradation: [] });
@@ -2707,8 +2706,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const url = process.env.DATABASE_URL;
       if (!url) throw new Error("DATABASE_URL is required for integration tests");
       databaseUrl = url;
-      // pg-boss schema/queues are not app migrations: a real started boss must
-      // install them before the lost-running diagnostics can read pgboss.job.
       diagnosticsBoss = await bossModule.createStartedBoss(
         makeTestConfig({ runtime: { databaseUrl, role: "web" } }),
       );
@@ -2765,9 +2762,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         poolEndedResolve = resolve;
       });
 
-      // Observation only: every wrapper below calls through to the real
-      // implementation without delaying it, changing membership, or reordering
-      // the production finalizers.
       const realCreateExecutionTracker = executionTrackerModule.createExecutionTracker;
       vi.spyOn(executionTrackerModule, "createExecutionTracker").mockImplementation(() => {
         const tracker = realCreateExecutionTracker();
@@ -2802,10 +2796,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         events.push("boss.stop");
       });
 
-      // Startup-only stubs: no unrelated diagnostics, retention, workspace, or
-      // health work may run beside the scenario. The diagnostics and lost-running
-      // spies are restored after disposal so the recovery proof below runs the
-      // real functions.
       const diagnosticsSpy = vi
         .spyOn(workerHealthModule, "collectQueueDiagnostics")
         .mockResolvedValue({
@@ -2860,8 +2850,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         warnings.push(event);
       });
 
-      // Gate the genuine terminal mark after its real ownership/cancellation
-      // prechecks, then invoke the unchanged original SQL on release.
       let markEnteredResolve: () => void = () => undefined;
       const markEntered = new Promise<void>((resolve) => {
         markEnteredResolve = resolve;
@@ -3023,7 +3011,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect(row?.status).toBe("completed");
       expect(terminal.rows[0]?.completed_at).not.toBeNull();
 
-      // The released lease admits a successor immediately.
       const successorId = await insertAutoQueued(scenario.resourceKey, "review");
       await expect(acquireFor(scenario.resourceKey, "review", successorId)).resolves.toMatchObject({
         acquired: true,
@@ -3040,9 +3027,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const running = await getWorkItem(pool, scenario.workItemId);
       expect(running?.status).toBe("running");
 
-      // Make only this scenario's data recovery-eligible: age the item, lapse
-      // its lease, and keep every matching delivery/watchdog terminal (the
-      // controlled boss wrote no pg-boss rows).
       const minAgeSeconds =
         scenario.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       await pool.query(
@@ -3057,10 +3041,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         [scenario.workItemId],
       );
 
-      // reconcileLostRunningWork also scans the separate terminal-review repair
-      // lane. A reused database may hold another suite's terminal review with an
-      // open check; only this scenario's own row must stay out of that lane.
-      // The count stays in the evidence line so foreign leftovers remain visible.
       const openCheckRepair = await lostRunningModule.listTerminalReviewsWithOpenOwnChecks(pool);
       expect(openCheckRepair.map((item) => item.workItemId)).not.toContain(scenario.workItemId);
 
@@ -3501,7 +3481,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     );
     expect(Number(rows[0]?.execution_epoch)).toBe(acquisition.leaseEpoch);
 
-    // Unleased callers omit the epoch and leave the record untouched.
     await pool.query(`UPDATE agent_work_items SET execution_epoch = 9 WHERE id = $1`, [workItemId]);
     await claimWorkForExecution(pool, workItemId);
     const { rows: kept } = await pool.query<{ execution_epoch: string | number }>(
@@ -3512,10 +3491,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   });
 
   it("refuses a stale predecessor release when the replacement reused its identifier (#660)", async () => {
-    // The TLC id-reuse kill trace, replayed against real Postgres:
-    // Cancel(dead ids) snapshots pairs [(D,5)]; the replacement reuses D's id
-    // and acquires epoch 6; the late release with the stale pairs must leave
-    // the live epoch held with renewal and fencing intact.
     const resourceKey = `${OWNER}/reuse-${randomUUID().slice(0, 8)}#1`;
     const workItemId = randomUUID();
     await pool.query(
@@ -3534,12 +3509,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       acquired: true,
       leaseEpoch: 1,
     });
-    // Predecessor epoch on the cancelled row is 5 in the model; drive the
-    // lease to a matching shape: release the initial holder, then let the
-    // same identifier acquire the newer epoch the stale cancel must not clear.
     await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch: 1 });
     await pool.query(`UPDATE agent_work_items SET execution_epoch = 5 WHERE id = $1`, [workItemId]);
-    // A stale cancel snapshot taken before the replacement acquires.
     const stalePairs = [{ workItemId, leaseEpoch: 5 }];
 
     await expect(acquire(resourceKey, workItemId)).resolves.toEqual({
@@ -3548,7 +3519,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     await pool.query(`UPDATE agent_work_items SET execution_epoch = 2 WHERE id = $1`, [workItemId]);
 
-    // The exact-pairs release with the stale predecessor epoch refuses the kill.
     await releasePrActorLeaseHeldByWorkItems(pool, {
       resourceKey,
       workType: "review",
@@ -3581,7 +3551,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     };
 
     async function snapshotIntent(workItemId: string): Promise<IntentSnapshot> {
-      // updated_at::text keeps microsecond precision; a Date would round to ms.
       const { rows } = await pool.query<IntentSnapshot>(
         `SELECT status, detail, lease_epoch, updated_at::text AS updated_at
            FROM operation_intents
@@ -3788,7 +3757,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       leaseEpoch: 1,
     });
 
-    // A non-matching epoch for the same id never clears (newer survives).
     await releasePrActorLeaseHeldByWorkItems(pool, {
       resourceKey,
       workType: "review",
@@ -3796,7 +3764,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     expect((await getLeaseRow(resourceKey)).work_item_id).toBe(holder);
 
-    // A matching pair clears (genuine holder cleanup never waits out the TTL).
     await releasePrActorLeaseHeldByWorkItems(pool, {
       resourceKey,
       workType: "review",
@@ -3807,7 +3774,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     expect((await getLeaseRow(resourceKey)).work_item_id).toBeNull();
 
-    // Empty holders skip the UPDATE entirely (fail closed to TTL/watchdog).
     await expect(acquire(resourceKey, other)).resolves.toEqual({
       acquired: true,
       leaseEpoch: 2,
@@ -3838,21 +3804,16 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       client.release();
     }
 
-    // The known holder's exact pair cleared the lease (handoff intact).
     expect((await getLeaseRow(resourceKey)).work_item_id).toBeNull();
   });
 
   it("cancelActiveReviews fails closed when the holder predates epoch recording", async () => {
-    // Pre-fix row: acquired before the claim path recorded execution_epoch,
-    // so the row still carries 0 (unknown). The cancel must skip the lease
-    // UPDATE rather than clear blindly; expiry plus the watchdog recover it.
     const resourceKey = `${OWNER}/cancel-legacy-${randomUUID().slice(0, 8)}#1`;
     const legacy = await insertRunningWorkItem(resourceKey);
     await expect(acquire(resourceKey, legacy)).resolves.toEqual({
       acquired: true,
       leaseEpoch: 1,
     });
-    // No claim-with-epoch: execution_epoch stays 0 as on pre-fix rows.
 
     const client = await pool.connect();
     try {

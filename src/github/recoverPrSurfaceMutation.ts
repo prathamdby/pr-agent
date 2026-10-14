@@ -8,11 +8,6 @@ import type {
   ProgressCommentUpsert,
 } from "./prSurfaceTypes.js";
 
-/**
- * Names persisted in operation intents. `updatePullRequest` keeps the retired
- * `publishDescription` wire name so retained intents still resolve their key,
- * recovery lookup, and description identity.
- */
 const PR_SURFACE_WIRE_NAMES = {
   setAcknowledgementReaction: "setAcknowledgementReaction",
   replyAt: "replyAt",
@@ -69,12 +64,6 @@ function replyTargetKind(value: unknown): "prConversation" | "inlineReviewThread
   return undefined;
 }
 
-/**
- * Persist enough identity for later GitHub lookup. Methods that cannot prove
- * this attempt landed (reactions, labels, commit status, finishing a check)
- * store nothing extra; completed absent recovery terminates fail-closed at
- * the intent boundary, without repeating the mutation.
- */
 export function extractPrSurfaceRecoverDetail(
   method: keyof PrSurfaceMutationMethods,
   args: readonly unknown[],
@@ -182,11 +171,6 @@ async function recoverReplyAt(
   return commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } };
 }
 
-/**
- * Reconcile an upserted progress comment from the operation-intent marker.
- * Sentinel-alone matches stay absent. `updated` is true only when this attempt
- * already knew the comment id.
- */
 export async function recoverMarkedProgressComment(
   surface: PrSurface,
   params: {
@@ -236,12 +220,6 @@ async function recoverMarkedComment(
     : { kind: "reconciled", value: undefined };
 }
 
-/**
- * Look up the GitHub side effect for a leased PR-surface mutation. Absence is
- * not permission to remutate. Reactions, labels, commit statuses, and finishing
- * a check run cannot prove this attempt landed. Their absent recovery ends
- * in a bounded terminal decision at the intent boundary, never remutation.
- */
 export async function recoverPrSurfaceMutation(
   surface: PrSurface,
   intent: OperationIntentRow,

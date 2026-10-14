@@ -211,8 +211,6 @@ async function prepareSummaryCommentAtRevision(
   if (params.shouldPublish && !(await params.shouldPublish(client))) {
     return { kind: "skipped", result: skippedRevisionResult(currentComment, params.hintCommentId) };
   }
-  // Authoritative ownership lives on the progress publish record (reassigned at intake).
-  // Stale writers whose work item no longer owns the record must not overwrite.
   if (
     progressOwner != null &&
     params.workItemId != null &&
@@ -241,9 +239,6 @@ async function prepareSummaryCommentAtRevision(
     bodyRevision != null && bodyRevision.workItemId === params.workItemId
       ? bodyRevision.revision
       : -1;
-  // Body revision is the published watermark. Stored revision is the lock-time
-  // claim, so a retry after claim-but-before-GitHub can still write when the
-  // comment is behind. The lock serializes the visible write and durable record.
   if (currentComment && bodyRevisionForRun >= params.progressRevision) {
     return { kind: "skipped", result: { id: currentComment.id, updated: false, skipped: true } };
   }
@@ -261,8 +256,6 @@ async function prepareSummaryCommentAtRevision(
         ? await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens)
         : null;
 
-  // Claim this revision under the advisory lock before the GitHub write so a
-  // crash before acceptance remains recoverable without an open transaction.
   if (params.workItemId != null) {
     await createPublishContext(client, {
       workItemId: params.workItemId,
@@ -380,7 +373,6 @@ async function upsertSummaryCommentAtRevision(
 export type ReviewSummaryCommentDeps = {
   readonly prSurface: PrSurface;
   readonly reviewLens: AnyReviewLens;
-  /** Without a pool there is no record or lock to serialize against, so writes go straight to the surface. */
   readonly coordination?: {
     readonly pool: Pool;
     readonly resourceKey: string;
@@ -394,7 +386,6 @@ type ReviewSummaryCommentWrite = {
   readonly hintCommentId?: number | null;
   readonly ciHeadSha?: string;
   readonly ciVersion?: number;
-  /** Reused by the uncoordinated write; coordinated writes resolve the comment under the lock. */
   readonly knownExisting?: IssueCommentRef | null;
 };
 
@@ -403,12 +394,6 @@ export type ReviewSummaryCommentTick = ReviewSummaryCommentWrite & {
   readonly shouldPublish?: (client: PoolClient) => Promise<boolean>;
 };
 
-/**
- * The only writer of the review summary comment. Coordinated writes run in one
- * order: progress lock, owner and revision checks, creation claim, GitHub write,
- * result record. Revision 7 is terminal, so a later tick or ack stub cannot
- * overwrite a summary, cancelled notice, or failure notice.
- */
 export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
   const write = (
     params: ReviewSummaryCommentWrite & {

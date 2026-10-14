@@ -29,12 +29,10 @@ import {
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
 
-/** Alternate, describedby, and discovery links, built as the registry states them. */
 const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
-/** Stand-in for whatever the router rendered before the middleware saw it. */
 function rendered(status: number): Response {
   return new Response('<!DOCTYPE html><html lang="en"><body>page</body></html>', {
     status,

@@ -43,7 +43,6 @@ export function isStaleHeadReplacementExhausted(error: unknown): boolean {
   return isAppError(error) && error.code === "review.stale_head_replacement_exhausted";
 }
 
-/** One-shot replacement already consumed; caller should fail with `/review` retry guidance. */
 export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
   return new AppError({
     domain: "review",
@@ -53,14 +52,6 @@ export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppErr
   });
 }
 
-/**
- * Terminal parent failure: cancel the parent's replacement unless the persisted
- * marker says its enqueue committed. The attempt that failed may have written the
- * marker after `parent` was loaded, so the parent is read again. The cancellation
- * is state-predicated, so a replacement that won a concurrent claim is still
- * cancelled and queue traffic cannot veto it. Rejects after logging when the
- * cancellation is unconfirmed.
- */
 export async function cancelPendingStaleHeadReplacement(
   pool: Pool,
   parent: ReviewWorkItem,
@@ -118,7 +109,6 @@ export async function buildStaleReviewRescheduleResult(
   };
 }
 
-/** Like buildStaleReviewRescheduleResult, but null when the parent can no longer own a replacement. */
 export async function tryBuildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,

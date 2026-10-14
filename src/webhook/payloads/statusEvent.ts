@@ -1,7 +1,6 @@
 import * as v from "valibot";
 import { githubShaSchema, installationSchema, repositorySchema } from "./common.js";
 
-/** Legacy commit status. No `action` field on this event. */
 export const statusWebhookSchema = v.object({
   sha: githubShaSchema,
   state: v.string(),

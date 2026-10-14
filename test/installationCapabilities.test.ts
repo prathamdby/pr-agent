@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseInstallationPermissions } from "../src/github/installationCapabilities.js";
 
-// Permission parsing failure modes:
-// - an own `__proto__`, `constructor`, or `prototype` key reaches the grant record;
-// - an `admin` grant on a permission that backs an operation is treated as write;
-// - a grant outside read/write/admin, or a non-object payload, is accepted.
 describe("parseInstallationPermissions", () => {
-  // JSON.parse creates own keys; a valid grant value isolates the key guard.
   it.each(["__proto__", "constructor", "prototype"])(
     "rejects a payload with an own %s key",
     (key) => {

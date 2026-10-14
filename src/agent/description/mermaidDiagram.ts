@@ -1,6 +1,5 @@
 const FLOWCHART_HEADER = /^(flowchart|graph)\s+(LR|RL|TB|BT|TD)\s*$/i;
 
-/** Extract diagram body from a fenced ```mermaid block (or return trimmed raw). */
 export function extractMermaidDiagramBody(diagramRaw: string): string {
   const trimmed = diagramRaw.trim();
   if (!trimmed.startsWith("```mermaid")) {
@@ -27,19 +26,16 @@ function quoteLabel(label: string): string {
   return `["${escaped}"]`;
 }
 
-/** Fix common model mistakes so GitHub's Mermaid lexer accepts the diagram. */
 export function repairMermaidNodeLabels(line: string): string {
   return line.replace(/(\b[A-Za-z][\w-]*)\[([^\]]+)\]/g, (match, nodeId: string, label: string) => {
     const inner = label.trim();
     if (inner.startsWith('"') && inner.endsWith('"')) {
       return match;
     }
-    // Broken subroutine: [/path/like text] without a closing slash before ]
     if (inner.startsWith("/") && !inner.endsWith("/")) {
       const text = inner.replace(/^\//, "").trim();
       return `${nodeId}${quoteLabel(text)}`;
     }
-    // Valid subroutine [/text/] — convert to quoted (slashes break GitHub on paths)
     if (inner.startsWith("/") && inner.endsWith("/") && inner.length > 2) {
       const text = inner.slice(1, -1).trim();
       return `${nodeId}${quoteLabel(text)}`;

@@ -44,11 +44,6 @@ function countOccurrences(haystack: string, needle: string): number {
   }
 }
 
-/**
- * Map an offset in `normalizeTextFileEncoding(raw)` back to its offset in
- * `raw`, so an edit matched in normalized space can be spliced into the raw
- * bytes without rewriting line endings anywhere else in the file.
- */
 function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): number {
   let rawIndex = raw.startsWith("\uFEFF") ? 1 : 0;
   let normalizedIndex = 0;
@@ -118,10 +113,6 @@ export function buildTriageWorkspaceTools(params: {
           context: { path: rel },
         });
       }
-      // Reads show BOM-stripped, CRLF-normalized text, so oldText copied from
-      // a read cannot exact-match the raw bytes of such files. Retry in the
-      // normalized space the model actually saw, then splice the result back
-      // into the raw bytes so the rest of the file keeps its own encoding.
       const hadBom = content.startsWith("\uFEFF");
       const hadCrlf = content.includes("\r\n");
       if (!hadBom && !hadCrlf) {
@@ -151,9 +142,6 @@ export function buildTriageWorkspaceTools(params: {
           context: { path: rel },
         });
       }
-      // Splice the raw bytes at the matched region instead of re-encoding the
-      // whole file: a mixed-ending file keeps its LF-only lines, and newText
-      // is normalized first so its own CRLFs cannot become "\r\r\n".
       const matchStart = normalized.indexOf(normalizedOldText);
       const rawStart = rawOffsetForNormalizedOffset(content, matchStart);
       const rawEnd = rawOffsetForNormalizedOffset(content, matchStart + normalizedOldText.length);

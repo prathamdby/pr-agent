@@ -4,13 +4,6 @@ type LogoProps = {
   readonly className?: string;
 };
 
-/**
- * Model provider marks from thesvg.org (monochrome variants where the catalogue has them; the Gemini
- * sparkle is the mask shape of its colour file), reduced to bare geometry in `currentColor`. Each
- * viewBox is a square centred on the mark's measured ink, so every mark sits in the same box on
- * the same optical centre; the heavy Grok slash gets a slightly larger box and the thin DeepSeek
- * whale a slightly smaller one so they read the same size as the rest.
- */
 function mark(label: string, viewBox: string, children: ReactNode) {
   function Mark({ className }: LogoProps) {
     return (

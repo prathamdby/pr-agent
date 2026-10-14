@@ -184,12 +184,6 @@ async function lockAndRefillBucket(
   let providerTokensUsed = numberValue(row.provider_tokens_used);
   let providerWindowStartedAt = new Date(row.provider_window_started_at);
   const providerTokensReserved = numberValue(row.provider_tokens_reserved);
-  // Only settled spend belongs to the expired window, so only
-  // provider_tokens_used resets. A reservation that straddles the boundary
-  // stays in provider_tokens_reserved and keeps counting against the new
-  // window. Settlement later converts it to used in whichever window is current,
-  // so it is charged to one window and never twice. Folding it into used here
-  // would double-count it at settlement.
   if (
     params.scope === "installation" &&
     config.providerBudgetTokens > 0 &&
@@ -233,11 +227,6 @@ function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope)
   return bucket;
 }
 
-/**
- * Reserve all ask capacity before the work item exists. The caller must insert
- * the matching work item in the same transaction. The deferred FK on the
- * reservation table keeps that ordering safe.
- */
 async function reserveAskQuota(
   client: PoolClient,
   params: {
@@ -351,7 +340,6 @@ async function decrementOutstanding(
   }
 }
 
-/** Release a reservation that lost an insert race before a work item existed. */
 async function releaseAskQuotaReservation(client: PoolClient, workItemId: string): Promise<void> {
   const result = await client.query<{
     actor_scope_key: string;
@@ -384,14 +372,12 @@ async function releaseAskQuotaReservation(client: PoolClient, workItemId: string
   );
   await decrementOutstanding(client, "repository", reservation.repository_scope_key);
   await decrementOutstanding(client, "actor", reservation.actor_scope_key);
-  // This id lost insertion and has no work row for the deferred foreign key.
   await client.query(
     "DELETE FROM ask_quota_reservations WHERE work_item_id = $1 AND released_at IS NOT NULL",
     [workItemId],
   );
 }
 
-/** Server-owned id for one model-backed ask computation. Not the claim counter. */
 export function createAskExecutionId(): string {
   return randomUUID();
 }
@@ -445,12 +431,6 @@ function bucketApplicationForReceipt(input: {
   };
 }
 
-/**
- * Record known provider usage for one ask computation. Replaying the same
- * execution id and total is a no-op. A new execution id adds usage. Unknown
- * usage stays reserved and is charged at the reservation maximum by the
- * terminal-state trigger.
- */
 export async function recordAskProviderUsage(
   pool: Pool,
   params: {
@@ -585,7 +565,6 @@ export async function recordAskProviderUsage(
   });
 }
 
-/** Delete inactive bucket rows so long-lived installations do not grow without bound. */
 export async function deleteExpiredAskQuotaState(
   pool: Pool,
   retentionSeconds: number,
@@ -647,13 +626,6 @@ function askMentionLockKey(input: AskAdmissionInput): string {
   ]);
 }
 
-/**
- * All production ask creation resolves the triggering mention under the
- * caller's transaction: the advisory lock is held until the outer commit or
- * rollback, and the lookup runs as a separate statement so READ COMMITTED sees
- * a same-mention winner that has just committed. Retained rows of every status
- * join, so one mention gets one answer until retention removes the evidence.
- */
 async function findRetainedAskForMention(
   client: PoolClient,
   input: AskAdmissionInput,
@@ -683,7 +655,6 @@ async function findRetainedAskForMention(
   return row ? { id: row.id, webhookEventId: row.webhook_event_id } : null;
 }
 
-/** Mention identity, quota reservation, matching work and conflict compensation are one transaction operation. */
 export async function admitAsk(
   client: PoolClient,
   input: AskAdmissionInput,

@@ -16,7 +16,6 @@ import {
 import { ENV } from "../envKeys.js";
 import { readNonNegativeInteger, readPositiveInteger, readPositiveNumber } from "../envReaders.js";
 
-/** Per-actor, repository, and installation admission plus the optional provider token budget. */
 export type AskSlice = {
   readonly actorMaxOutstanding: number;
   readonly repositoryMaxOutstanding: number;

@@ -18,11 +18,8 @@ export type PriorInlineFeedbackThread = {
   readonly endLine: number;
   readonly botTitleSnippet: string;
   readonly humanReplies: readonly string[];
-  /** Replies whose server metadata passed the maintainer-decision predicate. */
   readonly authorizedReplies?: readonly string[];
-  /** Non-bot replies that must remain evidence only, never dismissal authority. */
   readonly untrustedReplies?: readonly string[];
-  /** Server-preserved commenter identity and association metadata. */
   readonly replies?: readonly ReviewThreadReply[];
   readonly threadUrl: string;
 };
@@ -35,14 +32,10 @@ export type BotFindingThread = {
   readonly severity: "P0" | "P1" | "P2" | "P3" | null;
   readonly titleSnippet: string;
   readonly humanReplies: readonly string[];
-  /** Replies whose server metadata passed the maintainer-decision predicate. */
   readonly authorizedReplies?: readonly string[];
-  /** Non-bot replies that must remain evidence only, never dismissal authority. */
   readonly untrustedReplies?: readonly string[];
-  /** Server-preserved commenter identity and association metadata. */
   readonly replies?: readonly ReviewThreadReply[];
   readonly hasTriageReply?: boolean;
-  /** Bot reply id for the verification stub when one already exists on the thread. */
   readonly verificationStubCommentId?: number;
   readonly threadUrl: string;
 };
@@ -83,10 +76,6 @@ export type ReviewThreadReply = {
   readonly authorAssociation: string | null;
 };
 
-/**
- * Normalized `review` includes the current lens plus every recognized legacy
- * lens. Exact legacy selection stays exact so a mismatch can be asserted.
- */
 export const NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES = [
   "review",
   ...LEGACY_REVIEW_LENSES,
@@ -261,10 +250,6 @@ function findVerificationStubCommentId(
   return legacy?.id;
 }
 
-/**
- * Shared lens-aware assembly: resolve nested roots, group replies, extract
- * human replies, and drop threads whose lens is outside the selection set.
- */
 export function assembleBotReviewThreads(
   comments: readonly ReviewThreadComment[],
   params: {
@@ -478,10 +463,6 @@ export function formatPriorInlineFeedbackBlock(
   return lines.join("\n");
 }
 
-/**
- * A dismissal decision needs both a known commenter and verified association
- * metadata. Reply text, display names, and the ability to reply are not authz.
- */
 function isAuthorizedMaintainerDecision(params: {
   readonly userId: number | null | undefined;
   readonly botUserId: number;

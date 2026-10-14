@@ -68,10 +68,6 @@ export function wrapUntrustedBlock(label: string, text: string): string {
   ].join("\n");
 }
 
-/**
- * Wrap model-visible repository, PR, and external-tool content as evidence.
- * The source label is server-owned metadata; the enclosed text is not an instruction.
- */
 export function wrapUntrustedEvidence(source: string, text: string): string {
   const safeSource = source.replace(/[\r\n]+/g, " ").trim() || "unknown";
   return wrapUntrustedBlock("untrusted_evidence", `Source: ${safeSource}\n${text}`);
@@ -100,8 +96,6 @@ export function formatHumanReplies(thread: {
   readonly authorizedReplies?: readonly string[];
   readonly untrustedReplies?: readonly string[];
 }): string[] {
-  // Keep hand-built prompt fixtures useful while production data always carries
-  // explicit authorized and untrusted partitions from the server.
   if (thread.authorizedReplies == null && thread.untrustedReplies == null) {
     return thread.humanReplies.flatMap((reply, index) =>
       formatReplyBlock("Maintainer reply", reply, index),

@@ -29,7 +29,6 @@ type SessionTurnRuntime = {
   readonly onRetry: (attempt: number) => void;
 };
 
-/** Provider safety-classifier decline. Retrying the same request returns the same decline. */
 export function isProviderRefusal(message: AssistantMessage | undefined): boolean {
   return message?.rawStopReason === "refusal";
 }
@@ -58,12 +57,6 @@ function placeUserMessage(
   }
 }
 
-/**
- * Core copies `context.messages` on `runAgentLoop` and returns the new turn
- * slice in order. Replace the session suffix with that slice so tool results
- * stay between the assistant turns that produced them. Empty `produced` keeps
- * event-appended assistants (test mocks and a loop that returned nothing).
- */
 function absorbProducedMessages(
   target: AgentMessage[],
   produced: readonly AgentMessage[],
@@ -77,7 +70,6 @@ function absorbProducedMessages(
   placeUserMessage(target, userMessage, insertAt);
 }
 
-/** Own transcript adoption, overflow-before-retry ordering, and capped continuation. */
 export async function runSessionTurn(
   prompt: string,
   rt: SessionTurnRuntime,

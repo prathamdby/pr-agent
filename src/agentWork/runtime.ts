@@ -35,10 +35,6 @@ export const AgentWorkExecutionsLive = (cfg: Config) =>
           const outcomes: PromiseSettledResult<unknown>[] = await Promise.allSettled([
             tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS),
           ]);
-          // Durable dispatches write terminal work-item marks: give them one more
-          // bounded window before the pool ends, concurrent with the bounded
-          // analytics flush so PostHog cannot delay those marks. Settled handling
-          // keeps the flush running even if a settle branch fails.
           outcomes.push(
             ...(await Promise.allSettled([
               tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS, { durableOnly: true }),
@@ -100,8 +96,6 @@ export const AgentWorkBossLive = (
         Effect.tryPromise({
           try: async () => {
             await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000);
-            // The worker flushes analytics from its executions finalizer instead,
-            // so the flush runs concurrently with the durable-dispatch reserve.
             if (options?.shutdownAnalytics !== false) await shutdownAnalytics();
           },
           catch: (e) => toError(e),
@@ -109,7 +103,6 @@ export const AgentWorkBossLive = (
     ),
   );
 
-/** Web role: scheduler seam only (webhook intake enqueues agent work). */
 export const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
   Layer.effect(
     AgentWorkScheduler,

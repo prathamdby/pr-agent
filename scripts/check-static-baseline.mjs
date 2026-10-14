@@ -4,18 +4,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { countEscapeCalls } from "./count-escape-calls.mjs";
+import { forcedOxlintConfig } from "./forcedOxlintConfig.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const BASELINE_PATH = path.join(ROOT, "scripts", "baselines", "static-baseline.json");
 const BOOTSTRAP = process.argv.includes("--bootstrap");
 
 function countOxRule(rule, lintCode, scope) {
-  // NOTE: --deny makes oxlint exit 1 on hits, and --format json emits
-  // JSONL (one object per line) instead of a JSON document. Handle both.
-  const config = JSON.parse(fs.readFileSync(path.join(ROOT, ".oxlintrc.json"), "utf8"));
-  for (const override of config.overrides ?? []) {
-    if (override.rules) delete override.rules[rule];
-  }
+  const config = forcedOxlintConfig(ROOT, rule);
   const configPath = path.join(ROOT, `.oxlint-count-${process.pid}-${crypto.randomUUID()}.json`);
   fs.writeFileSync(configPath, JSON.stringify(config), { flag: "wx" });
   let raw;
@@ -31,8 +27,6 @@ function countOxRule(rule, lintCode, scope) {
       { cwd: ROOT, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
     );
   } catch (e) {
-    // A hard oxlint failure (missing binary, bad flag, broken config) must
-    // fail the gate, never read as zero violations.
     const stdout = e.stdout ?? "";
     if (typeof stdout !== "string" || stdout.trim().length === 0) throw e;
     raw = stdout;
@@ -41,9 +35,6 @@ function countOxRule(rule, lintCode, scope) {
   }
   let diagnostics;
   const trimmed = raw.trim();
-  // oxlint prints nothing when the scope is clean: an empty success is a
-  // valid zero, but only when the binary itself succeeded above. The catch
-  // path rethrows on empty stdout, so reaching here with "" means clean.
   if (trimmed.length === 0) return 0;
   if (trimmed.startsWith("{")) {
     diagnostics = JSON.parse(trimmed).diagnostics;
@@ -71,12 +62,6 @@ function countPattern(pattern, scope, flags) {
   return out.split("\n").filter((line) => line.length > 0).length;
 }
 
-/**
- * Rules are data: each row names what to count, where, and how.
- * Lint rules count oxlint JSON diagnostics by code; source rules count
- * regex hits. tsc is never baselined: it has no suppression path, so its
- * stock stays zero by construction.
- */
 const RULES = [
   {
     id: "no-unsafe-type-assertion(src)",

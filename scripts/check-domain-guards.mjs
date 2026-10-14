@@ -6,7 +6,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
 const fail = (msg) => failures.push(msg);
 
-// 1. Migration filenames strictly sequential ^\d{3}_, no gaps or duplicates.
 const migrationsDir = path.join(ROOT, "migrations");
 const numbers = fs
   .readdirSync(migrationsDir)
@@ -29,9 +28,6 @@ for (let i = 0; i < numbers.length; i++) {
   }
 }
 
-// 2. Site parity: every FEATURE_* key in src/settings/envKeys.ts is in
-// site/lib/llmsKnowledge.ts FEATURE_KEYS (docs/features.md parity already
-// enforced by test/settingsInventory.test.ts).
 const envKeys = fs.readFileSync(path.join(ROOT, "src", "settings", "envKeys.ts"), "utf8");
 const llms = fs.readFileSync(path.join(ROOT, "site", "lib", "llmsKnowledge.ts"), "utf8");
 for (const match of envKeys.matchAll(/"(FEATURE_[A-Z_]+)"/g)) {

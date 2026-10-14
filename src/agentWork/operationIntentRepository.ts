@@ -29,11 +29,6 @@ export type RetainedDescriptionSurfaceIdentity = {
   readonly inputHash: string;
 };
 
-/**
- * Select the one retained description child whose stored scope and hash prove
- * its key. Ambiguous or unprovable rows fail closed; rows must already be
- * filtered to the exact work item, mutation, scope, and marker (LIMIT 2).
- */
 export function selectRetainedDescriptionSurfaceIdentity(
   rows: readonly {
     readonly operation_key: string;
@@ -67,7 +62,6 @@ export function selectRetainedDescriptionSurfaceIdentity(
   return { operationKey: retained.operation_key, inputHash };
 }
 
-/** Removed Config fields cannot reconstruct a retained description child's hash. */
 export async function findRetainedDescriptionSurfaceIdentity(
   client: Pool | PoolClient,
   params: RetainedDescriptionLookup,
@@ -163,11 +157,6 @@ export async function persistOperationIntent(
   return mapRow(row);
 }
 
-/**
- * Merge detail into a pending or failed intent.
- * Failed rows reopen to pending so the in-flight marker can re-arm across retries.
- * Reconciled / outcome_unknown rows are left untouched (never auto-remutate).
- */
 export async function mergeOperationIntentDetail(
   client: Pool | PoolClient,
   params: {

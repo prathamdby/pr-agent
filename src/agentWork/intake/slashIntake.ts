@@ -56,7 +56,6 @@ export type SlashCommandInput = {
   readonly prNumber: number;
   readonly commentId: number;
   readonly commenterId: number;
-  /** GitHub login of the command issuer (for `/cancel` attribution). */
   readonly commenterLogin?: string;
   readonly body: string;
   readonly command: string;
@@ -67,7 +66,6 @@ export type SlashCommandInput = {
   readonly excludeThreadRootCommentIds?: readonly number[];
   readonly threadAnchorCommentId?: number;
   readonly needsThreadRootResolution?: boolean;
-  /** App bot login for `@mention` ask parsing. */
   readonly botLogin?: string;
 };
 
@@ -305,8 +303,6 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  // `/review force`: cancel any queued/running review first so the fresh run
-  // below always starts on the latest head.
   const force = isReviewForceCommand(ctx.input.body);
   let cancelProgress: AckJobData["cancelProgress"];
   if (force) {
@@ -589,7 +585,6 @@ export async function applySlashCommandIntake(
   return events;
 }
 
-/** Slash command help (scheduler ack replies). */
 const SLASH_HELP_BODY = [
   "### PR Agent help",
   "",
@@ -613,21 +608,16 @@ const SLASH_HELP_BODY = [
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
 
-/** Ack reply when `/review` finds an active review (and no `force` restart was requested). */
 const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
   "A `/review` run is already queued or in progress for this pull request.";
 
-/** Ack reply when `/review force` cancelled an active review and queued a replacement. */
 const SLASH_REVIEW_FORCE_RESTARTED_BODY =
   "Cancelled the previous review and started a new one on the latest commit.";
 
-/** Ack reply when `/cancel` finds no queued/running review. */
 const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for this pull request.";
 
-/** Ack reply when `/cancel` cancels an active review. */
 const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";
 
-/** Ack reply when `/verify` finds an active verification. */
 const SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY =
   "A `/verify` run is already queued or in progress for this pull request.";
 

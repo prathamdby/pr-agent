@@ -33,7 +33,6 @@ export type LightweightAutoReviewResult =
       readonly summaryId: number | string;
     };
 
-/** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(
   pool: Pool,
   params: {
@@ -111,7 +110,6 @@ export async function tryLightweightAutoReviewCompletion(
         knownExistingId: knownExisting?.id,
       }),
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-    // Terminal revision 7 fences a late ack stub (revision 0) from overwriting this body.
     mutate: () =>
       createReviewSummaryComment({
         prSurface: params.prSurface,

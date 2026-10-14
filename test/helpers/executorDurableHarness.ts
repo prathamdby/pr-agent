@@ -56,7 +56,6 @@ function seedComment(
   };
 }
 
-/** Seed raw GitHub listings so the production thread assembly yields these bot findings. */
 export function seedBotFindingThreads(
   threads: readonly BotFindingThread[],
   controls: FakePrSurfaceControls = durablePrSurfaceControls(),
@@ -122,7 +121,6 @@ export function seedBotFindingThreads(
   controls.setReviewComments(seededComments);
 }
 
-/** Add reply-graph nodes for thread-root resolution without disturbing seeded findings. */
 export function seedReviewCommentGraph(
   nodes: readonly { readonly id: number; readonly inReplyToId: number | null }[],
 ): void {

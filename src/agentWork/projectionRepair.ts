@@ -12,10 +12,6 @@ export type ProjectionRepairScanReport = {
   readonly skippedNoInstallation: number;
 };
 
-/**
- * Bounded diagnostics tick: enqueue ordinary projection jobs for heads still
- * flagged for one-time legacy marker repair. Does not touch GitHub or comment bodies.
- */
 export async function scanProjectionRepairPending(params: {
   readonly pool: Pool;
   readonly boss: PgBoss;

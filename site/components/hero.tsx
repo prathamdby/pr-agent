@@ -7,23 +7,15 @@ import { renderSetupPrompt } from "@/lib/agentResources";
 import { HERO_CTA_NOTE, HERO_HEADING, HERO_SUPPORT } from "@/lib/content";
 import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
-/*
-  The shared heading reads "PR Agent: AI PR reviews on your own servers" so the markdown page and
-  search results carry the name. On screen the name is in the header already, so only the tagline
-  is visible and the brand stays in the heading for assistive tech.
-*/
 const SEPARATOR = ": ";
 const SPLIT = HERO_HEADING.indexOf(SEPARATOR);
 const HERO_BRAND = HERO_HEADING.slice(0, SPLIT);
 const HERO_TAGLINE = HERO_HEADING.slice(SPLIT + SEPARATOR.length);
 
-// The copied links follow the host the visitor is on. The server render has no window, so it falls
-// back to the build-time origin until hydration replaces the text on the client.
 function setupPrompt(): string {
   return renderSetupPrompt(typeof window === "undefined" ? SITE_ORIGIN : window.location.origin);
 }
 
-/** Three marks stand in for "any AI tool" on the copy-prompt button. */
 function AssistantMarks() {
   return (
     <span className="flex items-center gap-1 text-text-secondary" aria-hidden="true">

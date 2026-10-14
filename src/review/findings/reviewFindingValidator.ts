@@ -6,7 +6,6 @@ import type {
   CommentableRightLineRanges,
 } from "../placement/reviewDiffIndex.js";
 
-/** Follow-up leakage — reject before publish (repair loop), not substring scrub. */
 const INTERNAL_FAILURE_PHRASING: RegExp[] = [
   /\bstructured publish\b.*\bfailed\b/is,
   /\b\d+\/\d+ attempt\(s\)\b/i,

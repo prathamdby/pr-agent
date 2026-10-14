@@ -102,7 +102,6 @@ describe("submitTriage tool", () => {
   });
 });
 
-// Failure mode: cap-aborted repairs must not erase the diagnostic.
 describe("feature submit repair", () => {
   it.each(["verification", "description", "triage"])(
     "%s retains the error after the final capped repair",

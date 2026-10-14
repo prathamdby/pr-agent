@@ -424,9 +424,6 @@ describe("effect webhook server (end-to-end)", () => {
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 
     const body = Buffer.from(JSON.stringify({ zen: "dup-headers" }));
-    // Real sig under the correct secret + a second junk sig. Node's headers
-    // coalesces duplicates with `, ` so the verifier sees a garbage value and returns 401
-    // without throwing on `.startsWith()`.
     const realSig = signBody(testCfg.webhook.secret, body);
     const res = await postRaw(addr.port, "/webhooks", body, [
       "x-hub-signature-256",

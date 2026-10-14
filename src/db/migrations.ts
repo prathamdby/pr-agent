@@ -3,17 +3,13 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { logInfo } from "../evlog.js";
 
-/** Database migrations path (relative to process cwd). */
 const MIGRATIONS_DIR_NAME = "migrations";
 
-/** Stable key for the pg_advisory_lock that serializes runMigrations across processes. */
 const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
 
 const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 
 export async function runMigrations(pool: Pool): Promise<void> {
-  // Serialize across processes (web + worker boot together) on a session-level
-  // advisory lock; per-file transactions below cannot span one xact-level lock.
   const lockClient = await pool.connect();
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_ADVISORY_LOCK_KEY]);

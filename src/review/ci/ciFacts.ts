@@ -6,13 +6,6 @@ import {
   REVIEW_CI_SUMMARY_UNAVAILABLE,
 } from "../../settings/index.js";
 
-/**
- * CI gate for the review summary / progress stub (not part of ReviewPayload).
- * Status, names, and check-run completeness are server facts; headline/reason/fixHint
- * are LLM-authored when failing (ADR 0018). Passing/pending/none use server templates.
- * An incomplete check-run view never becomes passing or none.
- */
-
 export type CiSummaryStatus = "passing" | "failing" | "pending" | "none" | "unavailable";
 
 export type CiSourceAccess = "available" | "denied" | "unknown";
@@ -33,35 +26,23 @@ export function ciSourcesComplete(availability: CiSourceAvailability): boolean {
 }
 
 export type CiFailureDetail = {
-  /** Check run or status context name. */
   readonly name: string;
-  /** One-line root cause when known. */
   readonly reason: string;
-  /** Short fix direction for humans and coding agents. */
   readonly fixHint: string;
-  /** Optional deep-link to the failing check run. */
   readonly url?: string;
 };
 
 export type CiSummary = {
   readonly status: CiSummaryStatus;
-  /** Short lead for the CI table cell. */
   readonly headline: string;
-  /** Failure digests (empty unless status is failing). */
   readonly failures: readonly CiFailureDetail[];
-  /**
-   * Optional install hint when Checks or Actions permission is missing.
-   * Shown under the headline; review still publishes.
-   */
   readonly permissionNote?: string;
 };
 
 export type CiCheckRunSnapshot = {
   readonly id: number;
   readonly name: string;
-  /** Provider identity for durable PR Agent check-run recovery, when returned. */
   readonly externalId?: string | null;
-  /** GitHub App id that created the check run, when returned. */
   readonly appId?: number | null;
   readonly status: string;
   readonly conclusion: string | null;
@@ -69,9 +50,7 @@ export type CiCheckRunSnapshot = {
   readonly outputTitle: string | null;
   readonly outputSummary: string | null;
   readonly outputText: string | null;
-  /** Checks API `started_at`, when returned. Used for pending-refresh `observed_at`. */
   readonly startedAt?: string | null;
-  /** Checks API `completed_at`, when returned. Used for pending-refresh `observed_at`. */
   readonly completedAt?: string | null;
 };
 
@@ -80,15 +59,12 @@ export type CiLegacyStatus = {
   readonly state: string;
   readonly description: string | null;
   readonly targetUrl: string | null;
-  /** Combined-status `updated_at`, when returned. Used for pending-refresh `observed_at`. */
   readonly updatedAt?: string | null;
-  /** Combined-status `created_at`, when returned. Used for pending-refresh `observed_at`. */
   readonly createdAt?: string | null;
 };
 
 export type CiFactSource = "check_run" | "status";
 
-/** Derived rollup stored on `pr_head_ci_state`. */
 export type CiRollup = "pending" | "passing" | "failing" | "none" | "unknown";
 
 export const ciCheckFactSchema = v.object({
@@ -105,7 +81,6 @@ export const ciCheckFactSchema = v.object({
 
 export type CiCheckFact = Readonly<v.InferOutput<typeof ciCheckFactSchema>>;
 
-/** Identity for the installation's own check. Name prefixes are not identity. */
 export type OwnCheckIdentity = {
   readonly githubAppId: string;
   readonly workItemId?: string;

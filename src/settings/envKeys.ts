@@ -1,4 +1,3 @@
-/** Environment variable names loaded by `loadConfig()` (see `src/settings/config.ts`). */
 export const ENV = {
   PORT: "PORT",
   ROLE: "ROLE",
@@ -76,7 +75,6 @@ export const ENV = {
   POSTHOG_HOST: "POSTHOG_HOST",
 } as const;
 
-/** Model provider secrets loaded by config but never logged. */
 export const EXTERNAL_ENV = {
   OPENAI_API_KEY: "OPENAI_API_KEY",
   ANTHROPIC_API_KEY: "ANTHROPIC_API_KEY",

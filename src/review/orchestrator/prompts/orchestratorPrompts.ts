@@ -100,11 +100,6 @@ export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger
   ].join("\n");
 }
 
-/**
- * Findings already accepted in this run (matched by ledger fingerprint only)
- * slim to references; undecided findings keep their original object
- * references so their bytes are unchanged.
- */
 function slimAcceptedFindings(
   outcome: ReportOutcome,
   ledger: FindingLedger,

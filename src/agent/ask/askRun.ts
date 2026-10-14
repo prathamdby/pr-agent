@@ -109,7 +109,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         (await loadAskCiState(params.pool, params.owner, params.repo, params.headSha));
       const firstTurn = await session.send(buildAskUserContent({ ...params, ciState }), sendOpts);
       usage = mergeExactUsage(usage, firstTurn.usage);
-      // Keep the last non-empty answer so an empty retry never replaces a cut one.
       let answer = { text: firstTurn.text.trim(), end: firstTurn.end };
 
       for (
@@ -120,7 +119,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         const finalizeTurn = await session.send(answer.text ? ASK_SHORTEN_NUDGE : ASK_RETRY_NUDGE, {
           phase: "ask",
           checkpointId: "ask:ask",
-          // Keep tool definitions registered for cache prefixes; forbid tool turns.
           maxToolRounds: 0,
         });
         usage = mergeExactUsage(usage, finalizeTurn.usage);

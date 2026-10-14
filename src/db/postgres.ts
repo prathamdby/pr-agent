@@ -26,17 +26,12 @@ export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_M
     idle_in_transaction_session_timeout: POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
     application_name: `pr-agent-${cfg.runtime.role}`,
   });
-  // A Postgres restart fails idle sockets, which reach the pool's "error" event;
-  // without a listener that is an uncaught exception and the process exits.
   pool.on("error", (error) => {
     logWarn("postgres_idle_client_error", {
       code: "code" in error && typeof error.code === "string" ? error.code : undefined,
       message: error.message,
     });
   });
-  // pg-pool detaches its idle "error" listener from checked-out clients, and a pg
-  // Client always emits "error" on a socket failure. This listener only prevents
-  // the crash; the failure still reaches the caller through its query.
   pool.on("connect", (client) => {
     client.on("error", () => undefined);
   });

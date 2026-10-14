@@ -1,10 +1,6 @@
 import { httpStatus } from "./httpStatus.js";
 import { isAppError } from "../errors/appError.js";
 
-/**
- * A provider contract proves non-acceptance only through an explicit flag or
- * a request error that cannot represent an accepted mutation.
- */
 export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
   if (
     isAppError(error) &&

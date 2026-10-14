@@ -8,7 +8,6 @@ import { specialistReportSchema } from "../orchestrator/specialistReport.js";
 import { reviewPayloadSchema } from "../reviewSchema.js";
 import { canonicalReviewDecisionSchema } from "./reviewRecoverySchema.js";
 
-/** Bump when evidence, judgment or publication gates change, not only JSON shape. */
 export const REVIEW_CONTRACT_VERSION = "review-1";
 export const REVIEW_ARTIFACT_SCHEMA_VERSION = 1;
 
@@ -71,7 +70,6 @@ const artifactSchema = v.variant("kind", [
     target: v.optional(v.picklist(["threads", "summary"]), "threads"),
     payload: reviewPayloadSchema,
     dependencies,
-    // Missing in pre-consumer foundations. Such rows are cache misses for replay.
     canonical: v.optional(canonicalReviewDecisionSchema),
   }),
   v.strictObject({
@@ -79,9 +77,7 @@ const artifactSchema = v.variant("kind", [
     sequence,
     decisionId: identifier,
     preparedHash: hashSchema,
-    // These are local journal observations. Remote intents/receipts remain authority.
     outcome: v.picklist(["accepted", "recovered", "stopped"]),
-    // Bounded observations only. Exact remote intent/results remain authoritative.
     remote: v.optional(
       v.strictObject({
         operationKey: identityText(512),
@@ -131,7 +127,6 @@ const envelopeSchema = v.pipe(
 export type ReviewArtifactEnvelope = v.InferOutput<typeof envelopeSchema>;
 
 export function reviewArtifactInvalid(reason: string): never {
-  // No model text or schema issue inputs in failures/logs.
   throw new AppError({
     domain: "publish_store",
     kind: "invalid_detail",
@@ -140,7 +135,6 @@ export function reviewArtifactInvalid(reason: string): never {
   });
 }
 
-/** Deterministic JSON order makes identities independent of JS property insertion order. */
 export function encodeReviewArtifact(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) => {
     if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
@@ -156,10 +150,6 @@ export function reviewArtifactHash(envelope: ReviewArtifactEnvelope): string {
   return createHash("sha256").update(encodeReviewArtifact(envelope), "utf8").digest("hex");
 }
 
-/**
- * inputDigest must be SHA-256 over the current review inputs (policy, diff,
- * configuration and model selection). No input text is retained by this store.
- */
 export function createReviewArtifactBinding(
   identity: ReviewArtifactIdentity,
   inputDigest: string,
@@ -210,7 +200,6 @@ function logicalIdentity(artifact: ReviewArtifactEnvelope["artifact"]) {
 }
 
 function redactStructuredOutput(value: unknown): unknown {
-  // Called only on validated brief/report/payload, never identity or descriptors.
   return JSON.parse(
     JSON.stringify(value, (_key, entry: unknown) =>
       typeof entry === "string" ? redactReviewText(entry) : entry,
@@ -252,7 +241,6 @@ export function createReviewArtifactEnvelope(
     case "publication_settled":
       break;
   }
-  // Redaction can change lengths or validators. Never persist a now-invalid output.
   const redacted = v.safeParse(artifactSchema, output);
   if (!redacted.success) reviewArtifactInvalid("artifact_redaction");
   const envelope = v.safeParse(envelopeSchema, {
@@ -266,7 +254,6 @@ export function createReviewArtifactEnvelope(
   return envelope.output;
 }
 
-/** Incompatible versions, corrupt shape, non-redacted content and identity drift are misses. */
 export function parseReviewArtifactEnvelope(value: unknown): ReviewArtifactEnvelope | null {
   const parsed = v.safeParse(envelopeSchema, value);
   if (!parsed.success) return null;

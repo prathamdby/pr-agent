@@ -1,8 +1,5 @@
 import crypto from "node:crypto";
 
-/**
- * Validates `X-Hub-Signature-256` (`sha256=<hex>`).
- */
 export function verifyGithubWebhookSignature(
   secret: string,
   rawBody: Buffer,

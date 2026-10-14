@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 
-/** Hash of exactly these complete lines, normalized to LF with no terminal newline. */
 export const evidenceDescriptorSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
@@ -36,7 +35,6 @@ export type EvidenceRead = {
   readonly headSha: string;
   readonly tool: string;
   readonly recordedAt: string;
-  /** Legacy contentHash hashes the whole delivered response, not this coverage segment. */
   readonly descriptor?: EvidenceDescriptor;
 };
 
@@ -82,7 +80,6 @@ export function recordDeliveredFileRead(ledger: EvidenceLedger, params: Delivere
       contentHash: hashNormalizedLineText(params.content),
       headSha: params.headSha,
       tool: params.tool,
-      // Keep ordinary covers semantics. Only fully reproducible segments are cacheable.
       ...(endLine - params.startLine < lines.length
         ? {
             descriptor: {
@@ -104,11 +101,6 @@ export function recordDeliveredFileRead(ledger: EvidenceLedger, params: Delivere
   }
 }
 
-/**
- * The callback must use the current governed workspace reader, never raw filesystem
- * I/O or saved text. Refusal/mismatch is a cache miss; reader errors still propagate.
- * No coverage is granted until every descriptor matches a fresh read.
- */
 export async function revalidateEvidenceDescriptors(
   ledger: EvidenceLedger,
   descriptors: readonly unknown[],

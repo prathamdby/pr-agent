@@ -7,7 +7,6 @@ import {
   GhTitle,
 } from "@/components/github-output/primitives";
 
-/** Mirrors `renderDescriptionAgentBlock` under `## PR Agent Description`. */
 export function DescriptionBlockMock() {
   return (
     <GhComment surface="Merged into the pull request body" frame="window">

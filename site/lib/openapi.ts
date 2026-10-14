@@ -27,12 +27,6 @@ function plainTextResponse(description: string) {
   };
 }
 
-/**
- * OpenAPI description of this site's agent-facing endpoints.
- *
- * Published at a predictable `/openapi.json` and named in llms.txt so a developer-resource search
- * for "PR Agent" has something concrete to land on.
- */
 export function renderOpenApiDocument(): Record<string, unknown> {
   const queryParameter = {
     name: "query",

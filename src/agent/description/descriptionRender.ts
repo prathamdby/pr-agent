@@ -58,13 +58,11 @@ export function prBodyHasDescriptionReviewMap(body: string | null | undefined): 
   return agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING);
 }
 
-/** Anchor id for a file row on the PR "Files changed" tab (SHA-256 of the repo path). */
 function githubPullRequestFileDiffAnchor(filePath: string): string {
   const digest = createHash("sha256").update(filePath).digest("hex");
   return `diff-${digest}`;
 }
 
-/** Link to a file's diff hunk on the pull request Files changed tab. */
 function githubPullRequestFileDiffUrl(ctx: PrResource, filePath: string): string {
   const anchor = githubPullRequestFileDiffAnchor(filePath);
   return `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}/files#${anchor}`;

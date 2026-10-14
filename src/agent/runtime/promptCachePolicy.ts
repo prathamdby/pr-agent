@@ -4,7 +4,6 @@ import type { AgentSessionRole, ModelAssignment } from "./types.js";
 
 export { SESSION_CACHE_ID_MAX_LENGTH };
 
-/** v1 prompt-cache retention owned by the Pi session seam. Always short. */
 export type PromptCacheRetention = "short";
 
 export type PromptCachePolicy = {
@@ -22,11 +21,6 @@ export type AgentSessionCacheIdentity = {
   readonly model: string;
 };
 
-/**
- * Build a stable in-memory session id for OpenAI-style prompt cache keys.
- * Same identity → same id. Clamped to provider key length; charset safe for
- * SessionManager ids (`[A-Za-z0-9._-]`).
- */
 export function sessionCacheIdFromIdentity(identity: AgentSessionCacheIdentity): string {
   const specialist = identity.specialistId?.trim() || undefined;
   const raw = ["pragent", identity.role, specialist ?? "-", identity.provider, identity.model]

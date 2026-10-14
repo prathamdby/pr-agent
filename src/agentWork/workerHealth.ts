@@ -20,7 +20,6 @@ import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
 import { lostRunningWorkLivenessSql } from "./workItemTransitions.js";
 import { errorMessage } from "../errors/errorMessage.js";
 
-/** Queues that must have registered consumers for worker readiness. */
 export const WORKER_CONSUMER_QUEUES = [
   ACK_QUEUE,
   CI_PROJECTION_QUEUE,
@@ -32,7 +31,6 @@ export const WORKER_CONSUMER_QUEUES = [
   RETENTION_QUEUE,
 ] as const;
 
-/** Same membership as WORKER_CONSUMER_QUEUES; order is the diagnostic log order. */
 export const WORKER_DIAGNOSTIC_QUEUES = [
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -46,7 +44,6 @@ export const WORKER_DIAGNOSTIC_QUEUES = [
 
 export const WORKER_DLQ_QUEUES = AGENT_DEAD_LETTER_QUEUES;
 
-/** Default interval for continuous queue/DLQ diagnostics. */
 export const QUEUE_DIAGNOSTICS_INTERVAL_MS = 60_000;
 
 export type WorkerReadinessInput = {
@@ -213,9 +210,6 @@ export async function collectQueueDiagnostics(params: {
       if (Number.isFinite(age)) oldestRunningWorkItemAgeMs = Math.max(0, age);
     }
 
-    // Queued past grace with no live lease is only a dead chain when no pg-boss
-    // job remains to start or hop. A created/active/retry row is still in flight
-    // (backlog, group concurrency, or a deferred watchdog copy).
     const stale = await params.pool.query<{
       id: string;
       resource_key: string;

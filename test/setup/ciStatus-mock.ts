@@ -1,6 +1,5 @@
 import { vi } from "vitest";
 
-/** Default stub so publish/ack paths never hit the live Checks API in unit tests. */
 vi.mock("../../src/github/ciStatus.js", () => ({
   listCheckRunsForHead: vi.fn(async () => ({ checkRuns: [], truncated: false })),
   listLegacyCommitStatusesForHeadDetailed: vi.fn(async () => ({

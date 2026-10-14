@@ -32,7 +32,6 @@ export function isMermaidVisual(visual: DescriptionVisual): boolean {
   return visual.kind === "mermaid" || fenceLanguageForVisual(visual) === "mermaid";
 }
 
-/** Remove one outer markdown fence so the server always owns the wrapper. */
 export function stripOuterMarkdownFence(content: string): string {
   const trimmed = content.trim();
   if (!trimmed.startsWith("```")) return trimmed;

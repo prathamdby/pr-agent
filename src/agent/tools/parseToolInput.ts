@@ -4,18 +4,6 @@ import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import { isPlainObject } from "../../util/typeGuards.js";
 
-/**
- * Validate-then-repair parse seam for tool inputs. Valid input passes
- * through untouched; only on validation failure are four ordered,
- * deterministic repairs tried, and only at the paths the validator actually
- * flagged. Every applied repair is logged with the tool name and repair
- * kind. Unrepairable input returns the model-readable issue list.
- *
- * The catalogue is deliberately limited to the four observed shape errors —
- * no numeric-string coercion (a numeric string is a valid `path`), no
- * generic normalization framework.
- */
-
 export type ToolInputRepairKind =
   | "null_optional_dropped"
   | "stringified_json_array"
@@ -33,7 +21,6 @@ type SchemaNode = {
   readonly item?: unknown;
 };
 
-/** Unwrap optional/nullish/nullable layers to reach the base node. */
 function baseNode(node: SchemaNode): SchemaNode {
   let current = node;
   while (
@@ -45,11 +32,6 @@ function baseNode(node: SchemaNode): SchemaNode {
   return current;
 }
 
-/**
- * Resolve the schema node at a validator dot path. Numeric segments index
- * into array item schemas. Returns null for unions, unknown keys, or any
- * shape we cannot walk — an unresolvable path is simply never repaired.
- */
 function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): SchemaNode | null {
   let current: SchemaNode = schema;
   if (dotPath === "") return current;
@@ -85,11 +67,6 @@ type AppliedRepair = {
   readonly value?: unknown;
 };
 
-/**
- * The four ordered repairs for one failing path. Rule 2 runs before rule 4
- * so a stringified array is parsed, never double-wrapped. At most one repair
- * applies per path.
- */
 function repairAt(node: SchemaNode, value: unknown): AppliedRepair | null {
   if (value === null && (node.type === "optional" || node.type === "nullish")) {
     return { kind: "null_optional_dropped" };
@@ -119,7 +96,6 @@ type RepairTarget =
   | { readonly parent: unknown[]; readonly key: number }
   | { readonly parent: null; readonly key: null };
 
-/** Locate the writable parent container for a dot path inside the cloned args. */
 function resolveRepairTarget(root: unknown, segments: readonly string[]): RepairTarget | null {
   if (segments.length === 0) return { parent: null, key: null };
   let current: unknown = root;
@@ -170,8 +146,6 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
     const repair = repairAt(node, value);
     if (repair === null) continue;
     if (repair.kind === "null_optional_dropped") {
-      // Deleting a key only makes sense on an object parent; a null array
-      // item is never spliced out from under the model's ordering.
       if (typeof target.key !== "string") continue;
       delete target.parent[target.key];
     } else if (target.parent === null) {

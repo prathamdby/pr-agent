@@ -421,8 +421,6 @@ describe("executeAckJob", () => {
         ReturnType<typeof getWorkItemCore>
       >;
     });
-    // wi-a is superseded, so it never reaches the owner lookup; a second
-    // once-value here would leak into later tests.
     vi.mocked(getProgressCommentOwner).mockResolvedValueOnce(null);
 
     await executeAckJob(cfg, pool, {
@@ -770,7 +768,6 @@ describe("executeAckJob", () => {
       },
     });
 
-    // The cancelled notice lands on the old stub first, then the new run's queued stub wins.
     const edit = surfaceBundle.controls.events.find((event) => event.kind === "editComment");
     expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
     const editBody = edit?.kind === "editComment" ? edit.body : "";
@@ -801,8 +798,6 @@ describe("executeAckJob", () => {
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
     vi.spyOn(surfaceBundle.surface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
-    // A persistent getWorkItemCore implementation from an earlier test outlives
-    // clearAllMocks, so pin this test's row with a consumed once-value.
     vi.mocked(getWorkItemCore).mockResolvedValueOnce({
       id: "wi-new",
       status: "queued",
@@ -825,7 +820,6 @@ describe("executeAckJob", () => {
       "ack_cancel_comment_failed",
       expect.objectContaining({ workItemId: "wi-old", message: "edit 403" }),
     );
-    // Comment I/O failure must not block check cancellation or the new stub.
     expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
@@ -908,7 +902,6 @@ describe("executeAckJob", () => {
       "ack_cancel_progress_failed",
       expect.objectContaining({ workItemId: "wi-old", message: "lookup boom" }),
     );
-    // The throw happens before check cancellation; only the new stub and reply land.
     expect(closeReviewVerdictsForWorkItems).not.toHaveBeenCalled();
     expect(summaryWrite).toHaveBeenCalledTimes(1);
     expect(summaryWrite).toHaveBeenCalledWith(

@@ -201,8 +201,6 @@ function runReviewWorkItem(
     type: "review",
     prActorLease: { queue: "agent-work-review" },
     resolveHeadSha: async () => ({ headSha: "x" }),
-    // Unit pool is a `{}` stub with mocked repositories: run the atomic body
-    // without a real transaction (mocked acquire/claim/release ignore it).
     runtime: createDurableRuntime({
       installationSurface,
       transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
@@ -726,7 +724,6 @@ describe("leased execution", () => {
       heldByWorkItemId: "wi-other",
       leaseEpoch: 7,
     });
-    // Seed send succeeds (returns a hop id): failed-acquire skips its send.
     vi.mocked(boss.send).mockResolvedValue("seed-hop");
     const execute = vi.fn();
 
@@ -734,8 +731,6 @@ describe("leased execution", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
-    // Seed (warn-and-proceed) armed the hop; the failed-acquire branch skips
-    // its second send, so one send per cycle.
     expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(1);
     expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
   });
@@ -757,7 +752,6 @@ describe("leased execution", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    // Seed found no live hop, failed-acquire re-armed strictly: two sends.
     expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(2);
   });
 
@@ -771,8 +765,6 @@ describe("leased execution", () => {
     await expect(runReviewWorkItem({ execute })).rejects.toBe(claimError);
 
     expect(execute).not.toHaveBeenCalled();
-    // In-tx release on the client: outer runner state untouched, so a
-    // deadlock retry would still own renewal and release on success.
     expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
     expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
       resourceKey: item.resourceKey,
@@ -1127,7 +1119,6 @@ describe("leased execution", () => {
     expect(repo.claimWorkForExecution).toHaveBeenCalledTimes(2);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
-    // Failed attempt's in-tx cleanup plus the runner's final release.
     expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(2);
   });
 

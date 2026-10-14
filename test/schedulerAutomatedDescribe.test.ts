@@ -123,9 +123,6 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const sentQueues: string[] = [];
     const boss = makeBoss(sentQueues);
 
-    // synchronize never starts a review, so with no queued/running auto review the
-    // push supersede finds nothing to replace. Verification is off so the only
-    // enqueue is the unseeded CI projection.
     const query = vi.fn(async (sql: string) => {
       const ci = headCiStateSelect(sql);
       if (ci != null) return ci;
@@ -202,7 +199,6 @@ describe("makeAgentWorkScheduler automated describe", () => {
         return { rows: [{ id: "event-1" }] };
       }
       if (sql.includes("UPDATE agent_work_items") && sql.includes("cancel_requested_at")) {
-        // The running auto review gets the cooperative cancel request.
         return { rows: [{ id: "running-review-1" }], rowCount: 1 };
       }
       if (sql.includes("UPDATE agent_work_items")) {
@@ -247,7 +243,6 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(ACK_QUEUE);
     expect(sentQueues).toContain(VERIFICATION_QUEUE);
     expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
-    // Replacement review is created with a deferred head for claim-time resolution.
     const replacementInsert = workItemInserts.find((params) => params[2] === "review");
     expect(replacementInsert?.[8]).toBe(DEFERRED_HEAD_SHA);
   });

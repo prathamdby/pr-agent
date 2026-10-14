@@ -127,7 +127,6 @@ export type CiStatusSourcesResult = {
   };
 };
 
-/** Independent read boundaries: a denied source is never a successful empty listing. */
 export async function readCiStatusSources(params: {
   readonly token: string;
   readonly owner: string;
@@ -150,8 +149,6 @@ export async function readCiStatusSources(params: {
         await params.capabilityPolicy?.deny(operation);
         return { items: [], source: { access: "denied", complete: false } };
       }
-      // Throttling retains the shared-circuit retry path. Other incomplete reads
-      // are source-local so the successful sibling can still contribute facts.
       if (classifyGithubError(error) === "rate_limit") throw error;
       return { items: [], source: { access: "unknown", complete: false } };
     }

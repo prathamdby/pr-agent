@@ -1,5 +1,16 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   exportedSignatureTexts,
@@ -118,9 +129,6 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
     if (seen.has(file) || !existsSync(file)) continue;
     seen.add(file);
     const text = readFileSync(file, "utf8");
-    // Type-only imports carry no runtime edge; strip them before edge matching.
-    // Order matters: the two-line `import type {` ... `} from "..."` form first,
-    // then remaining single-line `import type ...` forms.
     const stripped = text
       .replace(/^import\s+type\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?\s*$/gm, "")
       .replace(/^import\s+type\s+[^\n]+$/gm, "");
@@ -142,7 +150,125 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
   return seen;
 }
 
+type CommentLint = { lines: Record<string, number[]>; fixed: Record<string, string> };
+
+type LintReport = {
+  diagnostics: { code: string; filename: string; labels: { span: { line: number } }[] }[];
+};
+
+function lintComments(files: Record<string, string>, fix: boolean): CommentLint {
+  const repoConfig: { jsPlugins?: string[]; rules?: Record<string, unknown> } = JSON.parse(
+    readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
+  );
+  const dir = mkdtempSync(join(tmpdir(), "no-comments-"));
+  try {
+    const config = {
+      jsPlugins: (repoConfig.jsPlugins ?? []).map((entry) => resolve(process.cwd(), entry)),
+      rules: Object.fromEntries(
+        Object.entries(repoConfig.rules ?? {}).filter(([name]) => name.startsWith("pr-agent/")),
+      ),
+    };
+    const configPath = join(dir, "oxlintrc.json");
+    writeFileSync(configPath, JSON.stringify(config));
+    const sources = join(dir, "src");
+    mkdirSync(sources);
+    for (const [name, text] of Object.entries(files)) writeFileSync(join(sources, name), text);
+    let raw = "";
+    try {
+      raw = execFileSync(
+        join(process.cwd(), "node_modules", ".bin", "oxlint"),
+        ["--format", "json", "-c", configPath, ...(fix ? ["--fix"] : []), sources],
+        { encoding: "utf8" },
+      );
+    } catch (error) {
+      const stdout = error instanceof Error && "stdout" in error ? error.stdout : undefined;
+      raw = typeof stdout === "string" ? stdout : "";
+      if (!raw.trim().startsWith("{")) throw error;
+    }
+    const report: LintReport = JSON.parse(raw);
+    const lines: Record<string, number[]> = Object.fromEntries(
+      Object.keys(files).map((name) => [name, []]),
+    );
+    for (const item of report.diagnostics) {
+      if (item.code !== "pr-agent(no-comments)") continue;
+      const name = item.filename.split(/[\\/]/).pop() ?? item.filename;
+      lines[name]?.push(item.labels[0]?.span.line ?? 0);
+    }
+    for (const list of Object.values(lines)) list.sort((a, b) => a - b);
+    const fixed = Object.fromEntries(
+      Object.keys(files).map((name) => [name, readFileSync(join(sources, name), "utf8")]),
+    );
+    return { lines, fixed };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const suppression = (tool: "oxlint" | "eslint", rest: string) => `${tool}-disable${rest}`;
+
+const VALID_SUPPRESSION = `// ${suppression("oxlint", "-next-line no-console -- Probe output.")}`;
+
+const COMMENT_PROBE = [
+  "// line",
+  "/* block */",
+  "/** jsdoc */",
+  "export const a = 1; // trailing",
+  `/* ${suppression("eslint", " no-console")} */`,
+  `// ${suppression("eslint", "-next-line no-console")}`,
+  `// ${suppression("oxlint", "-next-line no-console")}`,
+  "// @ts-expect-error",
+  'export const url = "https://example.com/* not a comment */";',
+  "export const tpl = `// ${a} /* still text */`;",
+  "export const re = /\\/\\*[^*]*\\//;",
+  VALID_SUPPRESSION,
+  "console.log(a);",
+  '/// <reference types="node" />',
+  "",
+].join("\n");
+
+const JSX_PROBE = "export const view = <div>{/* note */}</div>;\n";
+
+const ASI_PROBE = "export function f() {\n  return /*\n  */ 1;\n}\n";
+
 describe("architecture rules", () => {
+  it("reports every comment except the two machine directives", () => {
+    const { lines } = lintComments(
+      { "probe.ts": COMMENT_PROBE, "view.tsx": JSX_PROBE, "asi.mjs": ASI_PROBE },
+      false,
+    );
+    expect(lines).toEqual({
+      "probe.ts": [1, 2, 3, 4, 5, 6, 7, 8],
+      "view.tsx": [1],
+      "asi.mjs": [2],
+    });
+  });
+
+  it("removes comments without changing behaviour or the machine directives", async () => {
+    const { fixed } = lintComments(
+      { "probe.ts": COMMENT_PROBE, "view.tsx": JSX_PROBE, "asi.mjs": ASI_PROBE },
+      true,
+    );
+    expect(lintComments(fixed, false).lines).toEqual({
+      "probe.ts": [],
+      "view.tsx": [],
+      "asi.mjs": [],
+    });
+    expect(fixed["probe.ts"]).not.toMatch(/\/\/ (line|trailing|eslint|@ts)|\/\*\*? (block|jsdoc)/);
+    expect(fixed["probe.ts"]).toContain(VALID_SUPPRESSION);
+    expect(fixed["probe.ts"]).toContain('/// <reference types="node" />');
+    expect(fixed["probe.ts"]).toContain("https://example.com/* not a comment */");
+    expect(fixed["view.tsx"]).toBe("export const view = <div></div>;\n");
+    const dir = mkdtempSync(join(tmpdir(), "no-comments-asi-"));
+    try {
+      const file = join(dir, "asi.mjs");
+      writeFileSync(file, fixed["asi.mjs"] ?? "");
+      const loaded: { f: () => unknown } = await import(pathToFileURL(file).href);
+      expect(loaded.f()).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("keeps code rows inside their allowlists and catches each snippet", () => {
     const rows = loadCodeRows();
     expect(rows.length).toBeGreaterThan(0);
@@ -285,7 +411,6 @@ import { foo } from "../agent/foo.js";
     expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
     expect(graph.has("src/agent/runtime/piSession.ts")).toBe(false);
-    // loadConfig reaches the Pi catalog through a worker-only dynamic import.
     expect(runtimeImportGraph("src/effect/server.ts", { staticOnly: true })).not.toContain(
       "src/agent/runtime/modelsJson.ts",
     );

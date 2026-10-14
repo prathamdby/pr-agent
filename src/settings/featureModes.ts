@@ -1,5 +1,3 @@
-/** Feature tier: the only user-facing settings. Catalog: docs/features.md. */
-
 export const REVIEW_FEATURE_MODES = ["manual", "auto", "approval"] as const;
 export const DESCRIBE_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const VERIFICATION_FEATURE_MODES = ["off", "manual", "auto"] as const;
