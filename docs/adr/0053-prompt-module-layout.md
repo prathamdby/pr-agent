@@ -9,11 +9,10 @@ This ADR governs where prompt text lives.
 
 ## Context
 
-Model-facing prompt text is spread across `src/agent/prompts/`,
-`src/review/prompts/`, `src/review/orchestrator/prompts/`, settings constants,
-and run loops. A role's prompt cannot be read top to bottom in one file. Blocks
-that several roles render have no single home, and nothing stops new prompt
-text from landing anywhere.
+Model-facing prompt text was spread across agent and review modules, settings
+constants, and run loops. A role's prompt could not be read top to bottom in one
+file. Blocks that several roles render had no single home, and nothing stopped
+new prompt text from landing anywhere.
 
 ## Decision
 
@@ -96,10 +95,13 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    - Inside `src/prompts/`, a file may import other `src/prompts/` files,
      anything type-only, and the modules in `INSIDE_IMPORTABLE_MODULES`:
      `src/settings/*Constants.ts`, `src/settings/index.ts`,
-     `src/agent/codemode/guestCatalogue.ts`, and `src/util/escape.ts`. The
-     settings barrel is listed because `.pr-agent/esm-imports.mdc` requires
+     `src/agent/codemode/guestCatalogue.ts`, `src/util/escape.ts`, and
+     `src/github/markdownFormat.ts`. The settings barrel is listed because
+     `.pr-agent/esm-imports.mdc` requires
      settings imports to go through it. A path joins this list only with a
      stated reason in its PR. Domain builders stay out.
+     The Markdown module provides pure escaping without imports, side effects,
+     or I/O, preserving the existing bytes and a single implementation.
    - `shared/` never imports a role directory, not even for types.
    - `test/` and `scripts/` are exempt.
 3. `test/architectureRules.test.ts` holds must-catch and must-allow probes for
