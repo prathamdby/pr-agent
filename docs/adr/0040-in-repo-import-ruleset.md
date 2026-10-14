@@ -6,3 +6,6 @@ Architecture edges are rows in `test/architectureRules.test.ts`
 imports only (`import type` is dependency-injection, not a boundary
 crossing). Knip was trialled and declined: it cannot resolve the nub
 workspace, and `minimumReleaseAge: 7d` would block `nub ci` on the new dep.
+
+Prompt import edges are also enforced by the oxlint rule
+`pr-agent/prompt-imports` ([ADR 0053](0053-prompt-module-layout.md)).
