@@ -1,3 +1,4 @@
+import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
 import { makeTestConfig } from "../test/helpers/config.js";
 import {
@@ -5,7 +6,9 @@ import {
   orchestratorSystemPrompt,
   renderJudgmentTurn,
   renderSynthesisTurn,
-} from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+  renderBriefMessage,
+  buildTrustedReviewContextForReview,
+} from "../src/prompts/orchestrator/prompt.js";
 import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
 import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
 import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.js";
@@ -48,7 +51,6 @@ import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assemble
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.js";
 import {
   buildSpecialistBriefTool,
-  renderBriefMessage,
   type SpecialistBrief,
 } from "../src/review/orchestrator/briefTool.js";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
@@ -79,21 +81,16 @@ import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
 
 import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
-import { buildTrustedReviewContextForReview } from "../src/review/prompts/reviewTrustedContext.js";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
 import {
-  buildReviewPathProfile,
   formatReviewPathProfileBlock,
-} from "../src/review/placement/reviewPathProfile.js";
-import {
-  buildReviewSizeBudget,
   formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
-} from "../src/review/run/reviewSizeBudget.js";
-import { formatSymbolIndexStatusLine } from "../src/prWorkspace/symbolIndex.js";
-import {
+  formatSymbolIndexStatusLine,
   formatPriorInlineFeedbackBlock,
-  type BotFindingThread,
-} from "../src/review/run/reviewPriorFeedback.js";
+} from "../src/prompts/orchestrator/context.js";
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
+import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { renderRepoPolicyBlock, type RepoPolicy } from "../src/review/repoPolicy.js";
 import {
   renderAgentInstructionFilesBlock,
@@ -655,12 +652,12 @@ function dumpContext() {
   } as const;
   return {
     trusted: buildTrustedReviewContextForReview({
-      preflight: {
-        files: files.map((filename) => ({ filename })),
+      pathProfile: buildReviewPathProfile(files),
+      sizeBudget: buildReviewSizeBudget({
         truncated: true,
         fileCount: 600,
         totalChanges: 40000,
-      },
+      }),
       priorInlineFeedback,
       findingHistoryTrustedBlock: "Sample finding history block.",
       repoPolicyBlock: renderRepoPolicyBlock({
@@ -676,12 +673,12 @@ function dumpContext() {
       symbolIndexStatus: { available: true, symbolCount: 42 },
     }),
     trustedMinimal: buildTrustedReviewContextForReview({
-      preflight: {
-        files: [{ filename: "docs/notes.md" }],
+      pathProfile: buildReviewPathProfile(["docs/notes.md"]),
+      sizeBudget: buildReviewSizeBudget({
         truncated: false,
         fileCount: 1,
         totalChanges: 2,
-      },
+      }),
     }),
     pathProfile: formatReviewPathProfileBlock(buildReviewPathProfile(files)),
     pathProfileMinimal: formatReviewPathProfileBlock(buildReviewPathProfile(["docs/notes.md"])),
@@ -812,23 +809,25 @@ function dumpKeepList() {
   };
 }
 
+const judgmentOutcome = {
+  specialist: "correctness",
+  report: { status: "no_findings", findings: [] },
+} satisfies Parameters<typeof slimAcceptedFindings>[0];
+
 const persona = process.argv[2];
 const prompts: Record<string, string> = {
   correctness: buildAutomatedSystemPrompt(),
   judgment: [orchestratorSystemPrompt, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
   "judgment-turn": renderJudgmentTurn(
-    {
-      specialist: "correctness",
-      report: { status: "no_findings", findings: [] },
-    },
-    {
+    judgmentOutcome,
+    slimAcceptedFindings(judgmentOutcome, {
       accepted: [],
       suppressionFingerprints: new Set(),
       inlineReviewIds: [],
       postedInlineCount: 0,
       threadCallCount: 0,
       threadBudgetExhausted: false,
-    },
+    }),
   ),
   security: automatedSecuritySystemPrompt,
   quality: automatedQualitySystemPrompt,

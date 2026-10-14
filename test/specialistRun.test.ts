@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
-import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
+import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.js";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";

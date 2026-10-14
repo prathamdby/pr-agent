@@ -3,7 +3,6 @@ import {
   assembleBotReviewThreads,
   classifyReviewLensFromPointerBody,
   fetchPriorInlineFeedback,
-  formatPriorInlineFeedbackBlock,
   mapAssembledThreadsToPriorInlineFeedback,
   NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES,
   priorFeedbackLensesForSelection,
@@ -12,6 +11,7 @@ import {
   type PriorInlineFeedbackThread,
   type ReviewThreadComment,
 } from "../src/review/run/reviewPriorFeedback.js";
+import { formatPriorInlineFeedbackBlock } from "../src/prompts/orchestrator/context.js";
 import { createPrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
 import {

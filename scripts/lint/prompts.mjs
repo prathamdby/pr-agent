@@ -40,14 +40,10 @@ export const INSIDE_IMPORTABLE_MODULES = [
   "src/settings/index.ts",
   "src/agent/codemode/guestCatalogue.ts",
   "src/util/escape.ts",
+  "src/github/markdownFormat.ts",
 ];
 
-export const TRANSITION_IMPORTS = [
-  {
-    importer: "src/review/orchestrator/prompts/orchestratorPrompts.ts",
-    modules: ["src/prompts/shared/behavior.ts", "src/prompts/shared/communication.ts"],
-  },
-];
+export const TRANSITION_IMPORTS = [];
 
 function globPattern(glob) {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");

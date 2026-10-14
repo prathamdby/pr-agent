@@ -7,9 +7,11 @@ import {
 import {
   buildReviewSizeBudget,
   classifyReviewBudgetTier,
+} from "../src/review/run/reviewSizeBudget.js";
+import {
   formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
-} from "../src/review/run/reviewSizeBudget.js";
+} from "../src/prompts/orchestrator/context.js";
 
 describe("classifyReviewBudgetTier", () => {
   it("classifies small PRs", () => {

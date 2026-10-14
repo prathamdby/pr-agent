@@ -1,3 +1,5 @@
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
 vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
   return {
@@ -154,7 +156,8 @@ vi.mock("../src/github/appAuth.js", () => ({
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
 import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
-import * as reviewTrustedContext from "../src/review/prompts/reviewTrustedContext.js";
+import * as reviewTrustedContext from "../src/review/run/reviewTrustedContext.js";
+import * as orchestratorPrompts from "../src/prompts/orchestrator/prompt.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
@@ -211,7 +214,12 @@ function makeItem(source: "auto" | "slash") {
 function mockRepositoryView() {
   mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
     run({
-      preflight: { preflight: true },
+      preflight: {
+        files: [{ filename: "src/a.ts" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 2,
+      },
       agentCwd: "/tmp",
       workspace: mockLocalPrWorkspace(),
     }),
@@ -308,7 +316,7 @@ describe("review work definition", () => {
     vi.spyOn(reviewReschedule, "tryBuildStaleReviewRescheduleResult").mockImplementation(
       mocks.buildStaleReschedule,
     );
-    vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
+    vi.spyOn(orchestratorPrompts, "buildTrustedReviewContextForReview").mockImplementation(
       mocks.buildTrustedContext,
     );
     vi.spyOn(reviewTrustedContext, "fetchPriorInlineFeedbackBlockForReview").mockImplementation(
@@ -1561,7 +1569,12 @@ describe("review work definition", () => {
     mocks.withPrRepositoryView.mockImplementation(async (_params, run) => {
       await repositoryViewPreparing;
       return run({
-        preflight: { preflight: true },
+        preflight: {
+          files: [{ filename: "src/a.ts" }],
+          truncated: false,
+          fileCount: 1,
+          totalChanges: 2,
+        },
         agentCwd: "/tmp",
         workspace: mockLocalPrWorkspace(),
       });
@@ -1577,7 +1590,8 @@ describe("review work definition", () => {
     await review;
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
-      preflight: { preflight: true },
+      pathProfile: buildReviewPathProfile(["src/a.ts"]),
+      sizeBudget: buildReviewSizeBudget({ truncated: false, fileCount: 1, totalChanges: 2 }),
       priorInlineFeedback: "prior block",
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
@@ -1619,7 +1633,8 @@ describe("review work definition", () => {
       message: "feedback unavailable",
     });
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
-      preflight: { preflight: true },
+      pathProfile: buildReviewPathProfile(["src/a.ts"]),
+      sizeBudget: buildReviewSizeBudget({ truncated: false, fileCount: 1, totalChanges: 2 }),
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
@@ -1666,7 +1681,8 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Be terse."),
       agentInstructionFilesBlock: undefined,
@@ -1767,7 +1783,8 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
@@ -1797,7 +1814,8 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),

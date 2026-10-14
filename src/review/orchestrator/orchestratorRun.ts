@@ -1,3 +1,4 @@
+import { slimAcceptedFindings } from "./slimAcceptedFindings.js";
 import { readFile } from "node:fs/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
@@ -43,14 +44,15 @@ import {
 } from "../run/reviewRunMetrics.js";
 import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
-import { buildSpecialistBriefTool, renderBriefMessage, type SpecialistBrief } from "./briefTool.js";
-import { pumpSpecialistCompletions } from "./completionPump.js";
+import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.js";
 import {
+  renderBriefMessage,
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
   renderJudgmentTurn,
   renderSynthesisTurn,
-} from "./prompts/orchestratorPrompts.js";
+} from "../../prompts/orchestrator/prompt.js";
+import { pumpSpecialistCompletions } from "./completionPump.js";
 import {
   createFindingLedger,
   SPECIALIST_IDS,
@@ -1246,7 +1248,7 @@ export async function runOrchestratedPrReview(
               publishStepCount += 1;
               const judgment = await sendWithRetry(
                 "judgment",
-                renderJudgmentTurn(outcome, ledgerBefore),
+                renderJudgmentTurn(outcome, slimAcceptedFindings(outcome, ledgerBefore)),
                 {
                   maxToolRounds: escalatedToolRounds(
                     ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
