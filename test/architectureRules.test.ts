@@ -215,7 +215,10 @@ function lintWithPlugin(
       );
       for (const item of report.diagnostics) {
         if (item.code !== `pr-agent(${rule})`) continue;
-        found[item.filename.replace(/\\/g, "/")]?.push(item.labels[0]?.span.line ?? 0);
+        const name = item.filename.replace(/\\/g, "/");
+        const list = Object.hasOwn(found, name) ? found[name] : undefined;
+        if (!list) throw new Error(`lint diagnostic for unknown probe file: ${name}`);
+        list.push(item.labels[0]?.span.line ?? 0);
       }
       for (const list of Object.values(found)) list.sort((a, b) => a - b);
       return found;
