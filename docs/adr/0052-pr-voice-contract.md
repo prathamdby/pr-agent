@@ -14,7 +14,7 @@ and done-criteria. Every provider receives the same prompts, and models that
 treat goal-style guidance as optional still write padded, hedged review
 comments and ask replies.
 
-`readerFirstOutputGuidance` in `src/agent/prompts/readerFirstOutput.ts` states
+`readerFirstOutputGuidance` in `src/prompts/shared/communication.ts` states
 the reader-first goal for the specialists, the orchestrator, triage, and ask.
 It names no concrete patterns to avoid. Verification, description, and the CI
 author did not include it. The orchestrator could reword specialist findings,

@@ -37,7 +37,7 @@ No exceptions:
   the quality bar
 - Do not teach `execute({ code })`, QuickJS, `state`, cell lifecycle, or
   `Promise.all` in a rule body. Product prompts already own the harness
-  (`src/agent/prompts/harnessProtocol.ts`, ADR 0033)
+  (`src/prompts/shared/tools.ts`, ADR 0033)
 - Seed mode does not rewrite existing files
 - Refresh mode rebuilds named files from current code. It does not
   polish the old sentences
@@ -56,8 +56,8 @@ live in `src/settings/codeModeConstants.ts` (80ms guest CPU, 25 host
 calls, 4 in flight, 15s wall, marshal array 100, guest string 32 KiB).
 One cell cannot inspect a 300-file change set. Description and triage
 call native workspace tools. They have no `execute` cell
-(`descriptionNativeTooling`, `triageNativeTooling` in
-`src/agent/prompts/harnessProtocol.ts`). Repo policy binds on
+(`descriptionNativeTooling` and `triageNativeTooling` in
+`src/prompts/{description,triage}/prompt.ts`). Repo policy binds on
 orchestrated review. Verification reloads it for dismiss suggestions.
 Ask, describe, and triage sessions do not load `.mdc` bodies.
 
@@ -198,7 +198,7 @@ Run once, in order. Do not wander.
 2. **Inventory.** List every `.pr-agent/*.mdc` filename and a one-line
    gist. Compute remaining slots.
 3. **Vocabulary.** Read `CONTEXT.md`. Use product terms only.
-4. **Harness.** Read `src/agent/prompts/harnessProtocol.ts`,
+4. **Harness.** Read `src/prompts/shared/tools.ts`,
    `src/agent/codemode/guestCatalogue.ts`, ADR 0033, and
    `src/settings/codeModeConstants.ts`.
 5. **Layout.** Read `docs/development.md` plus

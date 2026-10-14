@@ -73,7 +73,7 @@ import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceT
 import { revalidateEvidenceDescriptors } from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
-import { wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
 
 function ownVerdictPublishParams(params: ReviewRunParams): {
   readonly workItemId?: string;

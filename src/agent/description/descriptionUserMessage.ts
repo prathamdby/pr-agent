@@ -1,4 +1,4 @@
-import { wrapUntrustedBlock } from "../prompts/promptBlocks.js";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 import { formatDescriptionTitleHardRule } from "./descriptionTitle.js";
 import { technicalDepthRule, type DescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
 

@@ -1,6 +1,6 @@
-import { askInvestigationHarness } from "../prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
-import { context7OutboundDataGuidance } from "../prompts/toolingDiscipline.js";
+import { askInvestigationHarness } from "../../prompts/ask/prompt.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
+import { context7OutboundDataGuidance } from "../../prompts/shared/safety.js";
 
 export function buildAskSystemPrompt(): string {
   return [

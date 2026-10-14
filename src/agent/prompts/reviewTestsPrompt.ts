@@ -3,20 +3,24 @@ import {
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
+  specialistFindingsReportContract,
+} from "../../prompts/shared/output.js";
+import {
   causalPublicationContract,
   highStakesTrivialTrapGuidance,
+  readOnlyReviewGuidance,
+  outOfScopeFilesGuidance,
+} from "../../prompts/shared/behavior.js";
+import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
-  specialistFindingsReportContract,
-  readOnlyReviewGuidance,
-  outOfScopeFilesGuidance,
   userSupplementGuidance,
-} from "../../review/prompts/reviewPromptBlocks.js";
-import { specialistInvestigationHarness } from "./harnessProtocol.js";
-import { readerFirstOutputGuidance } from "./readerFirstOutput.js";
-import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
+  context7OutboundDataGuidance,
+} from "../../prompts/shared/safety.js";
+import { specialistInvestigationHarness } from "../../prompts/shared/tools.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
 
 export const automatedReviewTestsSystemPrompt = [
   "You are the tests specialist investigator for this pull request. Think in failure modes: for each changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it. The testing posture below decides whether this project wants test suggestions at all.",

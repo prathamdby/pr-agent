@@ -8,7 +8,7 @@ import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
 import { buildWorkspaceTools } from "../../agent/tools/workspaceToolset.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
 

@@ -1,6 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { formatFindingThreadInventoryLines } from "../prompts/promptBlocks.js";
+import { formatFindingThreadInventoryLines } from "../../prompts/shared/context.js";
 
 export function buildTriageUserContent(params: {
   readonly owner: string;

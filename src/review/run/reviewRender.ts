@@ -40,7 +40,7 @@ import {
   type ReviewRunFooterMeta,
 } from "./reviewRunFooter.js";
 import type { CiSummary } from "../ci/ciFacts.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 import {
   formatReviewActionLineCiStatus,
   renderReviewActionLineCiStatus,

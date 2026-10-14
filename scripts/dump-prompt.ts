@@ -97,14 +97,12 @@ import {
   wrapTrustedContext,
   wrapUntrustedBlock,
   wrapUntrustedEvidence,
-} from "../src/agent/prompts/promptBlocks.js";
-import { context7OutboundDataGuidance } from "../src/agent/prompts/toolingDiscipline.js";
-import {
+  context7OutboundDataGuidance,
   agentInstructionFilesGuidance,
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
-} from "../src/review/prompts/reviewPromptBlocks.js";
+} from "../src/prompts/shared/safety.js";
 
 function unavailable(): never {
   throw new Error("Prompt inspection must not execute workspace, config, or provider actions");
