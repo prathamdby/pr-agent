@@ -778,7 +778,7 @@ The `MIGRATIONS_DIR_NAME` and `MIGRATION_ADVISORY_LOCK_KEY` rows live in
 | `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
 | `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
 
-Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
+Prompt prose (investigator contracts) lives in `src/prompts/`; legacy review personas and description prose remain in `src/review/prompts/`, `src/agent/prompts/`, and `src/agent/description/` until their moves finish.
 
 Private specialist orchestration constants (not exported from `src/settings/`): `INITIAL_JITTER_MAX_MS` (`3000`) and `RETRY_BACKOFF_BASE_MS` (`500`) live in `src/review/orchestrator/specialistRun.ts`.
 
