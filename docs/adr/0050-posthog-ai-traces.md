@@ -11,6 +11,10 @@ Accepted. Supersedes [ADR 0046](0046-agent-traces.md).
 > 2026-10-14, overflow degrades to a metadata-only event instead of dropping,
 > and session, generation, execution, and specialist spans carry loop, cutoff,
 > and loss fields. See [Loop, cutoff, and loss fields](#loop-cutoff-and-loss-fields).
+> 2026-10-14, generations use PostHog's message shape, tool spans carry bounded
+> input, output, and code hashes, and a cancelled session records the last
+> turns and any partial findings. See
+> [Diagnosable model and tool content](#diagnosable-model-and-tool-content).
 
 ## Context
 
@@ -100,9 +104,12 @@ session span now carries `turns`, `tool_calls`, `host_calls`,
 `model_ms_total`, `ms_since_last_activity`, `last_tool`, `last_end`, and the
 raw `error_code`. A repeat is a host call whose tool name and SHA-256 of its
 redacted input match an earlier call in the same session. `repeat_top` lists
-the three most repeated host tools as `tool:count`, with no input text.
-`ms_since_last_activity` counts from the last streamed token, delivered
-message, tool end, or host call, so a cutoff does not reset it.
+the three most repeated host tools as `tool:hash:count`. `hash` is the first
+12 hex characters of that SHA-256, and the field has no input text.
+`repeat_code_top` is `hash:count` for repeated `execute` scripts, hashed from
+the redacted `code` string. `ms_since_last_activity` counts from the last
+streamed token, delivered message, tool end, or host call, so a cutoff does
+not reset it.
 
 Each generation carries `turn_index`. A generation cut off before a final
 message, or ended with an empty one, keeps the text and reasoning streamed so
@@ -125,6 +132,55 @@ Failure modes recorded before implementation: a loop through `execute` goes
 undetected; an aborted generation loses its text; normal traffic uses up the
 reserve; the execution span is dropped; the specialist span loses its
 classification.
+
+### Diagnosable model and tool content
+
+PostHog's conversation view reads `$ai_output_choices` as a list of messages
+with `role` and `content`. A flat list of text and tool-call parts has no
+`content`, so the generation renders empty. Each choice is now one assistant
+message. Text and thinking stay content parts. A model tool call is a
+`function` part whose `function.arguments` include the script or other
+arguments. `$ai_input` is the same message shape: system, user, assistant, and
+tool results (`tool_result` on a user message). `$ai_tools` uses PostHog's
+function-tool shape.
+
+Tool spans keep `$ai_input_state` and `$ai_output_state`. Each string in those
+bodies is capped (8,192 characters for message text, 16,384 for a tool body,
+24,576 for a system prompt) and a cut ends with `[trace content truncated]`.
+Redaction runs on the whole value before the cut. The span also carries
+`input_sha256` of the redacted arguments and, when the arguments include a
+`code` string, `code_sha256` of that redacted script. Host-call entries carry
+`input_sha256` of the redacted host input. A cancelled tool with no result
+records `{ status: "cancelled" }` instead of an empty output.
+
+`$ai_error` is `{ code, message }` when the failure has both. Cancellation
+stays `status: cancelled` and does not set `$ai_is_error`.
+
+A session that ends cancelled or failed puts a bounded diagnosis on the
+session span: `$ai_input_state.last_turns` (the last six messages),
+`$ai_input_state.partial_findings` (file, title, severity, lines, and a short
+detail from any `findings` array the model had already produced), and
+`$ai_output_state` with `why` (status, code, message, last end) and `last_tool`
+(name, hashes, and the bounded input and output). These fields are how a
+specialist that runs to its deadline without `submit_findings_report` is
+explained from PostHog. Run-health counters on that same span are the measured
+totals, including `tool_ms_total` and `model_ms_total`.
+
+A tool argument object used to skip string truncation. One large `execute`
+script then pushed the generation over 1 MiB and the recorder removed both
+`$ai_input` and `$ai_output_choices`. Bodies are bounded before emit. The fit
+path still shrinks nested `content` and object `arguments` before it gives up
+and sends the event metadata-only.
+
+A circular tool result is redacted as the truncation marker. The tracer still
+does not throw into the review, and it does not change the value the model
+sees.
+
+Failure modes recorded before implementation: output choices without `role`
+and `content` render empty; an object tool argument strips the generation; a
+repeated script has no hash; a deadline inside `execute` drops the script and
+any drafted findings; an error is only a code; a cut or a cycle leaks a secret
+or throws; run-health counters stay zero after real work.
 
 ## Consequences
 

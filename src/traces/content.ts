@@ -35,14 +35,36 @@ export function createTraceRedactor(
 }
 
 export function redactTraceValue(value: unknown, redact: (text: string) => string): unknown {
+  return walkRedacted(value, redact, new WeakSet());
+}
+
+function walkRedacted(
+  value: unknown,
+  redact: (text: string) => string,
+  seen: WeakSet<object>,
+): unknown {
   if (typeof value === "string") return redact(value);
   if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
-  if (Array.isArray(value)) return value.map((item) => redactTraceValue(item, redact));
+  if (typeof value !== "object") {
+    try {
+      const text = JSON.stringify(value);
+      return typeof text === "string" ? redact(text) : value;
+    } catch {
+      return "[trace content truncated]";
+    }
+  }
+  if (seen.has(value)) return "[trace content truncated]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => walkRedacted(item, redact, seen));
   if (isPlainObject(value)) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redactTraceValue(item, redact)]),
+      Object.entries(value).map(([key, item]) => [key, walkRedacted(item, redact, seen)]),
     );
   }
-  const text = JSON.stringify(value);
-  return typeof text === "string" ? redact(text) : value;
+  try {
+    const text = JSON.stringify(value);
+    return typeof text === "string" ? redact(text) : value;
+  } catch {
+    return "[trace content truncated]";
+  }
 }

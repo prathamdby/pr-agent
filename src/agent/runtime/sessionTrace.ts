@@ -1,8 +1,27 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { isPlainObject } from "../../util/typeGuards.js";
 import { logWarn } from "../../evlog.js";
+import {
+  boundText,
+  boundTraceValue,
+  findingSnapshots,
+  safeJson,
+  sha256Hex,
+  toPostHogOutputChoices,
+  TRACE_CONTENT_TRUNCATED,
+  TRACE_ERROR_CHARS,
+  TRACE_FINDING_LIMIT,
+  TRACE_HASH_PREFIX,
+  TRACE_LAST_TURNS,
+  TRACE_MESSAGE_CHARS,
+  TRACE_SYSTEM_CHARS,
+  TRACE_TOOL_STATE_CHARS,
+  type FindingSnapshot,
+  type PostHogMessage,
+  type PostHogPart,
+} from "../../traces/aiContent.js";
 import {
   openTraceSession,
   type TraceDraft,
@@ -17,10 +36,18 @@ import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 
 const HOST_CALL_INPUT_CHARS = 2_048;
 const HOST_CALL_PREVIEW_CHARS = 4_096;
-const TRUNCATED = "[trace content truncated]";
 const REPEAT_TOP = 3;
 
-type TraceTurn = { readonly role: string; readonly content: unknown };
+type RepeatEntry = { readonly tool: string; readonly hash: string; count: number };
+
+type ToolBody = {
+  readonly name: string;
+  readonly status: TraceStatus;
+  readonly input_sha256: string;
+  readonly code_sha256?: string;
+  readonly input: unknown;
+  readonly output: unknown;
+};
 
 type HostCallRecord = {
   readonly tool: string;
@@ -73,13 +100,22 @@ function createRecording(
   const role = params.traceRole ?? params.role;
   const specialist = params.specialistId;
   const toolDefs = params.tools.map(({ name, description, parameters }) => ({
-    name,
-    description,
-    parameters,
+    type: "function" as const,
+    function: {
+      name,
+      description: boundText(redactText(description), 1_024).text,
+      parameters,
+    },
   }));
   const startedAt = Date.now();
-  const basis: TraceTurn[] = [{ role: "system", content: params.systemPrompt }];
+  const basis: PostHogMessage[] = [
+    {
+      role: "system",
+      content: boundText(redactText(params.systemPrompt), TRACE_SYSTEM_CHARS).text,
+    },
+  ];
   const tools = new Map<string, OpenTool>();
+  const partialFindings: FindingSnapshot[] = [];
   let generation: OpenGeneration | undefined;
   let lastGenerationId: string | undefined;
   let compaction: OpenCompaction | undefined;
@@ -87,6 +123,7 @@ function createRecording(
   let disposed = false;
   let sessionStatus: TraceStatus = "ok";
   let sessionError: string | undefined;
+  let sessionErrorDetail: string | undefined;
   let lastEnd: string | undefined;
   let turns = 0;
   let toolCalls = 0;
@@ -95,12 +132,70 @@ function createRecording(
   let modelMs = 0;
   let lastActivity = startedAt;
   let lastTool: string | undefined;
-  const hostCallKeys = new Map<string, { readonly tool: string; count: number }>();
+  let lastToolBody: ToolBody | undefined;
+  const hostCallKeys = new Map<string, RepeatEntry>();
   const toolCallKeys = new Map<string, number>();
+  const codeKeys = new Map<string, number>();
 
-  function fingerprint(name: string, input: unknown): string {
-    const redacted = JSON.stringify(recording.redact(input)) ?? "";
-    return `${name}:${createHash("sha256").update(redacted).digest("hex")}`;
+  function redactText(text: string): string {
+    const value = recording.redact(text);
+    return typeof value === "string" ? value : "";
+  }
+
+  function errorDetail(
+    code: string,
+    message: string,
+  ): { readonly code: string; readonly message: string } {
+    return { code, message: boundText(redactText(message), TRACE_ERROR_CHARS).text };
+  }
+
+  function fingerprint(
+    name: string,
+    input: unknown,
+  ): { readonly key: string; readonly hash: string } {
+    const hash = sha256Hex(safeJson(recording.redact(input)));
+    return { key: `${name}:${hash}`, hash };
+  }
+
+  function noteCode(args: unknown): string | undefined {
+    const redacted = recording.redact(args);
+    if (!isPlainObject(redacted) || typeof redacted.code !== "string") return undefined;
+    const hash = sha256Hex(redacted.code);
+    codeKeys.set(hash, (codeKeys.get(hash) ?? 0) + 1);
+    return hash;
+  }
+
+  function noteFindings(value: unknown): void {
+    for (const finding of findingSnapshots(recording.redact(value))) {
+      const key = `${finding.file}:${finding.startLine ?? ""}:${finding.title}`;
+      if (
+        partialFindings.some((item) => `${item.file}:${item.startLine ?? ""}:${item.title}` === key)
+      ) {
+        continue;
+      }
+      if (partialFindings.length >= TRACE_FINDING_LIMIT) return;
+      partialFindings.push(finding);
+    }
+  }
+
+  function toolBody(name: string, status: TraceStatus, args: unknown, output: unknown): ToolBody {
+    const redactedArgs = recording.redact(args);
+    const code =
+      isPlainObject(redactedArgs) && typeof redactedArgs.code === "string"
+        ? redactedArgs.code
+        : undefined;
+    return {
+      name,
+      status,
+      input_sha256: sha256Hex(safeJson(redactedArgs)),
+      ...(code != null ? { code_sha256: sha256Hex(code) } : {}),
+      input: boundTraceValue(redactedArgs, TRACE_MESSAGE_CHARS, TRACE_TOOL_STATE_CHARS),
+      output: boundTraceValue(
+        recording.redact(output),
+        TRACE_MESSAGE_CHARS,
+        TRACE_TOOL_STATE_CHARS,
+      ),
+    };
   }
 
   function openGeneration(): OpenGeneration {
@@ -124,7 +219,13 @@ function createRecording(
       .filter((entry) => entry.count > 1)
       .toSorted((left, right) => right.count - left.count)
       .slice(0, REPEAT_TOP)
-      .map((entry) => `${entry.tool}:${entry.count}`)
+      .map((entry) => `${entry.tool}:${entry.hash.slice(0, TRACE_HASH_PREFIX)}:${entry.count}`)
+      .join(",");
+    const repeatCodeTop = [...codeKeys.entries()]
+      .filter((entry) => entry[1] > 1)
+      .toSorted((left, right) => right[1] - left[1])
+      .slice(0, REPEAT_TOP)
+      .map(([hash, count]) => `${hash.slice(0, TRACE_HASH_PREFIX)}:${count}`)
       .join(",");
     return {
       turns,
@@ -132,6 +233,7 @@ function createRecording(
       host_calls: hostCallCount,
       repeat_host_calls: repeatHostCalls,
       repeat_top: repeatTop,
+      repeat_code_top: repeatCodeTop,
       repeat_tool_calls: repeatToolCalls,
       tool_ms_total: toolMs,
       model_ms_total: modelMs,
@@ -139,10 +241,13 @@ function createRecording(
       last_tool: lastTool ?? null,
       last_end: lastEnd ?? null,
       error_code: sessionError ?? null,
+      ...(sessionErrorDetail != null
+        ? { error_message: boundText(redactText(sessionErrorDetail), 200).text }
+        : {}),
     };
   }
 
-  function appendTurn(turn: TraceTurn): void {
+  function appendTurn(turn: PostHogMessage): void {
     basis.push(turn);
   }
 
@@ -151,12 +256,88 @@ function createRecording(
     if (
       message.role === "system" &&
       content === params.systemPrompt &&
-      basis[0]?.role === "system" &&
-      basis[0].content === params.systemPrompt
+      basis[0]?.role === "system"
     ) {
       return;
     }
-    appendTurn({ role: message.role, content });
+    appendTurn(messageFromUserOrSystem(message.role, content));
+  }
+
+  function messageFromUserOrSystem(
+    messageRole: "user" | "system",
+    content: unknown,
+  ): PostHogMessage {
+    const limit = messageRole === "system" ? TRACE_SYSTEM_CHARS : TRACE_MESSAGE_CHARS;
+    if (typeof content === "string")
+      return { role: messageRole, content: boundText(redactText(content), limit).text };
+    if (!Array.isArray(content)) {
+      return { role: messageRole, content: boundText(redactText(safeJson(content)), limit).text };
+    }
+    const parts: PostHogPart[] = [];
+    for (const part of content) {
+      if (isPlainObject(part) && part.type === "text" && typeof part.text === "string") {
+        parts.push({ type: "text", text: boundText(redactText(part.text), limit).text });
+      } else if (isPlainObject(part) && part.type === "image") {
+        parts.push({ type: "text", text: "[image]" });
+      }
+    }
+    return { role: messageRole, content: parts.length > 0 ? parts : "" };
+  }
+
+  function assistantParts(message: AssistantMessage): PostHogPart[] {
+    const parts: PostHogPart[] = [];
+    for (const part of message.content) {
+      if (part.type === "text") {
+        parts.push({
+          type: "text",
+          text: boundText(redactText(part.text), TRACE_MESSAGE_CHARS).text,
+        });
+      } else if (part.type === "thinking") {
+        parts.push({
+          type: "thinking",
+          thinking: boundText(redactText(part.thinking), TRACE_MESSAGE_CHARS).text,
+        });
+      } else if (part.type === "toolCall") {
+        const args = boundTraceValue(
+          recording.redact(part.arguments),
+          TRACE_MESSAGE_CHARS,
+          TRACE_TOOL_STATE_CHARS,
+        );
+        noteFindings(args);
+        parts.push({
+          type: "function",
+          id: part.id,
+          function: { name: part.name, arguments: args },
+        });
+      }
+    }
+    return parts;
+  }
+
+  function turnFromAgentMessage(message: AgentMessage): PostHogMessage {
+    switch (message.role) {
+      case "system":
+      case "user":
+        return messageFromUserOrSystem(message.role, message.content);
+      case "assistant":
+        return { role: "assistant", content: assistantParts(message) };
+      case "toolResult":
+        return {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: message.toolCallId,
+              content: boundText(redactText(contentText(message.content)), TRACE_MESSAGE_CHARS)
+                .text,
+            },
+          ],
+        };
+      default: {
+        const exhaustive: never = message;
+        return exhaustive;
+      }
+    }
   }
 
   function identity(phase: string | undefined): Pick<TraceDraft, "phase" | "role" | "specialist"> {
@@ -208,7 +389,15 @@ function createRecording(
       ...(exact?.totalTokens != null ? { totalTokens: exact.totalTokens } : {}),
       ...(catalogPriced && Number.isFinite(cost) && cost > 0 ? { costUsd: cost } : {}),
       status,
-      ...(status === "error" ? { isError: true, error: "provider_error" } : {}),
+      ...(status === "error"
+        ? {
+            isError: true,
+            error: errorDetail(
+              "provider_error",
+              message.errorMessage?.trim() || message.stopReason,
+            ),
+          }
+        : {}),
       extra: {
         stop_reason: message.stopReason,
         raw_stop_reason: message.rawStopReason ?? null,
@@ -230,12 +419,13 @@ function createRecording(
     const latencyMs = now - current.startedAt;
     modelMs += latencyMs;
     if (output) lastActivity = now;
-    const choices = output ? outputChoices(output) : [];
+    const choices = output ? assistantParts(output) : [];
     const streamed =
       choices.length === 0 && resolved !== "ok" && current.streamed
-        ? outputChoices(current.streamed)
+        ? assistantParts(current.streamed)
         : [];
     const partial = streamed.length > 0;
+    const shown = partial ? streamed : choices;
     recording.emit({
       event: "$ai_generation",
       spanId: current.id,
@@ -248,7 +438,12 @@ function createRecording(
       ...(current.ttftMs != null ? { ttftMs: current.ttftMs } : {}),
       ...(current.reasoningMs != null ? { reasoningMs: current.reasoningMs } : {}),
       ...(resolved === "error"
-        ? { isError: true, error: measured?.error ?? error ?? "interrupted" }
+        ? {
+            isError: true,
+            error:
+              measured?.error ??
+              errorDetail(error ?? "interrupted", sessionErrorDetail ?? error ?? "interrupted"),
+          }
         : {}),
       ...identity(current.phase),
       ...(measured?.inputTokens != null ? { inputTokens: measured.inputTokens } : {}),
@@ -263,7 +458,7 @@ function createRecording(
       ...(measured?.totalTokens != null ? { totalTokens: measured.totalTokens } : {}),
       ...(measured?.costUsd != null ? { costUsd: measured.costUsd } : {}),
       input: basis.map((turn) => ({ role: turn.role, content: turn.content })),
-      outputChoices: partial ? streamed : choices,
+      outputChoices: toPostHogOutputChoices(shown),
       tools: toolDefs,
       extra: {
         ...measured?.extra,
@@ -272,20 +467,22 @@ function createRecording(
         checkpoint_id: opts?.checkpointId ?? null,
         turn_index: current.turnIndex,
         ...(partial ? { partial: true } : {}),
+        ...(error != null ? { error_code: error } : {}),
       },
     });
-    if (output) appendTurn({ role: "assistant", content: choices });
-  }
-
-  function redactText(text: string): string {
-    const value = recording.redact(text);
-    return typeof value === "string" ? value : "";
+    if (output) appendTurn({ role: "assistant", content: shown.length > 0 ? shown : choices });
+    else if (partial) appendTurn({ role: "assistant", content: streamed });
   }
 
   function finishTool(tool: OpenTool, status: TraceStatus, result: unknown, error?: string): void {
     const now = Date.now();
     toolMs += now - tool.startedAt;
-    const hostCalls = tool.hostCalls.map((call) => hostCallEntry(call, now, redactText));
+    const hostCalls = tool.hostCalls.map((call) =>
+      hostCallEntry(call, now, redactText, sha256Hex(safeJson(recording.redact(call.input)))),
+    );
+    const output = result === undefined ? { status, ...(error != null ? { error } : {}) } : result;
+    const body = toolBody(tool.name, status, tool.args, output);
+    lastToolBody = body;
     recording.emit({
       event: "$ai_span",
       spanId: tool.id,
@@ -294,13 +491,19 @@ function createRecording(
       provider: model.provider,
       model: model.id,
       status,
-      latencyMs: Date.now() - tool.startedAt,
-      ...(status === "error" ? { isError: true, error: error ?? "tool_error" } : {}),
+      latencyMs: now - tool.startedAt,
+      ...(status === "error"
+        ? { isError: true, error: errorDetail("tool_error", error ?? "tool_error") }
+        : {}),
       ...identity(tool.phase),
-      inputState: tool.args,
-      outputState: result,
+      inputState: body.input,
+      outputState: body.output,
       ...(hostCalls.length > 0 ? { hostCalls } : {}),
-      ...(Object.keys(tool.extra).length > 0 ? { extra: tool.extra } : {}),
+      extra: {
+        ...tool.extra,
+        input_sha256: body.input_sha256,
+        ...(body.code_sha256 != null ? { code_sha256: body.code_sha256 } : {}),
+      },
     });
   }
 
@@ -321,7 +524,10 @@ function createRecording(
       status: resolved,
       latencyMs: Date.now() - current.startedAt,
       ...(resolved === "error"
-        ? { isError: true, error: measured?.error ?? "compaction_failed" }
+        ? {
+            isError: true,
+            error: measured?.error ?? errorDetail("compaction_failed", "compaction_failed"),
+          }
         : {}),
       ...identity(current.phase),
       ...(measured?.inputTokens != null ? { inputTokens: measured.inputTokens } : {}),
@@ -336,10 +542,10 @@ function createRecording(
       ...(measured?.totalTokens != null ? { totalTokens: measured.totalTokens } : {}),
       ...(measured?.costUsd != null ? { costUsd: measured.costUsd } : {}),
       input: [
-        { role: "system", content: current.system },
-        { role: "user", content: current.prompt },
+        { role: "system", content: boundText(redactText(current.system), TRACE_SYSTEM_CHARS).text },
+        { role: "user", content: boundText(redactText(current.prompt), TRACE_MESSAGE_CHARS).text },
       ],
-      ...(message ? { outputChoices: outputChoices(message) } : {}),
+      ...(message ? { outputChoices: toPostHogOutputChoices(assistantParts(message)) } : {}),
       tools: toolDefs,
       extra: {
         ...measured?.extra,
@@ -378,7 +584,8 @@ function createRecording(
       if (event.type === "message_end") {
         if (event.message.role === "assistant") closeGeneration("ok", undefined, event.message);
         if (event.message.role === "toolResult") {
-          appendTurn({ role: "tool", content: contentText(event.message.content) });
+          noteFindings(event.message.content);
+          appendTurn(turnFromAgentMessage(event.message));
         }
       }
       if (event.type === "tool_execution_start") {
@@ -395,12 +602,14 @@ function createRecording(
         if (isPlainObject(event.args) && Array.isArray(event.args.findings)) {
           tool.extra.findings_count = event.args.findings.length;
         }
+        noteFindings(event.args);
+        noteCode(event.args);
         tools.set(event.toolCallId, tool);
         toolCalls += 1;
         lastTool = tool.name;
         lastActivity = tool.startedAt;
-        const key = fingerprint(tool.name, event.args);
-        toolCallKeys.set(key, (toolCallKeys.get(key) ?? 0) + 1);
+        const printed = fingerprint(tool.name, event.args);
+        toolCallKeys.set(printed.key, (toolCallKeys.get(printed.key) ?? 0) + 1);
       }
       if (event.type === "tool_execution_end") {
         const tool = tools.get(event.toolCallId);
@@ -430,10 +639,10 @@ function createRecording(
       if (!tool) return undefined;
       hostCallCount += 1;
       lastActivity = Date.now();
-      const key = fingerprint(name, input);
-      const seen = hostCallKeys.get(key);
+      const printed = fingerprint(name, input);
+      const seen = hostCallKeys.get(printed.key);
       if (seen) seen.count += 1;
-      else hostCallKeys.set(key, { tool: name, count: 1 });
+      else hostCallKeys.set(printed.key, { tool: name, hash: printed.hash, count: 1 });
       if (tool.hostCalls.length >= CODE_MODE_MAX_TOOL_CALLS) {
         const omitted = tool.extra.host_calls_omitted;
         tool.extra.host_calls_omitted = (typeof omitted === "number" ? omitted : 0) + 1;
@@ -448,11 +657,16 @@ function createRecording(
         lastActivity = record.endedAt;
       };
     },
-    endSend: (end: string, errorCode?: string): string | undefined => {
+    endSend: (end: string, errorCode?: string, errorDetailText?: string): string | undefined => {
       lastEnd = end;
-      if (generation) closeGeneration("error", errorCode ?? "interrupted");
-      if (errorCode) {
-        const status = errorCode === "agent.session_aborted" ? "cancelled" : "error";
+      if (errorDetailText) sessionErrorDetail = errorDetailText;
+      const status: TraceStatus | undefined = errorCode
+        ? errorCode === "agent.session_aborted"
+          ? "cancelled"
+          : "error"
+        : undefined;
+      if (generation) closeGeneration(status ?? "error", errorCode ?? "interrupted");
+      if (errorCode && status) {
         sessionStatus = status;
         sessionError = errorCode;
         recording.fail(status, errorCode);
@@ -474,7 +688,7 @@ function createRecording(
     },
     compacted: (messages: readonly AgentMessage[]): void => {
       basis.length = 0;
-      for (const message of messages) basis.push(turnFromMessage(message));
+      for (const message of messages) basis.push(turnFromAgentMessage(message));
     },
     dispose: (): void => {
       if (disposed) return;
@@ -484,6 +698,7 @@ function createRecording(
       for (const tool of tools.values()) finishTool(tool, "cancelled", undefined);
       tools.clear();
       const now = Date.now();
+      const failed = sessionStatus !== "ok";
       recording.emit({
         event: "$ai_span",
         spanId: sessionId,
@@ -493,8 +708,36 @@ function createRecording(
         model: model.id,
         status: sessionStatus,
         latencyMs: now - startedAt,
-        ...(sessionStatus === "error" ? { isError: true, error: sessionError ?? "error" } : {}),
+        ...(sessionStatus === "error"
+          ? {
+              isError: true,
+              error: errorDetail(
+                sessionError ?? "error",
+                sessionErrorDetail ?? sessionError ?? "error",
+              ),
+            }
+          : {}),
         ...identity(opts?.phase),
+        ...(failed
+          ? {
+              inputState: {
+                last_turns: basis.slice(-TRACE_LAST_TURNS),
+                partial_findings: partialFindings,
+              },
+              outputState: {
+                why: {
+                  status: sessionStatus,
+                  code: sessionError ?? null,
+                  message:
+                    sessionErrorDetail != null
+                      ? errorDetail(sessionError ?? "error", sessionErrorDetail).message
+                      : (sessionError ?? null),
+                  last_end: lastEnd ?? null,
+                },
+                ...(lastToolBody != null ? { last_tool: lastToolBody } : {}),
+              },
+            }
+          : {}),
         extra: loopCounters(now),
       });
       recording.closeOwnedExecution();
@@ -509,17 +752,18 @@ function boundedText(
 ): { readonly text: string; readonly truncated: boolean } {
   const redacted = redact(text);
   if (redacted.length <= limit) return { text: redacted, truncated: false };
-  return { text: `${redacted.slice(0, limit)}\n${TRUNCATED}`, truncated: true };
+  return { text: `${redacted.slice(0, limit)}\n${TRACE_CONTENT_TRUNCATED}`, truncated: true };
 }
 
 function asText(value: unknown): string {
-  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+  return typeof value === "string" ? value : safeJson(value);
 }
 
 function hostCallEntry(
   call: HostCallRecord,
   now: number,
   redact: (text: string) => string,
+  inputSha: string,
 ): Record<string, unknown> {
   const inputText = asText(call.input);
   const input =
@@ -527,10 +771,17 @@ function hostCallEntry(
       ? call.input
       : boundedText(inputText, HOST_CALL_INPUT_CHARS, redact).text;
   const { outcome, endedAt } = call;
+  const hash = { input_sha256: inputSha };
   if (!outcome || endedAt == null) {
-    return { tool: call.tool, status: "in_flight", input, elapsed_ms: now - call.startedAt };
+    return {
+      tool: call.tool,
+      status: "in_flight",
+      input,
+      elapsed_ms: now - call.startedAt,
+      ...hash,
+    };
   }
-  const base = { tool: call.tool, input, duration_ms: endedAt - call.startedAt };
+  const base = { tool: call.tool, input, duration_ms: endedAt - call.startedAt, ...hash };
   if (outcome.status === "error") {
     return { ...base, status: "error", error_kind: outcome.errorKind };
   }
@@ -542,37 +793,6 @@ function hostCallEntry(
     output_preview: preview.text,
     ...(preview.truncated ? { preview_truncated: true } : {}),
   };
-}
-
-function outputChoices(message: AssistantMessage): unknown[] {
-  const choices: unknown[] = [];
-  for (const part of message.content) {
-    if (part.type === "text") choices.push({ type: "text", text: part.text });
-    else if (part.type === "thinking") choices.push({ type: "thinking", thinking: part.thinking });
-    else if (part.type === "toolCall") {
-      choices.push({ type: "toolCall", name: part.name, id: part.id, arguments: part.arguments });
-    }
-  }
-  return choices;
-}
-
-function turnFromMessage(message: AgentMessage): TraceTurn {
-  switch (message.role) {
-    case "system":
-    case "user":
-      return {
-        role: message.role,
-        content: typeof message.content === "string" ? message.content : message.content,
-      };
-    case "assistant":
-      return { role: "assistant", content: outputChoices(message) };
-    case "toolResult":
-      return { role: "tool", content: contentText(message.content) };
-    default: {
-      const exhaustive: never = message;
-      return exhaustive;
-    }
-  }
 }
 
 function toolFailure(

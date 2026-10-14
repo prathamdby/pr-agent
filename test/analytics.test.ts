@@ -699,7 +699,7 @@ describe("posthog ai traces", () => {
       expect(Buffer.byteLength(JSON.stringify(event))).toBeLessThanOrEqual(TRACE_EVENT_BYTES);
     }
     expect(seen.find((event) => event.$ai_span_name === "execution")).toMatchObject({
-      trace_events_truncated: 1,
+      trace_events_truncated: 0,
       trace_events_degraded: 0,
     });
   });
@@ -1005,12 +1005,14 @@ describe("posthog ai traces", () => {
       last_end: "timeout",
       error_code: "agent.prompt_timeout",
     });
-    expect(String(session?.repeat_top)).toContain("readWorkspaceFile:5");
+    expect(String(session?.repeat_top)).toMatch(/readWorkspaceFile:[0-9a-f]{12}:5/);
     expect(String(session?.repeat_top)).not.toContain("searchWorkspace");
+    expect(String(session?.repeat_top)).not.toContain("src/a.ts");
+    expect(String(session?.repeat_code_top)).toMatch(/^[0-9a-f]{12}:5$/);
     expect(typeof session?.tool_ms_total).toBe("number");
     expect(typeof session?.model_ms_total).toBe("number");
     expect(typeof session?.ms_since_last_activity).toBe("number");
-    expect(JSON.stringify(session)).not.toContain("src/a.ts");
+    expect(JSON.stringify(session?.$ai_output_state)).toContain("src/a.ts");
     const indexes = seen
       .filter((event) => event.$ai_span_name === "generation")
       .map((event) => event.turn_index);
@@ -1058,6 +1060,8 @@ describe("posthog ai traces", () => {
     expect(JSON.stringify(generations[0]?.$ai_output_choices)).toContain("streamed-before-cutoff");
     expect(generations[1]?.partial).toBeUndefined();
     expect(generations[1]?.$ai_output_choices).toEqual([]);
+    const session = seen.find((event) => event.$ai_span_name === "session");
+    expect(JSON.stringify(session?.$ai_input_state)).toContain("streamed-before-cutoff");
   });
 
   it("shares one execution across specialists and starts a new trace per retry", async () => {
@@ -1447,5 +1451,297 @@ describe("posthog ai traces", () => {
     );
     expect(wrapped.filter((event) => event.$ai_span_name === "execution")).toHaveLength(1);
     expect(wrapped.filter((event) => event.$ai_span_name === "session")).toHaveLength(1);
+  });
+
+  it("records PostHog messages, tool bodies, and a cancelled specialist", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const script = "await tools.readWorkspaceFile({ path: 'src/auth.ts' })";
+    const secret = "ghp_abcdefghijklmnopqrstuvwxyz012345";
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+          {
+            name: "submit_findings_report",
+            description: "Submit findings",
+            parameters: toToolParameters(v.object({})),
+          },
+        ]),
+        model,
+        "session-cancel",
+        () => 1,
+      );
+      trace.beginSend({ phase: "specialist", checkpointId: "security" });
+      trace.event({
+        type: "message_start",
+        message: { role: "user", content: "review auth", timestamp: 1 },
+      });
+      trace.event({ type: "turn_start" });
+      const called = assistant("reading auth");
+      trace.event({
+        type: "message_end",
+        message: {
+          ...called,
+          stopReason: "toolUse",
+          content: [
+            ...called.content,
+            {
+              type: "toolCall",
+              id: "exec-1",
+              name: "execute",
+              arguments: { code: `${script}\n${secret}` },
+            },
+          ],
+        },
+      });
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "exec-1",
+        toolName: "execute",
+        args: { code: `${script}\n${secret}` },
+      });
+      trace.hostCall("exec-1", "readWorkspaceFile", { path: "src/auth.ts" });
+      trace.event({ type: "turn_start" });
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "submit-1",
+        toolName: "submit_findings_report",
+        args: {
+          status: "findings",
+          findings: [
+            {
+              file: "src/auth.ts",
+              title: "token compared with equality",
+              severity: "P1",
+              startLine: 40,
+              endLine: 44,
+              detail: "the check uses ==",
+            },
+          ],
+        },
+      });
+      trace.endSend(
+        "failed",
+        "review.specialist_timeout",
+        `Specialist timeout deadline exceeded ${secret}`,
+      );
+      trace.dispose();
+    });
+    await drain();
+    const body = JSON.stringify(seen);
+    expect(body).not.toContain(secret);
+    expect(body).toContain("[redacted]");
+    const generations = seen.filter((event) => event.$ai_span_name === "generation");
+    const generation = generations[0];
+    expect(generation?.$ai_input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "system", content: "trace-system" }),
+        expect.objectContaining({ role: "user", content: "review auth" }),
+      ]),
+    );
+    expect(generation?.$ai_output_choices).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: expect.arrayContaining([
+          expect.objectContaining({ type: "text", text: "reading auth" }),
+          expect.objectContaining({
+            type: "function",
+            function: expect.objectContaining({ name: "execute" }),
+          }),
+        ]),
+      }),
+    ]);
+    expect(generations[1]?.$ai_error).toEqual({
+      code: "review.specialist_timeout",
+      message: "Specialist timeout deadline exceeded [redacted]",
+    });
+    expect(generations[1]?.$ai_output_choices).toEqual([]);
+    const execute = seen.find((event) => event.$ai_span_name === "tool:execute");
+    expect(JSON.stringify(execute?.$ai_input_state)).toContain(script);
+    expect(JSON.stringify(execute?.$ai_input_state)).not.toContain(secret);
+    expect(execute?.$ai_output_state).toMatchObject({ status: "cancelled" });
+    expect(execute?.code_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(execute?.input_sha256).toMatch(/^[0-9a-f]{64}$/);
+    const hostCalls = execute?.codemode_host_calls;
+    expect(Array.isArray(hostCalls)).toBe(true);
+    if (Array.isArray(hostCalls)) expect(hostCalls[0]?.input_sha256).toMatch(/^[0-9a-f]{64}$/);
+    const session = seen.find((event) => event.$ai_span_name === "session");
+    expect(session).toMatchObject({
+      turns: 2,
+      tool_calls: 2,
+      host_calls: 1,
+      last_tool: "submit_findings_report",
+      error_code: "review.specialist_timeout",
+      error_message: "Specialist timeout deadline exceeded [redacted]",
+    });
+    expect(session?.tool_ms_total).toEqual(expect.any(Number));
+    expect(session?.model_ms_total).toEqual(expect.any(Number));
+    const inputState = session?.$ai_input_state;
+    expect(JSON.stringify(inputState)).toContain("review auth");
+    expect(JSON.stringify(inputState)).toContain(script);
+    expect(inputState).toMatchObject({
+      partial_findings: [
+        expect.objectContaining({
+          file: "src/auth.ts",
+          title: "token compared with equality",
+          severity: "P1",
+          startLine: 40,
+        }),
+      ],
+    });
+    expect(session?.$ai_output_state).toMatchObject({
+      why: {
+        code: "review.specialist_timeout",
+        message: "Specialist timeout deadline exceeded [redacted]",
+        last_end: "failed",
+      },
+      last_tool: expect.objectContaining({ name: "submit_findings_report" }),
+    });
+  });
+
+  it("keeps a huge execute script on the generation instead of dropping the prompt", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const code = `c`.repeat(2_000_000);
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-huge",
+        () => 1,
+      );
+      trace.beginSend({ phase: "specialist", checkpointId: "huge" });
+      trace.event({ type: "turn_start" });
+      const called = assistant("running");
+      trace.event({
+        type: "message_end",
+        message: {
+          ...called,
+          stopReason: "toolUse",
+          content: [{ type: "toolCall", id: "big", name: "execute", arguments: { code } }],
+        },
+      });
+      trace.dispose();
+    });
+    await drain();
+    const generation = seen.find((event) => event.$ai_span_name === "generation");
+    expect(generation).toBeDefined();
+    expect(generation).not.toHaveProperty("trace_content_dropped");
+    expect(JSON.stringify(generation?.$ai_input)).toContain("trace-system");
+    expect(JSON.stringify(generation?.$ai_output_choices)).toContain("execute");
+    expect(JSON.stringify(generation?.$ai_output_choices)).toContain(MARKER);
+    expect(JSON.stringify(generation?.$ai_output_choices)).not.toContain(code);
+    expect(Buffer.byteLength(JSON.stringify(generation))).toBeLessThanOrEqual(TRACE_EVENT_BYTES);
+  });
+
+  it("fills run-health durations from the clock", async () => {
+    let now = 5_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-clock",
+        () => 1,
+      );
+      trace.beginSend({ phase: "specialist", checkpointId: "clock" });
+      now = 5_001_000;
+      trace.event({ type: "turn_start" });
+      now = 5_004_000;
+      trace.event({ type: "message_end", message: assistant("timed") });
+      now = 5_004_500;
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "clock-tool",
+        toolName: "execute",
+        args: { code: "tick" },
+      });
+      now = 5_009_500;
+      trace.event({
+        type: "tool_execution_end",
+        toolCallId: "clock-tool",
+        toolName: "execute",
+        isError: false,
+        result: { ok: true },
+      });
+      now = 5_010_000;
+      trace.dispose();
+    });
+    await drain();
+    const session = seen.find((event) => event.$ai_span_name === "session");
+    expect(session).toMatchObject({
+      turns: 1,
+      tool_calls: 1,
+      host_calls: 0,
+      model_ms_total: 3_000,
+      tool_ms_total: 5_000,
+      ms_since_last_activity: 500,
+      last_tool: "execute",
+    });
+  });
+
+  it("does not throw when a tool result is circular", async () => {
+    install({
+      capture() {
+        return undefined;
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const cycle: Record<string, unknown> = { content: [{ type: "text", text: "loop" }] };
+    cycle.self = cycle;
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(sessionParams(cfg), model, "session-cycle", () => 1);
+      expect(() => {
+        trace.event({
+          type: "tool_execution_start",
+          toolCallId: "cycle",
+          toolName: "execute",
+          args: cycle,
+        });
+        trace.event({
+          type: "tool_execution_end",
+          toolCallId: "cycle",
+          toolName: "execute",
+          isError: true,
+          result: cycle,
+        });
+        trace.dispose();
+      }).not.toThrow();
+    });
+    await drain();
   });
 });
