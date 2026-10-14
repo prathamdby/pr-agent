@@ -1,9 +1,3 @@
-export const ASK_RETRY_NUDGE =
-  "Answer the question now in plain text from what your investigation found. A further read is worth it only when one specific fact the answer depends on is still missing.";
-
-export const ASK_SHORTEN_NUDGE =
-  "Your last answer reached the output limit and was cut off. Write the complete answer again, more concisely, in plain text. The investigation is done, so this reply needs no tool calls.";
-
 export const ASK_TRUNCATED_NOTICE =
   "_This answer hit the model's output limit and may be incomplete._";
 
