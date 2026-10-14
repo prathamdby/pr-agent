@@ -1,13 +1,15 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "vitest"],
-  "jsPlugins": ["./scripts/lint/no-comments.mjs"],
+  "jsPlugins": ["./scripts/lint/pr-agent.mjs"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"
   },
   "rules": {
     "pr-agent/no-comments": "error",
+    "pr-agent/prompt-layout": "error",
+    "pr-agent/prompt-imports": "error",
     "eslint/no-underscore-dangle": [
       "warn",
       {
