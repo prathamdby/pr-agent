@@ -81,7 +81,10 @@ import {
   cancelActiveReviews,
   cancelActiveTriage,
 } from "../../src/agentWork/intake/workItemRepository.js";
-import { replaceAutoWorkItem } from "../../src/agentWork/autoWorkEnqueue.js";
+import {
+  replaceActiveAutoWorkItem,
+  replaceAutoWorkItem,
+} from "../../src/agentWork/autoWorkEnqueue.js";
 import {
   claimWorkForExecution,
   getWorkItem,
@@ -2293,9 +2296,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         );
       } else if (mode === "request_cancel") {
         await inTransaction(pool, (client) =>
-          replaceAutoWorkItem({
+          replaceActiveAutoWorkItem({
             client,
-            target: { kind: "review", resourceKey, scope: "push" },
+            target: { kind: "review", resourceKey },
             createWorkItem: async () => {
               const replacementId = randomUUID();
               await client.query(
@@ -4032,9 +4035,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     let replacementId: string | null;
     let supersededIds: readonly string[];
     try {
-      const result = await replaceAutoWorkItem({
+      const result = await replaceActiveAutoWorkItem({
         client,
-        target: { kind: "review", resourceKey, scope: "automatic" },
+        target: { kind: "review", resourceKey },
         createWorkItem: async () => insertAutoQueued(resourceKey, "review"),
       });
       replacementId = result.workItemId;
@@ -4119,15 +4122,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     }
   });
 
-  it("auto supersede replaces queued-only reviews and leaves a legacy holder in place", async () => {
+  it("auto supersede fails closed on queued-only and legacy rows and matches zero triage rows", async () => {
     const queuedOnlyKey = `${OWNER}/supersede-queued-only-${randomUUID().slice(0, 8)}#1`;
     await insertAutoQueued(queuedOnlyKey, "review");
     await insertAutoQueued(queuedOnlyKey, "review");
     const queuedClient = await pool.connect();
     try {
-      const result = await replaceAutoWorkItem({
+      const result = await replaceActiveAutoWorkItem({
         client: queuedClient,
-        target: { kind: "review", resourceKey: queuedOnlyKey, scope: "automatic" },
+        target: { kind: "review", resourceKey: queuedOnlyKey },
         createWorkItem: async () => insertAutoQueued(queuedOnlyKey, "review"),
       });
       expect(result.supersededIds).toHaveLength(2);
@@ -4145,9 +4148,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     const legacyClient = await pool.connect();
     try {
-      const result = await replaceAutoWorkItem({
+      const result = await replaceActiveAutoWorkItem({
         client: legacyClient,
-        target: { kind: "review", resourceKey: legacyKey, scope: "automatic" },
+        target: { kind: "review", resourceKey: legacyKey },
         createWorkItem: async () => insertAutoQueued(legacyKey, "review"),
       });
       expect(result.supersededIds).toContain(legacy);
@@ -4157,9 +4160,23 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const legacyRow = await getLeaseRowFor(legacyKey, "review");
     expect(legacyRow?.work_item_id).toBe(legacy);
     expect(Number(legacyRow?.lease_epoch)).toBe(1);
+
+    const triageKey = `${OWNER}/supersede-triage-zero-${randomUUID().slice(0, 8)}#1`;
+    const triageClient = await pool.connect();
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client: triageClient,
+        target: { kind: "triage", resourceKey: triageKey },
+        createWorkItem: async () => insertAutoQueued(triageKey, "review"),
+      });
+      expect(result).toEqual({ workItemId: null, supersededIds: [], lifecycleChanges: [] });
+    } finally {
+      triageClient.release();
+    }
+    expect(await getLeaseRowFor(triageKey, "triage")).toBeNull();
   });
 
-  it("review supersede releases a live slash holder; description supersede does not", async () => {
+  it("auto supersede never steals a live slash holder (review + description)", async () => {
     const reviewKey = `${OWNER}/supersede-mixed-review-${randomUUID().slice(0, 8)}#1`;
     const slashReviewId = randomUUID();
     await pool.query(
@@ -4180,28 +4197,22 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const autoQueued = await insertAutoQueued(reviewKey, "review");
 
     const reviewClient = await pool.connect();
-    let replacementId = "";
     try {
-      const result = await replaceAutoWorkItem({
+      const result = await replaceActiveAutoWorkItem({
         client: reviewClient,
-        target: { kind: "review", resourceKey: reviewKey, scope: "push" },
+        target: { kind: "review", resourceKey: reviewKey },
         createWorkItem: async () => insertAutoQueued(reviewKey, "review"),
       });
-      replacementId = result.workItemId;
-      expect(new Set(result.supersededIds)).toEqual(new Set([autoQueued, slashReviewId]));
+      expect(result.supersededIds).toEqual([autoQueued]);
     } finally {
       reviewClient.release();
     }
-    const { rows: slashRow } = await pool.query<{
-      status: string;
-      cancel_requested_at: Date | null;
-    }>(`SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1`, [slashReviewId]);
-    expect(slashRow[0]?.status).toBe("running");
-    expect(slashRow[0]?.cancel_requested_at).not.toBeNull();
-    expect((await getLeaseRowFor(reviewKey, "review"))?.work_item_id).toBeNull();
-    await expect(acquireFor(reviewKey, "review", replacementId)).resolves.toEqual({
-      acquired: true,
-      leaseEpoch: slashAcquisition.leaseEpoch + 1,
+    expect((await getLeaseRowFor(reviewKey, "review"))?.work_item_id).toBe(slashReviewId);
+    const blocked = await acquireFor(reviewKey, "review", randomUUID());
+    expect(blocked).toEqual({
+      acquired: false,
+      heldByWorkItemId: slashReviewId,
+      leaseEpoch: slashAcquisition.leaseEpoch,
     });
 
     const descKey = `${OWNER}/supersede-mixed-desc-${randomUUID().slice(0, 8)}#1`;

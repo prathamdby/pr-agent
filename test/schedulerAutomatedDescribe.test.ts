@@ -119,13 +119,14 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
   });
 
-  it("enqueues a deferred-head review on synchronize when no review is active", async () => {
+  it("does not enqueue a replacement review on synchronize when no review is active", async () => {
     const sentQueues: string[] = [];
     const boss = makeBoss(sentQueues);
-    const workItemInserts: unknown[][] = [];
 
-    // auto reviews every push. Verification is off so the other enqueue is CI.
-    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    // synchronize never starts a review, so with no queued/running auto review the
+    // push supersede finds nothing to replace. Verification is off so the only
+    // enqueue is the unseeded CI projection.
+    const query = vi.fn(async (sql: string) => {
       const ci = headCiStateSelect(sql);
       if (ci != null) return ci;
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
@@ -138,13 +139,6 @@ describe("makeAgentWorkScheduler automated describe", () => {
         return { rows: [{ id: "event-1" }] };
       }
       if (sql.includes("UPDATE agent_work_items")) {
-        return { rows: [] };
-      }
-      if (sql.includes("INSERT INTO agent_work_items")) {
-        if (Array.isArray(params)) workItemInserts.push(params);
-        return { rows: [] };
-      }
-      if (sql.includes("INSERT INTO publish_records")) {
         return { rows: [] };
       }
       if (sql.includes("pg_advisory_xact_lock")) {
@@ -183,12 +177,11 @@ describe("makeAgentWorkScheduler automated describe", () => {
       );
 
       expect(txSpy).toHaveBeenCalledOnce();
-      expect(sentQueues).toContain(REVIEW_QUEUE);
-      expect(sentQueues).toContain(ACK_QUEUE);
+      expect(sentQueues).not.toContain(REVIEW_QUEUE);
+      expect(sentQueues).not.toContain(ACK_QUEUE);
       expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
       expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
-      const reviewInsert = workItemInserts.find((params) => params[2] === "review");
-      expect(reviewInsert?.[8]).toBe(DEFERRED_HEAD_SHA);
+      expect(boss.send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
     }
@@ -287,8 +280,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
     expect(sentQueues).toContain(VERIFICATION_QUEUE);
     expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
-    expect(sentQueues).toContain(REVIEW_QUEUE);
-    expect(sentQueues).toContain(ACK_QUEUE);
+    expect(sentQueues).not.toContain(REVIEW_QUEUE);
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
 
