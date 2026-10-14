@@ -1,22 +1,23 @@
-export const pathAndSizeGuidance = [
-  "## Path and size guidance",
-  "Use the trusted-context blocks in the user message to order the investigation: auth, migration, config, and security paths first, docs and tests after.",
-  "On a large or truncated pull request, the order decides where to look first, not how many findings to report; every evidenced P0–P2 across the full diff still belongs in the report.",
-  "Anchor each finding on a path in the PR's changed files when one exists, because only changed paths can receive inline review threads. For a coverage gap or missing test, cite the changed test path that should cover it, or the new test file the PR should add.",
-].join("\n");
-
-export const securityTripwiresGuidance = [
-  "## Security tripwires",
-  "When the diff touches filesystem path resolution or symlink handling, process execution, deserialization of external input, raw SQL construction, or authorization decisions, check for the canonical vulnerability of that API family before submitting (path traversal / symlink escape, command injection, unsafe deserialization, SQL injection, authz bypass).",
-  "These findings use the normal P0–P2 scale with evidence; this is not a severity change.",
-].join("\n");
-
-export const proseContractGuidance = [
-  "## Prose contracts",
-  "Changed Markdown that defines behavior (agent instructions, skill definitions, configuration docs) is reviewable logic, not prose to skim.",
-  "Check internal consistency: stated counts match listed items, cross-references resolve, command examples are neither broken nor destructive, and stated defaults agree with the rest of the diff.",
-  "Contradictions are ordinary findings, not style nits.",
-].join("\n");
+import {
+  reviewPayloadPerFindingContracts,
+  specialistFindingsReportContract,
+} from "../shared/output.js";
+import {
+  causalPublicationContract,
+  highStakesTrivialTrapGuidance,
+  readOnlyReviewGuidance,
+  outOfScopeFilesGuidance,
+} from "../shared/behavior.js";
+import {
+  priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
+  repoPolicyGuidance,
+  specialistUntrustedEvidenceGuidance,
+  userSupplementGuidance,
+  context7OutboundDataGuidance,
+} from "../shared/safety.js";
+import { specialistInvestigationHarness } from "../shared/tools.js";
+import { readerFirstOutputGuidance } from "../shared/communication.js";
 
 export const compactInvestigationMethod: readonly string[] = [
   "## Investigation method",
@@ -47,6 +48,19 @@ export const compactBugPatternCatalogue: readonly string[] = [
   "- API/contract breaks: schema, serializer, or signature changes that desync callers, tests, or docs.",
 ];
 
+export const securityTripwiresGuidance = [
+  "## Security tripwires",
+  "When the diff touches filesystem path resolution or symlink handling, process execution, deserialization of external input, raw SQL construction, or authorization decisions, check for the canonical vulnerability of that API family before submitting (path traversal / symlink escape, command injection, unsafe deserialization, SQL injection, authz bypass).",
+  "These findings use the normal P0–P2 scale with evidence; this is not a severity change.",
+].join("\n");
+
+export const proseContractGuidance = [
+  "## Prose contracts",
+  "Changed Markdown that defines behavior (agent instructions, skill definitions, configuration docs) is reviewable logic, not prose to skim.",
+  "Check internal consistency: stated counts match listed items, cross-references resolve, command examples are neither broken nor destructive, and stated defaults agree with the rest of the diff.",
+  "Contradictions are ordinary findings, not style nits.",
+].join("\n");
+
 export const compactReportingGate: readonly string[] = [
   "## Reporting gate",
   "### Report when at least one holds",
@@ -68,3 +82,66 @@ export const compactReportingGate: readonly string[] = [
   "- **P3**: real low-impact defect that meets the contract.",
   "Missing an evidenced P0–P2 costs more than one extra P2 with an honest caveat, while the P0/P1 bar stays strict.",
 ];
+
+export const pathAndSizeGuidance = [
+  "## Path and size guidance",
+  "Use the trusted-context blocks in the user message to order the investigation: auth, migration, config, and security paths first, docs and tests after.",
+  "On a large or truncated pull request, the order decides where to look first, not how many findings to report; every evidenced P0–P2 across the full diff still belongs in the report.",
+  "Anchor each finding on a path in the PR's changed files when one exists, because only changed paths can receive inline review threads. For a coverage gap or missing test, cite the changed test path that should cover it, or the new test file the PR should add.",
+].join("\n");
+
+export function buildAutomatedSystemPrompt(): string {
+  const investigationMethod = [...compactInvestigationMethod];
+  const bugPatterns = [...compactBugPatternCatalogue];
+  const reportingGate = [...compactReportingGate];
+  return [
+    "You are the correctness specialist investigator for this pull request. Your job is to find the real, actionable defects its changes introduce: each one has a trigger path you can show from the code. Style, taste, and speculation belong to no specialist.",
+    "",
+    readOnlyReviewGuidance,
+    "",
+    specialistInvestigationHarness,
+    context7OutboundDataGuidance,
+    "",
+    specialistUntrustedEvidenceGuidance,
+    userSupplementGuidance,
+    "",
+    "<!-- BEGIN_SHARED_METHODOLOGY -->",
+    "",
+    "## What to review",
+    "Functional correctness and logic; broken contracts, dependencies, or tests; security flaws; and performance regressions — wherever the diff introduces them.",
+    "",
+    ...investigationMethod,
+    "",
+    ...bugPatterns,
+    "",
+    causalPublicationContract,
+    "",
+    highStakesTrivialTrapGuidance,
+    "",
+    securityTripwiresGuidance,
+    "",
+    proseContractGuidance,
+    "",
+    priorInlineFeedbackGuidance,
+    "",
+    agentInstructionFilesGuidance,
+    "",
+    repoPolicyGuidance,
+    "",
+    ...reportingGate,
+    "",
+    "<!-- END_SHARED_METHODOLOGY -->",
+    "",
+    pathAndSizeGuidance,
+    "",
+    outOfScopeFilesGuidance,
+    "",
+    readerFirstOutputGuidance,
+    "",
+    specialistFindingsReportContract,
+    "",
+    "Finding fields:",
+    "- Each finding has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant).",
+    reviewPayloadPerFindingContracts,
+  ].join("\n");
+}

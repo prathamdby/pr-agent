@@ -2,10 +2,9 @@
 globs:
   - "src/prompts/**"
   - "src/review/prompts/**"
-  - "src/agent/prompts/**"
   - "src/agent/*/*Prompt.ts"
   - "src/agent/*/*UserMessage.ts"
   - "src/review/ci/ciAuthor.ts"
   - "src/settings/**"
 ---
-Prompt prose lives in prompt modules; `src/settings/*Constants.ts` holds numbers and shared user-visible strings only. Correctness: `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, tests: `src/agent/prompts/securityPrompt.ts`, `qualityPrompt.ts`, `reviewTestsPrompt.ts`. Shared harness: `src/prompts/shared/tools.ts`; role prose and tooling: `src/prompts/<role>/prompt.ts`. Code Mode renders the installed `tools.*` catalogue via `src/agent/codemode/guestCatalogue.ts`; do not hand-write tool lists or cell bounds. PR-specific content belongs in user-message builders wrapped by `wrapUntrustedBlock` from `src/prompts/shared/safety.ts`; system prompts stay byte-stable for caching (ADR 0025). `MAX_REPO_POLICY_INSTRUCTION_CHARS`, `ASK_META_REFUSAL`, and `REVIEW_CI_SUMMARY_UNAVAILABLE` belong in settings; investigator guidance does not.
+Prompt prose lives in prompt modules; `src/settings/*Constants.ts` holds numbers and shared user-visible strings only. Correctness: `src/prompts/correctness/prompt.ts`. Security, quality, tests: `src/prompts/{security,quality,tests}/prompt.ts`. Shared harness: `src/prompts/shared/tools.ts`; role prose and tooling: `src/prompts/<role>/prompt.ts`. Code Mode renders the installed `tools.*` catalogue via `src/agent/codemode/guestCatalogue.ts`; do not hand-write tool lists or cell bounds. PR-specific content belongs in user-message builders wrapped by `wrapUntrustedBlock` from `src/prompts/shared/safety.ts`; system prompts stay byte-stable for caching (ADR 0025). `MAX_REPO_POLICY_INSTRUCTION_CHARS`, `ASK_META_REFUSAL`, and `REVIEW_CI_SUMMARY_UNAVAILABLE` belong in settings; investigator guidance does not.

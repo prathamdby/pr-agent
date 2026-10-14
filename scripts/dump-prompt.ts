@@ -1,4 +1,4 @@
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
 import { makeTestConfig } from "../test/helpers/config.js";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
@@ -6,9 +6,9 @@ import {
   renderJudgmentTurn,
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
+import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
+import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
+import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.js";
 import {
   COMPACTION_CUSTOM_INSTRUCTIONS,
   COMPACTION_SUMMARY_PREFIX,
