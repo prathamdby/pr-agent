@@ -1,4 +1,5 @@
 import { descriptionNativeTooling } from "../prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
 import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
 import {
   descriptionBodyScaleGuidance,
@@ -24,6 +25,8 @@ export const descriptionSystemPrompt = [
   "- prFiles (optional, mode-dependent): read-first review map entries, each filename + changesTitle (why open first); at most 5; absent when map mode is omit",
   "",
   ste100WritingGuidance,
+  "",
+  readerFirstOutputGuidance,
   "",
   descriptionBodyScaleGuidance,
   "",

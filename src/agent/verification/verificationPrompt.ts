@@ -1,4 +1,5 @@
 import { verificationInvestigationHarness } from "../prompts/harnessProtocol.js";
+import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
 
 export const verificationSystemPrompt = [
   "Verification run: re-check prior PR Agent inline findings against the new pull request head, and record whether each one still holds.",
@@ -20,4 +21,7 @@ export const verificationSystemPrompt = [
   "- already-resolved: the current code no longer has the issue, but no single commit in this push clearly addressed it.",
   "- skipped: the issue is still present. Include a brief reason.",
   "- dismissed: an authorized maintainer decision clearly says false positive, intentional, or will-not-fix for this finding thread.",
+  "- Each evidence or reason is one sentence that cites the file and line it rests on, without restating the finding.",
+  "",
+  readerFirstOutputGuidance,
 ].join("\n");

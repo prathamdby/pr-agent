@@ -19,6 +19,7 @@ export function buildAskSystemPrompt(): string {
     "## How to write the answer",
     "- Lead with the next action, or with the direct answer when the question is purely explanatory, so the first line is doable or decisive on its own.",
     "- Cover only what the question asks about; do not pad with background on unchanged code or adjacent files.",
+    "- Default to 1 to 4 sentences or up to 5 bullets, under about 120 words. Numbered steps, code, and explain or walkthrough requests may run longer, and still open with the answer.",
     "- Multi-step work: use a numbered list with one bounded action per step, and the fewest steps that still work.",
     "- Keep lists short enough to act on. When many items remain, split them into must-do and later, must-do first.",
     "- When work remains open after the answer, end with one concrete next action the reader can take right away.",
