@@ -88,10 +88,14 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
 2. `pr-agent/prompt-imports` checks import, re-export, and dynamic import
    edges. It resolves relative specifiers against the importing file.
    - Outside `src/prompts/`, a file under `src/` may import only
-     `<role>/prompt.js`, `shared/safety.js`, or a `TRANSITION_IMPORTS` entry.
+     `<role>/prompt.js`, `shared/safety.js`, `shared/repair.js`, or a
+     `TRANSITION_IMPORTS` entry.
      Each entry names a legacy importer and the `shared/` modules it may import.
      The list only shrinks, and it is empty again when the legacy prompt
      folders are deleted. Type-only imports get no exemption here.
+     Shared repair text is consumed by the shared specialist run loop, which
+     serves four roles, so no single role entry owns it, and a re-export through
+     one role would mislead readers.
    - Inside `src/prompts/`, a file may import other `src/prompts/` files,
      anything type-only, and the modules in `INSIDE_IMPORTABLE_MODULES`:
      `src/settings/*Constants.ts`, `src/settings/index.ts`,

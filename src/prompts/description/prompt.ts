@@ -244,3 +244,11 @@ export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
 
 export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
   "Your last reply was text only, and the server reads only the submitDescription call. Call submitDescription now with a complete DescriptionPayload.";
+
+export function renderDescriptionRepairPrompt(validationError: string): string {
+  return [
+    validationError,
+    "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
+    `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
+  ].join("\n\n");
+}
