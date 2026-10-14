@@ -33,7 +33,10 @@ export const PROMPT_SECTIONS = [
   "repair",
 ];
 
-export const OUTSIDE_IMPORTABLE_SHARED = [`${PROMPTS_ROOT}${SHARED_DIR}/safety.ts`];
+export const OUTSIDE_IMPORTABLE_SHARED = [
+  `${PROMPTS_ROOT}${SHARED_DIR}/safety.ts`,
+  `${PROMPTS_ROOT}${SHARED_DIR}/repair.ts`,
+];
 
 export const INSIDE_IMPORTABLE_MODULES = [
   "src/settings/*Constants.ts",
@@ -150,7 +153,7 @@ export const promptImports = {
     type: "problem",
     messages: {
       outside:
-        "Outside src/prompts/, import only <role>/prompt.js or shared/safety.js, not '{{specifier}}' (ADR 0053).",
+        "Outside src/prompts/, import only <role>/prompt.js, shared/safety.js, or shared/repair.js, not '{{specifier}}' (ADR 0053).",
       inside:
         "Prompt modules import other prompt modules, types, or the allow-listed modules only, not '{{specifier}}' (ADR 0053).",
       sharedRole: "shared/ never imports a role directory: '{{specifier}}' (ADR 0053).",

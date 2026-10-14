@@ -17,19 +17,16 @@ import {
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
+import {
+  VERIFICATION_SUBMIT_ONLY_NUDGE,
+  renderVerificationRepairPrompt,
+} from "../../prompts/verification/prompt.js";
 
 export type VerificationRunResult = {
   readonly lastAssistant: AssistantMessage;
   readonly submitted: boolean;
   readonly payload: VerificationPayload | null;
 };
-
-export const VERIFICATION_SUBMIT_ONLY_NUDGE =
-  "Your last reply was text only, and the server reads only the submitVerification call. Call submitVerification now with a complete VerificationPayload.";
-
-export function renderVerificationRepairPrompt(validationError: string): string {
-  return [validationError, "Fix the payload and call submitVerification again."].join("\n\n");
-}
 
 export async function runVerification(params: {
   readonly cfg: Config;

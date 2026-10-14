@@ -296,6 +296,8 @@ const PROMPT_IMPORTS_PROBE: Record<string, string> = {
     "export const e = [askSystemPrompt, envelope, a];",
     "",
   ].join("\n"),
+  "src/review/repairImports.ts":
+    'import { repair } from "../prompts/shared/repair.js";\nexport const e = repair;\n',
   "src/prompts/ask/prompt.ts": [
     'import { loadRepoPolicy } from "../../review/repoPolicy.js";',
     'import { readFileSync } from "node:fs";',
@@ -433,6 +435,7 @@ describe("architecture rules", () => {
     expect(lintWithPlugin(PROMPT_IMPORTS_PROBE).lines("prompt-imports")).toEqual({
       "src/review/sectionImports.ts": [1, 2, 3, 4],
       "src/agent/entryImports.ts": [],
+      "src/review/repairImports.ts": [],
       "src/prompts/ask/prompt.ts": [1, 2],
       "src/prompts/shared/context.ts": [1, 2],
       "test/promptImports.ts": [],
