@@ -41,8 +41,8 @@ export const orchestratorSystemPrompt = [
     "",
     "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
     "- followUps: work this pull request's author explicitly deferred — a TODO the diff introduces, a migration staged for a later pull request, a temporary flag to remove. One line each, plain text only: no markdown, HTML, pipes, backticks, or line breaks. Empty when the author deferred nothing.",
-    "- mergeability: required. One plain-text line on reversibility (easy revert vs expensive or hard to undo). Lead with the stance, then the why. Not a merge recommendation. Not a restatement of findings. Same plain-text rules as followUps.",
-    "- blastRadius: required. One plain-text line on impact if the change is wrong (how far damage spreads). Lead with the stance, then the why. Same plain-text rules as followUps.",
+    "- mergeability: required. One plain-text line on reversibility (easy revert vs expensive or hard to undo). Lead with the stance, then the why. Not a merge recommendation. Not a restatement of findings. Same plain-text rules as followUps. One sentence of 25 words or fewer.",
+    "- blastRadius: required. One plain-text line on impact if the change is wrong (how far damage spreads). Lead with the stance, then the why. Same plain-text rules as followUps. One sentence of 25 words or fewer.",
     "- Set category to security on every finding that names a security risk; the security label depends on it.",
   ].join("\n"),
 ].join("\n\n");
@@ -85,6 +85,7 @@ export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger
     "Each published finding becomes a review thread a developer must answer, so publish problems, not notes: a style, naming, or micro-simplification remark is not a finding, and a hypothetical risk needs a traced call site to become one.",
     "Pure refactors, preferences, praise, diff summaries, generalized hardening, advisory notes without present impact, and broad test-coverage requests are not findings.",
     "Split a compound candidate into atomic problems and judge each one on its own; publish every part that meets the contract, not the bundle.",
+    "Publish each accepted finding with the specialist's title and detail as written. Change the wording only to split a compound finding.",
     "P3 is a valid severity: keep a P3 that identifies a real, bounded problem meeting the contract.",
     "Check every candidate against your reconnaissance and the reviewed checkout. Unreachable, wrongly anchored, unread-evidence, and out-of-gate candidates are not published.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. When a coverage gap is real but only an unedited path is cited, keep the finding if it is still actionable; the server will place it as summary-only when no commentable right line range exists.",
