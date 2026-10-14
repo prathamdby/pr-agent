@@ -11,10 +11,9 @@ import {
   parseCiSummaryLlmText,
   mergeCiSummaryWithFacts,
   ciSummaryLlmSchema,
-  buildCiContextUserMessage,
-  ciGateRowContract,
   fetchCiAuthorContext,
 } from "../src/review/ci/ciAuthor.js";
+import { buildCiContextUserMessage, ciGateRowContract } from "../src/prompts/ci/prompt.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 describe("condenseCiLogs", () => {

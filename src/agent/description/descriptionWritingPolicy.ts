@@ -106,17 +106,6 @@ export function resolveDescriptionWritingPolicy(
   };
 }
 
-export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
-  const rules: Record<DescriptionTechnicalDepth, string> = {
-    what_why: "Cover what changed and why it matters for reviewers.",
-    what_why_risk:
-      "Cover what changed, why it matters, and notable risks or contracts the diff touches.",
-    what_why_how:
-      "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
-  };
-  return rules[depth];
-}
-
 export type EnforceDescriptionMapOptions = {
   readonly maxEntries?: number;
   readonly knownPaths?: ReadonlySet<string>;

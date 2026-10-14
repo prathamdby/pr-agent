@@ -48,10 +48,6 @@ export const TRANSITION_IMPORTS = [
     modules: ["src/prompts/shared/communication.ts"],
   },
   {
-    importer: "src/agent/description/descriptionSystemPrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
     importer: "src/agent/prompts/qualityPrompt.ts",
     modules: [
       "src/prompts/shared/behavior.ts",
@@ -95,10 +91,6 @@ export const TRANSITION_IMPORTS = [
     modules: ["src/prompts/shared/context.ts"],
   },
   {
-    importer: "src/review/ci/ciAuthor.ts",
-    modules: ["src/prompts/shared/communication.ts", "src/prompts/shared/output.ts"],
-  },
-  {
     importer: "src/review/orchestrator/prompts/orchestratorPrompts.ts",
     modules: ["src/prompts/shared/behavior.ts", "src/prompts/shared/communication.ts"],
   },
@@ -110,10 +102,6 @@ export const TRANSITION_IMPORTS = [
       "src/prompts/shared/output.ts",
       "src/prompts/shared/tools.ts",
     ],
-  },
-  {
-    importer: "src/review/publish/boundPolicyJudge.ts",
-    modules: ["src/prompts/shared/output.ts"],
   },
 ];
 

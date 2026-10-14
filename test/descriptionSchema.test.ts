@@ -2,9 +2,9 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   coerceDescriptionPayloadInput,
-  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
   descriptionPayloadSchema,
 } from "../src/agent/description/descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.js";
 
 describe("descriptionSchema", () => {
   it("accepts minimal valid payload", () => {

@@ -2,14 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import {
   attachJudgedBoundPaths,
-  BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
-  buildBoundPolicyJudgeUserMessage,
   citedSnippetForFinding,
   numberCandidatePairs,
   parseBoundPolicyYesIds,
   resolveBoundPolicyFooters,
   type BoundPolicyJudgePair,
 } from "../src/review/publish/boundPolicyJudge.js";
+import {
+  BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
+  buildBoundPolicyJudgeUserMessage,
+} from "../src/prompts/judge/prompt.js";
 import { candidatePolicyPairs, type RepoPolicyRule } from "../src/review/repoPolicy.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.js";

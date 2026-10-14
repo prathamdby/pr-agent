@@ -3,16 +3,19 @@ import {
   type Config,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
-  DESCRIPTION_SUBMIT_ONLY_NUDGE,
   DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
   MAX_TOOL_ROUNDS_DESCRIBE,
 } from "../../settings/index.js";
+import {
+  DESCRIPTION_SUBMIT_ONLY_NUDGE,
+  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
+} from "../../prompts/description/prompt.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { logInfo } from "../../evlog.js";
 import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "./descriptionSchema.js";
+
 import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
 import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
