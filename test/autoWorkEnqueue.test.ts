@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
-import { replaceAutoWorkItem } from "../src/agentWork/autoWorkEnqueue.js";
+import {
+  replaceActiveAutoWorkItem,
+  replaceAutoWorkItem,
+} from "../src/agentWork/autoWorkEnqueue.js";
 
 function mockClient(options?: {
   readonly queuedIds?: readonly string[];
@@ -46,7 +49,7 @@ describe("replaceAutoWorkItem", () => {
 
     await replaceAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
+      target: { kind: "review", resourceKey: "owner/repo#42" },
       createWorkItem,
     });
 
@@ -63,7 +66,7 @@ describe("replaceAutoWorkItem", () => {
 
     await replaceAutoWorkItem({
       client: reviewClient,
-      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
+      target: { kind: "review", resourceKey: "owner/repo#42" },
       createWorkItem: async () => "review-id",
     });
     await replaceAutoWorkItem({
@@ -79,9 +82,9 @@ describe("replaceAutoWorkItem", () => {
     const client = mockClient({ activeIds: ["queued-1"] });
     const createWorkItem = vi.fn(async () => "replacement-id");
 
-    const result = await replaceAutoWorkItem({
+    const result = await replaceActiveAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
+      target: { kind: "review", resourceKey: "owner/repo#42" },
       createWorkItem,
     });
 
@@ -94,9 +97,9 @@ describe("replaceAutoWorkItem", () => {
     const client = mockClient({ queuedIds: ["queued-1", "queued-2"], runningIds: ["running-1"] });
     const createWorkItem = vi.fn(async () => "replacement-id");
 
-    const result = await replaceAutoWorkItem({
+    const result = await replaceActiveAutoWorkItem({
       client,
-      target: { kind: "review", resourceKey: "owner/repo#42", scope: "automatic" },
+      target: { kind: "review", resourceKey: "owner/repo#42" },
       createWorkItem,
     });
 
@@ -107,5 +110,20 @@ describe("replaceAutoWorkItem", () => {
     expect(createWorkItem).toHaveBeenCalledTimes(1);
     expect(client.lockKeys).toHaveLength(1);
     expect(client.linkedIds).toEqual(["queued-1", "queued-2", "running-1"]);
+  });
+
+  it("creates no replacement when no active auto work exists", async () => {
+    const client = mockClient();
+    const createWorkItem = vi.fn(async () => "replacement-id");
+
+    const result = await replaceActiveAutoWorkItem({
+      client,
+      target: { kind: "review", resourceKey: "owner/repo#42" },
+      createWorkItem,
+    });
+
+    expect(result).toEqual({ workItemId: null, supersededIds: [], lifecycleChanges: [] });
+    expect(createWorkItem).not.toHaveBeenCalled();
+    expect(client.linkedIds).toEqual([]);
   });
 });
