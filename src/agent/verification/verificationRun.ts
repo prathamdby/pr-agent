@@ -24,8 +24,12 @@ export type VerificationRunResult = {
   readonly payload: VerificationPayload | null;
 };
 
-const VERIFICATION_SUBMIT_ONLY_NUDGE =
+export const VERIFICATION_SUBMIT_ONLY_NUDGE =
   "Your last reply was text only, and the server reads only the submitVerification call. Call submitVerification now with a complete VerificationPayload.";
+
+export function renderVerificationRepairPrompt(validationError: string): string {
+  return [validationError, "Fix the payload and call submitVerification again."].join("\n\n");
+}
 
 export async function runVerification(params: {
   readonly cfg: Config;
@@ -62,8 +66,7 @@ export async function runVerification(params: {
       nudge: VERIFICATION_SUBMIT_ONLY_NUDGE,
       nudgeRounds: VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
       repairRounds: VERIFICATION_VALIDATION_REPAIR_ROUNDS,
-      repairPrompt: (validationError) =>
-        [validationError, "Fix the payload and call submitVerification again."].join("\n\n"),
+      repairPrompt: renderVerificationRepairPrompt,
     },
     {
       session: {

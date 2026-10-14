@@ -1,12 +1,12 @@
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
+import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
+import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
+import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.js";
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";

@@ -26,12 +26,16 @@ export type TriageRunResult = {
   }[];
 };
 
-const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
+export const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
   "call commitFix for each pending finding first, then call submitTriage once with a complete TriagePayload";
 
-const TRIAGE_SUBMIT_ONLY_NUDGE = `Your last reply was text only, and the server reads only tool calls. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+export const TRIAGE_SUBMIT_ONLY_NUDGE = `Your last reply was text only, and the server reads only tool calls. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 
-const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+export const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+
+export function renderTriageRepairPrompt(validationError: string): string {
+  return [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n");
+}
 
 export async function runFullPrTriage(params: {
   readonly cfg: Config;
@@ -69,8 +73,7 @@ export async function runFullPrTriage(params: {
       nudge: TRIAGE_SUBMIT_ONLY_NUDGE,
       nudgeRounds: TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
       repairRounds: TRIAGE_VALIDATION_REPAIR_ROUNDS,
-      repairPrompt: (validationError) =>
-        [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
+      repairPrompt: renderTriageRepairPrompt,
     },
     {
       session: {

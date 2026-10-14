@@ -49,44 +49,8 @@ export const TRANSITION_IMPORTS = [
     modules: ["src/prompts/shared/communication.ts"],
   },
   {
-    importer: "src/agent/prompts/qualityPrompt.ts",
-    modules: [
-      "src/prompts/shared/behavior.ts",
-      "src/prompts/shared/communication.ts",
-      "src/prompts/shared/output.ts",
-      "src/prompts/shared/tools.ts",
-    ],
-  },
-  {
-    importer: "src/agent/prompts/reviewTestsPrompt.ts",
-    modules: [
-      "src/prompts/shared/behavior.ts",
-      "src/prompts/shared/communication.ts",
-      "src/prompts/shared/output.ts",
-      "src/prompts/shared/tools.ts",
-    ],
-  },
-  {
-    importer: "src/agent/prompts/securityPrompt.ts",
-    modules: [
-      "src/prompts/shared/behavior.ts",
-      "src/prompts/shared/communication.ts",
-      "src/prompts/shared/output.ts",
-      "src/prompts/shared/tools.ts",
-    ],
-  },
-  {
     importer: "src/review/ci/ciAuthor.ts",
     modules: ["src/prompts/shared/communication.ts", "src/prompts/shared/output.ts"],
-  },
-  {
-    importer: "src/review/prompts/reviewSystemPrompt.ts",
-    modules: [
-      "src/prompts/shared/behavior.ts",
-      "src/prompts/shared/communication.ts",
-      "src/prompts/shared/output.ts",
-      "src/prompts/shared/tools.ts",
-    ],
   },
   {
     importer: "src/review/publish/boundPolicyJudge.ts",
