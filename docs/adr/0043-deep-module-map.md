@@ -890,6 +890,8 @@ markers, and the head and version replacement rule. `reviewMetaParse.ts` moved
 to `run/commentMarkers.ts` beside the other marker codecs. `agentWork/ciAuthoring.ts`
 stays in `agentWork/` because it writes `pr_head_ci_state`.
 
+ADR 0053 amendment: CI prompt text now lives in `src/prompts/ci/prompt.ts`; `ciAuthor.ts` retains the schema and author runtime.
+
 Coverage migration: `analyzeCi.test.ts` became `ciFacts.test.ts`,
 `condenseCiLogs.test.ts` became `ciAuthor.test.ts`, and `renderCiSummary.test.ts`
 became `ciSummaryCell.test.ts`; the rendered-cell cases are unchanged except for
