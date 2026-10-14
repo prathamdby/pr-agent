@@ -229,8 +229,9 @@ function childNodes(node) {
 }
 
 function propertyName(node) {
-  if (node.computed && node.key?.type !== "Literal") return null;
-  return node.key?.name ?? node.key?.value ?? node.property?.name ?? null;
+  const key = node.key ?? node.property;
+  if (node.computed && key?.type !== "Literal") return null;
+  return key?.name ?? key?.value ?? null;
 }
 
 function functionName(node) {
@@ -255,6 +256,7 @@ export const promptSinks = {
       origin:
         "Prompt sinks accept src/prompts/ exports, const expressions with checked origins, or checked prompt carriers only (ADR 0053).",
       literal: "Prompt text belongs under src/prompts/, not in a sink argument (ADR 0053).",
+      compound: "Do not use compound assignments for prompt fields (ADR 0053).",
       reassignment: "Do not reassign a prompt parameter inside a sink wrapper (ADR 0053).",
     },
   },
@@ -470,7 +472,6 @@ export const promptSinks = {
         if (promptParameter(target)) context.report({ node, messageId: "reassignment" });
       } else if (target.type === "MemberExpression") {
         if (
-          !target.computed &&
           PROMPT_FIELDS.includes(propertyName(target)) &&
           target.object.type === "Identifier" &&
           promptParameter(target.object)
@@ -512,6 +513,13 @@ export const promptSinks = {
       },
       AssignmentExpression(node) {
         reassignment(node, node.left);
+        if (
+          node.left.type !== "MemberExpression" ||
+          !PROMPT_FIELDS.includes(propertyName(node.left))
+        )
+          return;
+        if (node.operator === "=") check(node.right);
+        else context.report({ node, messageId: "compound" });
       },
       UpdateExpression(node) {
         reassignment(node, node.argument);

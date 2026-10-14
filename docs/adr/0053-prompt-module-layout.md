@@ -112,12 +112,12 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    prompt-bearing argument or property, never session options or tool
    descriptions.
 
-   | Sink                                                                                         | Prompt value                              |
-   | -------------------------------------------------------------------------------------------- | ----------------------------------------- |
-   | `session.send(...)`, `activeSession.send(...)`                                               | Argument 0                                |
-   | `sendWithRetry(...)`, `runSubmitOnlyRound(...)`, specialist `send(...)`                      | Argument 1                                |
-   | Object-literal `systemPrompt`, `userContent`, `nudge`, `repairPrompt`, `briefMessage` fields | Property value                            |
-   | Compaction `streamFn(...)`                                                                   | `messages[].content[].text` in argument 1 |
+   | Sink                                                                                                                       | Prompt value                              |
+   | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+   | `session.send(...)`, `activeSession.send(...)`                                                                             | Argument 0                                |
+   | `sendWithRetry(...)`, `runSubmitOnlyRound(...)`, specialist `send(...)`                                                    | Argument 1                                |
+   | Object-literal properties and assignments to `systemPrompt`, `userContent`, `nudge`, `repairPrompt`, `briefMessage` fields | Stored value                              |
+   | Compaction `streamFn(...)`                                                                                                 | `messages[].content[].text` in argument 1 |
 
    The receiver list is explicit. Queue `boss.send` and IPC `target.send` are
    not prompt sinks. String and template literals are forbidden anywhere in
@@ -134,12 +134,15 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    arguments select values and are exempt, unlike literal argument values or
    callback return values.
 
-   Prompt-field properties establish carrier provenance at their origin.
-   A read such as `setup.userContent`, `params.systemPrompt`, or `spec.nudge`
-   is allowed because its field value is checked when the carrier object is
-   constructed. Calls through `spec.repairPrompt` accept runtime arguments,
-   as do arrow-function repair values whose body calls a prompt export.
-   Non-prompt fields do not gain this allowance.
+   Carrier reads are sound because every store of a prompt-named field
+   (literal property, member assignment, or computed string key) is checked,
+   and those field names are reserved for prompt text outside `src/prompts/`.
+   Reads such as `setup.userContent`, `params.systemPrompt`, and `spec.nudge`
+   are allowed. Compound assignments to prompt fields are forbidden.
+   Object-literal spreads are a known limit: the rule does not inspect the
+   field values they introduce. Calls through `spec.repairPrompt` accept
+   runtime arguments, as do arrow-function repair values whose body calls a
+   prompt export. Non-prompt fields do not gain this allowance.
 
    A computed prompt-map read such as `SPECIALIST_SYSTEM_PROMPTS[role]` is
    allowed only when the map is a module-level `const` initialized by an
