@@ -61,7 +61,7 @@
         "Writes invariants a literal searchWorkspace / readWorkspaceFile check can hit",
         "Does not write sequential native-tool or Acorn/AST-fuel investigation essays",
         "Does not assume description or triage have an execute cell",
-        "Cites current harness files (harnessProtocol.ts, guestCatalogue.ts, ADR 0033) in the decision record, not in a how-to-execute rule"
+        "Cites current harness files (src/prompts/shared/tools.ts, guestCatalogue.ts, ADR 0033) in the decision record, not in a how-to-execute rule"
       ]
     }
   ]
