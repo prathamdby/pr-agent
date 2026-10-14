@@ -51,19 +51,6 @@ export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
-export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
-  title: "Add user session validation",
-  type: ["Enhancement"],
-  description:
-    "- The change validates the user session on each request.\n- It adds a middleware hook at the auth boundary.",
-  visuals: [
-    {
-      kind: "call_tree",
-      content: "handleRequest\n  validateSession\n  next",
-    },
-  ],
-};
-
 function trimString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = fixDoubleEscapedString(value).text.trim();

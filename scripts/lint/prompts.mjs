@@ -43,20 +43,7 @@ export const INSIDE_IMPORTABLE_MODULES = [
   "src/github/markdownFormat.ts",
 ];
 
-export const TRANSITION_IMPORTS = [
-  {
-    importer: "src/agent/description/descriptionSystemPrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
-    importer: "src/review/ci/ciAuthor.ts",
-    modules: ["src/prompts/shared/communication.ts", "src/prompts/shared/output.ts"],
-  },
-  {
-    importer: "src/review/publish/boundPolicyJudge.ts",
-    modules: ["src/prompts/shared/output.ts"],
-  },
-];
+export const TRANSITION_IMPORTS = [];
 
 function globPattern(glob) {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");

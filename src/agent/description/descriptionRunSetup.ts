@@ -5,8 +5,11 @@ import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";
 import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
-import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
-import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
+import {
+  descriptionSystemPrompt,
+  buildDescriptionUserContent,
+} from "../../prompts/description/prompt.js";
+
 import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
 import {
   buildSubmitDescriptionTool,

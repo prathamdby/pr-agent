@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.js";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
