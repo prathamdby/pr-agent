@@ -23,7 +23,7 @@ import {
   REVIEW_GATE_PROSE_UNASSESSED,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.js";
-import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/prompts/orchestrator/prompt.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 import {

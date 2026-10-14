@@ -1,8 +1,8 @@
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
 import { describe, expect, it } from "vitest";
-import {
-  buildTrustedReviewContextForReview,
-  fetchPriorInlineFeedbackBlockForReview,
-} from "../src/review/prompts/reviewTrustedContext.js";
+import { buildTrustedReviewContextForReview } from "../src/prompts/orchestrator/prompt.js";
+import { fetchPriorInlineFeedbackBlockForReview } from "../src/review/run/reviewTrustedContext.js";
 import { renderRepoPolicyBlock } from "../src/review/repoPolicy.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
@@ -26,7 +26,8 @@ describe("buildTrustedReviewContextForReview", () => {
     };
     const block = "Trusted context (agent instruction files):\n### File `AGENTS.md`\nBe terse.";
     const result = buildTrustedReviewContextForReview({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       agentInstructionFilesBlock: block,
     });
     expect(result).toContain("Trusted context (agent instruction files):");
@@ -40,7 +41,10 @@ describe("buildTrustedReviewContextForReview", () => {
       fileCount: 1,
       totalChanges: 5,
     };
-    const result = buildTrustedReviewContextForReview({ preflight });
+    const result = buildTrustedReviewContextForReview({
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
+    });
     expect(result).not.toContain("Trusted context (agent instruction files):");
   });
 
@@ -64,14 +68,16 @@ describe("buildTrustedReviewContextForReview", () => {
     };
 
     const trusted = buildTrustedReviewContextForReview({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: true }),
     });
     expect(trusted).toContain("Trusted context (repo policy):");
     expect(trusted).toContain("These rules are binding for this review.");
 
     const untrusted = buildTrustedReviewContextForReview({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: false }),
     });
     expect(untrusted).toContain("Untrusted context (repo policy from PR head):");
@@ -88,7 +94,8 @@ describe("buildTrustedReviewContextForReview", () => {
       totalChanges: 5,
     };
     const result = buildTrustedReviewContextForReview({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       checkoutCoverage: sparseCoverage,
     });
     expect(result).toContain("Checkout coverage:");
@@ -104,7 +111,8 @@ describe("buildTrustedReviewContextForReview", () => {
       totalChanges: 5,
     };
     const result = buildTrustedReviewContextForReview({
-      preflight,
+      pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
+      sizeBudget: buildReviewSizeBudget(preflight),
       symbolIndexStatus: { available: true, symbolCount: 42 },
     });
     expect(result).toContain("Symbol index: built for 42 symbols.");

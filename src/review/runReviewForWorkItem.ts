@@ -1,3 +1,5 @@
+import { buildReviewSizeBudget } from "./run/reviewSizeBudget.js";
+import { buildReviewPathProfile } from "./placement/reviewPathProfile.js";
 import type { BotIdentity } from "../github/appAuth.js";
 import {
   createPublishContext,
@@ -47,8 +49,9 @@ import {
 } from "./agentInstructionFiles.js";
 import {
   buildTrustedReviewContextForReview,
-  fetchPriorInlineFeedbackBlockForReview,
-} from "./prompts/reviewTrustedContext.js";
+  formatFindingHistoryTrustedBlock,
+} from "../prompts/orchestrator/prompt.js";
+import { fetchPriorInlineFeedbackBlockForReview } from "./run/reviewTrustedContext.js";
 import {
   resolveAgentEventsContext,
   safeEmitCoverageEvent,
@@ -75,7 +78,6 @@ import {
   ownVerdictFromSummaryDetail,
 } from "../agentWork/reviewVerdict.js";
 import {
-  formatFindingHistoryTrustedBlock,
   safeLoadCrossPrSuppressionFingerprints,
   safeLoadFindingHistoryCandidates,
 } from "../agentWork/findingHistoryRepository.js";
@@ -643,7 +645,10 @@ async function assembleTrustedReviewContext(args: {
       : undefined;
 
   const trustedContext = buildTrustedReviewContextForReview({
-    preflight: repositoryView.preflight,
+    pathProfile: buildReviewPathProfile(
+      repositoryView.preflight.files.map((file) => file.filename),
+    ),
+    sizeBudget: buildReviewSizeBudget(repositoryView.preflight),
     priorInlineFeedback,
     findingHistoryTrustedBlock,
     repoPolicyBlock,

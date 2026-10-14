@@ -40,6 +40,7 @@ export const INSIDE_IMPORTABLE_MODULES = [
   "src/settings/index.ts",
   "src/agent/codemode/guestCatalogue.ts",
   "src/util/escape.ts",
+  "src/github/markdownFormat.ts",
 ];
 
 export const TRANSITION_IMPORTS = [
@@ -77,10 +78,6 @@ export const TRANSITION_IMPORTS = [
   {
     importer: "src/review/ci/ciAuthor.ts",
     modules: ["src/prompts/shared/communication.ts", "src/prompts/shared/output.ts"],
-  },
-  {
-    importer: "src/review/orchestrator/prompts/orchestratorPrompts.ts",
-    modules: ["src/prompts/shared/behavior.ts", "src/prompts/shared/communication.ts"],
   },
   {
     importer: "src/review/prompts/reviewSystemPrompt.ts",

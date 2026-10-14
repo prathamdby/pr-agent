@@ -1,17 +1,18 @@
+import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   buildSpecialistBriefTool,
-  renderBriefMessage,
   specialistBriefSchema,
 } from "../src/review/orchestrator/briefTool.js";
-import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import {
+  renderBriefMessage,
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
   renderJudgmentTurn,
   renderSynthesisTurn,
-} from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+} from "../src/prompts/orchestrator/prompt.js";
+import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { causalPublicationContract } from "../src/prompts/shared/behavior.js";
 import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
@@ -391,7 +392,10 @@ describe("orchestrator prompts", () => {
       },
     } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
 
-    const prompt = renderJudgmentTurn(outcome, createFindingLedger());
+    const prompt = renderJudgmentTurn(
+      outcome,
+      slimAcceptedFindings(outcome, createFindingLedger()),
+    );
 
     expect(prompt).toContain("Finish with one `publish_thread` call");
     expect(prompt).toContain("same-file overlap hints");
@@ -465,7 +469,10 @@ describe("orchestrator prompts", () => {
     });
 
     const hitOutcome = toOutcome([finding]);
-    const hitPrompt = renderJudgmentTurn(hitOutcome, postedLedger);
+    const hitPrompt = renderJudgmentTurn(
+      hitOutcome,
+      slimAcceptedFindings(hitOutcome, postedLedger),
+    );
 
     expect(hitPrompt).toContain("already accepted");
     expect(hitPrompt).toContain('"findingId"');
@@ -473,14 +480,21 @@ describe("orchestrator prompts", () => {
     expect(hitPrompt).not.toContain("dereferences an absent value");
 
     const missOutcome = toOutcome([nearMiss]);
-    const missPrompt = renderJudgmentTurn(missOutcome, postedLedger);
+    const missPrompt = renderJudgmentTurn(
+      missOutcome,
+      slimAcceptedFindings(missOutcome, postedLedger),
+    );
 
     expect(missPrompt).not.toContain("already accepted");
     expect(missPrompt).not.toContain('"findingId"');
     expect(missPrompt).toContain("retries the absent value without a guard");
     expect(missPrompt).toContain(JSON.stringify(missOutcome.report, null, 2));
 
-    const mixedPrompt = renderJudgmentTurn(toOutcome([finding, nearMiss]), postedLedger);
+    const mixedOutcome = toOutcome([finding, nearMiss]);
+    const mixedPrompt = renderJudgmentTurn(
+      mixedOutcome,
+      slimAcceptedFindings(mixedOutcome, postedLedger),
+    );
 
     expect(mixedPrompt).toContain("already accepted");
     expect(mixedPrompt).toContain('"findingId"');
@@ -493,7 +507,10 @@ describe("orchestrator prompts", () => {
       endLine: 60,
     } as const;
     const relocatedOutcome = toOutcome([sameSubstanceDifferentLine]);
-    const relocatedPrompt = renderJudgmentTurn(relocatedOutcome, postedLedger);
+    const relocatedPrompt = renderJudgmentTurn(
+      relocatedOutcome,
+      slimAcceptedFindings(relocatedOutcome, postedLedger),
+    );
 
     expect(relocatedPrompt).not.toContain("already accepted");
     expect(relocatedPrompt).not.toContain('"findingId"');
@@ -511,7 +528,10 @@ describe("orchestrator prompts", () => {
         },
       ],
     });
-    const resumedPrompt = renderJudgmentTurn(hitOutcome, resumedLedger);
+    const resumedPrompt = renderJudgmentTurn(
+      hitOutcome,
+      slimAcceptedFindings(hitOutcome, resumedLedger),
+    );
 
     expect(resumedPrompt).toContain("already accepted");
     expect(resumedPrompt).not.toContain("dereferences an absent value");
@@ -527,7 +547,10 @@ describe("orchestrator prompts", () => {
         },
       ],
     });
-    const summaryPrompt = renderJudgmentTurn(hitOutcome, summaryLedger);
+    const summaryPrompt = renderJudgmentTurn(
+      hitOutcome,
+      slimAcceptedFindings(hitOutcome, summaryLedger),
+    );
 
     expect(summaryPrompt).not.toContain("already accepted");
     expect(summaryPrompt).not.toContain('"findingId"');

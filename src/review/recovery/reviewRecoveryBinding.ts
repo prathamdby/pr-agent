@@ -6,7 +6,7 @@ import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryP
 import { resolveModelPolicy } from "../../agent/runtime/modelPolicy.js";
 import { assertPiModelSelection } from "../../agent/runtime/modelsJson.js";
 import { SPECIALIST_SYSTEM_PROMPTS } from "../orchestrator/specialistRun.js";
-import { orchestratorSystemPrompt } from "../orchestrator/prompts/orchestratorPrompts.js";
+import { orchestratorSystemPrompt } from "../../prompts/orchestrator/prompt.js";
 import { encodeReviewArtifact, REVIEW_CONTRACT_VERSION } from "./reviewArtifacts.js";
 
 export function reviewRecoveryBaseSha(pullRequest: unknown): string | null {

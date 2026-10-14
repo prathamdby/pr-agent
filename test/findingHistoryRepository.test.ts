@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 import type { Pool } from "pg";
+import { formatFindingHistoryTrustedBlock } from "../src/prompts/orchestrator/prompt.js";
 import {
-  formatFindingHistoryTrustedBlock,
   loadCrossPrSuppressionFingerprints,
   lookupThreadFingerprint,
   recordFindingHistoryOutcome,

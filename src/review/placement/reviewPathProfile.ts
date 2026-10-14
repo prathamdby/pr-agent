@@ -29,20 +29,3 @@ export function buildReviewPathProfile(changedFiles: readonly string[]): ReviewP
     riskCategories: categories.filter((category) => found.has(category)),
   };
 }
-
-export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {
-  if (profile.riskCategories.length === 0) {
-    return [
-      "Trusted context (path profile):",
-      `- Changed files: ${profile.changedFiles.length}`,
-      "- No high-risk path categories detected in the file list.",
-      "- Prioritize changed application code before docs and tests.",
-    ].join("\n");
-  }
-  return [
-    "Trusted context (path profile):",
-    `- Changed files: ${profile.changedFiles.length}`,
-    `- Risk categories present: ${profile.riskCategories.join(", ")}`,
-    "- Investigate auth, migration, config, and security paths before lower-risk files.",
-  ].join("\n");
-}

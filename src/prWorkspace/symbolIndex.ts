@@ -190,8 +190,3 @@ export function symbolIndexStatus(index: SymbolIndex | null | undefined): Symbol
   if (!index) return { available: false };
   return { available: true, symbolCount: index.symbolCount };
 }
-
-export function formatSymbolIndexStatusLine(status: SymbolIndexStatus): string {
-  if (!status.available) return "Symbol index: unavailable.";
-  return `Symbol index: built for ${status.symbolCount} symbols.`;
-}
