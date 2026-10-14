@@ -508,7 +508,7 @@ function boundedText(
   redact: (text: string) => string,
 ): { readonly text: string; readonly truncated: boolean } {
   const redacted = redact(text);
-  if (redacted.length <= limit) return { text: redacted, truncated: redacted !== text };
+  if (redacted.length <= limit) return { text: redacted, truncated: false };
   return { text: `${redacted.slice(0, limit)}\n${TRUNCATED}`, truncated: true };
 }
 

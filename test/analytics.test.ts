@@ -815,6 +815,7 @@ describe("posthog ai traces", () => {
     const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     const pem = `-----BEGIN PRIVATE KEY-----\n${"k".repeat(1_500)}\n-----END PRIVATE KEY-----`;
     const straddling = `${"x".repeat(3_900)}${pem}${"y".repeat(20_000)}`;
+    const shortPem = `-----BEGIN PRIVATE KEY-----\n${"k".repeat(64)}\n-----END PRIVATE KEY-----`;
     await startWorkTrace(work(), async () => {
       const trace = createSessionTrace(
         sessionParams(cfg, [
@@ -832,7 +833,7 @@ describe("posthog ai traces", () => {
       });
       trace.hostCall("exec-call", "readWorkspaceFile", { path: "a.ts" })?.({
         status: "completed",
-        output: { content: "body-a" },
+        output: { content: `body-a\n${shortPem}` },
         outputBytes: 21,
       });
       trace.hostCall("exec-call", "readWorkspaceFile", { path: "../outside.env" })?.({
@@ -868,6 +869,9 @@ describe("posthog ai traces", () => {
     });
     expect(typeof calls[0]?.duration_ms).toBe("number");
     expect(calls[0]?.output_preview).toContain("body-a");
+    expect(calls[0]?.output_preview).toContain("[redacted]");
+    expect(calls[0]?.output_preview).not.toContain("kkkkkkkkkk");
+    expect(calls[0]).not.toHaveProperty("preview_truncated");
     expect(calls[1]).toMatchObject({
       tool: "readWorkspaceFile",
       status: "error",
