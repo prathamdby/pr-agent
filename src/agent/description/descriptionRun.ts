@@ -23,6 +23,14 @@ export type DescriptionRunResult = {
   publishSuperseded: boolean;
 };
 
+export function renderDescriptionRepairPrompt(validationError: string): string {
+  return [
+    validationError,
+    "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
+    `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
+  ].join("\n\n");
+}
+
 export async function runFullPrDescription(params: {
   cfg: Config;
   prSurface: PrSurface;
@@ -61,12 +69,7 @@ export async function runFullPrDescription(params: {
       nudge: DESCRIPTION_SUBMIT_ONLY_NUDGE,
       nudgeRounds: DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
       repairRounds: DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
-      repairPrompt: (validationError) =>
-        [
-          validationError,
-          "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
-          `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
-        ].join("\n\n"),
+      repairPrompt: renderDescriptionRepairPrompt,
       preserveTextOnNudgeError: true,
     },
     {
