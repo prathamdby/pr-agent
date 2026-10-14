@@ -195,13 +195,8 @@ class TraceRecorder {
     let bytes = 0;
     let reserveBytes = 0;
     for (const entry of batch) {
-      if (entry.reserve) {
-        this.reserveQueued -= 1;
-        reserveBytes += entry.bytes;
-      } else {
-        this.queued -= 1;
-        bytes += entry.bytes;
-      }
+      if (entry.reserve) reserveBytes += entry.bytes;
+      else bytes += entry.bytes;
     }
     try {
       for (const entry of batch) {
@@ -217,6 +212,10 @@ class TraceRecorder {
     } finally {
       this.queuedBytes -= bytes;
       this.reserveBytes -= reserveBytes;
+      for (const entry of batch) {
+        if (entry.reserve) this.reserveQueued -= 1;
+        else this.queued -= 1;
+      }
     }
   }
 
