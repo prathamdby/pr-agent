@@ -10,6 +10,7 @@
     "pr-agent/no-comments": "error",
     "pr-agent/prompt-layout": "error",
     "pr-agent/prompt-imports": "error",
+    "pr-agent/prompt-sinks": "error",
     "eslint/no-underscore-dangle": [
       "warn",
       {

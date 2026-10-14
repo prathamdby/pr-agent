@@ -1,5 +1,5 @@
 import noComments from "./no-comments.mjs";
-import { promptImports, promptLayout } from "./prompts.mjs";
+import { promptImports, promptLayout, promptSinks } from "./prompts.mjs";
 
 export default {
   meta: { name: "pr-agent" },
@@ -7,5 +7,6 @@ export default {
     "no-comments": noComments,
     "prompt-layout": promptLayout,
     "prompt-imports": promptImports,
+    "prompt-sinks": promptSinks,
   },
 };

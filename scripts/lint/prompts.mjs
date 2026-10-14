@@ -48,6 +48,33 @@ export const INSIDE_IMPORTABLE_MODULES = [
 
 export const TRANSITION_IMPORTS = [];
 
+export const PROMPT_SEND_RECEIVERS = ["session", "activeSession"];
+
+export const PROMPT_CALL_ARGUMENTS = {
+  sendWithRetry: 1,
+  runSubmitOnlyRound: 1,
+  send: 1,
+};
+
+export const PROMPT_WRAPPERS = {
+  ...PROMPT_CALL_ARGUMENTS,
+  defaultSubmitOnlySend: 1,
+  createFeaturePiSession: 0,
+  runFeatureAgent: 0,
+};
+
+export const PROMPT_SENDERS = {
+  runSubmitOnlyRound: { argument: 2, prompt: 1 },
+};
+
+export const PROMPT_FIELDS = [
+  "systemPrompt",
+  "userContent",
+  "nudge",
+  "repairPrompt",
+  "briefMessage",
+];
+
 function globPattern(glob) {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*");
   return new RegExp(`^${escaped}$`);
@@ -188,6 +215,314 @@ export const promptImports = {
       },
       ImportExpression(node) {
         check(node, node.source, false);
+      },
+    };
+  },
+};
+
+function childNodes(node) {
+  return Object.entries(node).flatMap(([key, value]) => {
+    if (key === "parent" || key === "typeAnnotation" || key === "typeParameters") return [];
+    const values = Array.isArray(value) ? value : [value];
+    return values.filter((child) => child != null && typeof child.type === "string");
+  });
+}
+
+function propertyName(node) {
+  const key = node.key ?? node.property;
+  if (node.computed && key?.type !== "Literal") return null;
+  return key?.name ?? key?.value ?? null;
+}
+
+function functionName(node) {
+  return node.id?.name ?? node.parent?.id?.name ?? null;
+}
+
+function expression(node) {
+  while (
+    node &&
+    ["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "TSNonNullExpression"].includes(
+      node.type,
+    )
+  )
+    node = node.expression;
+  return node;
+}
+
+export const promptSinks = {
+  meta: {
+    type: "problem",
+    messages: {
+      origin:
+        "Prompt sinks accept src/prompts/ exports, const expressions with checked origins, or checked prompt carriers only (ADR 0053).",
+      literal: "Prompt text belongs under src/prompts/, not in a sink argument (ADR 0053).",
+      compound: "Do not use compound assignments for prompt fields (ADR 0053).",
+      reassignment: "Do not reassign a prompt parameter inside a sink wrapper (ADR 0053).",
+    },
+  },
+  create(context) {
+    const file = repoPath(context, context.filename);
+    if (file == null || !file.startsWith("src/") || promptParts(file) != null) return {};
+    const checkedMaps = new Set();
+    const resolvingConstants = new Set();
+
+    function variable(identifier) {
+      for (
+        let scope = context.sourceCode.getScope(identifier);
+        scope != null;
+        scope = scope.upper
+      ) {
+        const found = scope.set.get(identifier.name);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function importedPrompt(identifier) {
+      return variable(identifier)?.defs.some((def) => {
+        if (def.type !== "ImportBinding" || def.parent.importKind === "type") return false;
+        if (def.node.importKind === "type") return false;
+        const target = resolveSpecifier(context, def.parent.source.value);
+        return target != null && promptParts(target) != null;
+      });
+    }
+
+    function promptExport(node) {
+      if (node.type === "Identifier") return importedPrompt(node);
+      return (
+        node.type === "MemberExpression" &&
+        !node.computed &&
+        node.object.type === "Identifier" &&
+        importedPrompt(node.object)
+      );
+    }
+
+    function promptBuilder(node) {
+      return (
+        promptExport(node) ||
+        (node.type === "MemberExpression" &&
+          !node.computed &&
+          propertyName(node) === "repairPrompt")
+      );
+    }
+
+    function promptParameter(identifier) {
+      return variable(identifier)?.defs.some((def) => {
+        if (def.type !== "Parameter") return false;
+        if (
+          Object.hasOwn(PROMPT_WRAPPERS, functionName(def.node)) &&
+          def.node.params[PROMPT_WRAPPERS[functionName(def.node)]] === def.name
+        )
+          return true;
+        const call = def.node.parent;
+        if (
+          call?.type !== "CallExpression" ||
+          call.callee.type !== "Identifier" ||
+          !Object.hasOwn(PROMPT_SENDERS, call.callee.name)
+        )
+          return false;
+        const sender = PROMPT_SENDERS[call.callee.name];
+        return (
+          call.arguments[sender.argument] === def.node &&
+          def.node.params[sender.prompt] === def.name
+        );
+      });
+    }
+
+    function constResult(identifier) {
+      const def = variable(identifier)?.defs.find(
+        (entry) =>
+          entry.type === "Variable" && entry.parent.kind === "const" && entry.node.init != null,
+      );
+      if (!def || resolvingConstants.has(def)) return false;
+      resolvingConstants.add(def);
+      const bad = literal(def.node.init) ?? invalid(def.node.init);
+      resolvingConstants.delete(def);
+      return bad == null;
+    }
+
+    function literal(node, runtime = false) {
+      node = expression(node);
+      if (node.type === "ConditionalExpression")
+        return literal(node.consequent, runtime) ?? literal(node.alternate, runtime);
+      if (
+        node.type === "TemplateLiteral" ||
+        (node.type === "Literal" && typeof node.value === "string")
+      )
+        return node;
+      if (node.type === "CallExpression") {
+        const calleeText = literal(node.callee, runtime);
+        if (calleeText) return calleeText;
+        for (const argument of node.arguments) {
+          const text = literal(argument, runtime || promptBuilder(node.callee));
+          if (text) return text;
+        }
+        return null;
+      }
+      const selection =
+        runtime &&
+        ((node.type === "BinaryExpression" &&
+          ["===", "!==", "==", "!=", "<", ">", "<=", ">=", "in", "instanceof"].includes(
+            node.operator,
+          )) ||
+          (node.type === "UnaryExpression" && node.operator === "typeof"));
+      for (const child of childNodes(node)) {
+        if (selection && ["Literal", "TemplateLiteral"].includes(expression(child).type)) continue;
+        const found = literal(child, runtime);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function promptMap(node) {
+      if (node.type !== "Identifier") return false;
+      const binding = variable(node);
+      const def = binding?.defs.find(
+        (entry) =>
+          entry.type === "Variable" &&
+          entry.parent.kind === "const" &&
+          expression(entry.node.init)?.type === "ObjectExpression",
+      );
+      if (!def || !["module", "global"].includes(binding.scope.type)) return false;
+      const object = expression(def.node.init);
+      if (!checkedMaps.has(object)) {
+        checkedMaps.add(object);
+        for (const property of object.properties) {
+          if (property.type === "Property") check(property.value);
+          else context.report({ node: property, messageId: "origin" });
+        }
+      }
+      return true;
+    }
+
+    function invalid(node, runtime = false) {
+      node = expression(node);
+      if (node.type === "ConditionalExpression")
+        return invalid(node.consequent, runtime) ?? invalid(node.alternate, runtime);
+      if (node.type === "Identifier") {
+        return runtime || importedPrompt(node) || promptParameter(node) || constResult(node)
+          ? null
+          : node;
+      }
+      if (node.type === "MemberExpression") {
+        if (!node.computed && PROMPT_FIELDS.includes(propertyName(node))) return null;
+        if (node.computed && promptMap(node.object)) return invalid(node.property, true);
+        return (
+          invalid(node.object, runtime) ?? (node.computed ? invalid(node.property, runtime) : null)
+        );
+      }
+      if (node.type === "CallExpression") {
+        const promptCall = promptBuilder(node.callee);
+        const badCallee = invalid(node.callee, runtime);
+        if (badCallee) return badCallee;
+        for (const argument of node.arguments) {
+          const found = invalid(argument, runtime || promptCall);
+          if (found) return found;
+        }
+        return null;
+      }
+      if (node.type === "Property") {
+        return (node.computed ? invalid(node.key, runtime) : null) ?? invalid(node.value, runtime);
+      }
+      if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") {
+        const body = node.body;
+        if (runtime) return invalid(body, true);
+        if (body.type === "CallExpression" && promptExport(body.callee)) return invalid(body);
+        if (
+          body.type === "BlockStatement" &&
+          body.body.length === 1 &&
+          body.body[0].type === "ReturnStatement" &&
+          body.body[0].argument?.type === "CallExpression" &&
+          promptExport(body.body[0].argument.callee)
+        )
+          return invalid(body.body[0].argument);
+        return node;
+      }
+      for (const child of childNodes(node)) {
+        const found = invalid(child, runtime);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function check(node) {
+      let runtime = false;
+      for (let current = node; current.parent; current = current.parent) {
+        if (
+          current.parent.type === "CallExpression" &&
+          current.parent.arguments.includes(current) &&
+          promptBuilder(current.parent.callee)
+        ) {
+          runtime = true;
+          break;
+        }
+      }
+      const text = literal(node, runtime);
+      const bad = text ?? invalid(node, runtime);
+      if (bad) context.report({ node: bad, messageId: text ? "literal" : "origin" });
+    }
+
+    function fields(node, name, visit) {
+      if (node.type === "Property" && propertyName(node) === name) visit(node.value);
+      else for (const child of childNodes(node)) fields(child, name, visit);
+    }
+
+    function reassignment(node, target) {
+      if (target.type === "Identifier") {
+        if (promptParameter(target)) context.report({ node, messageId: "reassignment" });
+      } else if (target.type === "MemberExpression") {
+        if (
+          PROMPT_FIELDS.includes(propertyName(target)) &&
+          target.object.type === "Identifier" &&
+          promptParameter(target.object)
+        )
+          context.report({ node, messageId: "reassignment" });
+      } else if (target.type === "Property") {
+        reassignment(node, target.value);
+      } else {
+        for (const child of childNodes(target)) reassignment(node, child);
+      }
+    }
+
+    return {
+      CallExpression(node) {
+        const callee = node.callee;
+        if (
+          callee.type === "MemberExpression" &&
+          !callee.computed &&
+          callee.property.name === "send" &&
+          callee.object.type === "Identifier" &&
+          PROMPT_SEND_RECEIVERS.includes(callee.object.name)
+        ) {
+          if (node.arguments[0]) check(node.arguments[0]);
+        } else if (
+          callee.type === "Identifier" &&
+          Object.hasOwn(PROMPT_CALL_ARGUMENTS, callee.name)
+        ) {
+          const prompt = node.arguments[PROMPT_CALL_ARGUMENTS[callee.name]];
+          if (prompt) check(prompt);
+        } else if (callee.type === "Identifier" && callee.name === "streamFn") {
+          if (node.arguments[1])
+            fields(node.arguments[1], "messages", (messages) =>
+              fields(messages, "content", (content) => fields(content, "text", check)),
+            );
+        }
+      },
+      Property(node) {
+        if (PROMPT_FIELDS.includes(propertyName(node))) check(node.value);
+      },
+      AssignmentExpression(node) {
+        reassignment(node, node.left);
+        if (
+          node.left.type !== "MemberExpression" ||
+          !PROMPT_FIELDS.includes(propertyName(node.left))
+        )
+          return;
+        if (node.operator === "=") check(node.right);
+        else context.report({ node, messageId: "compound" });
+      },
+      UpdateExpression(node) {
+        reassignment(node, node.argument);
       },
     };
   },
