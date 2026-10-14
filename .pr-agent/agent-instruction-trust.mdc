@@ -2,7 +2,7 @@
 globs:
   - "src/review/agentInstructionFiles.ts"
   - "src/review/runReviewForWorkItem.ts"
-  - "src/review/prompts/**"
+  - "src/prompts/{correctness,security,quality,tests,orchestrator}/**"
   - "src/prompts/shared/safety.ts"
   - "src/settings/reviewConstants.ts"
   - "test/agentInstructionFiles.test.ts"

@@ -322,6 +322,97 @@ const PROMPT_IMPORTS_PROBE: Record<string, string> = {
   "test/promptImports.ts": 'import { a } from "../src/prompts/ask/behavior.js";\nexport { a };\n',
 };
 
+const PROMPT_SINKS_PROBE: Record<string, string> = {
+  "src/agent/sinks.ts": [
+    'import { prompt, render } from "../prompts/ask/prompt.js";',
+    'import { foreign } from "./other.js";',
+    'import * as prompts from "../prompts/ask/prompt.js";',
+    'session.send("inline", { phase: "ask" });',
+    "activeSession.send(`inline ${prompt}`);",
+    'session.send(prompt + "suffix");',
+    'const local = "inline"; session.send(local);',
+    "session.send(foreign);",
+    "function shadow(prompt: string) { session.send(prompt); }",
+    "session.send(render(runtime));",
+    "session.send(render({ runtime, nested: runtime.value }));",
+    'session.send(render("inline"));',
+    "const built = render(runtime); session.send(built);",
+    "let mutable = render(runtime); session.send(mutable);",
+    "const alias = prompt; session.send(alias);",
+    "session.send(prompt, { phase: `ask`, checkpointId: foreign });",
+    'boss.send("queue", "payload"); target.send("ipc");',
+    "sendWithRetry(`recon`, prompt, { checkpointId: `recon` });",
+    'sendWithRetry("recon", "inline");',
+    "runSubmitOnlyRound(session, prompt);",
+    "runSubmitOnlyRound(session, `inline`);",
+    "send(session, prompt, { phase: `specialist` });",
+    'send(session, "inline");',
+    "session.send(prompts.prompt);",
+    "session.send(prompts.render(runtime));",
+    "const namespaced = prompts.render(runtime); session.send(namespaced);",
+    "function sendWithRetry(phase: string, text: string) { session.send(text); text = prompt; }",
+    "function runSubmitOnlyRound(session: unknown, text: string) { activeSession.send(text); text += prompt; }",
+    "const send = (session: unknown, text: string) => { session.send(text); text++; };",
+    "const defaultSubmitOnlySend = (activeSession: unknown, activePrompt: string) => activeSession.send(activePrompt);",
+    "function shadowBuilder(render: Function) { const text = render(runtime); session.send(text); }",
+    "function sendWithRetry(phase: string, text: string) { function nested(text: string) { text = prompt; } session.send(text); }",
+    "function sendWithRetry(phase: string, text: string) { ({ text } = runtime); }",
+    "session.send(runtime.flag ? prompt : prompts.prompt);",
+    'session.send(runtime.flag ? prompt : "inline");',
+    'session.send("flag" ? prompt : prompts.prompt);',
+    "session.send(prompt ?? prompts.prompt); session.send(prompt || prompts.prompt);",
+    "session.send(runtime.flag ? (prompt ?? prompts.prompt) : prompts.prompt);",
+    "session.send(prompt ?? foreign);",
+    "const selected = runtime.flag ? render(runtime) : prompts.render(runtime); session.send(selected);",
+    "const templated = `inline ${prompt}`; session.send(templated);",
+    "const cyclic = cyclic; session.send(cyclic);",
+    "",
+  ].join("\n"),
+  "src/agent/specs.ts": [
+    'import { prompt, render } from "../prompts/ask/prompt.js";',
+    "runFeatureAgent({ userContent: prompt, nudge: prompt, repairPrompt: render }, runtime);",
+    'runFeatureAgent({ userContent: "inline", nudge: prompt, repairPrompt: render }, runtime);',
+    "runFeatureAgent({ userContent: prompt, nudge: `inline`, repairPrompt: render }, runtime);",
+    'runFeatureAgent({ userContent: prompt, nudge: prompt, repairPrompt: () => "inline" }, runtime);',
+    "const local = runtime; runFeatureAgent({ userContent: local, nudge: prompt, repairPrompt: render }, runtime);",
+    "createSession({ systemPrompt: prompt, role: `ask` });",
+    'createSession({ systemPrompt: "inline" });',
+    "const systemPrompt = runtime; createSession({ systemPrompt });",
+    'const tool = { description: "tool prose" }; v.description("schema prose");',
+    "runFeatureAgent({ userContent: render({ runtime }), nudge: prompt, repairPrompt: render }, runtime);",
+    "runFeatureAgent({ userContent: setup.userContent, nudge: spec.nudge, repairPrompt: spec.repairPrompt }, runtime);",
+    "createSession({ systemPrompt: params.systemPrompt });",
+    "runFeatureAgent({ repairPrompt: (error: string) => render(error) }, runtime);",
+    "runFeatureAgent({ userContent: setup.other }, runtime);",
+    'const value = { userContent: "inline" };',
+    "const MAP = { ask: prompt, review: render(runtime) }; createSession({ systemPrompt: MAP[role] });",
+    'const BAD_MAP = { ask: prompt, review: "inline" }; createSession({ systemPrompt: BAD_MAP[role] });',
+    "function nestedMap() { const MAP = { ask: prompt }; createSession({ systemPrompt: MAP[role] }); }",
+    "function createFeaturePiSession(params: { systemPrompt: string }) { params = runtime; }",
+    "function runFeatureAgent(spec: unknown) { spec.userContent = prompt; }",
+    "runFeatureAgent({ repairPrompt: (error: string) => { return render(error); } }, runtime);",
+    'runFeatureAgent({ repairPrompt: () => { return "inline"; } }, runtime);',
+    "session.send(spec.repairPrompt(runtime));",
+    "session.send(render({ userContent: runtime.other }));",
+    "const TYPED_MAP = { ask: prompt } satisfies Record<string, string>; createSession({ systemPrompt: TYPED_MAP[role] });",
+    "",
+  ].join("\n"),
+  "src/agent/compaction.ts": [
+    'import { prompt, render } from "../prompts/compaction/prompt.js";',
+    "streamFn(model, { messages: [{ role: `user`, content: [{ type: `text`, text: prompt }], timestamp: Date.now() }] }, { cacheRetention: `none` });",
+    'streamFn(model, { messages: [{ content: [{ text: "inline" }] }] });',
+    "streamFn(model, normalizeContext({ messages: [{ content: [{ text: `inline` }] }] }));",
+    "const local = runtime; streamFn(model, { messages: [{ content: [{ text: local }] }] });",
+    "const built = render(runtime); streamFn(model, normalizeContext({ messages: [{ content: [{ text: built }] }] }));",
+    "streamFn(model, { messages: [{ content: [{ text: render(runtime) }] }] });",
+    "",
+  ].join("\n"),
+  "src/prompts/ask/prompt.ts":
+    'session.send("inline"); createSession({ systemPrompt: "inline" });\n',
+  "test/promptSinks.ts": 'session.send("inline"); createSession({ systemPrompt: "inline" });\n',
+  "scripts/promptSinks.ts": 'session.send("inline"); createSession({ systemPrompt: "inline" });\n',
+};
+
 describe("architecture rules", () => {
   it("keeps prompt modules at src/prompts/<shared|role>/<section|prompt>.ts", () => {
     expect(lintWithPlugin(PROMPT_LAYOUT_PROBE).lines("prompt-layout")).toEqual({
@@ -350,11 +441,25 @@ describe("architecture rules", () => {
 
   it("reports prompt rules only when the config enables them", () => {
     const run = lintWithPlugin(
-      { ...PROMPT_LAYOUT_PROBE, ...PROMPT_IMPORTS_PROBE },
+      { ...PROMPT_LAYOUT_PROBE, ...PROMPT_IMPORTS_PROBE, ...PROMPT_SINKS_PROBE },
       { config: { rules: { "pr-agent/prompt-imports": "error" } } },
     );
     expect(Object.values(run.lines("prompt-layout")).flat()).toEqual([]);
+    expect(Object.values(run.lines("prompt-sinks")).flat()).toEqual([]);
     expect(run.lines("prompt-imports")["src/prompts/shared/context.ts"]).toEqual([1, 2]);
+  });
+
+  it("locks prompt arguments without treating runtime options or other sends as prompts", () => {
+    expect(lintWithPlugin(PROMPT_SINKS_PROBE).lines("prompt-sinks")).toEqual({
+      "src/agent/sinks.ts": [
+        4, 5, 6, 7, 8, 9, 12, 14, 19, 21, 23, 27, 28, 29, 31, 33, 35, 39, 41, 42,
+      ],
+      "src/agent/specs.ts": [3, 4, 5, 6, 8, 9, 15, 16, 18, 19, 20, 21, 23],
+      "src/agent/compaction.ts": [3, 4, 5],
+      "src/prompts/ask/prompt.ts": [],
+      "test/promptSinks.ts": [],
+      "scripts/promptSinks.ts": [],
+    });
   });
 
   it("reports every comment except the two machine directives", () => {
