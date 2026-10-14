@@ -24,7 +24,7 @@ function removal(text, comment) {
   return { range: [comment.start, comment.end], replacement: holdsLineBreak ? "\n" : "" };
 }
 
-const noComments = {
+export default {
   meta: {
     type: "suggestion",
     fixable: "code",
@@ -73,9 +73,4 @@ const noComments = {
       },
     };
   },
-};
-
-export default {
-  meta: { name: "pr-agent" },
-  rules: { "no-comments": noComments },
 };

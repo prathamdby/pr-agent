@@ -156,29 +156,49 @@ type LintReport = {
   diagnostics: { code: string; filename: string; labels: { span: { line: number } }[] }[];
 };
 
-function lintComments(files: Record<string, string>, fix: boolean): CommentLint {
-  const repoConfig: { jsPlugins?: string[]; rules?: Record<string, unknown> } = JSON.parse(
+type PluginRuleConfig = { rules: Record<string, unknown> };
+
+type PluginLint = {
+  lines: (rule: string) => Record<string, number[]>;
+  fixed: Record<string, string>;
+};
+
+function repoPluginRules(): PluginRuleConfig {
+  const repoConfig: { rules?: Record<string, unknown> } = JSON.parse(
     readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
   );
-  const dir = mkdtempSync(join(tmpdir(), "no-comments-"));
+  return {
+    rules: Object.fromEntries(
+      Object.entries(repoConfig.rules ?? {}).filter(([name]) => name.startsWith("pr-agent/")),
+    ),
+  };
+}
+
+function lintWithPlugin(
+  files: Record<string, string>,
+  options: { fix?: boolean; config?: PluginRuleConfig } = {},
+): PluginLint {
+  const repoConfig: { jsPlugins?: string[] } = JSON.parse(
+    readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
+  );
+  const dir = mkdtempSync(join(tmpdir(), "pr-agent-lint-"));
   try {
     const config = {
       jsPlugins: (repoConfig.jsPlugins ?? []).map((entry) => resolve(process.cwd(), entry)),
-      rules: Object.fromEntries(
-        Object.entries(repoConfig.rules ?? {}).filter(([name]) => name.startsWith("pr-agent/")),
-      ),
+      ...(options.config ?? repoPluginRules()),
     };
     const configPath = join(dir, "oxlintrc.json");
     writeFileSync(configPath, JSON.stringify(config));
-    const sources = join(dir, "src");
-    mkdirSync(sources);
-    for (const [name, text] of Object.entries(files)) writeFileSync(join(sources, name), text);
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(join(dir, name, ".."), { recursive: true });
+      writeFileSync(join(dir, name), text);
+    }
     let raw = "";
     try {
       raw = execFileSync(
         join(process.cwd(), "node_modules", ".bin", "oxlint"),
-        ["--format", "json", "-c", configPath, ...(fix ? ["--fix"] : []), sources],
-        { encoding: "utf8" },
+        ["--format", "json", "-c", configPath, ...(options.fix ? ["--fix"] : []), "."],
+        { encoding: "utf8", cwd: dir },
       );
     } catch (error) {
       const stdout = error instanceof Error && "stdout" in error ? error.stdout : undefined;
@@ -186,22 +206,39 @@ function lintComments(files: Record<string, string>, fix: boolean): CommentLint 
       if (!raw.trim().startsWith("{")) throw error;
     }
     const report: LintReport = JSON.parse(raw);
-    const lines: Record<string, number[]> = Object.fromEntries(
-      Object.keys(files).map((name) => [name, []]),
-    );
-    for (const item of report.diagnostics) {
-      if (item.code !== "pr-agent(no-comments)") continue;
-      const name = item.filename.split(/[\\/]/).pop() ?? item.filename;
-      lines[name]?.push(item.labels[0]?.span.line ?? 0);
-    }
-    for (const list of Object.values(lines)) list.sort((a, b) => a - b);
     const fixed = Object.fromEntries(
-      Object.keys(files).map((name) => [name, readFileSync(join(sources, name), "utf8")]),
+      Object.keys(files).map((name) => [name, readFileSync(join(dir, name), "utf8")]),
     );
+    const lines = (rule: string) => {
+      const found: Record<string, number[]> = Object.fromEntries(
+        Object.keys(files).map((name) => [name, []]),
+      );
+      for (const item of report.diagnostics) {
+        if (item.code !== `pr-agent(${rule})`) continue;
+        const name = item.filename.replace(/\\/g, "/");
+        const list = Object.hasOwn(found, name) ? found[name] : undefined;
+        if (!list) throw new Error(`lint diagnostic for unknown probe file: ${name}`);
+        list.push(item.labels[0]?.span.line ?? 0);
+      }
+      for (const list of Object.values(found)) list.sort((a, b) => a - b);
+      return found;
+    };
     return { lines, fixed };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function lintComments(files: Record<string, string>, fix: boolean): CommentLint {
+  const nested = Object.fromEntries(
+    Object.entries(files).map(([name, text]) => [`src/${name}`, text]),
+  );
+  const run = lintWithPlugin(nested, { fix });
+  const flat = <T>(record: Record<string, T>) =>
+    Object.fromEntries(
+      Object.entries(record).map(([name, value]) => [name.slice("src/".length), value]),
+    );
+  return { lines: flat(run.lines("no-comments")), fixed: flat(run.fixed) };
 }
 
 const suppression = (tool: "oxlint" | "eslint", rest: string) => `${tool}-disable${rest}`;
@@ -230,7 +267,96 @@ const JSX_PROBE = "export const view = <div>{/* note */}</div>;\n";
 
 const ASI_PROBE = "export function f() {\n  return /*\n  */ 1;\n}\n";
 
+const PROMPT_LAYOUT_PROBE: Record<string, string> = {
+  "src/prompts/policy/prompt.ts": "export const a = 1;\n",
+  "src/prompts/ask/rules.ts": "export const a = 1;\n",
+  "src/prompts/ask/prompt.tsx": "export const a = 1;\n",
+  "src/prompts/ask/extra/prompt.ts": "export const a = 1;\n",
+  "src/prompts/index.ts": "export const a = 1;\n",
+  "src/prompts/shared/prompt.ts": "export const a = 1;\n",
+  "src/prompts/ask/prompt.ts": "export const a = 1;\n",
+  "src/prompts/security/examples.ts": "export const a = 1;\n",
+  "src/prompts/shared/safety.ts": "export const a = 1;\n",
+  "src/agent/rules.ts": "export const a = 1;\n",
+};
+
+const PROMPT_IMPORTS_PROBE: Record<string, string> = {
+  "src/review/sectionImports.ts": [
+    'import { a } from "../prompts/ask/behavior.js";',
+    'export { b } from "../prompts/shared/context.js";',
+    'export const c = () => import("../prompts/triage/output.js");',
+    'import type { D } from "../prompts/shared/tools.js";',
+    "export const e = [a];",
+    "",
+  ].join("\n"),
+  "src/agent/entryImports.ts": [
+    'import { askSystemPrompt } from "../prompts/ask/prompt.js";',
+    'import { envelope } from "../prompts/shared/safety.js";',
+    'import { a } from "./prompts/ask/behavior.js";',
+    "export const e = [askSystemPrompt, envelope, a];",
+    "",
+  ].join("\n"),
+  "src/prompts/ask/prompt.ts": [
+    'import { loadRepoPolicy } from "../../review/repoPolicy.js";',
+    'import { readFileSync } from "node:fs";',
+    'import type { Config } from "../../settings/config.js";',
+    'import { ASK_RETRY_NUDGE } from "../../settings/askConstants.js";',
+    'import { MAX_TOOL_ROUNDS } from "../../settings/index.js";',
+    'import { escape } from "../../util/escape.js";',
+    'import { renderGuestCatalogue } from "../../agent/codemode/guestCatalogue.js";',
+    'import { envelope } from "../shared/safety.js";',
+    'import { askOutput } from "./output.js";',
+    "export const e = [loadRepoPolicy, readFileSync, ASK_RETRY_NUDGE, MAX_TOOL_ROUNDS];",
+    "export const f = [escape, renderGuestCatalogue, envelope, askOutput];",
+    "export type G = Config;",
+    "",
+  ].join("\n"),
+  "src/prompts/shared/context.ts": [
+    'import { triageSystemPrompt } from "../triage/prompt.js";',
+    'import type { AskInput } from "../ask/context.js";',
+    'import { envelope } from "./safety.js";',
+    "export const e = [triageSystemPrompt, envelope];",
+    "export type F = AskInput;",
+    "",
+  ].join("\n"),
+  "test/promptImports.ts": 'import { a } from "../src/prompts/ask/behavior.js";\nexport { a };\n',
+};
+
 describe("architecture rules", () => {
+  it("keeps prompt modules at src/prompts/<shared|role>/<section|prompt>.ts", () => {
+    expect(lintWithPlugin(PROMPT_LAYOUT_PROBE).lines("prompt-layout")).toEqual({
+      "src/prompts/policy/prompt.ts": [1],
+      "src/prompts/ask/rules.ts": [1],
+      "src/prompts/ask/prompt.tsx": [1],
+      "src/prompts/ask/extra/prompt.ts": [1],
+      "src/prompts/index.ts": [1],
+      "src/prompts/shared/prompt.ts": [1],
+      "src/prompts/ask/prompt.ts": [],
+      "src/prompts/security/examples.ts": [],
+      "src/prompts/shared/safety.ts": [],
+      "src/agent/rules.ts": [],
+    });
+  });
+
+  it("limits import edges into, inside, and out of src/prompts/", () => {
+    expect(lintWithPlugin(PROMPT_IMPORTS_PROBE).lines("prompt-imports")).toEqual({
+      "src/review/sectionImports.ts": [1, 2, 3, 4],
+      "src/agent/entryImports.ts": [],
+      "src/prompts/ask/prompt.ts": [1, 2],
+      "src/prompts/shared/context.ts": [1, 2],
+      "test/promptImports.ts": [],
+    });
+  });
+
+  it("reports prompt rules only when the config enables them", () => {
+    const run = lintWithPlugin(
+      { ...PROMPT_LAYOUT_PROBE, ...PROMPT_IMPORTS_PROBE },
+      { config: { rules: { "pr-agent/prompt-imports": "error" } } },
+    );
+    expect(Object.values(run.lines("prompt-layout")).flat()).toEqual([]);
+    expect(run.lines("prompt-imports")["src/prompts/shared/context.ts"]).toEqual([1, 2]);
+  });
+
   it("reports every comment except the two machine directives", () => {
     const { lines } = lintComments(
       { "probe.ts": COMMENT_PROBE, "view.tsx": JSX_PROBE, "asi.mjs": ASI_PROBE },
