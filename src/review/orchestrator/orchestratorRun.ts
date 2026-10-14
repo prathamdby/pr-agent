@@ -75,6 +75,49 @@ import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
 import { wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
 
+export const ORCHESTRATOR_MISSING_BRIEF_ERROR = "No specialist brief was submitted.";
+
+export const ORCHESTRATOR_MISSING_SUMMARY_ERROR = "The summary was not published.";
+
+export const ORCHESTRATOR_RECOVER_SUMMARY_INSTRUCTION =
+  "Call publish_summary now with the complete final review. Do not reply with prose only.";
+
+export function renderOrchestratorRecoveryBootstrap(params: {
+  readonly userContent: string;
+  readonly briefSerialized: string;
+  readonly reportsSerialized: readonly {
+    readonly specialist: string;
+    readonly reportSerialized: string;
+  }[];
+  readonly ledgerSerialized: string;
+  readonly prompt: string;
+}): string {
+  return [
+    params.userContent,
+    wrapUntrustedEvidence("cached_review_brief", params.briefSerialized),
+    ...params.reportsSerialized.map(({ specialist, reportSerialized }) =>
+      wrapUntrustedEvidence(`cached_report_${specialist}`, reportSerialized),
+    ),
+    wrapUntrustedEvidence("reconstructed_finding_ledger", params.ledgerSerialized),
+    params.prompt,
+  ].join("\n\n");
+}
+
+export function renderOrchestratorReconTurn(userContent: string): string {
+  return [userContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n");
+}
+
+export function renderOrchestratorBriefRepair(validationError: string): string {
+  return [
+    validationError,
+    "Fix the brief and call submit_specialist_brief now. This repair turn allows only a couple of tool calls, so submit from what you already found.",
+  ].join("\n\n");
+}
+
+export function renderOrchestratorSummaryRepair(validationError: string): string {
+  return [validationError, "Fix the summary and call publish_summary now."].join("\n\n");
+}
+
 function ownVerdictPublishParams(params: ReviewRunParams): {
   readonly workItemId?: string;
   readonly resourceKey: string;
@@ -642,31 +685,25 @@ export async function runOrchestratedPrReview(
     options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs" | "reservedTerminalTool">,
   ): Promise<SendResult> => {
     phaseRef.current = phase;
+    const turnPrompt = recoveryBootstrapPending
+      ? renderOrchestratorRecoveryBootstrap({
+          userContent: setup.orchestratorUserContent,
+          briefSerialized: JSON.stringify(cachedBrief ?? {}),
+          reportsSerialized: [...cachedReports]
+            .filter(
+              ([specialist]) =>
+                !recoveredSources.has(specialist) && state.specialists[specialist].phase !== "done",
+            )
+            .flatMap(([specialist, outcome]) =>
+              outcome.kind === "report" || (outcome.kind === "empty" && outcome.report)
+                ? [{ specialist, reportSerialized: JSON.stringify(outcome.report) }]
+                : [],
+            ),
+          ledgerSerialized: JSON.stringify(publishThread.getLedger().accepted),
+          prompt,
+        })
+      : prompt;
     if (recoveryBootstrapPending) {
-      prompt = [
-        setup.orchestratorUserContent,
-        wrapUntrustedEvidence("cached_review_brief", JSON.stringify(cachedBrief ?? {})),
-        ...[...cachedReports]
-          .filter(
-            ([specialist]) =>
-              !recoveredSources.has(specialist) && state.specialists[specialist].phase !== "done",
-          )
-          .flatMap(([specialist, outcome]) =>
-            outcome.kind === "report" || (outcome.kind === "empty" && outcome.report)
-              ? [
-                  wrapUntrustedEvidence(
-                    `cached_report_${specialist}`,
-                    JSON.stringify(outcome.report),
-                  ),
-                ]
-              : [],
-          ),
-        wrapUntrustedEvidence(
-          "reconstructed_finding_ledger",
-          JSON.stringify(publishThread.getLedger().accepted),
-        ),
-        prompt,
-      ].join("\n\n");
       recoveryBootstrapPending = false;
     }
     let firstError: AppError | null = null;
@@ -716,7 +753,7 @@ export async function runOrchestratedPrReview(
         };
       }
       try {
-        const sendPromise = session.send(prompt, {
+        const sendPromise = session.send(turnPrompt, {
           ...options,
           phase,
           checkpointId: `${session.role}:${phase}`,
@@ -1075,7 +1112,7 @@ export async function runOrchestratedPrReview(
         if (cachedBrief || recoveredSummary) break;
         const recon = await sendWithRetry(
           "recon",
-          [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
+          renderOrchestratorReconTurn(setup.orchestratorUserContent),
           { maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation) },
         );
         if (recon.kind === "sent") lastText = recon.text;
@@ -1087,15 +1124,12 @@ export async function runOrchestratedPrReview(
           rounds: VALIDATION_REPAIR_ROUNDS,
           shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
           getValidationError: () =>
-            briefTool.getValidationError() ?? "No specialist brief was submitted.",
+            briefTool.getValidationError() ?? ORCHESTRATOR_MISSING_BRIEF_ERROR,
           clearValidationError: briefTool.clearValidationError,
           repair: async (validationError) => {
             const repair = await sendWithRetry(
               "recon",
-              [
-                validationError,
-                "Fix the brief and call submit_specialist_brief now. This repair turn allows only a couple of tool calls, so submit from what you already found.",
-              ].join("\n\n"),
+              renderOrchestratorBriefRepair(validationError),
               { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );
             if (repair.kind === "sent") lastText = repair.text;
@@ -1341,14 +1375,14 @@ export async function runOrchestratedPrReview(
           shouldContinue: () =>
             !summaryState.published && !sessionRetired && state.lifecycle.kind === "running",
           getValidationError: () =>
-            summaryState.lastValidationError ?? "The summary was not published.",
+            summaryState.lastValidationError ?? ORCHESTRATOR_MISSING_SUMMARY_ERROR,
           clearValidationError: () => {
             summaryState.lastValidationError = null;
           },
           repair: async (validationError) => {
             const repair = await sendWithRetry(
               "synthesis",
-              [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
+              renderOrchestratorSummaryRepair(validationError),
               { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );
             if (repair.kind === "sent") lastText = repair.text;
@@ -1363,7 +1397,7 @@ export async function runOrchestratedPrReview(
         recoveryRoundsRun += 1;
         const summaryRecovery = await sendWithRetry(
           "synthesis",
-          "Call publish_summary now with the complete final review. Do not reply with prose only.",
+          ORCHESTRATOR_RECOVER_SUMMARY_INSTRUCTION,
           { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
         );
         if (summaryRecovery.kind === "sent") lastText = summaryRecovery.text;
