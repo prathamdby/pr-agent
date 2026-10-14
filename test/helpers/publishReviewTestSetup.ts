@@ -93,11 +93,6 @@ export function createPublishReviewTestHarness(options?: {
   };
 }
 
-/** @deprecated Prefer createPublishReviewTestHarness().surface */
-export function makePublishReviewTestPrSurface() {
-  return createPublishReviewTestHarness().surface;
-}
-
 export function publishReviewTestBaseParams(
   harness: PublishReviewTestHarness,
   overrides: Record<string, unknown> = {},

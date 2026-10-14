@@ -337,7 +337,7 @@ client. CI projection and direct comment edits do not share this lock.
 - Keep external parsing and validation at the boundary. Trust validated internal values.
 - Make operations idempotent. Assume a webhook, queue delivery, lease renewal, or publish step can run twice or stop halfway.
 - Keep call chains short. A wrapper must hide a real policy or adaptation or it should not exist.
-- Comments explain why a non-obvious constraint exists. They do not narrate the next line of code.
+- No source comments. Encode constraints in names, types, guards, or an ADR ([ADR 0051](docs/adr/0051-no-source-comments.md)).
 
 ## Additional guidance
 

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { countEscapeCalls } from "./count-escape-calls.mjs";
+import { forcedOxlintConfig } from "./forcedOxlintConfig.mjs";
 
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ROWS_DIR = path.join(SCRIPT_ROOT, "scripts", "guards");
@@ -117,12 +118,7 @@ function countOxRule(tree, row) {
     ".bin",
     process.platform === "win32" ? "oxlint.cmd" : "oxlint",
   );
-  // Globs in the config are relative to the tree. The bytes always come from the
-  // script checkout, so a head .oxlintrc.json cannot turn a counted rule off.
-  const forced = JSON.parse(fs.readFileSync(path.join(SCRIPT_ROOT, ".oxlintrc.json"), "utf8"));
-  for (const override of forced.overrides ?? []) {
-    if (override.rules) delete override.rules[row.rule];
-  }
+  const forced = forcedOxlintConfig(SCRIPT_ROOT, row.rule);
   const config = path.join(tree, `.guard-oxlint-${process.pid}-${crypto.randomUUID()}.json`);
   fs.writeFileSync(config, JSON.stringify(forced), { flag: "wx" });
   let raw = "";
@@ -194,8 +190,6 @@ function gitOk(args) {
   }
 }
 
-// CI checks out the pull request at depth 1, so origin/main and the commits
-// between it and HEAD are absent until this fetch.
 function ensureMergeBase() {
   if (!gitOk(["rev-parse", "--verify", "--quiet", "origin/main"])) {
     execFileSync("git", ["fetch", "--no-tags", "origin", "main:refs/remotes/origin/main"], {

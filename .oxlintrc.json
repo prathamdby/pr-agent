@@ -1,11 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "vitest"],
+  "jsPlugins": ["./scripts/lint/no-comments.mjs"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"
   },
   "rules": {
+    "pr-agent/no-comments": "error",
     "eslint/no-underscore-dangle": [
       "warn",
       {
@@ -16,7 +18,7 @@
   "env": {
     "node": true
   },
-  "ignorePatterns": ["dist/**", "test/__snapshots__/**", "coverage/**"],
+  "ignorePatterns": ["dist/**", "test/__snapshots__/**", "coverage/**", "site/routeTree.gen.ts"],
   "options": {
     "typeAware": true,
     "typeCheck": false
