@@ -411,6 +411,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         traceSpanId = trace.endSend(
           "failed",
           error instanceof AppError ? error.code : "runtime.session_send_failed",
+          error instanceof Error ? error.message : undefined,
         );
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
         emit({

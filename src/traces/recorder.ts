@@ -37,7 +37,6 @@ export type TraceDraft = {
   readonly ttftMs?: number;
   readonly reasoningMs?: number;
   readonly isError?: boolean;
-  readonly error?: string;
   readonly phase?: string;
   readonly role?: string;
   readonly specialist?: string;
@@ -50,6 +49,7 @@ export type TraceDraft = {
   readonly costUsd?: number;
   readonly input?: unknown;
   readonly outputChoices?: unknown;
+  readonly error?: string | { readonly code: string; readonly message: string };
   readonly tools?: unknown;
   readonly inputState?: unknown;
   readonly outputState?: unknown;
@@ -535,10 +535,20 @@ function metadataOnly(properties: Record<string, unknown>): Record<string, unkno
 }
 
 function elideInput(input: unknown): unknown {
-  if (!Array.isArray(input) || input.length < 3) return markerValue(input);
-  const head = input[0];
-  const tail = input[input.length - 1];
+  if (!Array.isArray(input)) return markerValue(input);
+  const bounded = input.map((message) => boundMessage(message));
+  if (bounded.length < 3) return bounded;
+  const head = bounded[0];
+  const tail = bounded[bounded.length - 1];
   return [head, { role: "user", content: MARKER }, tail];
+}
+
+function boundMessage(message: unknown): unknown {
+  if (!isPlainObject(message)) return markerValue(message);
+  const next: Record<string, unknown> = { ...message };
+  if (typeof next.content === "string") next.content = markerValue(next.content);
+  else if (Array.isArray(next.content)) next.content = next.content.slice(0, 8).map(truncatePart);
+  return next;
 }
 
 function markerValue(value: unknown): unknown {
@@ -563,15 +573,27 @@ function shrinkHostCalls(value: unknown): unknown {
 
 function truncateChoices(value: unknown): unknown {
   if (!Array.isArray(value)) return markerValue(value);
-  return value.map((choice) => {
-    if (!isPlainObject(choice)) return choice;
-    const next: Record<string, unknown> = { ...choice };
-    for (const key of ["text", "thinking", "arguments"]) {
-      const field = next[key];
-      if (typeof field === "string" && field.length > 2048) {
-        next[key] = `${field.slice(0, 2048)}\n${MARKER}`;
+  return value.map((choice) => truncatePart(choice));
+}
+
+function truncatePart(part: unknown): unknown {
+  if (!isPlainObject(part)) return part;
+  const next: Record<string, unknown> = { ...part };
+  for (const key of ["text", "thinking", "content", "arguments"]) {
+    const field = next[key];
+    if (typeof field === "string" && field.length > 2048) {
+      next[key] = `${field.slice(0, 2048)}\n${MARKER}`;
+    } else if (Array.isArray(field)) {
+      next[key] = field.slice(0, 8).map((item) => truncatePart(item));
+    } else if (field != null && typeof field === "object") {
+      try {
+        const json = JSON.stringify(field);
+        if (json.length > 2048) next[key] = `${json.slice(0, 2048)}\n${MARKER}`;
+      } catch {
+        next[key] = MARKER;
       }
     }
-    return next;
-  });
+  }
+  if (isPlainObject(next.function)) next.function = truncatePart(next.function);
+  return next;
 }

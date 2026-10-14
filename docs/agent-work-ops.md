@@ -123,9 +123,13 @@ under the same work item. The four specialists share the execution. Query
 latency, and ids remain after that drop. AI events are billed and do not update
 person profiles.
 
-Each generation carries the transcript seen so far. Tool definitions are
-`$ai_tools`. Thinking is an output choice. An event over 1 MiB keeps output
-and elides middle input behind `[trace content truncated]`. The queue holds 400
+Each generation carries the transcript seen so far, in PostHog's message
+shape: `role` plus `content`. Thinking is a content part. A model tool call is
+a `function` part, so the script the model sent is in `$ai_output_choices`.
+Tool definitions are `$ai_tools` in the function-tool shape. Message text is
+capped at 8,192 characters and a system prompt at 24,576, with
+`[trace content truncated]` on the cut. An event over 1 MiB keeps that bounded
+output and elides middle input behind the same marker. The queue holds 400
 spans and 8 MiB. An event that still does not fit, or arrives when the queue is
 full, is sent metadata-only with `trace_content_dropped=true` and logs
 `agent_trace_event_degraded` or `agent_trace_span_degraded`. Those events use a
@@ -136,11 +140,17 @@ None of these logs carry content or change the durable outcome. The
 `trace_events_truncated`; nonzero values mean the trace is incomplete. `agent_trace_shutdown_incomplete` means the
 shutdown reserve ended before the client flushed. A crash can lose the buffer.
 
+A tool span's `$ai_input_state` and `$ai_output_state` are the bounded
+arguments and result. `input_sha256` is the SHA-256 of the redacted arguments.
+`execute` also sets `code_sha256` from the redacted `code` string. A cancelled
+tool with no result has output `{ status: "cancelled" }`. `$ai_error` is
+`{ code, message }` when the call failed.
+
 A Code Mode `tool:execute` span lists each host call in `codemode_host_calls`:
-`tool`, `input`, `status` (`completed`, `error`, or `in_flight`), `duration_ms`
-or `elapsed_ms`, `error_kind`, `output_bytes`, and a redacted
-`output_preview` of at most 4,096 characters. `in_flight` means the call was
-still running when the script ended. To find where a long session spent its
+`tool`, `input`, `input_sha256`, `status` (`completed`, `error`, or
+`in_flight`), `duration_ms` or `elapsed_ms`, `error_kind`, `output_bytes`, and
+a redacted `output_preview` of at most 4,096 characters. `in_flight` means the
+call was still running when the script ended. To find where a long session spent its
 tool time, open its `tool:execute` spans and sort the host calls by
 `duration_ms`. Repeated `tool` and `input` pairs across spans point to a loop.
 Host-call content goes to PostHog only; it never enters `agent_events`.
@@ -148,9 +158,14 @@ Host-call content goes to PostHog only; it never enters `agent_events`.
 The `session` span summarizes a session: `turns`, `tool_calls`, `host_calls`,
 `tool_ms_total`, `model_ms_total`, `last_tool`, `last_end`, and `error_code`.
 `repeat_host_calls` counts host calls with the same tool and input as an
-earlier call, and `repeat_top` names the most repeated host tools. A large
-`ms_since_last_activity` means the session stalled rather than looped. To list
-looping sessions:
+earlier call. `repeat_top` is `tool:hash:count` for the most repeated host
+tools, and `repeat_code_top` is `hash:count` for repeated `execute` scripts.
+The hash is 12 hex characters. Neither field contains the script. A large
+`ms_since_last_activity` means the session stalled rather than looped. A
+cancelled or failed session also sets `$ai_input_state.last_turns`,
+`$ai_input_state.partial_findings`, and `$ai_output_state.why` plus
+`last_tool`, so a specialist that hits its deadline inside `execute` can be
+read from this span. To list looping sessions:
 
 ```sql
 SELECT properties.$ai_trace_id, properties.specialist_id,
@@ -170,7 +185,9 @@ streamed before the cutoff; `turn_index` orders the turns.
 If generations and tool spans show timing but no `$ai_input`,
 `$ai_output_choices`, `$ai_input_state`, or `codemode_host_calls`, check the
 PostHog project's AI privacy mode first. Privacy mode strips content on the
-PostHog side.
+PostHog side. Those properties live on `posthog.ai_events`, not on the slim
+`events` properties. A generation whose choices have no `role` and `content`
+also renders as an empty conversation.
 
 Folded provider retries are one generation, not model latency. Unknown catalog
 prices are omitted, not sent as zero. `raw_stop_reason` of `refusal` means the
