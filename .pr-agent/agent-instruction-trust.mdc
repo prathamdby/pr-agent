@@ -3,7 +3,7 @@ globs:
   - "src/review/agentInstructionFiles.ts"
   - "src/review/runReviewForWorkItem.ts"
   - "src/review/prompts/**"
-  - "src/agent/prompts/promptBlocks.ts"
+  - "src/prompts/shared/safety.ts"
   - "src/settings/reviewConstants.ts"
   - "test/agentInstructionFiles.test.ts"
 ---

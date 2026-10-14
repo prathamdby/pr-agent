@@ -316,7 +316,7 @@ client. CI projection and direct comment edits do not share this lock.
   permission alternatives. `src/agentWork/githubCapabilityRepository.ts` owns
   generation-ordered scoped observations, CI source restoration/revisions,
   preflight counters, and retention.
-- `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
+- `src/agent/` owns Pi sessions, tools, and feature logic. Legacy personas stay in `src/agent/prompts/`; `src/prompts/shared/` owns shared prose, and `src/prompts/<role>/prompt.ts` owns role harnesses.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - AI traces: `src/traces/`. PostHog is the only trace store. [ADR 0050](docs/adr/0050-posthog-ai-traces.md).
