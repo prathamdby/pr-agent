@@ -6,6 +6,11 @@ Accepted. Supersedes [ADR 0046](0046-agent-traces.md).
 
 > **Changelog:** 2026-10-09, startup does not read `TRACES_MODE`,
 > `TRACES_RETENTION_SECONDS`, or `TRACES_BUFFER_MAX_SPANS`.
+> 2026-10-14, Code Mode `tool:execute` spans carry `codemode_host_calls`. See
+> [Code Mode host calls](#code-mode-host-calls).
+> 2026-10-14, overflow degrades to a metadata-only event instead of dropping,
+> and session, generation, execution, and specialist spans carry loop, cutoff,
+> and loss fields. See [Loop, cutoff, and loss fields](#loop-cutoff-and-loss-fields).
 
 ## Context
 
@@ -40,8 +45,8 @@ cancelled`.
 Each event is measured as `Buffer.byteLength(JSON.stringify(event))` after
 redaction and must be at most 1 MiB. The fit order keeps identity, then output
 choices, then tool definitions, then input. Middle input messages are elided
-behind `[trace content truncated]`. An event that still does not fit is dropped
-and logged, with no content in the log. The worker queues at most 400 spans and
+behind `[trace content truncated]`. An event that still does not fit is sent
+metadata-only (see below). The worker queues at most 400 spans and
 8 MiB. Bytes stay counted until the client's flush settles. Flush interval is 0
 on the AI client so the recorder owns the batch. Send failure is a warning and
 does not change the durable outcome.
@@ -64,6 +69,62 @@ PostHog keeps AI event content for 30 days. Model, tokens, latency, and ids
 remain after that. AI events are billed and do not update person profiles.
 
 Traces are not recovery evidence.
+
+### Code Mode host calls
+
+A specialist's reads and searches run as host calls inside one `execute`
+script, so tool arguments and results alone did not show them. Each
+`tool:execute` span now carries `codemode_host_calls`, one entry per admitted
+call: tool, input, status, duration, error kind, output bytes, and an output
+preview. A call still running when the script ends is `in_flight` with its
+elapsed time. Inputs are capped at 2,048 characters and previews at 4,096.
+Redaction runs on the preview plus 8,192 characters of lookahead before the
+cut, so a credential block that starts inside the preview is matched whole.
+The fit order elides input, then shrinks host-call previews, then replaces
+host calls with the marker, then continues with tool definitions.
+
+The record is trace-only. It never enters lifecycle events or `agent_events`,
+and the result the model sees is unchanged. A failing tracer does not change a
+Code Mode result.
+
+Failure modes recorded before implementation: the tracer throws into the
+bridge; host content reaches lifecycle events or `agent_events`; a secret
+survives a truncated preview; a call still running at script end is lost; the
+event exceeds 1 MiB; the model-visible result changes.
+
+### Loop, cutoff, and loss fields
+
+A specialist that loops or hits its deadline used to leave only timing. The
+session span now carries `turns`, `tool_calls`, `host_calls`,
+`repeat_host_calls`, `repeat_top`, `repeat_tool_calls`, `tool_ms_total`,
+`model_ms_total`, `ms_since_last_activity`, `last_tool`, `last_end`, and the
+raw `error_code`. A repeat is a host call whose tool name and SHA-256 of its
+redacted input match an earlier call in the same session. `repeat_top` lists
+the three most repeated host tools as `tool:count`, with no input text.
+`ms_since_last_activity` counts from the last streamed token, delivered
+message, tool end, or host call, so a cutoff does not reset it.
+
+Each generation carries `turn_index`. A generation cut off before a final
+message, or ended with an empty one, keeps the text and reasoning streamed so
+far and sets `partial=true`.
+
+On overflow the recorder sends the event metadata-only instead of dropping it:
+content properties are removed, strings longer than 256 characters become the
+marker, and `trace_content_dropped=true` is set. Overflow events use a separate
+reserve of 50 events and 64 KiB, so full-content traffic cannot use it up. The
+execution span carries no content and goes to the reserve unchanged when the
+main queue is full. An event that does not fit the reserve is dropped. The
+execution span reports `trace_events_dropped`, `trace_events_degraded`, and
+`trace_events_truncated` for its trace.
+
+The specialist `run` span carries `classification`, `attempts`, and
+`deadline_hit` for a failed run. These are metadata and also reach
+`agent_events`.
+
+Failure modes recorded before implementation: a loop through `execute` goes
+undetected; an aborted generation loses its text; normal traffic uses up the
+reserve; the execution span is dropped; the specialist span loses its
+classification.
 
 ## Consequences
 

@@ -69,6 +69,9 @@ export type SpecialistWorkSpan = WorkSpanBase & {
   readonly submittedCount?: number;
   readonly acceptedCount?: number;
   readonly rejectedCount?: number;
+  readonly classification?: string;
+  readonly attempts?: number;
+  readonly deadlineHit?: boolean;
 };
 
 export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan | SpecialistWorkSpan;
@@ -167,6 +170,9 @@ export function projectWorkSpanToAgentEventRow(
           ...(span.submittedCount != null ? { submittedCount: span.submittedCount } : {}),
           ...(span.acceptedCount != null ? { acceptedCount: span.acceptedCount } : {}),
           ...(span.rejectedCount != null ? { rejectedCount: span.rejectedCount } : {}),
+          ...(span.classification != null ? { classification: span.classification } : {}),
+          ...(span.attempts != null ? { attempts: span.attempts } : {}),
+          ...(span.deadlineHit != null ? { deadlineHit: span.deadlineHit } : {}),
         },
       };
     default: {
@@ -238,6 +244,9 @@ export function specialistSpanFromContext(input: {
   readonly submittedCount?: number;
   readonly acceptedCount?: number;
   readonly rejectedCount?: number;
+  readonly classification?: string;
+  readonly attempts?: number;
+  readonly deadlineHit?: boolean;
 }): SpecialistWorkSpan {
   return {
     workItemId: input.context.workItemId,
@@ -261,6 +270,9 @@ export function specialistSpanFromContext(input: {
     ...(input.submittedCount != null ? { submittedCount: input.submittedCount } : {}),
     ...(input.acceptedCount != null ? { acceptedCount: input.acceptedCount } : {}),
     ...(input.rejectedCount != null ? { rejectedCount: input.rejectedCount } : {}),
+    ...(input.classification != null ? { classification: input.classification } : {}),
+    ...(input.attempts != null ? { attempts: input.attempts } : {}),
+    ...(input.deadlineHit != null ? { deadlineHit: input.deadlineHit } : {}),
   };
 }
 

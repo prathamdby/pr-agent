@@ -6,6 +6,7 @@ import {
   combineAbortSignals,
   type AgentRunnerToolExecutor,
   type AgentToolCallContext,
+  type HostCallOutcome,
 } from "../providers/interface.js";
 import { toolExecutionMode } from "./toolExecutionMode.js";
 import { errorMessage } from "../../errors/errorMessage.js";
@@ -57,12 +58,21 @@ function isRejectedTerminalResult(result: unknown): boolean {
   return (result.accepted === false || result.ok === false) && typeof result.error === "string";
 }
 
+export type ToolCallTrace = {
+  readonly toolMetadata: (toolCallId: string, event: AgentLifecycleEvent) => void;
+  readonly hostCall: (
+    toolCallId: string,
+    tool: string,
+    input: unknown,
+  ) => ((outcome: HostCallOutcome) => void) | undefined;
+};
+
 export function toCoreTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
-  observe?: (toolCallId: string, event: AgentLifecycleEvent) => void,
+  trace?: ToolCallTrace,
 ): AgentTool {
   const executionMode = toolExecutionMode(tool.name);
   return {
@@ -96,7 +106,13 @@ export function toCoreTool(
         const ctx: AgentToolCallContext = {
           signal: combineAbortSignals([loopSignal, hostSignal]),
           toolCallId,
-          ...(observe ? { emit: (event: AgentLifecycleEvent) => observe(toolCallId, event) } : {}),
+          ...(trace
+            ? {
+                emit: (event: AgentLifecycleEvent) => trace.toolMetadata(toolCallId, event),
+                traceHostCall: (name: string, input: unknown) =>
+                  trace.hostCall(toolCallId, name, input),
+              }
+            : {}),
         };
         const result = await executor(asToolArgs(params), ctx);
         if (TERMINAL_SUBMIT_TOOLS.has(tool.name) && isRejectedTerminalResult(result)) {
@@ -143,9 +159,9 @@ export function toCoreTools(
   executors: Record<string, AgentRunnerToolExecutor>,
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
-  observe?: (toolCallId: string, event: AgentLifecycleEvent) => void,
+  trace?: ToolCallTrace,
 ): AgentTool[] {
   return tools.map((tool) =>
-    toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool, observe),
+    toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool, trace),
   );
 }

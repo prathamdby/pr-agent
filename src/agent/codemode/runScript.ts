@@ -10,6 +10,7 @@ import type {
 import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { combineAbortSignals } from "../providers/abortSignals.js";
+import type { HostCallTracer } from "../providers/interface.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
 import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.js";
 import type { CodeModeResult } from "./result.js";
@@ -116,6 +117,7 @@ export async function runCodeModeScript(params: {
   readonly capabilities: CodeModeCapabilityExecutors;
   readonly signal?: AbortSignal;
   readonly emit?: (event: AgentLifecycleEvent) => void;
+  readonly traceHostCall?: HostCallTracer;
   readonly role?: AgentSessionRole;
   readonly provider?: string;
   readonly model?: string;
@@ -140,6 +142,7 @@ export async function runCodeModeScript(params: {
     capabilities: params.capabilities,
     signal: params.signal,
     emit: params.emit,
+    traceHostCall: params.traceHostCall,
     role: params.role,
     provider: params.provider,
     model: params.model,

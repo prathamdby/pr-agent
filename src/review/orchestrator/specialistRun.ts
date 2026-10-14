@@ -408,6 +408,7 @@ async function runAttempt(
 function failureOutcome(params: {
   readonly specialist: SpecialistId;
   readonly startedAtMs: number;
+  readonly deadlineMs: number;
   readonly attempts: number;
   readonly classification: ProviderErrorKind;
   readonly cause: unknown;
@@ -424,9 +425,25 @@ function failureOutcome(params: {
         specialist: params.specialist,
         classification: params.classification,
         attempts: params.attempts,
+        deadlineHit: Date.now() >= params.deadlineMs,
       },
       cause: params.cause,
     }),
+  };
+}
+
+function failureFacts(
+  outcome: SpecialistOutcome,
+): Pick<
+  Parameters<typeof specialistSpanFromContext>[0],
+  "classification" | "attempts" | "deadlineHit"
+> {
+  if (outcome.kind !== "error") return {};
+  const { classification, attempts, deadlineHit } = outcome.error.context;
+  return {
+    ...(typeof classification === "string" ? { classification } : {}),
+    ...(typeof attempts === "number" ? { attempts } : {}),
+    ...(typeof deadlineHit === "boolean" ? { deadlineHit } : {}),
   };
 }
 
@@ -451,6 +468,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
     return failureOutcome({
       specialist: params.specialist,
       startedAtMs,
+      deadlineMs,
       attempts,
       classification,
       cause: lastError,
@@ -510,6 +528,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
   return failureOutcome({
     specialist: params.specialist,
     startedAtMs,
+    deadlineMs,
     attempts,
     classification,
     cause: lastError,
@@ -530,6 +549,7 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
     outcome: outcome.kind,
     latencyMs: outcome.durationMs,
     ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
+    ...failureFacts(outcome),
   });
   return outcome;
 }

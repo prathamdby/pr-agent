@@ -1,7 +1,11 @@
 import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 import { AppError, isAppError } from "../../errors/appError.js";
 import type { AppErrorCode, AppErrorKind } from "../../errors/appErrorCodes.js";
-import { idleAbortSignal } from "../providers/interface.js";
+import {
+  idleAbortSignal,
+  type HostCallOutcome,
+  type HostCallTracer,
+} from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
@@ -77,10 +81,33 @@ function emitInnerTool(
   });
 }
 
+type CloseHostCall = (outcome: HostCallOutcome) => void;
+
+function openHostCallTrace(
+  tracer: HostCallTracer | undefined,
+  tool: string,
+  input: unknown,
+): CloseHostCall | undefined {
+  if (!tracer) return undefined;
+  try {
+    return tracer(tool, input);
+  } catch {
+    return undefined;
+  }
+}
+
+function closeHostCallTrace(close: CloseHostCall | undefined, outcome: HostCallOutcome): void {
+  if (!close) return;
+  try {
+    close(outcome);
+  } catch {}
+}
+
 export function createCodeModeCapabilityBridge(params: {
   readonly capabilities: CodeModeCapabilityExecutors;
   readonly signal?: AbortSignal;
   readonly emit?: (event: AgentLifecycleEvent) => void;
+  readonly traceHostCall?: HostCallTracer;
   readonly role?: AgentSessionRole;
   readonly provider?: string;
   readonly model?: string;
@@ -142,7 +169,16 @@ export function createCodeModeCapabilityBridge(params: {
       );
     }
     admittedCalls += 1;
-    await acquireInFlight(signal);
+    const closeTrace = openHostCallTrace(params.traceHostCall, name, args);
+    try {
+      await acquireInFlight(signal);
+    } catch (error) {
+      closeHostCallTrace(closeTrace, {
+        status: "error",
+        errorKind: error instanceof CodeModeHostHalt ? error.code : "UNKNOWN",
+      });
+      throw error;
+    }
     try {
       const output = await executor(args, {
         signal,
@@ -174,11 +210,21 @@ export function createCodeModeCapabilityBridge(params: {
         ledger: params.evidenceLedger,
         headSha: params.headSha,
       });
-      transferredBytes += utf8ByteLength(guest);
+      const guestBytes = utf8ByteLength(guest);
+      transferredBytes += guestBytes;
+      closeHostCallTrace(closeTrace, {
+        status: "completed",
+        output: guest,
+        outputBytes: guestBytes,
+      });
       return guest;
     } catch (error) {
-      if (error instanceof CodeModeHostHalt) throw error;
+      if (error instanceof CodeModeHostHalt) {
+        closeHostCallTrace(closeTrace, { status: "error", errorKind: error.code });
+        throw error;
+      }
       const classified = classifyCapabilityFailure(error);
+      closeHostCallTrace(closeTrace, { status: "error", errorKind: classified.kind });
       toolCalls.push({ tool: name, status: "error", input: args });
       emitInnerTool(params.emit, {
         tool: name,

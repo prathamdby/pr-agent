@@ -122,7 +122,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     params.executors,
     params.hostSignal,
     params.refreshBeforeTool,
-    trace.toolMetadata,
+    trace,
   );
 
   let abortPromise: Promise<void> | undefined;

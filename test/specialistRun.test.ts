@@ -73,6 +73,17 @@ const correctnessBrief = {
   },
 };
 
+const agentEventsContext = {
+  pool: {} as never,
+  workItemId: "work",
+  installationId: 1,
+  owner: "owner",
+  repo: "repo",
+  prNumber: 2,
+  executionId: "execution",
+  attemptCount: 2,
+};
+
 const findingsReport = { status: "findings", findings: [finding] } as const;
 const emptyReport = { status: "no_findings", findings: [] } as const;
 
@@ -202,16 +213,7 @@ describe("runSpecialist", () => {
 
   it("emits schema and run spans at the specialist boundary without fabricating generations", async () => {
     runnerMocks.behaviors.push({ kind: "report", report: emptyReport });
-    const context = {
-      pool: {} as never,
-      workItemId: "work",
-      installationId: 1,
-      owner: "owner",
-      repo: "repo",
-      prNumber: 2,
-      executionId: "execution",
-      attemptCount: 2,
-    };
+    const context = agentEventsContext;
     const outcome = await runSpecialist(specialistArgs({ agentEvents: context }));
     expect(outcome.kind).toBe("empty");
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
@@ -383,7 +385,7 @@ describe("runSpecialist", () => {
       specialist: "correctness",
       error: {
         code: "review.specialist_failed",
-        context: { classification: "unknown", attempts: 2 },
+        context: { classification: "unknown", attempts: 2, deadlineHit: false },
       },
     });
     expect(runnerMocks.createSession).toHaveBeenCalledTimes(2);
@@ -432,7 +434,9 @@ describe("runSpecialist", () => {
     vi.useFakeTimers();
     runnerMocks.behaviors.push({ kind: "pending" });
 
-    const outcomePromise = runSpecialist(specialistArgs({ timeoutMs: 100 }));
+    const outcomePromise = runSpecialist(
+      specialistArgs({ timeoutMs: 100, agentEvents: agentEventsContext }),
+    );
     await vi.runAllTimersAsync();
     const outcome = await outcomePromise;
 
@@ -441,8 +445,14 @@ describe("runSpecialist", () => {
       kind: "error",
       error: {
         code: "review.specialist_failed",
-        context: { classification: "timeout", attempts: 1 },
+        context: { classification: "timeout", attempts: 1, deadlineHit: true },
       },
+    });
+    const run = runnerMocks.recordExecutionSpan.mock.calls
+      .map(([span]) => span)
+      .find((span) => span.spanName === "specialist:correctness:run");
+    expect(run).toMatchObject({
+      extra: { outcome: "error", classification: "timeout", attempts: 1, deadline_hit: true },
     });
     expect(session?.abort).toHaveBeenCalledTimes(1);
     expect(session?.dispose).toHaveBeenCalledTimes(1);
