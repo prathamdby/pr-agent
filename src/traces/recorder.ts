@@ -9,8 +9,19 @@ import { createTraceRedactor, redactTraceValue } from "./content.js";
 export const TRACE_EVENT_BYTES = 1024 * 1024;
 const MAX_QUEUED = 400;
 const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
+const RESERVE_QUEUED = 50;
+const RESERVE_QUEUED_BYTES = 64 * 1024;
+const METADATA_STRING_CHARS = 256;
 const FLUSH_MS = 500;
 const MARKER = "[trace content truncated]";
+const CONTENT_KEYS: ReadonlySet<string> = new Set([
+  "$ai_input",
+  "$ai_output_choices",
+  "$ai_tools",
+  "$ai_input_state",
+  "$ai_output_state",
+  "codemode_host_calls",
+]);
 
 export type TraceStatus = "ok" | "error" | "cancelled";
 
@@ -42,6 +53,7 @@ export type TraceDraft = {
   readonly tools?: unknown;
   readonly inputState?: unknown;
   readonly outputState?: unknown;
+  readonly hostCalls?: unknown;
   readonly extra?: Readonly<Record<string, string | number | boolean | null>>;
 };
 
@@ -71,6 +83,9 @@ type ExecutionState = {
   readonly startedAt: number;
   status: TraceStatus;
   errorCode: string | null;
+  dropped: number;
+  degraded: number;
+  truncated: number;
 };
 
 type QueuedEvent = {
@@ -78,6 +93,7 @@ type QueuedEvent = {
   readonly distinctId: string;
   readonly properties: Record<string, unknown>;
   readonly bytes: number;
+  readonly reserve: boolean;
 };
 
 const context = new AsyncLocalStorage<ExecutionState>();
@@ -85,7 +101,10 @@ const context = new AsyncLocalStorage<ExecutionState>();
 class TraceRecorder {
   private readonly redactor;
   private readonly queue: QueuedEvent[] = [];
+  private queued = 0;
   private queuedBytes = 0;
+  private reserveQueued = 0;
+  private reserveBytes = 0;
   private flushing: Promise<void> | undefined;
   private closed = false;
   private readonly timer;
@@ -110,25 +129,47 @@ class TraceRecorder {
   emit(execution: ExecutionState, draft: TraceDraft): void {
     if (this.closed) return;
     try {
-      const properties = fitProperties(
-        propertiesFor(execution, draft, (value) => this.redact(value)),
-      );
-      if (!properties) {
-        logWarn("agent_trace_event_dropped", { kind: draft.spanName, bytes: TRACE_EVENT_BYTES });
+      const full = propertiesFor(execution, draft, (value) => this.redact(value));
+      const fitted = fitProperties(full);
+      if (!fitted) {
+        logWarn("agent_trace_event_degraded", { kind: draft.spanName, bytes: TRACE_EVENT_BYTES });
+      }
+      let properties = fitted ?? metadataOnly(full);
+      let degraded = fitted === undefined;
+      let bytes = eventBytes(properties);
+      const reserve = this.queued >= MAX_QUEUED || this.queuedBytes + bytes > MAX_QUEUED_BYTES;
+      if (reserve && !degraded && !isExecutionSpan(draft)) {
+        logWarn("agent_trace_span_degraded", { kind: draft.spanName, bytes });
+        properties = metadataOnly(properties);
+        degraded = true;
+        bytes = eventBytes(properties);
+      }
+      if (
+        bytes > TRACE_EVENT_BYTES ||
+        (reserve &&
+          (this.reserveQueued >= RESERVE_QUEUED ||
+            this.reserveBytes + bytes > RESERVE_QUEUED_BYTES))
+      ) {
+        execution.dropped += 1;
+        logWarn("agent_trace_span_dropped", { kind: draft.spanName, bytes });
         return;
       }
-      const bytes = eventBytes(properties);
-      if (this.queue.length >= MAX_QUEUED || this.queuedBytes + bytes > MAX_QUEUED_BYTES) {
-        logWarn("agent_trace_span_dropped", { bytes });
-        return;
-      }
+      if (degraded) execution.degraded += 1;
+      else if (fitted !== full) execution.truncated += 1;
       this.queue.push({
         event: draft.event,
         distinctId: distinctId(execution),
         properties,
         bytes,
+        reserve,
       });
-      this.queuedBytes += bytes;
+      if (reserve) {
+        this.reserveQueued += 1;
+        this.reserveBytes += bytes;
+      } else {
+        this.queued += 1;
+        this.queuedBytes += bytes;
+      }
     } catch {
       logWarn("agent_trace_observer_failed");
     }
@@ -151,7 +192,17 @@ class TraceRecorder {
   private async flushBatch(): Promise<void> {
     const batch = this.queue.splice(0, this.queue.length);
     if (batch.length === 0) return;
-    const bytes = batch.reduce((sum, entry) => sum + entry.bytes, 0);
+    let bytes = 0;
+    let reserveBytes = 0;
+    for (const entry of batch) {
+      if (entry.reserve) {
+        this.reserveQueued -= 1;
+        reserveBytes += entry.bytes;
+      } else {
+        this.queued -= 1;
+        bytes += entry.bytes;
+      }
+    }
     try {
       for (const entry of batch) {
         this.capture.capture({
@@ -165,6 +216,7 @@ class TraceRecorder {
       logWarn("agent_trace_send_failed", { count: batch.length });
     } finally {
       this.queuedBytes -= bytes;
+      this.reserveBytes -= reserveBytes;
     }
   }
 
@@ -347,6 +399,9 @@ function executionState(input: {
     startedAt: Date.now(),
     status: "ok",
     errorCode: null,
+    dropped: 0,
+    degraded: 0,
+    truncated: 0,
   };
 }
 
@@ -363,7 +418,16 @@ function executionDraft(execution: ExecutionState): TraceDraft {
     ...(execution.status === "error"
       ? { isError: true, error: execution.errorCode ?? "error" }
       : {}),
+    extra: {
+      trace_events_dropped: execution.dropped,
+      trace_events_degraded: execution.degraded,
+      trace_events_truncated: execution.truncated,
+    },
   };
+}
+
+function isExecutionSpan(draft: TraceDraft): boolean {
+  return draft.spanName === "execution" && draft.parentId === null;
 }
 
 function distinctId(execution: ExecutionState): string {
@@ -411,6 +475,7 @@ function propertiesFor(
   if (draft.tools !== undefined) properties.$ai_tools = redact(draft.tools);
   if (draft.inputState !== undefined) properties.$ai_input_state = redact(draft.inputState);
   if (draft.outputState !== undefined) properties.$ai_output_state = redact(draft.outputState);
+  if (draft.hostCalls !== undefined) properties.codemode_host_calls = redact(draft.hostCalls);
   const extra = draft.extra == null ? undefined : redact(draft.extra);
   if (isPlainObject(extra)) Object.assign(properties, extra);
   return properties;
@@ -437,6 +502,12 @@ function fitProperties(properties: Record<string, unknown>): Record<string, unkn
     next = { ...next, $ai_input: [{ role: "user", content: MARKER }] };
     if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
   }
+  if (next.codemode_host_calls !== undefined) {
+    next = { ...next, codemode_host_calls: shrinkHostCalls(next.codemode_host_calls) };
+    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    next = { ...next, codemode_host_calls: MARKER };
+    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+  }
   if (next.$ai_tools !== undefined) {
     next = { ...next, $ai_tools: MARKER };
     if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
@@ -454,6 +525,16 @@ function fitProperties(properties: Record<string, unknown>): Record<string, unkn
   return undefined;
 }
 
+function metadataOnly(properties: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (CONTENT_KEYS.has(key)) continue;
+    next[key] = typeof value === "string" && value.length > METADATA_STRING_CHARS ? MARKER : value;
+  }
+  next.trace_content_dropped = true;
+  return next;
+}
+
 function elideInput(input: unknown): unknown {
   if (!Array.isArray(input) || input.length < 3) return markerValue(input);
   const head = input[0];
@@ -464,6 +545,21 @@ function elideInput(input: unknown): unknown {
 function markerValue(value: unknown): unknown {
   if (typeof value === "string") return `${value.slice(0, 1024)}\n${MARKER}`;
   return MARKER;
+}
+
+function shrinkHostCalls(value: unknown): unknown {
+  if (!Array.isArray(value)) return markerValue(value);
+  return value.map((call) => {
+    if (!isPlainObject(call)) return call;
+    const next: Record<string, unknown> = { ...call };
+    for (const key of ["input", "output_preview"]) {
+      const field = next[key];
+      if (typeof field === "string" && field.length > 512) {
+        next[key] = `${field.slice(0, 512)}\n${MARKER}`;
+      }
+    }
+    return next;
+  });
 }
 
 function truncateChoices(value: unknown): unknown {

@@ -478,6 +478,80 @@ describe("Code Mode", () => {
     expect(events.every((event) => event.kind === "execution")).toBe(true);
   });
 
+  it("traces host calls through the execute context without lifecycle content", async () => {
+    const opened: Array<{ tool: string; input: unknown }> = [];
+    const closed: Array<Record<string, unknown>> = [];
+    const events: AgentLifecycleEvent[] = [];
+    const execute = buildCodeModeExecuteTool({
+      executorKind: "in_process",
+      capabilities: {
+        readWorkspaceFile: async (args) => {
+          if (String(args.path).startsWith("..")) {
+            throw new AppError({
+              domain: "pr_workspace",
+              kind: "path_traversal",
+              message: "Path traversal attempt detected",
+              context: { path: String(args.path) },
+            });
+          }
+          return { path: args.path, content: `host-body-${String(args.path)}`, startLine: 1 };
+        },
+      },
+    });
+    const result = asResult(
+      await execute.executor(
+        {
+          code: `const a = await tools.readWorkspaceFile({ path: "a.ts" });
+            let denied = "no";
+            try { await tools.readWorkspaceFile({ path: "../secret.env" }); } catch (e) { denied = "yes"; }
+            ({ a: a.content, denied })`,
+        },
+        {
+          signal: new AbortController().signal,
+          toolCallId: "exec-1",
+          emit: (event) => events.push(event),
+          role: "specialist",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          traceHostCall: (tool, input) => {
+            opened.push({ tool, input });
+            return (outcome) => closed.push({ tool, ...outcome });
+          },
+        },
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect(opened).toEqual([
+      { tool: "readWorkspaceFile", input: { path: "a.ts" } },
+      { tool: "readWorkspaceFile", input: { path: "../secret.env" } },
+    ]);
+    expect(closed[0]).toMatchObject({ tool: "readWorkspaceFile", status: "completed" });
+    expect(JSON.stringify(closed[0]?.output)).toContain("host-body-a.ts");
+    expect(closed[0]?.outputBytes).toBeGreaterThan(0);
+    expect(closed[1]).toMatchObject({ status: "error", errorKind: "ACCESS_DENIED" });
+    expect(JSON.stringify(events)).not.toContain("host-body");
+    if (result.ok) {
+      expect(result.toolCalls[0]).toEqual({
+        tool: "readWorkspaceFile",
+        status: "completed",
+        input: { path: "a.ts" },
+      });
+    }
+  });
+
+  it("keeps executing when the host-call tracer throws", async () => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'await tools.listChangedFiles(); "done"',
+      capabilities: { listChangedFiles: async () => ({ files: [] }) },
+      traceHostCall: () => {
+        throw new Error("tracer down");
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe("done");
+  });
+
   it("emits cancelled when the host signal is already aborted", async () => {
     const events: AgentLifecycleEvent[] = [];
     const controller = new AbortController();

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { isPlainObject } from "../../util/typeGuards.js";
@@ -12,17 +12,35 @@ import {
 import type { PiSessionCreateParams, PiSessionSendOptions } from "./types.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import { exactUsageFromProviderUsage } from "../providers/usageMetadata.js";
+import type { HostCallOutcome } from "../providers/interface.js";
+import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
+
+const HOST_CALL_INPUT_CHARS = 2_048;
+const HOST_CALL_PREVIEW_CHARS = 4_096;
+const HOST_CALL_REDACT_LOOKAHEAD_CHARS = 8_192;
+const TRUNCATED = "[trace content truncated]";
+const REPEAT_TOP = 3;
 
 type TraceTurn = { readonly role: string; readonly content: unknown };
+
+type HostCallRecord = {
+  readonly tool: string;
+  readonly input: unknown;
+  readonly startedAt: number;
+  outcome?: HostCallOutcome;
+  endedAt?: number;
+};
 
 type OpenGeneration = {
   readonly id: string;
   readonly startedAt: number;
   readonly attemptStart: number;
+  readonly turnIndex: number;
   phase?: string;
   ttftMs?: number;
   reasoningMs?: number;
   firstThinking?: number;
+  streamed?: AssistantMessage;
 };
 
 type OpenTool = {
@@ -31,6 +49,7 @@ type OpenTool = {
   readonly name: string;
   readonly args: unknown;
   readonly phase?: string;
+  readonly hostCalls: HostCallRecord[];
   extra: Record<string, string | number | boolean | null>;
 };
 
@@ -70,6 +89,59 @@ function createRecording(
   let sessionStatus: TraceStatus = "ok";
   let sessionError: string | undefined;
   let lastEnd: string | undefined;
+  let turns = 0;
+  let toolCalls = 0;
+  let hostCallCount = 0;
+  let toolMs = 0;
+  let modelMs = 0;
+  let lastActivity = startedAt;
+  let lastTool: string | undefined;
+  const hostCallKeys = new Map<string, { readonly tool: string; count: number }>();
+  const toolCallKeys = new Map<string, number>();
+
+  function fingerprint(name: string, input: unknown): string {
+    const redacted = JSON.stringify(recording.redact(input)) ?? "";
+    return `${name}:${createHash("sha256").update(redacted).digest("hex")}`;
+  }
+
+  function openGeneration(): OpenGeneration {
+    const turnIndex = turns;
+    turns += 1;
+    return {
+      id: randomUUID(),
+      startedAt: Date.now(),
+      attemptStart: getAttempts(),
+      turnIndex,
+      ...(opts?.phase != null ? { phase: opts.phase } : {}),
+    };
+  }
+
+  function loopCounters(now: number): Record<string, string | number | boolean | null> {
+    let repeatHostCalls = 0;
+    for (const entry of hostCallKeys.values()) repeatHostCalls += entry.count - 1;
+    let repeatToolCalls = 0;
+    for (const count of toolCallKeys.values()) repeatToolCalls += count - 1;
+    const repeatTop = [...hostCallKeys.values()]
+      .filter((entry) => entry.count > 1)
+      .toSorted((left, right) => right.count - left.count)
+      .slice(0, REPEAT_TOP)
+      .map((entry) => `${entry.tool}:${entry.count}`)
+      .join(",");
+    return {
+      turns,
+      tool_calls: toolCalls,
+      host_calls: hostCallCount,
+      repeat_host_calls: repeatHostCalls,
+      repeat_top: repeatTop,
+      repeat_tool_calls: repeatToolCalls,
+      tool_ms_total: toolMs,
+      model_ms_total: modelMs,
+      ms_since_last_activity: now - lastActivity,
+      last_tool: lastTool ?? null,
+      last_end: lastEnd ?? null,
+      error_code: sessionError ?? null,
+    };
+  }
 
   function appendTurn(turn: TraceTurn): void {
     basis.push(turn);
@@ -155,6 +227,16 @@ function createRecording(
     lastGenerationId = current.id;
     const measured = output ? usageFields(output) : undefined;
     const resolved = measured?.status ?? status;
+    const now = Date.now();
+    const latencyMs = now - current.startedAt;
+    modelMs += latencyMs;
+    if (output) lastActivity = now;
+    const choices = output ? outputChoices(output) : [];
+    const streamed =
+      choices.length === 0 && resolved !== "ok" && current.streamed
+        ? outputChoices(current.streamed)
+        : [];
+    const partial = streamed.length > 0;
     recording.emit({
       event: "$ai_generation",
       spanId: current.id,
@@ -163,7 +245,7 @@ function createRecording(
       provider: model.provider,
       model: model.id,
       status: resolved,
-      latencyMs: Date.now() - current.startedAt,
+      latencyMs,
       ...(current.ttftMs != null ? { ttftMs: current.ttftMs } : {}),
       ...(current.reasoningMs != null ? { reasoningMs: current.reasoningMs } : {}),
       ...(resolved === "error"
@@ -182,19 +264,29 @@ function createRecording(
       ...(measured?.totalTokens != null ? { totalTokens: measured.totalTokens } : {}),
       ...(measured?.costUsd != null ? { costUsd: measured.costUsd } : {}),
       input: basis.map((turn) => ({ role: turn.role, content: turn.content })),
-      outputChoices: output ? outputChoices(output) : [],
+      outputChoices: partial ? streamed : choices,
       tools: toolDefs,
       extra: {
         ...measured?.extra,
         provider_attempts: getAttempts() - current.attemptStart,
         retry_folded: params.cfg.provider.retryMax > 0,
         checkpoint_id: opts?.checkpointId ?? null,
+        turn_index: current.turnIndex,
+        ...(partial ? { partial: true } : {}),
       },
     });
-    if (output) appendTurn({ role: "assistant", content: outputChoices(output) });
+    if (output) appendTurn({ role: "assistant", content: choices });
+  }
+
+  function redactText(text: string): string {
+    const value = recording.redact(text);
+    return typeof value === "string" ? value : "";
   }
 
   function finishTool(tool: OpenTool, status: TraceStatus, result: unknown, error?: string): void {
+    const now = Date.now();
+    toolMs += now - tool.startedAt;
+    const hostCalls = tool.hostCalls.map((call) => hostCallEntry(call, now, redactText));
     recording.emit({
       event: "$ai_span",
       spanId: tool.id,
@@ -208,6 +300,7 @@ function createRecording(
       ...identity(tool.phase),
       inputState: tool.args,
       outputState: result,
+      ...(hostCalls.length > 0 ? { hostCalls } : {}),
       ...(Object.keys(tool.extra).length > 0 ? { extra: tool.extra } : {}),
     });
   }
@@ -264,29 +357,17 @@ function createRecording(
     },
     event: (event: AgentEvent): void => {
       if (disposed) return;
-      if (event.type === "turn_start") {
-        generation = {
-          id: randomUUID(),
-          startedAt: Date.now(),
-          attemptStart: getAttempts(),
-          ...(opts?.phase != null ? { phase: opts.phase } : {}),
-        };
-      }
+      if (event.type === "turn_start") generation = openGeneration();
       if (event.type === "message_start") {
         const message = event.message;
         if (message.role === "user" || message.role === "system") rememberUserOrSystem(message);
-        if (message.role === "assistant") {
-          generation ??= {
-            id: randomUUID(),
-            startedAt: Date.now(),
-            attemptStart: getAttempts(),
-            ...(opts?.phase != null ? { phase: opts.phase } : {}),
-          };
-        }
+        if (message.role === "assistant") generation ??= openGeneration();
       }
       if (event.type === "message_update" && generation) {
         const type = event.assistantMessageEvent.type;
         const now = Date.now();
+        lastActivity = now;
+        if (event.message.role === "assistant") generation.streamed = event.message;
         if (type === "text_delta" || type === "thinking_delta" || type === "toolcall_delta") {
           generation.ttftMs ??= now - generation.startedAt;
         }
@@ -309,17 +390,24 @@ function createRecording(
           name: known ?? "unknown_tool",
           args: event.args,
           ...(opts?.phase != null ? { phase: opts.phase } : {}),
+          hostCalls: [],
           extra: {},
         };
         if (isPlainObject(event.args) && Array.isArray(event.args.findings)) {
           tool.extra.findings_count = event.args.findings.length;
         }
         tools.set(event.toolCallId, tool);
+        toolCalls += 1;
+        lastTool = tool.name;
+        lastActivity = tool.startedAt;
+        const key = fingerprint(tool.name, event.args);
+        toolCallKeys.set(key, (toolCallKeys.get(key) ?? 0) + 1);
       }
       if (event.type === "tool_execution_end") {
         const tool = tools.get(event.toolCallId);
         if (!tool) return;
         const failure = toolFailure(event.result, event.isError);
+        lastActivity = Date.now();
         finishTool(tool, failure.status, event.result, failure.error);
         tools.delete(event.toolCallId);
       }
@@ -332,6 +420,34 @@ function createRecording(
       tool.extra.completed_host_calls = event.completedHostCalls;
       tool.extra.termination_reason = event.terminationReason;
       tool.extra.code_mode_budget_hit = event.outcome === "budget";
+    },
+    hostCall: (
+      toolCallId: string,
+      name: string,
+      input: unknown,
+    ): ((outcome: HostCallOutcome) => void) | undefined => {
+      if (disposed) return undefined;
+      const tool = tools.get(toolCallId);
+      if (!tool) return undefined;
+      hostCallCount += 1;
+      lastActivity = Date.now();
+      const key = fingerprint(name, input);
+      const seen = hostCallKeys.get(key);
+      if (seen) seen.count += 1;
+      else hostCallKeys.set(key, { tool: name, count: 1 });
+      if (tool.hostCalls.length >= CODE_MODE_MAX_TOOL_CALLS) {
+        const omitted = tool.extra.host_calls_omitted;
+        tool.extra.host_calls_omitted = (typeof omitted === "number" ? omitted : 0) + 1;
+        return undefined;
+      }
+      const record: HostCallRecord = { tool: name, input, startedAt: Date.now() };
+      tool.hostCalls.push(record);
+      return (outcome) => {
+        if (record.outcome) return;
+        record.outcome = outcome;
+        record.endedAt = Date.now();
+        lastActivity = record.endedAt;
+      };
     },
     endSend: (end: string, errorCode?: string): string | undefined => {
       lastEnd = end;
@@ -368,6 +484,7 @@ function createRecording(
       if (compaction) finishCompaction(undefined, "cancelled");
       for (const tool of tools.values()) finishTool(tool, "cancelled", undefined);
       tools.clear();
+      const now = Date.now();
       recording.emit({
         event: "$ai_span",
         spanId: sessionId,
@@ -376,13 +493,55 @@ function createRecording(
         provider: model.provider,
         model: model.id,
         status: sessionStatus,
-        latencyMs: Date.now() - startedAt,
+        latencyMs: now - startedAt,
         ...(sessionStatus === "error" ? { isError: true, error: sessionError ?? "error" } : {}),
         ...identity(opts?.phase),
-        ...(lastEnd != null ? { extra: { last_end: lastEnd } } : {}),
+        extra: loopCounters(now),
       });
       recording.closeOwnedExecution();
     },
+  };
+}
+
+function boundedText(
+  text: string,
+  limit: number,
+  redact: (text: string) => string,
+): { readonly text: string; readonly truncated: boolean } {
+  if (text.length <= limit) return { text: redact(text), truncated: false };
+  const redacted = redact(text.slice(0, limit + HOST_CALL_REDACT_LOOKAHEAD_CHARS));
+  return { text: `${redacted.slice(0, limit)}\n${TRUNCATED}`, truncated: true };
+}
+
+function asText(value: unknown): string {
+  return typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+}
+
+function hostCallEntry(
+  call: HostCallRecord,
+  now: number,
+  redact: (text: string) => string,
+): Record<string, unknown> {
+  const inputText = asText(call.input);
+  const input =
+    inputText.length <= HOST_CALL_INPUT_CHARS
+      ? call.input
+      : boundedText(inputText, HOST_CALL_INPUT_CHARS, redact).text;
+  const { outcome, endedAt } = call;
+  if (!outcome || endedAt == null) {
+    return { tool: call.tool, status: "in_flight", input, elapsed_ms: now - call.startedAt };
+  }
+  const base = { tool: call.tool, input, duration_ms: endedAt - call.startedAt };
+  if (outcome.status === "error") {
+    return { ...base, status: "error", error_kind: outcome.errorKind };
+  }
+  const preview = boundedText(asText(outcome.output), HOST_CALL_PREVIEW_CHARS, redact);
+  return {
+    ...base,
+    status: "completed",
+    output_bytes: outcome.outputBytes,
+    output_preview: preview.text,
+    ...(preview.truncated ? { preview_truncated: true } : {}),
   };
 }
 
@@ -471,6 +630,7 @@ const noTrace: SessionTrace = {
   beginSend: () => undefined,
   event: () => undefined,
   toolMetadata: () => undefined,
+  hostCall: () => undefined,
   endSend: () => undefined,
   beginCompaction: () => undefined,
   endCompaction: () => undefined,
@@ -491,6 +651,10 @@ export function createSessionTrace(
     beginSend: protect(recording.beginSend),
     event: protect(recording.event),
     toolMetadata: protect(recording.toolMetadata),
+    hostCall: (toolCallId: string, name: string, input: unknown) => {
+      const close = observe(() => recording.hostCall(toolCallId, name, input));
+      return close ? protect(close) : undefined;
+    },
     endSend: protect(recording.endSend),
     beginCompaction: protect(recording.beginCompaction),
     endCompaction: protect(recording.endCompaction),

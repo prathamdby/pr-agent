@@ -246,6 +246,9 @@ function recordNonGenerationSpan(span: WorkSpan): void {
     if (span.submittedCount != null) extra.submitted_count = span.submittedCount;
     if (span.acceptedCount != null) extra.accepted_count = span.acceptedCount;
     if (span.rejectedCount != null) extra.rejected_count = span.rejectedCount;
+    if (span.classification != null) extra.classification = span.classification;
+    if (span.attempts != null) extra.attempts = span.attempts;
+    if (span.deadlineHit != null) extra.deadline_hit = span.deadlineHit;
   }
   if (span.attemptCount != null) extra.attempt_count = span.attemptCount;
   recordExecutionSpan({

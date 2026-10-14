@@ -46,6 +46,7 @@ export function buildCodeModeExecuteTool(params: {
         headSha: params.headSha,
         signal: ctx?.signal,
         emit: ctx?.emit,
+        traceHostCall: ctx?.traceHostCall,
         role: ctx?.role,
         provider: ctx?.provider,
         model: ctx?.model,

@@ -698,6 +698,10 @@ describe("posthog ai traces", () => {
     for (const event of seen) {
       expect(Buffer.byteLength(JSON.stringify(event))).toBeLessThanOrEqual(TRACE_EVENT_BYTES);
     }
+    expect(seen.find((event) => event.$ai_span_name === "execution")).toMatchObject({
+      trace_events_truncated: 1,
+      trace_events_degraded: 0,
+    });
   });
 
   it("sends the full transcript on the next generation and omits unknown cost", async () => {
@@ -798,6 +802,260 @@ describe("posthog ai traces", () => {
     expect(seen[0]?.$ai_model).toBe("trace-model");
   });
 
+  it("attaches redacted, bounded host calls to the execute span", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    const pem = `-----BEGIN PRIVATE KEY-----\n${"k".repeat(1_500)}\n-----END PRIVATE KEY-----`;
+    const straddling = `${"x".repeat(3_900)}${pem}${"y".repeat(20_000)}`;
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-host",
+        () => 1,
+      );
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "exec-call",
+        toolName: "execute",
+        args: { code: "await tools.readWorkspaceFile({ path: 'a.ts' })" },
+      });
+      trace.hostCall("exec-call", "readWorkspaceFile", { path: "a.ts" })?.({
+        status: "completed",
+        output: { content: "body-a" },
+        outputBytes: 21,
+      });
+      trace.hostCall("exec-call", "readWorkspaceFile", { path: "../outside.env" })?.({
+        status: "error",
+        errorKind: "ACCESS_DENIED",
+      });
+      trace.hostCall("exec-call", "searchWorkspace", { query: "key" })?.({
+        status: "completed",
+        output: straddling,
+        outputBytes: straddling.length,
+      });
+      trace.hostCall("exec-call", "readWorkspaceFile", { path: "slow.ts" });
+      trace.event({
+        type: "tool_execution_end",
+        toolCallId: "exec-call",
+        toolName: "execute",
+        isError: false,
+        result: { content: [{ type: "text", text: '{"ok":true}' }] },
+      });
+      trace.dispose();
+    });
+    await drain();
+    const span = seen.find((event) => event.$ai_span_name === "tool:execute");
+    const calls = span?.codemode_host_calls;
+    expect(Array.isArray(calls)).toBe(true);
+    if (!Array.isArray(calls)) return;
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toMatchObject({
+      tool: "readWorkspaceFile",
+      status: "completed",
+      input: { path: "a.ts" },
+      output_bytes: 21,
+    });
+    expect(typeof calls[0]?.duration_ms).toBe("number");
+    expect(calls[0]?.output_preview).toContain("body-a");
+    expect(calls[1]).toMatchObject({
+      tool: "readWorkspaceFile",
+      status: "error",
+      error_kind: "ACCESS_DENIED",
+      input: { path: "../outside.env" },
+    });
+    const preview = String(calls[2]?.output_preview);
+    expect(preview).not.toContain("PRIVATE KEY");
+    expect(preview).not.toContain("kkkkkkkkkk");
+    expect(preview).toContain("[redacted]");
+    expect(preview).toContain(MARKER);
+    expect(preview.length).toBeLessThanOrEqual(4_096 + MARKER.length + 1);
+    expect(calls[2]).toMatchObject({ output_bytes: straddling.length, preview_truncated: true });
+    expect(calls[3]).toMatchObject({
+      tool: "readWorkspaceFile",
+      status: "in_flight",
+      input: { path: "slow.ts" },
+    });
+    expect(typeof calls[3]?.elapsed_ms).toBe("number");
+  });
+
+  it("keeps an execute span with host calls under the event budget", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-host-big",
+        () => 1,
+      );
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "exec-big",
+        toolName: "execute",
+        args: { code: "big" },
+      });
+      for (let index = 0; index < 25; index += 1) {
+        trace.hostCall("exec-big", "readWorkspaceFile", { path: `f${index}.ts` })?.({
+          status: "completed",
+          output: "z".repeat(50_000),
+          outputBytes: 50_000,
+        });
+      }
+      trace.event({
+        type: "tool_execution_end",
+        toolCallId: "exec-big",
+        toolName: "execute",
+        isError: false,
+        result: { content: [{ type: "text", text: "o".repeat(1_100_000) }] },
+      });
+      trace.dispose();
+    });
+    await drain();
+    const span = seen.find((event) => event.$ai_span_name === "tool:execute");
+    expect(span).toBeDefined();
+    expect(Buffer.byteLength(JSON.stringify(span))).toBeLessThanOrEqual(TRACE_EVENT_BYTES);
+    expect(JSON.stringify(span)).toContain(MARKER);
+  });
+
+  it("reports repeated host calls across execute calls on the session span", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-loop",
+        () => 1,
+      );
+      trace.beginSend({ phase: "specialist", checkpointId: "loop" });
+      for (let index = 0; index < 5; index += 1) {
+        trace.event({ type: "turn_start" });
+        trace.event({ type: "message_end", message: assistant(`turn-${index}`) });
+        trace.event({
+          type: "tool_execution_start",
+          toolCallId: `loop-${index}`,
+          toolName: "execute",
+          args: { code: "await tools.readWorkspaceFile({ path: 'src/a.ts' })" },
+        });
+        trace.hostCall(`loop-${index}`, "readWorkspaceFile", { path: "src/a.ts" })?.({
+          status: "completed",
+          output: "same-body",
+          outputBytes: 9,
+        });
+        trace.hostCall(`loop-${index}`, "searchWorkspace", { query: `q${index}` })?.({
+          status: "completed",
+          output: "hit",
+          outputBytes: 3,
+        });
+        trace.event({
+          type: "tool_execution_end",
+          toolCallId: `loop-${index}`,
+          toolName: "execute",
+          isError: false,
+          result: { content: [{ type: "text", text: '{"ok":true}' }] },
+        });
+      }
+      trace.endSend("timeout", "agent.prompt_timeout");
+      trace.dispose();
+    });
+    await drain();
+    const session = seen.find((event) => event.$ai_span_name === "session");
+    expect(session).toMatchObject({
+      turns: 5,
+      tool_calls: 5,
+      host_calls: 10,
+      repeat_host_calls: 4,
+      repeat_tool_calls: 4,
+      last_tool: "execute",
+      last_end: "timeout",
+      error_code: "agent.prompt_timeout",
+    });
+    expect(String(session?.repeat_top)).toContain("readWorkspaceFile:5");
+    expect(String(session?.repeat_top)).not.toContain("searchWorkspace");
+    expect(typeof session?.tool_ms_total).toBe("number");
+    expect(typeof session?.model_ms_total).toBe("number");
+    expect(typeof session?.ms_since_last_activity).toBe("number");
+    expect(JSON.stringify(session)).not.toContain("src/a.ts");
+    const indexes = seen
+      .filter((event) => event.$ai_span_name === "generation")
+      .map((event) => event.turn_index);
+    expect(indexes).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("keeps streamed text from a generation cut off before it ends", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(sessionParams(cfg), model, "session-cut", () => 1);
+      trace.beginSend({ phase: "specialist", checkpointId: "cut" });
+      trace.event({ type: "turn_start" });
+      const partial = assistant("streamed-before-cutoff", "partial-thinking");
+      trace.event({
+        type: "message_update",
+        message: partial,
+        assistantMessageEvent: {
+          type: "text_delta",
+          contentIndex: 1,
+          delta: "cutoff",
+          partial,
+        },
+      });
+      trace.endSend("aborted", "agent.session_aborted");
+      trace.event({ type: "turn_start" });
+      trace.event({
+        type: "message_end",
+        message: { ...assistant("unused"), content: [], stopReason: "aborted" },
+      });
+      trace.dispose();
+    });
+    await drain();
+    const generations = seen.filter((event) => event.$ai_span_name === "generation");
+    expect(generations).toHaveLength(2);
+    expect(generations[0]?.partial).toBe(true);
+    expect(JSON.stringify(generations[0]?.$ai_output_choices)).toContain("streamed-before-cutoff");
+    expect(generations[1]?.partial).toBeUndefined();
+    expect(generations[1]?.$ai_output_choices).toEqual([]);
+  });
+
   it("shares one execution across specialists and starts a new trace per retry", async () => {
     const seen: Array<Record<string, unknown>> = [];
     install({
@@ -838,25 +1096,53 @@ describe("posthog ai traces", () => {
     expect(seen.every((event) => event.distinctId === "installation:7")).toBe(true);
   });
 
-  it("drops a queued span without sending repository text when the buffer is full", async () => {
+  it("sends an overflow span metadata-only and still sends the execution span", async () => {
     const warning = vi.spyOn(evlog, "logWarn");
-    const seen: unknown[] = [];
+    const seen: Array<Record<string, unknown>> = [];
     install({
-      capture() {
-        seen.push(true);
+      capture(input) {
+        seen.push(input.properties);
       },
       flush: async () => undefined,
       shutdown: async () => undefined,
     });
-    const cfg = tracedConfig();
-    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-    for (let index = 0; index < 201; index += 1) {
-      const trace = createSessionTrace(sessionParams(cfg), model, `session-${index}`, () => 1);
-      trace.dispose();
-    }
-    expect(warning).toHaveBeenCalledWith("agent_trace_span_dropped", { bytes: expect.any(Number) });
+    await startWorkTrace(work(), async () => {
+      for (let index = 0; index < 400; index += 1) {
+        recordExecutionSpan({
+          event: "$ai_span",
+          spanId: randomUUID(),
+          spanName: "fill",
+          status: "ok",
+          latencyMs: 1,
+        });
+      }
+      recordExecutionSpan({
+        event: "$ai_span",
+        spanId: randomUUID(),
+        spanName: "overflow",
+        status: "ok",
+        latencyMs: 1,
+        inputState: { path: "repository-text" },
+        outputChoices: [{ type: "text", text: "repository-text" }],
+        extra: { stage: "run", blob: `repository-text${"r".repeat(1_000)}` },
+      });
+    });
+    expect(warning).toHaveBeenCalledWith("agent_trace_span_degraded", {
+      kind: "overflow",
+      bytes: expect.any(Number),
+    });
     await drain();
-    expect(seen).toHaveLength(400);
+    expect(seen).toHaveLength(402);
+    const overflow = seen.find((event) => event.$ai_span_name === "overflow");
+    expect(overflow).toMatchObject({ trace_content_dropped: true, stage: "run" });
+    expect(JSON.stringify(overflow)).not.toContain("repository-text");
+    const execution = seen.find((event) => event.$ai_span_name === "execution");
+    expect(execution).toMatchObject({
+      trace_events_dropped: 0,
+      trace_events_degraded: 1,
+      trace_events_truncated: 0,
+    });
+    expect(execution).not.toHaveProperty("trace_content_dropped");
   });
 
   it("keeps the queue bounded when a flush never settles", async () => {
@@ -874,11 +1160,18 @@ describe("posthog ai traces", () => {
     const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     createSessionTrace(sessionParams(cfg), model, "session-hung", () => 1).dispose();
     await vi.advanceTimersByTimeAsync(500);
-    for (let index = 0; index < 201; index += 1) {
+    for (let index = 0; index < 230; index += 1) {
       createSessionTrace(sessionParams(cfg), model, `session-more-${index}`, () => 1).dispose();
     }
     expect(captured).toBe(2);
-    expect(warning).toHaveBeenCalledWith("agent_trace_span_dropped", { bytes: expect.any(Number) });
+    expect(warning).toHaveBeenCalledWith("agent_trace_span_degraded", {
+      kind: "session",
+      bytes: expect.any(Number),
+    });
+    expect(warning).toHaveBeenCalledWith("agent_trace_span_dropped", {
+      kind: expect.any(String),
+      bytes: expect.any(Number),
+    });
     const pending = drain();
     await vi.advanceTimersByTimeAsync(5_000);
     await pending;
@@ -980,12 +1273,14 @@ describe("posthog ai traces", () => {
     expect(seen).toEqual([]);
   });
 
-  it("drops a span when queued bytes pass 8 MiB before the count cap", async () => {
+  it("degrades a span when queued bytes pass 8 MiB before the count cap", async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(evlog, "logWarn");
     const seen: string[] = [];
+    const events: Array<Record<string, unknown>> = [];
     install({
       capture(input) {
+        events.push(input.properties);
         const blob = input.properties.blob;
         if (typeof blob === "string") seen.push(blob.slice(0, 6));
       },
@@ -1005,18 +1300,27 @@ describe("posthog ai traces", () => {
         });
       }
     });
-    expect(warning).toHaveBeenCalledWith("agent_trace_span_dropped", { bytes: expect.any(Number) });
+    expect(warning).toHaveBeenCalledWith("agent_trace_span_degraded", {
+      kind: "bulk",
+      bytes: expect.any(Number),
+    });
     expect(seen).toEqual([]);
     await vi.advanceTimersByTimeAsync(500);
     expect(seen.some((blob) => blob.startsWith("id:0:"))).toBe(true);
     expect(seen.some((blob) => blob.startsWith("id:13"))).toBe(false);
+    const degraded = events.filter((event) => event.trace_content_dropped === true);
+    expect(degraded).toHaveLength(3);
+    expect(degraded.every((event) => event.blob === MARKER)).toBe(true);
+    expect(events.find((event) => event.$ai_span_name === "execution")).toMatchObject({
+      trace_events_degraded: 3,
+    });
     const pending = drain();
     await vi.advanceTimersByTimeAsync(5_000);
     await pending;
     drain = async () => undefined;
   });
 
-  it("drops an event that stays over 1 MiB after the fit steps", async () => {
+  it("sends an event that stays over 1 MiB after the fit steps metadata-only", async () => {
     const warning = vi.spyOn(evlog, "logWarn");
     const seen: Array<Record<string, unknown>> = [];
     install({
@@ -1037,12 +1341,17 @@ describe("posthog ai traces", () => {
         outputChoices: choices,
       });
     });
-    expect(warning).toHaveBeenCalledWith("agent_trace_event_dropped", {
+    expect(warning).toHaveBeenCalledWith("agent_trace_event_degraded", {
       kind: "oversized",
       bytes: TRACE_EVENT_BYTES,
     });
     await drain();
-    expect(seen.some((event) => event.$ai_span_name === "oversized")).toBe(false);
+    const oversized = seen.find((event) => event.$ai_span_name === "oversized");
+    expect(oversized).toMatchObject({ trace_content_dropped: true, status: "ok" });
+    expect(oversized).not.toHaveProperty("$ai_output_choices");
+    expect(seen.find((event) => event.$ai_span_name === "execution")).toMatchObject({
+      trace_events_degraded: 1,
+    });
   });
 
   it("logs a failed send and accepts a later span once the bytes are released", async () => {

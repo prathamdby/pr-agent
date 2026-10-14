@@ -126,10 +126,51 @@ person profiles.
 Each generation carries the transcript seen so far. Tool definitions are
 `$ai_tools`. Thinking is an output choice. An event over 1 MiB keeps output
 and elides middle input behind `[trace content truncated]`. The queue holds 400
-spans and 8 MiB. Overflow and send failure log `agent_trace_span_dropped`,
-`agent_trace_event_dropped`, or `agent_trace_send_failed` with no content, and
-do not change the durable outcome. `agent_trace_shutdown_incomplete` means the
+spans and 8 MiB. An event that still does not fit, or arrives when the queue is
+full, is sent metadata-only with `trace_content_dropped=true` and logs
+`agent_trace_event_degraded` or `agent_trace_span_degraded`. Those events use a
+separate reserve of 50 events and 64 KiB; past it, the event is dropped and
+logs `agent_trace_span_dropped`. Send failure logs `agent_trace_send_failed`.
+None of these logs carry content or change the durable outcome. The
+`execution` span reports `trace_events_dropped`, `trace_events_degraded`, and
+`trace_events_truncated`; nonzero values mean the trace is incomplete. `agent_trace_shutdown_incomplete` means the
 shutdown reserve ended before the client flushed. A crash can lose the buffer.
+
+A Code Mode `tool:execute` span lists each host call in `codemode_host_calls`:
+`tool`, `input`, `status` (`completed`, `error`, or `in_flight`), `duration_ms`
+or `elapsed_ms`, `error_kind`, `output_bytes`, and a redacted
+`output_preview` of at most 4,096 characters. `in_flight` means the call was
+still running when the script ended. To find where a long session spent its
+tool time, open its `tool:execute` spans and sort the host calls by
+`duration_ms`. Repeated `tool` and `input` pairs across spans point to a loop.
+Host-call content goes to PostHog only; it never enters `agent_events`.
+
+The `session` span summarizes a session: `turns`, `tool_calls`, `host_calls`,
+`tool_ms_total`, `model_ms_total`, `last_tool`, `last_end`, and `error_code`.
+`repeat_host_calls` counts host calls with the same tool and input as an
+earlier call, and `repeat_top` names the most repeated host tools. A large
+`ms_since_last_activity` means the session stalled rather than looped. To list
+looping sessions:
+
+```sql
+SELECT properties.$ai_trace_id, properties.specialist_id,
+       properties.repeat_host_calls, properties.repeat_top
+FROM posthog.ai_events
+WHERE properties.$ai_span_name = 'session'
+  AND toInt64OrZero(toString(properties.repeat_host_calls)) >= 10
+ORDER BY timestamp DESC
+```
+
+A specialist `run` span with `deadline_hit=true` ran out of its time budget;
+`classification` and `attempts` say how it failed. Find those runs with
+`properties.deadline_hit = true` on spans named `specialist:%:run`, then open
+the trace. A generation with `partial=true` was cut off and shows only what
+streamed before the cutoff; `turn_index` orders the turns.
+
+If generations and tool spans show timing but no `$ai_input`,
+`$ai_output_choices`, `$ai_input_state`, or `codemode_host_calls`, check the
+PostHog project's AI privacy mode first. Privacy mode strips content on the
+PostHog side.
 
 Folded provider retries are one generation, not model latency. Unknown catalog
 prices are omitted, not sent as zero. `raw_stop_reason` of `refusal` means the
