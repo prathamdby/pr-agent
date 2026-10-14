@@ -4,7 +4,6 @@ type ModelsOverrides = Partial<Omit<Config["models"], "providerKeys">> & {
   readonly providerKeys?: Partial<Config["models"]["providerKeys"]>;
 };
 
-/** Per-slice partial overrides; unnamed fields keep the test defaults. */
 export type TestConfigOverrides = {
   readonly [K in keyof Config]?: K extends "models" ? ModelsOverrides : Partial<Config[K]>;
 };

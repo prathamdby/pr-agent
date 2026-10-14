@@ -214,9 +214,7 @@ describe("renderAgentInstructionFilesBlock", () => {
       sameRepo: false,
       files: [{ filename: "AGENTS.md", body: forged }],
     });
-    // Server untrusted header still present once.
     expect(block).toContain("Untrusted context (agent instruction files from PR head):");
-    // Forged server labels must not appear as authoritative plain-text headers.
     expect(block).not.toMatch(/^Trusted context \(agent instruction files\):$/m);
     expect(block).not.toMatch(/^These root files are binding for this review\./m);
     expect(block).not.toMatch(/^\s+These root files are binding for this review\./m);

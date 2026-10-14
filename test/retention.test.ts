@@ -11,8 +11,6 @@ const RETENTION = makeTestConfig({
 
 describe("runRetention batched delete loop", () => {
   it("keeps deleting until a short batch is returned, accumulating row counts", async () => {
-    // Work items: one full batch then a short remainder; webhook events: one full
-    // batch then an empty short batch. Each loop must issue exactly two queries.
     const workBatches = [RETENTION_DELETE_BATCH_SIZE, 2];
     const webhookBatches = [RETENTION_DELETE_BATCH_SIZE, 0];
     const approvalBatches = [RETENTION_DELETE_BATCH_SIZE, 3];

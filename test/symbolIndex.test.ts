@@ -75,7 +75,6 @@ describe("symbolIndex", () => {
       { maxSymbols: 5, readConcurrency: 8 },
     );
 
-    // First chunk (8) is fully read; further chunks stop after the symbol cap.
     expect(readOrder.length).toBe(8);
     expect(index.symbolCount).toBe(5);
     expect(querySymbolIndex(index, "sym_00")).toEqual([

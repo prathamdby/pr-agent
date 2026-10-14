@@ -64,7 +64,6 @@ describe("logAgentQueueStats", () => {
     await vi.waitFor(() => expect(started).toHaveLength(queues.length));
     expect(started.map((entry) => entry.queue)).toEqual(queues);
 
-    // Resolve out of order; logging must still follow the original queue list.
     const reverseCounts = queues.map((_, index) => ({
       queuedCount: 100 + index,
       activeCount: index,

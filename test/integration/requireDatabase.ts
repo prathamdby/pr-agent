@@ -34,10 +34,6 @@ export function formatUnreachableDatabaseError(cause: unknown): Error {
   );
 }
 
-/**
- * Fail fast when `nub run test:integration` is invoked without a reachable DB.
- * Opt out with INTEGRATION_ALLOW_SKIP_WITHOUT_DB=1 (inventory command).
- */
 export async function assertIntegrationDatabaseReady(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {

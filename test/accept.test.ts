@@ -9,9 +9,7 @@ import {
 const MD = "text/markdown";
 const HTML = "text/html";
 
-/** Server preference order for a page: HTML unless the client asks for markdown. */
 const PAGE = [HTML, MD] as const;
-/** Reverse order, used by machine-facing responses that default to markdown. */
 const AGENT = [MD, HTML] as const;
 
 describe("parseAccept", () => {
@@ -54,7 +52,6 @@ describe("parseAccept", () => {
 });
 
 describe("negotiateType", () => {
-  // The published vectors from acceptmarkdown.com/guides/accept-parsing.
   it.each([
     ["text/markdown", MD],
     ["text/markdown, text/html;q=0.8", MD],
@@ -93,7 +90,6 @@ describe("negotiateType", () => {
   });
 
   it("scores each representation by its most specific range, then picks the highest q", () => {
-    // text/markdown;q=0.1 overrides text/*;q=0.9 for markdown alone, so HTML wins at 0.9.
     expect(negotiateType("text/*;q=0.9, text/markdown;q=0.1", PAGE)).toBe(HTML);
   });
 

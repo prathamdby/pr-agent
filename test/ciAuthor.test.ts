@@ -55,7 +55,6 @@ describe("condenseCiLogs", () => {
   it("falls back to last lines when only deprecation noise exists", () => {
     const raw = "Node.js 20 is deprecated.\nStill only noise.\n";
     const condensed = condenseJobLogText(raw);
-    // Sole-signal path may keep deprecation when nothing else remains.
     expect(condensed.length).toBeGreaterThan(0);
   });
 

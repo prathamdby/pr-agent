@@ -481,9 +481,6 @@ describe("createPiSession seam", () => {
       executors: {},
     });
 
-    // No reservedTerminalTool: maxToolRounds=2 means exactly 2 investigation rounds.
-    // Expected: investigationTurnCount 0 -> 1 -> 2; first finishTurn continues,
-    // second finishTurn ends; turn ends tool_budget with empty text.
     const turn = await session.send("run", {
       phase: "recon",
       checkpointId: "cp-no-reserved",
@@ -513,12 +510,6 @@ describe("createPiSession seam", () => {
   });
 
   it("counts investigation in a mixed execute+publish_thread turn without double-counting reserved", async () => {
-    // Budget edge: maxToolRounds=4, 3 investigation turns then one mixed turn.
-    // Expected counts after the mixed turn:
-    //   investigationTurnCount = 4 (3 + 1 for the execute part, +0 for the reserved part)
-    //   reservedTerminalAttemptCount = 1, reservedTerminalSuccessCount = 1
-    // finishTurn for the mixed turn ends (successful reserved), and afterwards
-    // both publish_thread (success>0) and execute (investigation>=max) are blocked.
     const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
     const finishEnds: boolean[] = [];
     let capturedConfig: {
@@ -655,9 +646,7 @@ describe("createPiSession seam", () => {
     });
     expect(turn.text).toBe("mixed-done");
     expect(turn.end).toBe("completed");
-    // 3 investigation turns continue, mixed successful turn ends.
     expect(finishEnds).toEqual([false, false, false, true]);
-    // At the edge (investigation=3, attempts=0) both sides of the mixed turn are allowed.
     expect(beforeDecisions).toEqual([
       { tool: "execute", blocked: false },
       { tool: "execute", blocked: false },
@@ -674,8 +663,6 @@ describe("createPiSession seam", () => {
         context: unknown;
       }) => Promise<{ block?: boolean } | undefined>;
     };
-    // Expected final counts: investigation=4, attempts=1, success=1.
-    // Second publish blocked (success>0); execute blocked (investigation>=max).
     const againPublish = await cfg.beforeToolCall({
       assistantMessage: assistantForTool("publish_thread", "again-publish"),
       toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },

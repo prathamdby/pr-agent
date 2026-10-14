@@ -221,8 +221,6 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     expect(await staleIds(now)).toContain(id);
   });
 
-  // Failure modes: stale statement snapshots, revival insert phantoms, rowless
-  // lease acquisition, lock/budget cleanup, and closing checks after a no-op.
   it.each(
     (["review", "description", "triage", "verification"] as const).flatMap((workType) =>
       (["renewal", "job update", "job insert"] as const).map((revival) => ({
@@ -313,7 +311,6 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       const { rows } = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
       await blocker.query("BEGIN");
       blockerOpen = true;
-      // Lock without rewriting the item, avoiding a new tuple/EPQ confounder.
       await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
       await writer.query("BEGIN");
       writerOpen = true;
@@ -1539,9 +1536,6 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     },
   );
 
-  // Failure modes: denial lost on restart, denied token/metadata polling, a stale
-  // denial overriding restored grants, status-only starts missing the repair list,
-  // and a deliberate skip becoming evidence.
   it.each([
     "unresolved",
     "blocked",
@@ -1692,7 +1686,6 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
               })
             )?.capabilities.checksWrite,
           ).toBe("denied");
-          // A blocked candidate must not occupy the bounded repair batch.
           expect(
             (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
           ).not.toContain(id);

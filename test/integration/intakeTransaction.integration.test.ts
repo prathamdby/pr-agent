@@ -471,7 +471,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       expect(terminal).not.toHaveBeenCalled();
       const visibleAtCapture: string[] = [];
       capture.mockImplementation(() => {
-        // The spy throws too: accepted intake must still resolve.
         visibleAtCapture.push("captured");
         throw new Error("analytics unavailable");
       });
@@ -3265,8 +3264,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
     expect(workRows.map((row) => row.status).toSorted()).toEqual(["queued", "superseded"]);
 
-    // Intake no longer cancels the superseded delivery's pg-boss job: the stale
-    // delivery no-ops at execution because its work item is terminal.
     const firstJob = firstJobId ? await boss.getJobById(REVIEW_QUEUE, firstJobId) : null;
     expect(firstJob?.state).toBe("created");
 
@@ -3318,7 +3315,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       intakeCfg,
     );
 
-    // Terminal pg-boss rows are left in place; the lease, not queue state, decides who runs.
     const failedJob = await boss.getJobById(REVIEW_QUEUE, firstJobId);
     expect(failedJob?.state).toBe("failed");
 

@@ -170,8 +170,6 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
         },
       });
       let newer: Promise<void> | undefined;
-      // Observe the existing lock only to release the barrier on either implementation.
-      // The oracle is the final public body and durable record, not lock metadata.
       const observeLock = (client: PoolClient) => {
         void client
           .query<{ held: boolean }>(
@@ -634,7 +632,6 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       });
     });
 
-    // Parent is still the active non-replacement slash winner.
     expect(conflict).toEqual({ created: false, id: parentId });
 
     const { rows } = await pool.query<{ id: string; status: string }>(

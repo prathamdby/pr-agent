@@ -219,9 +219,7 @@ describe("triage run", () => {
                 },
               ],
             });
-          } catch {
-            /* validation error recorded on submitState */
-          }
+          } catch {}
           return { text: "nudge" };
         }
         if (typeof prompt === "string" && prompt.includes("If needed")) {

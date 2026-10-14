@@ -571,7 +571,6 @@ describe("cancelPendingStaleHeadReplacement", () => {
   it("cancels a pending-enqueue replacement named by the persisted parent", async () => {
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
     const boom = new Error("terminal before enqueue");
-    // The failed attempt wrote the marker after the hook's item snapshot was taken.
     persistParent(pendingReplacement("replacement-wi"));
 
     await cancelPendingStaleHeadReplacement(pool, makeItem(), boom);

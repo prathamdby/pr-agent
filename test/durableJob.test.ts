@@ -207,8 +207,6 @@ function runReviewWorkItem(
     type: "review",
     prActorLease: { queue: "agent-work-review" },
     resolveHeadSha: async () => ({ headSha: "x" }),
-    // Unit pool is a `{}` stub with mocked repositories: run the atomic body
-    // without a real transaction (mocked acquire/claim/release ignore it).
     runtime: createDurableRuntime({
       installationSurface,
       transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),

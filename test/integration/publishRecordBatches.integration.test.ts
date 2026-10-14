@@ -219,12 +219,6 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
   });
 
   it("recovers a SIGKILLed review in a separate process with exact receipts, a fresh session and the complete summary-only ledger", async () => {
-    // Process proof inventory: kill after the provider accepted but before its response;
-    // preserve all four validated reports; steal only this dead child's lease;
-    // restart the actual review entry with a newly admitted pinned reader; prove
-    // receipt recovery never publishes a second inline batch; retain summary-only
-    // source/reason/count/budget data; refuse unfinished work at cap; complete an
-    // already-published summary from its receipt without another view or model.
     const root = fileURLToPath(new URL("../..", import.meta.url));
     const artifactDir = join(root, "verify-artifacts/review-reliability");
     await mkdir(artifactDir, { recursive: true });
@@ -553,7 +547,6 @@ try {
         }
         await stop(initial.child);
         expect(initial.child.signalCode).toBe("SIGKILL");
-        // This is the dead process's dedicated lease, not a shared queue or live holder.
         await pool.query(
           "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
           [id],
@@ -1100,7 +1093,6 @@ try {
                             },
                           ],
                   });
-          // Keep the envelope's own hash valid so dependency/link checks, not decoding, reject it.
           await pool.query(
             "UPDATE review_run_artifacts SET envelope = $3, payload_hash = $4 WHERE work_item_id = $1 AND logical_key = $2",
             [
@@ -2406,7 +2398,6 @@ try {
       const workItemId = randomUUID();
       const parent = framed ? "golden:historical-description" : undefined;
       const marker = "golden-historical-marker";
-      // Precomputed from the legacy full fake Config, including the removed values.
       const hash = "50066c7921debb1bef12c704a6c3d26fc43acbd7d647bcb52877a0847fbf08d7";
       const key =
         parent == null
@@ -2434,7 +2425,6 @@ try {
         VALUES ($1, $2, $3, 'github.pr_surface.publishDescription', $4, $5::jsonb)`,
           [randomUUID(), workItemId, key, status, JSON.stringify(detail)],
         );
-        // Same method/marker in a different parent scope must remain untouched.
         const otherKey = `other:surface:publishDescription:${hash}`;
         await pool.query(
           `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)

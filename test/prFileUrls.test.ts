@@ -3,7 +3,6 @@ import { renderDescriptionAgentBlock } from "../src/agent/description/descriptio
 import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
 
 describe("description review map file URLs", () => {
-  // Anchor matches live github.com/weppos/whois/pull/90/files HTML (verified 2026-05).
   it("links the file diff using the full sha256 of its repository path", () => {
     const body = renderDescriptionAgentBlock(
       {
