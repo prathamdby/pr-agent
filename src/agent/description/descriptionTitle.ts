@@ -1,17 +1,7 @@
-export const DESCRIPTION_TITLE_MAX_LENGTH = 60;
+import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.js";
 
 const CONVENTIONAL_TYPE_PREFIX =
   /^(?:feat|fix|docs|chore|refactor|test|perf|style|ci|build|revert)(?:\([^)]+\))?!?:\s+/i;
-
-export function formatDescriptionTitleHardRule(): string {
-  return [
-    "Hard rule (title):",
-    "Write an imperative sentence-case title.",
-    "No conventional type prefix (feat:, fix:, etc.).",
-    "No trailing period.",
-    `At most ${DESCRIPTION_TITLE_MAX_LENGTH} characters.`,
-  ].join(" ");
-}
 
 export function enforceDescriptionTitle(title: string): string {
   const trimmed = title.trim();

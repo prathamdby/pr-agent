@@ -44,20 +44,8 @@ export const INSIDE_IMPORTABLE_MODULES = [
 
 export const TRANSITION_IMPORTS = [
   {
-    importer: "src/agent/description/descriptionSystemPrompt.ts",
-    modules: ["src/prompts/shared/communication.ts"],
-  },
-  {
-    importer: "src/review/ci/ciAuthor.ts",
-    modules: ["src/prompts/shared/communication.ts", "src/prompts/shared/output.ts"],
-  },
-  {
     importer: "src/review/orchestrator/prompts/orchestratorPrompts.ts",
     modules: ["src/prompts/shared/behavior.ts", "src/prompts/shared/communication.ts"],
-  },
-  {
-    importer: "src/review/publish/boundPolicyJudge.ts",
-    modules: ["src/prompts/shared/output.ts"],
   },
 ];
 

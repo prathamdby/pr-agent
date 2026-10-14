@@ -7,11 +7,8 @@ import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
 import { planDescriptionPublish } from "./descriptionPublishPlan.js";
-import {
-  coerceDescriptionPayloadInput,
-  descriptionPayloadSchema,
-  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
-} from "./descriptionSchema.js";
+import { coerceDescriptionPayloadInput, descriptionPayloadSchema } from "./descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../../prompts/description/prompt.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
 import {
   enforceDescriptionMapPayload,

@@ -28,17 +28,21 @@ import {
   ASK_SHORTEN_NUDGE,
   buildAskUserContent,
 } from "../src/prompts/ask/prompt.js";
-import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
+import {
+  descriptionSystemPrompt,
+  DESCRIPTION_SUBMIT_ONLY_NUDGE,
+  buildDescriptionUserContent,
+} from "../src/prompts/description/prompt.js";
 import { triageSystemPrompt, buildTriageUserContent } from "../src/prompts/triage/prompt.js";
 import {
   verificationSystemPrompt,
   buildVerificationUserContent,
 } from "../src/prompts/verification/prompt.js";
-import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/review/ci/ciAuthor.js";
+import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/prompts/ci/prompt.js";
 import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
-} from "../src/review/publish/boundPolicyJudge.js";
+} from "../src/prompts/judge/prompt.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.js";
@@ -72,9 +76,8 @@ import {
   createSubmitVerificationState,
 } from "../src/agent/verification/submitVerificationTool.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
-import { DESCRIPTION_SUBMIT_ONLY_NUDGE } from "../src/settings/descriptionConstants.js";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
-import { buildDescriptionUserContent } from "../src/agent/description/descriptionUserMessage.js";
+
 import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
 import { buildTrustedReviewContextForReview } from "../src/review/prompts/reviewTrustedContext.js";
 import {
