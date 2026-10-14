@@ -3,8 +3,7 @@ import type { TriageScope } from "../../agentWork/types.js";
 import { type Config, MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import { triageSystemPrompt } from "./triagePrompt.js";
-import { buildTriageUserContent } from "./triageUserMessage.js";
+import { triageSystemPrompt, buildTriageUserContent } from "../../prompts/triage/prompt.js";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,

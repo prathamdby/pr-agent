@@ -52,6 +52,10 @@ Exact identifiers the agent needs to continue: paths, symbol names, comment or t
 
 Copy paths, names, IDs, and error messages exactly.`;
 
+export function renderCompactionUserPrompt(conversationText: string): string {
+  return `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
+}
+
 function isToolResult(message: AgentMessage): boolean {
   return message.role === "toolResult";
 }
@@ -189,7 +193,7 @@ async function summarizeMessages(
   const conversationText = serializeForSummary(messages);
   if (conversationText.length === 0) return undefined;
   const reasoning = clampThinkingLevel("low", thinkingCeiling);
-  const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
+  const promptText = renderCompactionUserPrompt(conversationText);
   const maxTokens = Math.min(
     Math.floor(0.8 * COMPACTION_RESERVE_TOKENS),
     model.maxTokens > 0 ? model.maxTokens : 16_384,

@@ -26,16 +26,23 @@ import {
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
 } from "./specialistTools.js";
-import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
-import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
+import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.js";
+import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.js";
+import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.js";
+import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
 const RETRY_BACKOFF_BASE_MS = 500;
-const MISSING_REPORT_ERROR =
+export const MISSING_REPORT_ERROR =
   "No valid SpecialistReport was submitted. Call submit_findings_report with the complete report.";
+
+export function renderSpecialistReportRepair(validationError: string): string {
+  return [
+    validationError,
+    "Fix the report and call submit_findings_report now. This repair turn allows only a couple of tool calls, so submit from the evidence you already have.",
+  ].join("\n\n");
+}
 
 export type RunSpecialistParams = {
   readonly onValidatedReport?: (report: SpecialistReport) => Promise<void>;
@@ -377,10 +384,7 @@ async function runAttempt(
           assertCanContinue(params, deadlineMs);
           await runSubmitOnlyRound(
             session,
-            [
-              validationError,
-              "Fix the report and call submit_findings_report now. This repair turn allows only a couple of tool calls, so submit from the evidence you already have.",
-            ].join("\n\n"),
+            renderSpecialistReportRepair(validationError),
             (active, prompt, options) =>
               send(active, prompt, { ...options, traceValidationRepair: true }),
           );

@@ -310,13 +310,13 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
-- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
+- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
 - `src/github/` owns Octokit, installation tokens, and the narrow `PrSurface` seam; features assemble raw reads.
 - `src/github/installationCapabilities.ts` owns validated operation grants and
   permission alternatives. `src/agentWork/githubCapabilityRepository.ts` owns
   generation-ordered scoped observations, CI source restoration/revisions,
   preflight counters, and retention.
-- `src/agent/` owns Pi sessions, tools, and feature logic. Legacy personas stay in `src/agent/prompts/`; `src/prompts/shared/` owns shared prose, and `src/prompts/<role>/prompt.ts` owns role harnesses.
+- `src/agent/` owns Pi sessions, tools, and feature logic. `src/prompts/shared/` owns shared prose, and `src/prompts/<role>/prompt.ts` owns role prose and harnesses.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - AI traces: `src/traces/`. PostHog is the only trace store. [ADR 0050](docs/adr/0050-posthog-ai-traces.md).

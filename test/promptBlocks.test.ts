@@ -7,7 +7,7 @@ import {
 import {
   securityTripwiresGuidance,
   proseContractGuidance,
-} from "../src/review/prompts/reviewPromptBlocks.js";
+} from "../src/prompts/correctness/prompt.js";
 
 function untrustedBlockBody(label: string, block: string): string {
   const open = `<${label} untrusted="true">\n`;

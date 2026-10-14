@@ -1,19 +1,21 @@
+import {
+  ASK_RETRY_NUDGE,
+  ASK_SHORTEN_NUDGE,
+  buildAskSystemPrompt,
+  buildAskUserContent,
+} from "../../prompts/ask/prompt.js";
 import { logInfo } from "../../evlog.js";
-import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
 import {
   ASK_FAILURE_MESSAGE,
   ASK_META_REFUSAL,
-  ASK_RETRY_NUDGE,
-  ASK_SHORTEN_NUDGE,
   CONTEXT7_RESPONSE_BYTES,
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.js";
-import { buildAskUserContent } from "./askUserContent.js";
 import type { AskCiState, AskRunParams, AskRunResult } from "./askRunTypes.js";
 import { mergeExactUsage } from "../providers/usageMetadata.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
