@@ -1,5 +1,5 @@
-import { triageNativeTooling } from "../prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
+import { triageNativeTooling } from "../../prompts/triage/prompt.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
 
 export const triageSystemPrompt = [
   "Triage prior PR Agent inline findings on the current pull request, P3 threads included. For each finding, confirm against the current workspace whether it still holds, fix the valid ones you can fix safely, and record one verdict per finding. Your commits can be pushed to the pull request branch, so each one must be a fix a maintainer would accept.",

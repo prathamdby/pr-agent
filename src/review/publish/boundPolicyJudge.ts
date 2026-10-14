@@ -1,6 +1,6 @@
 import * as v from "valibot";
-import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { noToolsTurnGuidance } from "../../prompts/shared/output.js";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import type { Config } from "../../settings/index.js";
 import { logWarn } from "../../evlog.js";

@@ -1,5 +1,5 @@
 import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../../settings/index.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 import { escapeTableHtml } from "../../github/markdownFormat.js";
 
 export type CommentableRightLineRanges = Array<[number, number]>;

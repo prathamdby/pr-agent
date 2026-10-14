@@ -3,7 +3,7 @@ import * as v from "valibot";
 import { toToolParameters } from "../../agent/tools/toolParams.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import { wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 

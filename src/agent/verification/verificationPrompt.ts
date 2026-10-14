@@ -1,5 +1,5 @@
-import { verificationInvestigationHarness } from "../prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
+import { verificationInvestigationHarness } from "../../prompts/verification/prompt.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
 
 export const verificationSystemPrompt = [
   "Verification run: re-check prior PR Agent inline findings against the new pull request head, and record whether each one still holds.",

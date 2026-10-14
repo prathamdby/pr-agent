@@ -8,11 +8,13 @@ import type {
 import type { ReviewFinding } from "../../reviewSchema.js";
 import type { SpecialistReport } from "../specialistReport.js";
 import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
-import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../../../agent/prompts/readerFirstOutput.js";
-import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
-import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
-import { causalPublicationContract } from "../../prompts/reviewPromptBlocks.js";
+import { orchestratorHarness } from "../../../prompts/orchestrator/prompt.js";
+import {
+  readerFirstOutputGuidance,
+  ste100WritingGuidance,
+} from "../../../prompts/shared/communication.js";
+import { wrapUntrustedEvidence } from "../../../prompts/shared/safety.js";
+import { causalPublicationContract } from "../../../prompts/shared/behavior.js";
 
 type ReportOutcome = {
   readonly specialist: SpecialistId;

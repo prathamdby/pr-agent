@@ -1,5 +1,5 @@
 import type { AskCiState, AskRunParams } from "./askRunTypes.js";
-import { wrapTrustedContext, wrapUntrustedBlock } from "../prompts/promptBlocks.js";
+import { wrapTrustedContext, wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 
 export function formatAskCiState(state: AskCiState): string {
   const lines = [`rollup: ${state.rollup}`, `version: ${state.version}`];

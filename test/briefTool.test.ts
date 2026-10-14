@@ -12,7 +12,7 @@ import {
   renderJudgmentTurn,
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
-import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
+import { causalPublicationContract } from "../src/prompts/shared/behavior.js";
 import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createFindingLedger,

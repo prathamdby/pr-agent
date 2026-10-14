@@ -1,6 +1,8 @@
-import { descriptionNativeTooling } from "../prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../prompts/readerFirstOutput.js";
-import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
+import { descriptionNativeTooling } from "../../prompts/description/prompt.js";
+import {
+  readerFirstOutputGuidance,
+  ste100WritingGuidance,
+} from "../../prompts/shared/communication.js";
 import {
   descriptionBodyScaleGuidance,
   descriptionReviewMapGuidance,

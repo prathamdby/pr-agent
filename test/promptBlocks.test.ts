@@ -3,7 +3,7 @@ import {
   wrapTrustedContext,
   wrapUntrustedBlock,
   wrapUntrustedEvidence,
-} from "../src/agent/prompts/promptBlocks.js";
+} from "../src/prompts/shared/safety.js";
 import {
   securityTripwiresGuidance,
   proseContractGuidance,

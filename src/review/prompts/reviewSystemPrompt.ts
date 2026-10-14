@@ -3,23 +3,29 @@ import {
   compactInvestigationMethod,
   compactReportingGate,
   pathAndSizeGuidance,
-  reviewPayloadPerFindingContracts,
-  causalPublicationContract,
-  highStakesTrivialTrapGuidance,
   securityTripwiresGuidance,
   proseContractGuidance,
+} from "./reviewPromptBlocks.js";
+import {
+  reviewPayloadPerFindingContracts,
+  specialistFindingsReportContract,
+} from "../../prompts/shared/output.js";
+import {
+  causalPublicationContract,
+  highStakesTrivialTrapGuidance,
+  readOnlyReviewGuidance,
+  outOfScopeFilesGuidance,
+} from "../../prompts/shared/behavior.js";
+import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
-  specialistFindingsReportContract,
-  readOnlyReviewGuidance,
-  outOfScopeFilesGuidance,
   userSupplementGuidance,
-} from "./reviewPromptBlocks.js";
-import { specialistInvestigationHarness } from "../../agent/prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../../agent/prompts/readerFirstOutput.js";
-import { context7OutboundDataGuidance } from "../../agent/prompts/toolingDiscipline.js";
+  context7OutboundDataGuidance,
+} from "../../prompts/shared/safety.js";
+import { specialistInvestigationHarness } from "../../prompts/shared/tools.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
 
 export function buildAutomatedSystemPrompt(): string {
   const investigationMethod = [...compactInvestigationMethod];

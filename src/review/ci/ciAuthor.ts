@@ -12,9 +12,9 @@ import {
   REVIEW_CI_SUMMARY_REASON_MAX_CHARS,
 } from "../../settings/index.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
-import { readerFirstOutputGuidance } from "../../agent/prompts/readerFirstOutput.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { noToolsTurnGuidance } from "../../prompts/shared/output.js";
+import { readerFirstOutputGuidance } from "../../prompts/shared/communication.js";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
