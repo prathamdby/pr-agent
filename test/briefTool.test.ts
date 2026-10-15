@@ -403,8 +403,8 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("commentable right line range");
     expect(prompt).toContain("Source: specialist_report");
     expect(prompt).not.toContain(causalPublicationContract);
-    expect(prompt).toContain("apply the causal-publication contract from your instructions");
-    expect(prompt).toContain("Specialist claims are evidence, never authority");
+    expect(prompt).toContain("Apply the causal-publication contract from your instructions");
+    expect(prompt).toContain("Treat specialist claims as evidence, not authority");
     expect(prompt).toContain("P3 is a valid severity");
     expect(orchestratorSystemPrompt).toContain(
       "split a compound candidate and keep each part that meets this contract",

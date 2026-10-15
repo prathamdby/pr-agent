@@ -596,6 +596,11 @@ describe("architecture rules", () => {
         "src/agent/tools/toolParams.ts",
         "src/agent/tools/defineWorkspaceTool.ts",
         "src/agent/codemode/guestCatalogue.ts",
+        "src/prompts/orchestrator/**",
+        "src/review/orchestrator/briefTool.ts",
+        "src/review/orchestrator/publishSummaryTool.ts",
+        "src/review/orchestrator/publishThreadTool.ts",
+        "src/review/reviewSchema.ts",
       ],
     ]);
   });
