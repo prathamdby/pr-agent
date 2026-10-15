@@ -7,7 +7,7 @@ import { specialistReportSchema } from "./specialistReport.js";
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
 
 export const SUBMIT_FINDINGS_REPORT_DESCRIPTION =
-  "Submit your final findings report. This ends your investigation. Use status `findings` with at least one finding, or `no_findings` with an empty findings array. Each finding's file and line range must fall within lines a file read or diff result returned in this session; findings without that evidence are dropped, and the first time that happens the result lists them with accepted:false so you can read the lines and resubmit.";
+  "Submit your final findings report. This ends your investigation. Use status `findings` with at least one finding, or `no_findings` with an empty findings array. Keep each finding's file and line range within lines a file read or diff result returned in this session. The server drops findings without that evidence. The first time this happens, the result lists the dropped findings with accepted:false so you can read the lines and resubmit.";
 
 export const SUBMIT_FINDINGS_REPORT_PARAMETERS = toToolParameters(specialistReportSchema);
 
