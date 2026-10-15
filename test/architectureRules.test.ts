@@ -607,6 +607,11 @@ describe("architecture rules", () => {
         "src/agent/triage/submitTriageTool.ts",
         "src/agent/verification/submitVerificationTool.ts",
         "src/review/triageSchema.ts",
+        "src/prompts/orchestrator/**",
+        "src/review/orchestrator/briefTool.ts",
+        "src/review/orchestrator/publishSummaryTool.ts",
+        "src/review/orchestrator/publishThreadTool.ts",
+        "src/review/reviewSchema.ts",
         "src/review/orchestrator/specialistTools.ts",
       ],
     ]);

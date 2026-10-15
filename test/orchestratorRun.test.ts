@@ -1132,7 +1132,7 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.judgmentPrompts[0]).toContain(
-      "apply the causal-publication contract from your instructions",
+      "Apply the causal-publication contract from your instructions",
     );
     expect(testState.judgmentPrompts[0]).toContain("Consider extracting a helper");
     expect(testState.publishOrder).toEqual(["quality", "summary"]);
