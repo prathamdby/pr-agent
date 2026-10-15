@@ -28,31 +28,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "src/prompts/shared/**",
-        "src/prompts/correctness/**",
-        "src/prompts/quality/**",
-        "src/prompts/security/**",
-        "src/prompts/tests/**",
-        "src/agent/tools/workspaceToolset.ts",
-        "src/agent/tools/context7Tools.ts",
-        "src/agent/tools/toolParams.ts",
-        "src/agent/tools/defineWorkspaceTool.ts",
-        "src/agent/codemode/guestCatalogue.ts",
-        "src/prompts/ask/**",
-        "src/prompts/triage/**",
-        "src/prompts/verification/**",
-        "src/agent/triage/triageWorkspaceTools.ts",
-        "src/agent/triage/submitTriageTool.ts",
-        "src/agent/verification/submitVerificationTool.ts",
-        "src/review/triageSchema.ts",
-        "src/prompts/orchestrator/**",
-        "src/review/orchestrator/briefTool.ts",
-        "src/review/orchestrator/publishSummaryTool.ts",
-        "src/review/orchestrator/publishThreadTool.ts",
-        "src/review/reviewSchema.ts",
-        "src/review/orchestrator/specialistTools.ts"
-      ],
+      "files": ["src/**"],
       "rules": {
         "pr-agent/prompt-style": "error"
       }

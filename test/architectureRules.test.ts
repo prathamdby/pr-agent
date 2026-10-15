@@ -580,7 +580,7 @@ describe("architecture rules", () => {
       "src/prompts/shared/safety.ts": [5],
       "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
       "src/agent/codemode/guestCatalogue.ts": [1, 1],
-      "src/agent/description/fooSchema.ts": [],
+      "src/agent/description/fooSchema.ts": [1, 2],
       "src/other.ts": [],
       "test/promptStyle.ts": [],
     });
@@ -588,33 +588,7 @@ describe("architecture rules", () => {
       repoPluginRules()
         .overrides?.filter((override) => override.rules["pr-agent/prompt-style"] === "error")
         .map((override) => override.files),
-    ).toEqual([
-      [
-        "src/prompts/shared/**",
-        "src/prompts/correctness/**",
-        "src/prompts/quality/**",
-        "src/prompts/security/**",
-        "src/prompts/tests/**",
-        "src/agent/tools/workspaceToolset.ts",
-        "src/agent/tools/context7Tools.ts",
-        "src/agent/tools/toolParams.ts",
-        "src/agent/tools/defineWorkspaceTool.ts",
-        "src/agent/codemode/guestCatalogue.ts",
-        "src/prompts/ask/**",
-        "src/prompts/triage/**",
-        "src/prompts/verification/**",
-        "src/agent/triage/triageWorkspaceTools.ts",
-        "src/agent/triage/submitTriageTool.ts",
-        "src/agent/verification/submitVerificationTool.ts",
-        "src/review/triageSchema.ts",
-        "src/prompts/orchestrator/**",
-        "src/review/orchestrator/briefTool.ts",
-        "src/review/orchestrator/publishSummaryTool.ts",
-        "src/review/orchestrator/publishThreadTool.ts",
-        "src/review/reviewSchema.ts",
-        "src/review/orchestrator/specialistTools.ts",
-      ],
-    ]);
+    ).toEqual([["src/**"]]);
   });
 
   it("keeps prompt modules at src/prompts/<shared|role>/<section|prompt>.ts", () => {
