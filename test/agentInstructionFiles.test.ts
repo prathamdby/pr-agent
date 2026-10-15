@@ -151,9 +151,11 @@ describe("pr-agent AGENTS.md trusted-context load", () => {
     if (loaded.kind !== "ok") return;
     expect(loaded.drops).toEqual([]);
     const agentsBody = loaded.files.find((file) => file.filename === "AGENTS.md")?.body ?? "";
-    const tokens = new Set([...agents.matchAll(/`([^`]+)`/g)].map((match) => match[1]));
+    const prose = agents.replace(/```[\s\S]*?```/g, "");
+    const tokens = new Set([...prose.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]));
     for (const token of tokens) {
       if (!token.includes("/") || token.includes(" ") || token.startsWith("http")) continue;
+      if (token.startsWith("/") || token.startsWith("@") || token.startsWith("origin/")) continue;
       if (token.includes("*") || token.includes("<")) continue;
       expect([token, existsSync(join(REPO_ROOT, token.replace(/\/$/, "")))]).toEqual([token, true]);
     }
