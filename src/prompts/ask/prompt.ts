@@ -6,15 +6,13 @@ import {
   wrapTrustedContext,
   wrapUntrustedBlock,
 } from "../shared/safety.js";
-import { renderCodeModeHarness } from "../shared/tools.js";
+import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../shared/tools.js";
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
   nativeTools: ["execute", "resolveLibraryId", "getLibraryDocs"],
   cellBoundary: "The answer goes in your final plain-text reply, not in a cell.",
-  extra: [
-    "The workspace is a PR head checkout. No tool reads the PR conversation, issues, or external URLs.",
-  ],
+  extra: [`The workspace is a PR head checkout. ${unavailableConversationToolsGuidance}`],
 });
 
 export function buildAskSystemPrompt(): string {
@@ -120,15 +118,9 @@ export function buildAskUserContent(params: AskPromptInput): string {
     if (diffHunk?.trim()) {
       anchorLines.push("", "Diff hunk:", "```diff", diffHunk.trim(), "```");
     }
-    anchorLines.push(
-      "",
-      "Start from this anchor, then inspect surrounding code through `execute({ code })`.",
-    );
     blocks.push(wrapUntrustedBlock("code_anchor", anchorLines.join("\n")));
   } else {
-    blocks.push(
-      "Inspect changed files through `execute({ code })`, then answer the question in user_question.",
-    );
+    blocks.push("Inspect changed files through `execute({ code })`.");
   }
 
   return blocks.join("\n\n");

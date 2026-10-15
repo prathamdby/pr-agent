@@ -40,9 +40,5 @@ export function buildCiContextUserMessage(params: {
     params.condensedLogs.trim().length > 0 ? params.condensedLogs : "(no logs available)",
   ].join("\n");
 
-  return [
-    "Author the CI summary JSON for this pull request head.",
-    "",
-    wrapUntrustedBlock("ci_context", facts),
-  ].join("\n");
+  return wrapUntrustedBlock("ci_context", facts);
 }

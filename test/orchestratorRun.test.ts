@@ -1209,8 +1209,8 @@ describe("runOrchestratedPrReview", () => {
     }
 
     await expect(run).resolves.toMatchObject({ published: true });
-    expect(testState.judgmentPrompts[0]).toContain(
-      "Split a compound candidate into atomic problems",
+    expect(runner.createSession.mock.calls.at(-1)?.[0]?.systemPrompt).toContain(
+      "split a compound candidate and keep each part that meets this contract",
     );
     expect(
       (testState.ledger?.accepted.map((item) => item.placement.finding.title) ?? []).toSorted(),
