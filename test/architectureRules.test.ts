@@ -493,6 +493,32 @@ const PROMPT_STYLE_PROBE: Record<string, string> = {
     'export const quotedUnknown = "Use `SHOUT` for emphasis.";',
     'export const bareTag = wrapUntrustedBlock("UNTRUSTED_EVIDENCE", runtime);',
     'export const enumThenPressure = "Use severity values P0, P1. This is CRITICAL.";',
+    'export default "Read FORCEFULLY.";',
+    'const specifierText = "Read SOFTLY.";',
+    "export { specifierText as guidance };",
+    'export const bareGet = "Use GET now.";',
+    'export const bareHead = "Read HEAD now.";',
+    'export const bareLr = "Use LR now.";',
+    'export const bareTb = "Use TB now.";',
+    'export const bareXs = "Use XS now.";',
+    'export const bareXl = "Use XL now.";',
+    'export const bareXxl = "Use XXL now.";',
+    'export const bareAgents = "Ask AGENTS now.";',
+    'export const bareClaude = "Ask CLAUDE now.";',
+    'export const bareGemini = "Ask GEMINI now.";',
+    'export const rawTag = "<note>";',
+    'export const pattern = new RegExp("IMPORTANT", "GI");',
+    'export const wrappedText = wrapUntrustedBlock("note", "IMPORTANT");',
+    'export const dashedContract = "- path: MUST BE RELATIVE!";',
+    'export const quotedContract = "`path`: MUST BE RELATIVE!";',
+    'export const joinedWords = "Hello!World";',
+    'export const parenthesizedBang = "(Read now!)";',
+    "",
+  ].join("\n"),
+  "src/prompts/ask/context.ts": [
+    'export { x } from "./SHOUT.js";',
+    'import { x as importedAlias } from "./SHOUT.js";',
+    "export { importedAlias as importedPrompt };",
     "",
   ].join("\n"),
   "src/prompts/shared/safety.ts": [
@@ -519,6 +545,11 @@ const PROMPT_STYLE_PROBE: Record<string, string> = {
   ].join("\n"),
   "src/agent/codemode/guestCatalogue.ts":
     'export function renderExecuteDescription() { return "Run QUIETLY!"; }\n',
+  "src/agent/description/fooSchema.ts": [
+    'export const tool = { description: "Read SHOUT." };',
+    'export const param = v.description("Read QUIETLY.");',
+    "",
+  ].join("\n"),
   "src/other.ts": 'export const value = { description: "IMPORTANT!" };\n',
   "test/promptStyle.ts": 'export const value = "IMPORTANT!";\n',
 };
@@ -530,10 +561,15 @@ describe("architecture rules", () => {
         config: { rules: { "pr-agent/prompt-style": "error" } },
       }).lines("prompt-style"),
     ).toEqual({
-      "src/prompts/ask/prompt.ts": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 23, 25, 26, 26, 27, 28, 30],
+      "src/prompts/ask/prompt.ts": [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 23, 25, 26, 26, 27, 28, 30, 31, 32, 34, 35, 36, 37, 38, 39,
+        40, 41, 42, 43, 45, 46, 50,
+      ],
+      "src/prompts/ask/context.ts": [],
       "src/prompts/shared/safety.ts": [5],
       "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
       "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/agent/description/fooSchema.ts": [1, 2],
       "src/other.ts": [],
       "test/promptStyle.ts": [],
     });
@@ -544,9 +580,24 @@ describe("architecture rules", () => {
       "src/prompts/shared/safety.ts": [5],
       "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
       "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/agent/description/fooSchema.ts": [],
       "src/other.ts": [],
       "test/promptStyle.ts": [],
     });
+    expect(
+      repoPluginRules()
+        .overrides?.filter((override) => override.rules["pr-agent/prompt-style"] === "error")
+        .map((override) => override.files),
+    ).toEqual([
+      [
+        "src/prompts/shared/**",
+        "src/agent/tools/workspaceToolset.ts",
+        "src/agent/tools/context7Tools.ts",
+        "src/agent/tools/toolParams.ts",
+        "src/agent/tools/defineWorkspaceTool.ts",
+        "src/agent/codemode/guestCatalogue.ts",
+      ],
+    ]);
   });
 
   it("keeps prompt modules at src/prompts/<shared|role>/<section|prompt>.ts", () => {
