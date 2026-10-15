@@ -596,6 +596,13 @@ describe("architecture rules", () => {
         "src/agent/tools/toolParams.ts",
         "src/agent/tools/defineWorkspaceTool.ts",
         "src/agent/codemode/guestCatalogue.ts",
+        "src/prompts/ask/**",
+        "src/prompts/triage/**",
+        "src/prompts/verification/**",
+        "src/agent/triage/triageWorkspaceTools.ts",
+        "src/agent/triage/submitTriageTool.ts",
+        "src/agent/verification/submitVerificationTool.ts",
+        "src/review/triageSchema.ts",
       ],
     ]);
   });

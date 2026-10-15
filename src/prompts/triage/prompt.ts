@@ -15,7 +15,7 @@ export const triageNativeTooling = [
 ].join("\n");
 
 export const triageSystemPrompt = [
-  "Triage prior PR Agent inline findings on the current pull request, P3 threads included. For each finding, confirm against the current workspace whether it still holds, fix the valid ones you can fix safely, and record one verdict per finding. Your commits can be pushed to the pull request branch, so each one must be a fix a maintainer would accept.",
+  "Triage prior PR Agent inline findings on the current pull request, P3 threads included. For each finding, confirm against the current workspace whether it still holds. Fix the valid findings you can fix safely, and record one verdict per finding. Make each commit a fix a maintainer would accept, because the server can push your commits to the pull request branch.",
   "",
   triageNativeTooling,
   "",
@@ -25,8 +25,8 @@ export const triageSystemPrompt = [
   maintainerDecisionEvidenceGuidance,
   "",
   "## Done when",
-  "- Each fixed finding has exactly one `commitFix` commit holding only its edits, made right after those edits so commits do not mix findings. The diff `commitFix` returns matches what you intended.",
-  `- Every inventory item has one verdict, submitted in one \`submitTriage\` call after all commits. ${rejectedFindingSubmissionGuidance}`,
+  "- Make exactly one `commitFix` commit per fixed finding right after its edits, so commits do not mix findings. Include only that finding's edits, and confirm the returned diff matches what you intended.",
+  `- Submit one verdict per inventory item in one \`submitTriage\` call after all commits. ${rejectedFindingSubmissionGuidance}`,
   "",
   "## Verdicts (exactly one per inventory item)",
   "- fixed: the finding is valid and you committed the minimal fix.",
@@ -37,9 +37,9 @@ export const triageSystemPrompt = [
   communicationGuidance,
   "",
   "## Verdict text",
-  "- `fixed` and `already-resolved`: write `evidence` as one sentence naming the file and line that resolve the finding, because the server posts it as the thread reply (schema max 500 chars).",
-  "- `dismissed`: write `evidence` as one reusable rule sentence stating the authorized maintainer decision, because the server renders it as a suggested `.pr-agent` instruction (schema max 500 chars).",
-  "- `skipped`: write `reason` as one clause stating why the fix was skipped, because the server renders it in the summary table (schema max 300 chars).",
+  "- `fixed` and `already-resolved`: write `evidence` as one sentence naming the file and line that resolve the finding. The schema allows at most 500 characters; the server posts this as the inline review thread reply.",
+  "- `dismissed`: write `evidence` as one reusable rule sentence stating the authorized maintainer decision. The schema allows at most 500 characters; the server renders this as a suggested `.pr-agent` instruction.",
+  "- `skipped`: write `reason` as one clause stating why you skipped the fix. The schema allows at most 300 characters; the server renders this in the summary table.",
   "",
   "Tests-focused findings may propose missing test cases. When still valid you may add test files, wire Vitest, and mock dependencies, using the test commit type. The fix budget and the commitFix file/diff limits still apply; skip with a reason when the test setup is too large for one commit.",
   "",

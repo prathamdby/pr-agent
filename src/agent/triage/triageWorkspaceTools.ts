@@ -79,13 +79,13 @@ export function buildTriageWorkspaceTools(params: {
 
   const editWorkspaceFile = defineLocalTool({
     description:
-      "Replace one exact span of text in a file named by a finding in the triage inventory. Other files are refused, so the fix stays inside what the finding implicates. oldText must occur exactly once; copy it from a fresh read and include enough surrounding lines to make it unique.",
+      "Replace one exact span of text in a file named by a finding in the triage inventory. The tool refuses other files, so the fix stays inside what the finding implicates. Copy oldText from a fresh read and include enough surrounding lines to match exactly once.",
     schema: v.object({
       path: repoPathParam,
       oldText: v.pipe(
         v.string(),
         v.minLength(1),
-        v.description("Text to replace, copied exactly from the file. Must occur once."),
+        v.description("Copy the text to replace exactly from the file, matching one occurrence."),
       ),
       newText: v.pipe(v.string(), v.description("Replacement text. May be empty to delete.")),
     }),
@@ -190,7 +190,7 @@ export function buildTriageWorkspaceTools(params: {
 
   const commitFix = defineLocalTool({
     description:
-      "Commit the fix for one inventory finding. Each finding gets at most one commit, so finish and check the edits for that finding first. It returns the commit sha, which a fixed verdict in submitTriage cites, and the committed diff, so you can confirm the commit holds what you intended. Staged files must be the finding's implicated files or files createWorkspaceFile allows.",
+      "Commit the fix for one inventory finding. Each finding gets at most one commit, so finish and check the edits for that finding first. The tool returns the commit sha for the fixed verdict in submitTriage and the committed diff. Confirm the diff holds what you intended. Stage only the finding's implicated files or files createWorkspaceFile allows.",
     schema: v.object({
       threadRootCommentId: v.pipe(
         v.number(),
