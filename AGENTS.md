@@ -306,18 +306,17 @@ client. CI projection and direct comment edits do not share this lock.
 
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
 - `src/webhook/` verifies and parses GitHub deliveries; `intakeCommand.ts` maps validated events without provider I/O.
-- `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention. `intake/delivery.ts` owns delivery transactions and review intake ordering; `askQuota.ts` owns atomic canonical ask admission. `reviewVerdict.ts` owns pending checks, first-output verdict selection, check/status application, summary details links, and open-check repair.
+- `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention. `src/agentWork/intake/delivery.ts` owns delivery transactions and review intake ordering; `askQuota.ts` owns atomic canonical ask admission. `reviewVerdict.ts` owns pending checks, first-output verdict selection, check/status application, summary details links, and open-check repair.
 - `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
-- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
+- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`src/review/orchestrator/runStep.ts`), judgment, and publication. `src/review/ci/ciFacts.ts`, `src/review/ci/ciAuthor.ts`, `src/review/ci/ciSummaryCell.ts` own CI facts, author, and cell.
 - `src/github/` owns Octokit, installation tokens, and the narrow `PrSurface` seam; features assemble raw reads.
 - `src/github/installationCapabilities.ts` owns validated operation grants and
   permission alternatives. `src/agentWork/githubCapabilityRepository.ts` owns
   generation-ordered scoped observations, CI source restoration/revisions,
   preflight counters, and retention.
 - `src/agent/` owns Pi sessions, tools, and feature logic. `src/prompts/shared/` owns shared prose, and `src/prompts/<role>/prompt.ts` owns role prose and harnesses.
-- `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - AI traces: `src/traces/`. PostHog is the only trace store. [ADR 0050](docs/adr/0050-posthog-ai-traces.md).
 - `src/security/` owns outbound, log, and analytics redaction.
