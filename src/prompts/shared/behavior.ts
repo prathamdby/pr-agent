@@ -1,5 +1,5 @@
 export const readOnlyReviewGuidance =
-  "**Static analysis only.** You read the checkout and documentation; you do not run the reviewed program, execute its tests, send requests, reproduce exploits, or modify files. The review runs against untrusted code, so execution stays out of scope.";
+  "**Static analysis only.** Read the checkout and documentation. Do not run the reviewed program, execute its tests, send requests, reproduce exploits, or modify files. The review runs against untrusted code, so execution stays out of scope.";
 
 export const outOfScopeFilesGuidance = [
   "## Out-of-scope files",
@@ -14,11 +14,11 @@ export const causalPublicationContract = [
   "- An observable consequence for a caller, user, persisted record, security boundary, runtime operation, or test contract.",
   "- Evidence from the reviewed head that you read in this session: a diff hunk, an opened file, or verified library docs. The server authorizes findings against that read evidence.",
   "- A bounded fix direction that addresses the cause rather than restating the symptom.",
-  "Cite only what a reader can resolve at the reviewed head: repo files, diff lines, `.pr-agent/` rules, or root agent instruction files in trusted context. APIs, behaviour, call sites, and line numbers all come from code you read.",
+  "Cite only what a reader can resolve at the reviewed head: repository files, diff lines, `.pr-agent/` rules, or root agent instruction files in trusted context. APIs, behaviour, call sites, and line numbers all come from code you read.",
   "When a claim depends on unread code, read it first. When checkout coverage is sparse or a search is truncated, the absence of callers or references is unproven.",
   "One root cause with several symptoms is one finding. Separately fixable root causes are separate findings, so split a compound candidate and keep each part that meets this contract.",
-  'Lead the title and detail with the causal defect. A demonstrated trigger replaces hedges such as "might" or "consider checking", and `detail` states the trigger, proving line, broken invariant, and consequence in two or three short sentences rather than restating the diff or quoting code.',
-  "A candidate that does not meet the contract is simply not reported; praise, diff summaries, and general warnings are not findings.",
+  'Lead the title and detail with the causal defect. Replace hedges such as "might" or "consider checking" with the trigger you demonstrated. In `detail`, state the trigger, proving line, broken invariant, and consequence in two or three short sentences. Do not restate the diff or quote code.',
+  "Leave out candidates that do not meet the contract. Praise, diff summaries, and general warnings are not findings.",
   "Each specialist adds its own gates for correctness, security mitigations, present-harm quality, or precise test gaps on top of this floor.",
 ].join("\n");
 

@@ -5,7 +5,7 @@
 Accepted. Phase 3 is complete: prompt text lives under `src/prompts/`, the
 legacy prompt folders are deleted, and the layout, import, and sink rules
 are enabled as errors. [ADR 0052](0052-pr-voice-contract.md) governs output
-prose. This ADR governs where prompt text lives.
+prose. This ADR governs prompt layout and wording.
 
 ## Context
 
@@ -72,13 +72,32 @@ new prompt text from landing anywhere.
     the stable prefixes of [ADR 0025](0025-prompt-cache-stability.md). No
     baseline is committed.
 
+## Prompt wording
+
+This standard builds on [ADR 0047](0047-adaptive-thinking-prompt-and-request-profile.md),
+ASD-STE100, and [ADR 0052](0052-pr-voice-contract.md). Where they differ,
+ADR 0052 governs output prose that people read on the pull request.
+
+- Address the model in the second person. Use plain imperatives in every role.
+- Use sentence case. Do not use all-caps emphasis or exclamation marks.
+  Acronyms, identifiers, field names, and enum values retain their spelling.
+- Do not use pressure words for emphasis. State a hard rule once, with its
+  reason. Lowercase modal words such as "must" and "never" can state real rules.
+- State schema-enforced limits as plain facts, with their reason (ADR 0047).
+- Use one term per concept, taken from [CONTEXT.md](../../CONTEXT.md).
+- Use `##` sentence-case headings and `- ` bullets.
+- Write short, active sentences with one idea each.
+
+The ADR 0047 keep-list exports stay byte-identical. Changing their wording
+requires an amendment to that ADR.
+
 ## Enforcement
 
 The single oxlint JS plugin entry is `scripts/lint/pr-agent.mjs`, named
-`pr-agent`. It loads rules from rule modules: `scripts/lint/no-comments.mjs` and
-`scripts/lint/prompts.mjs`. oxlint rejects a second plugin with the same name,
-so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
-`jsPlugins` for the guard counters.
+`pr-agent`. It loads rules from `scripts/lint/no-comments.mjs`,
+`scripts/lint/prompts.mjs`, and `scripts/lint/prompt-style.mjs`. oxlint rejects
+a second plugin with the same name, so new rules join this entry.
+`scripts/forcedOxlintConfig.mjs` still strips `jsPlugins` for the guard counters.
 
 1. `pr-agent/prompt-layout` checks each file under `src/prompts/`:
    - the path is `src/prompts/<dir>/<file>.ts`, no deeper and no shallower;
@@ -156,11 +175,22 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
    A sender callback in argument 2 of `runSubmitOnlyRound` has the same
    allowance and reassignment ban for its prompt parameter at argument 1.
 
-4. `test/architectureRules.test.ts` holds must-catch and must-allow probes for
+4. `pr-agent/prompt-style` checks string and template literals reachable from
+   prompt exports, tool `description` properties, and `v.description`
+   arguments in tool-definition files. It also checks the generated execute
+   description. It flags all-caps words outside the acronym and contextual
+   enum/identifier allow-lists, sentence-ending `!`, uppercase `MUST`, `NEVER`,
+   `ALWAYS`, `CRITICAL`, `IMPORTANT` used as emphasis, and the phrase "under no
+   circumstances" in any case. Lowercase modal words are not banned.
+   Field-contract lines, tag-name and regex-flag literals, and the ADR 0047
+   keep-list exports and their helpers are exempt. The explicit allow-lists
+   live in the rule module. A `.oxlintrc.json` override enables errors only for
+   cleaned units; each wording PR widens that ratchet.
+5. `test/architectureRules.test.ts` holds must-catch and must-allow probes for
    each rule. The probe helper writes nested `src/prompts/<dir>/` paths into a
    temporary tree and runs oxlint with the repository rule config or an
    explicit one.
-5. Import edges outside prompts stay rows in `test/architectureRules.test.ts`
+6. Import edges outside prompts stay rows in `test/architectureRules.test.ts`
    ([ADR 0040](0040-in-repo-import-ruleset.md)).
 
 ### Failure modes
@@ -178,6 +208,8 @@ so new rules join this entry. `scripts/forcedOxlintConfig.mjs` still strips
 7. A prompt carrier or map hides a literal at its construction site.
 8. A wrapper reassigns its prompt parameter after the caller's value passed
    lint.
+9. A local helper hides wording, an enum exception admits prose emphasis,
+   or a frozen export is linted despite its keep-list exemption.
 
 ## Consequences
 

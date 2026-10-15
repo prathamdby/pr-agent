@@ -156,7 +156,10 @@ type LintReport = {
   diagnostics: { code: string; filename: string; labels: { span: { line: number } }[] }[];
 };
 
-type PluginRuleConfig = { rules: Record<string, unknown> };
+type PluginRuleConfig = {
+  rules: Record<string, unknown>;
+  overrides?: { files: string[]; rules: Record<string, unknown> }[];
+};
 
 type PluginLint = {
   lines: (rule: string) => Record<string, number[]>;
@@ -164,13 +167,21 @@ type PluginLint = {
 };
 
 function repoPluginRules(): PluginRuleConfig {
-  const repoConfig: { rules?: Record<string, unknown> } = JSON.parse(
+  const repoConfig: PluginRuleConfig = JSON.parse(
     readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
   );
   return {
     rules: Object.fromEntries(
       Object.entries(repoConfig.rules ?? {}).filter(([name]) => name.startsWith("pr-agent/")),
     ),
+    overrides: (repoConfig.overrides ?? [])
+      .map((override) => ({
+        files: override.files,
+        rules: Object.fromEntries(
+          Object.entries(override.rules).filter(([name]) => name.startsWith("pr-agent/")),
+        ),
+      }))
+      .filter((override) => Object.keys(override.rules).length > 0),
   };
 }
 
@@ -450,7 +461,145 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
   "scripts/promptSinks.ts": 'session.send("inline"); createSession({ systemPrompt: "inline" });\n',
 };
 
+const PROMPT_STYLE_PROBE: Record<string, string> = {
+  "src/prompts/ask/prompt.ts": [
+    'export const caps = "Do SOMETHING now.";',
+    "export const template = `Read CAREFULLY ${runtime}.`;",
+    'export const pressure = "You MUST read this.";',
+    'export const never = "NEVER skip the read.";',
+    'export const always = "ALWAYS check the path.";',
+    'export const critical = "This is CRITICAL.";',
+    'export const important = "This is IMPORTANT.";',
+    'export const phrase = "Under no circumstances skip the read.";',
+    'export const bang = "Read the file!";',
+    'const helper = "Read LOUDLY."; export const alias = helper;',
+    'export const allowed = "Use API, JSON, PR, ASD-STE100, UTF-8, SQL/XSS and JS/TS. Report P0/P1 and AND/OR.";',
+    'export const contract = "detail (required): MUST BE SHORT!";',
+    'export const tag = "<UNTRUSTED_EVIDENCE>";',
+    'export const flags = new RegExp(runtime, "GI");',
+    'export const modal = "You must read the file. Never invent evidence. Always cite the path.";',
+    'export const enums = "Use severity values P0, P1, P2, or P3, never CRITICAL, HIGH, or MEDIUM.";',
+    'export const identifiers = "Read AGENTS.md, CLAUDE.md, GEMINI.md and `HEAD`. Use `SEARCH_TRUNCATED` and `TODO`.";',
+    'export const sizes = "Use size values XS, XL, or XXL.";',
+    'export const method = "Use GET /health and flowchart LR or TB.";',
+    'export const comparison = "Use != and !==. Keep !value and https://example.com/!x.";',
+    'const unused = "IGNORE this!";',
+    'export type Kind = "LOUD";',
+    "export const quotedBang = 'Say \"Done!\"';",
+    "export const helperCall = () => helper;",
+    'export const emphasizedEnum = "The risk is HIGH.";',
+    "export const split = `Read ${runtime} NOW!`;",
+    'export const quotedPressure = "Use `MUST` for emphasis.";',
+    'export const quotedUnknown = "Use `SHOUT` for emphasis.";',
+    'export const bareTag = wrapUntrustedBlock("UNTRUSTED_EVIDENCE", runtime);',
+    'export const enumThenPressure = "Use severity values P0, P1. This is CRITICAL.";',
+    'export default "Read FORCEFULLY.";',
+    'const specifierText = "Read SOFTLY.";',
+    "export { specifierText as guidance };",
+    'export const bareGet = "Use GET now.";',
+    'export const bareHead = "Read HEAD now.";',
+    'export const bareLr = "Use LR now.";',
+    'export const bareTb = "Use TB now.";',
+    'export const bareXs = "Use XS now.";',
+    'export const bareXl = "Use XL now.";',
+    'export const bareXxl = "Use XXL now.";',
+    'export const bareAgents = "Ask AGENTS now.";',
+    'export const bareClaude = "Ask CLAUDE now.";',
+    'export const bareGemini = "Ask GEMINI now.";',
+    'export const rawTag = "<note>";',
+    'export const pattern = new RegExp("IMPORTANT", "GI");',
+    'export const wrappedText = wrapUntrustedBlock("note", "IMPORTANT");',
+    'export const dashedContract = "- path: MUST BE RELATIVE!";',
+    'export const quotedContract = "`path`: MUST BE RELATIVE!";',
+    'export const joinedWords = "Hello!World";',
+    'export const parenthesizedBang = "(Read now!)";',
+    "",
+  ].join("\n"),
+  "src/prompts/ask/context.ts": [
+    'export { x } from "./SHOUT.js";',
+    'import { x as importedAlias } from "./SHOUT.js";',
+    "export { importedAlias as importedPrompt };",
+    "",
+  ].join("\n"),
+  "src/prompts/shared/safety.ts": [
+    'const frozenHelper = "MUST KEEP THIS!";',
+    "export const FINDING_ANTI_SUPPRESSION = frozenHelper;",
+    'export function wrapUntrustedBlock() { return "NEVER CHANGE THIS!"; }',
+    'export const userSupplementGuidance = "IMPORTANT!";',
+    'export const active = "Read QUIETLY.";',
+    'const original = "ALWAYS KEEP THIS!"; export { original as repoPolicyGuidance };',
+    "",
+  ].join("\n"),
+  "src/agent/tools/workspaceToolset.ts": [
+    'const prose = "Read CAREFULLY.";',
+    "export const tool = { description: prose };",
+    "export const other = { description: `Read ${runtime} LOUDLY!` };",
+    'export const schema = v.description("You MUST read this.");',
+    'export const allowed = { description: "Read the PR head." };',
+    'export const param = v.description("path: MUST BE RELATIVE!");',
+    'export const result = { error: "IMPORTANT!" };',
+    'export const computed = { ["description"]: "Read SLOWLY." };',
+    'export const nested = { description: flag ? "Read FAST." : "Read JSON." };',
+    'const paramText = "Read DEEPLY."; export const alias = v.description(paramText);',
+    "",
+  ].join("\n"),
+  "src/agent/codemode/guestCatalogue.ts":
+    'export function renderExecuteDescription() { return "Run QUIETLY!"; }\n',
+  "src/agent/description/fooSchema.ts": [
+    'export const tool = { description: "Read SHOUT." };',
+    'export const param = v.description("Read QUIETLY.");',
+    "",
+  ].join("\n"),
+  "src/other.ts": 'export const value = { description: "IMPORTANT!" };\n',
+  "test/promptStyle.ts": 'export const value = "IMPORTANT!";\n',
+};
+
 describe("architecture rules", () => {
+  it("locks prompt wording while preserving contracts, identifiers, and frozen exports", () => {
+    expect(
+      lintWithPlugin(PROMPT_STYLE_PROBE, {
+        config: { rules: { "pr-agent/prompt-style": "error" } },
+      }).lines("prompt-style"),
+    ).toEqual({
+      "src/prompts/ask/prompt.ts": [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 23, 25, 26, 26, 27, 28, 30, 31, 32, 34, 35, 36, 37, 38, 39,
+        40, 41, 42, 43, 45, 46, 50,
+      ],
+      "src/prompts/ask/context.ts": [],
+      "src/prompts/shared/safety.ts": [5],
+      "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
+      "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/agent/description/fooSchema.ts": [1, 2],
+      "src/other.ts": [],
+      "test/promptStyle.ts": [],
+    });
+    const ratchet = Object.fromEntries(
+      Object.entries(PROMPT_STYLE_PROBE).filter(([file]) => !file.startsWith("src/prompts/ask/")),
+    );
+    expect(lintWithPlugin(ratchet).lines("prompt-style")).toEqual({
+      "src/prompts/shared/safety.ts": [5],
+      "src/agent/tools/workspaceToolset.ts": [1, 3, 3, 4, 8, 9, 10],
+      "src/agent/codemode/guestCatalogue.ts": [1, 1],
+      "src/agent/description/fooSchema.ts": [],
+      "src/other.ts": [],
+      "test/promptStyle.ts": [],
+    });
+    expect(
+      repoPluginRules()
+        .overrides?.filter((override) => override.rules["pr-agent/prompt-style"] === "error")
+        .map((override) => override.files),
+    ).toEqual([
+      [
+        "src/prompts/shared/**",
+        "src/agent/tools/workspaceToolset.ts",
+        "src/agent/tools/context7Tools.ts",
+        "src/agent/tools/toolParams.ts",
+        "src/agent/tools/defineWorkspaceTool.ts",
+        "src/agent/codemode/guestCatalogue.ts",
+      ],
+    ]);
+  });
+
   it("keeps prompt modules at src/prompts/<shared|role>/<section|prompt>.ts", () => {
     expect(lintWithPlugin(PROMPT_LAYOUT_PROBE).lines("prompt-layout")).toEqual({
       "src/prompts/policy/prompt.ts": [1],

@@ -28,6 +28,19 @@
   },
   "overrides": [
     {
+      "files": [
+        "src/prompts/shared/**",
+        "src/agent/tools/workspaceToolset.ts",
+        "src/agent/tools/context7Tools.ts",
+        "src/agent/tools/toolParams.ts",
+        "src/agent/tools/defineWorkspaceTool.ts",
+        "src/agent/codemode/guestCatalogue.ts"
+      ],
+      "rules": {
+        "pr-agent/prompt-style": "error"
+      }
+    },
+    {
       "files": ["src/**/*.ts"],
       "rules": {
         "typescript/no-unsafe-type-assertion": "error",

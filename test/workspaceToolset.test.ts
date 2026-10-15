@@ -154,7 +154,7 @@ describe("local workspace tools", () => {
     expect(byName.listChangedFiles).toContain("The other tools take paths from this list");
     expect(byName.getWorkspaceDiff).toContain("cheapest first read");
     expect(byName.searchWorkspace).toContain("literal text");
-    expect(byName.readWorkspaceFile).toContain("the same call returns the same note");
+    expect(byName.readWorkspaceFile).toContain("The same call returns the same note");
     expect(byName.getWorkspaceBlame).toContain("decides a finding");
   });
 

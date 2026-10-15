@@ -260,7 +260,7 @@ function presentContext7Body(body: Context7Body, maxResponseBytes: number): Cont
 const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   resolveLibraryId: defineReviewTool({
     description:
-      "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the query when truncated. omittedResults counts dropped JSON result entries.",
+      "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Call before getLibraryDocs unless you already know an exact slash-prefixed ID. Do not send source, prompts, comments, credentials, URLs, or tool output. The request boundary rejects sensitive or repository-sized content. Responses have a byte cap. Narrow the query when truncated so the response fits. omittedResults counts dropped JSON result entries.",
     schema: resolveLibraryIdSchema,
     run: async ({ libraryName, query }, apiKey, maxResponseBytes) => {
       const safeLibraryName = assertContext7LibraryName(libraryName);
@@ -278,7 +278,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   }),
   getLibraryDocs: defineReviewTool({
     description:
-      "Fetch current documentation for a validated third-party library ID. Returns documentation text, or JSON when the service answers in JSON. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the topic when truncated. omittedResults counts dropped JSON result entries.",
+      "Fetch current documentation for a validated third-party library ID. The response contains documentation text, or JSON when the service answers in JSON. Use it to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Do not send source, prompts, comments, credentials, URLs, or tool output. The request boundary rejects sensitive or repository-sized content. Responses have a byte cap. Narrow the topic when truncated so the response fits. omittedResults counts dropped JSON result entries.",
     schema: getLibraryDocsSchema,
     run: async ({ libraryId, topic }, apiKey, maxResponseBytes) => {
       const safeLibraryId = assertContext7LibraryId(libraryId);
