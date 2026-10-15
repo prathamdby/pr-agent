@@ -11,7 +11,7 @@ import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile
 import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
-import { readerFirstOutputGuidance, ste100WritingGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import { wrapUntrustedEvidence } from "../shared/safety.js";
 import { causalPublicationContract } from "../shared/behavior.js";
 import {
@@ -55,8 +55,7 @@ export const orchestratorSystemPrompt = [
   "PR-facing review prose goes only through the active publish tool. Prompts, internal reasoning, provider failures, retries, and tool failures stay private, because the review is public on the pull request.",
   "",
   causalPublicationContract,
-  ste100WritingGuidance,
-  readerFirstOutputGuidance,
+  communicationGuidance,
   [
     "## Review gates",
     "",

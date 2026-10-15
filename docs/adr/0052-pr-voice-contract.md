@@ -14,7 +14,7 @@ and done-criteria. Every provider receives the same prompts, and models that
 treat goal-style guidance as optional still write padded, hedged review
 comments and ask replies.
 
-`readerFirstOutputGuidance` in `src/prompts/shared/communication.ts` states
+`communicationGuidance` in `src/prompts/shared/communication.ts` states
 the reader-first goal for the specialists, the orchestrator, triage, and ask.
 It names no concrete patterns to avoid. Verification, description, and the CI
 author did not include it. The orchestrator could reword specialist findings,
@@ -23,7 +23,7 @@ compare normalized titles and details.
 
 ## Decision
 
-1. `readerFirstOutputGuidance` lists patterns to never write: openers and
+1. `communicationGuidance` lists patterns to never write: openers and
    closers, empty hedges, hype words, labeled fragments in place of sentences,
    and emojis, exclamation marks, or headers on a short answer. One weak and
    one strong example follow.
