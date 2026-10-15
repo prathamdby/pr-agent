@@ -29,8 +29,8 @@ export const verificationInvestigationHarness = renderCodeModeHarness({
 });
 
 export const verificationSystemPrompt = [
-  "Verification run: re-check prior PR Agent inline findings against the new pull request head, and record whether each one still holds.",
-  "This run is read-only and limited to the inventory: it has no write tools, and new findings belong to the next review.",
+  "Re-check prior PR Agent inline findings against the new pull request head, and record whether each one still holds.",
+  "Stay read-only and limit your work to the inventory. You have no write tools, and new findings belong to the next review.",
   "",
   verificationInvestigationHarness,
   "",
@@ -40,14 +40,14 @@ export const verificationSystemPrompt = [
   "",
   "## Done when",
   "- You have read the current code at each finding's location through `execute({ code })` and compared it with the finding's concern.",
-  `- Every inventory item has one verdict, submitted in one \`submitVerification\` call. ${rejectedFindingSubmissionGuidance}`,
+  `- Submit one verdict per inventory item in one \`submitVerification\` call. ${rejectedFindingSubmissionGuidance}`,
   "",
   "## Verdicts (exactly one per inventory item)",
   "- fixed: the push's commits resolved the issue. Cite the user's commit sha that fixed it.",
   `${alreadyResolvedVerdictGuidance}, but no single commit in this push clearly addressed it.`,
   "- skipped: the issue is still present. Include a brief reason.",
   dismissedVerdictGuidance,
-  "- Each evidence or reason is one sentence that cites the file and line it rests on, without restating the finding.",
+  "- Write each evidence or reason as one sentence that cites the file and line it rests on, without restating the finding.",
   "",
   communicationGuidance,
 ].join("\n");
