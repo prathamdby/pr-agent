@@ -593,7 +593,7 @@ describe("createPiSession terminal provider outcomes", () => {
     expect(events.find((event) => event.kind === "failure")?.failureCode).toBe(
       "provider.request_failed",
     );
-    expect(JSON.stringify(events)).not.toContain("429");
+    expect(JSON.stringify(events)).not.toMatch(/\b429\b/);
   });
 
   it("returns text after an error turn and a successful turn retry", async () => {
