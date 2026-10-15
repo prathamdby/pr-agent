@@ -148,7 +148,12 @@ export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
   return rules[depth];
 }
 
-function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string {
+type DescriptionBodyRuleInput = Pick<
+  DescriptionWritingPolicy,
+  "bodyScale" | "bulletMin" | "bulletMax" | "maxWordsPerBullet" | "technicalDepth"
+>;
+
+function formatDescriptionBodyHardRule(policy: DescriptionBodyRuleInput): string {
   return [
     `Hard rule (body scale: ${policy.bodyScale}):`,
     `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as theme summaries.`,
@@ -161,7 +166,9 @@ function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string
   ].join(" ");
 }
 
-function visualsHardRule(policy: DescriptionWritingPolicy): string {
+type DescriptionVisualsRuleInput = Pick<DescriptionWritingPolicy, "bodyScale">;
+
+function visualsHardRule(policy: DescriptionVisualsRuleInput): string {
   const tierHint =
     policy.bodyScale === "S"
       ? "Emit the smallest useful set; stop at one or two views once the proved shape is clear."
@@ -171,7 +178,9 @@ function visualsHardRule(policy: DescriptionWritingPolicy): string {
   return `Hard rule (visuals): lean on visuals[]. ${tierHint} Leave visuals out only when the inspected diff has no sketchable shape.`;
 }
 
-function mapHardRule(policy: DescriptionWritingPolicy): string {
+type DescriptionMapRuleInput = Pick<DescriptionWritingPolicy, "mapMode">;
+
+function mapHardRule(policy: DescriptionMapRuleInput): string {
   if (policy.mapMode === "omit") {
     return "Hard rule (map mode: omit): no review map, so the payload has no prFiles. Publish type, short description bullets, and visuals.";
   }

@@ -48,13 +48,27 @@ export const triageSystemPrompt = [
   "- Use concrete verbs the diff proves; a specific action reads better than update, change, address, or improve.",
 ].join("\n");
 
+type TriagePromptThread = Pick<
+  BotFindingThread,
+  | "rootCommentId"
+  | "lens"
+  | "path"
+  | "line"
+  | "severity"
+  | "titleSnippet"
+  | "humanReplies"
+  | "authorizedReplies"
+  | "untrustedReplies"
+  | "threadUrl"
+>;
+
 export function buildTriageUserContent(params: {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
   readonly maxFixesPerRun: number;
-  readonly threads: readonly BotFindingThread[];
+  readonly threads: readonly TriagePromptThread[];
   readonly scope?: TriageScope;
 }): string {
   const lines = [

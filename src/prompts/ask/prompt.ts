@@ -73,7 +73,20 @@ export function formatAskCiState(state: AskCiState): string {
   return lines.join("\n");
 }
 
-export function buildAskUserContent(params: AskRunParams): string {
+type AskPromptInput = Pick<
+  AskRunParams,
+  | "owner"
+  | "repo"
+  | "prNumber"
+  | "headSha"
+  | "question"
+  | "codeAnchor"
+  | "threadTranscript"
+  | "threadTranscriptTruncated"
+  | "ciState"
+>;
+
+export function buildAskUserContent(params: AskPromptInput): string {
   const blocks = [
     wrapTrustedContext([
       `Repository: ${params.owner}/${params.repo}`,
