@@ -6,6 +6,7 @@ Keep root `AGENTS.md` below the binding loader's 32 KiB file limit. Use pointers
 to this guide and the runbooks instead of duplicating their detail.
 
 Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
+Prompt wording follows [ADR 0053](adr/0053-prompt-module-layout.md#prompt-wording); ADR 0052 governs output prose.
 
 Lifecycle claim and feature admission have separate owners:
 `workItemStateRepository.ts::claimWorkForExecution` records lifecycle ownership

@@ -1,4 +1,5 @@
 import noComments from "./no-comments.mjs";
+import promptStyle from "./prompt-style.mjs";
 import { promptImports, promptLayout, promptSinks } from "./prompts.mjs";
 
 export default {
@@ -8,5 +9,6 @@ export default {
     "prompt-layout": promptLayout,
     "prompt-imports": promptImports,
     "prompt-sinks": promptSinks,
+    "prompt-style": promptStyle,
   },
 };

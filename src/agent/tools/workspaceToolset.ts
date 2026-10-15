@@ -367,7 +367,7 @@ function buildInvestigationTools(
 
   const readWorkspaceFile = defineLocalTool({
     description:
-      "Read a text file from the PR head checkout. Use startLine and maxLines to read the region you need, including callers, types, and config outside the diff. Lines this tool returns are the evidence a finding can cite. Each response has a byte budget: `truncated: true` means read a narrower range. `spilled: true` means the response holds only the tail of a large read, and the spill file is not evidence, so read the source path again with startLine and maxLines before citing a line. A missing path returns the reason and may list `similarPaths`. An empty file or a window past the end returns a note; the same call returns the same note.",
+      "Read a text file from the PR head checkout. Use startLine and maxLines to read the region you need, including callers, types, and config outside the diff. Lines this tool returns are the evidence a finding can cite. Each response has a byte budget: `truncated: true` means read a narrower range. `spilled: true` means the response holds only the tail of a large read. The spill file is not evidence, so read the source path again with startLine and maxLines before citing a line. A missing path returns the reason and may list `similarPaths`. An empty file or a window past the end returns a note. The same call returns the same note.",
     schema: v.object({
       path: repoPathParam,
       startLine: startLineParam,
@@ -471,7 +471,7 @@ function buildInvestigationTools(
 
   const searchWorkspace = defineLocalTool({
     description:
-      "Search every readable file in the PR head checkout for literal text, matched case-sensitively. Use it to find callers, definitions, and config outside the diff. Binary files are skipped. Pass `terms` with related literals, for example a function name, its error code, and its config key, to rank files by how many of `query` and `terms` they contain; the response then lists those files in `files`, best first, and `matches` follows that order. `truncated: true` means more matches exist than were returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
+      "Search every readable file in the PR head checkout for literal text, matched case-sensitively. Use it to find callers, definitions, and config outside the diff. The search skips binary files. Pass `terms` with related literals, for example a function name, its error code, and its config key. This ranks files by how many of `query` and `terms` they contain. The response lists those files in `files`, best first, and `matches` follows that order. `truncated: true` means more matches exist than the response returned, so search for more specific text. `pathsSearched` counts the checkout paths scanned; `filesScanned` counts the files that matched.",
     schema: v.object({
       query: literalQueryParam,
       terms: v.optional(
