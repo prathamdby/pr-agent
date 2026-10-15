@@ -1,4 +1,3 @@
-import type { SpecialistReport } from "../../review/orchestrator/specialistReport.js";
 import type {
   AcceptedPlacement,
   SpecialistId,
@@ -100,8 +99,10 @@ export const ORCHESTRATOR_RECON_INSTRUCTION = [
   "Finish by calling `submit_specialist_brief` with the complete brief. Findings and the summary come in later phases.",
 ].join("\n\n");
 
+type JudgmentTurnOutcome = Pick<SpecialistOutcome, "specialist">;
+
 export function renderJudgmentTurn(
-  outcome: { readonly specialist: SpecialistId; readonly report: SpecialistReport },
+  outcome: JudgmentTurnOutcome,
   slimmed: { readonly json: string; readonly count: number },
 ): string {
   return [

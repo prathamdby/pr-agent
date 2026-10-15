@@ -55,13 +55,27 @@ type PushedCommit = {
   readonly subject: string;
 };
 
+type VerificationPromptThread = Pick<
+  BotFindingThread,
+  | "rootCommentId"
+  | "lens"
+  | "path"
+  | "line"
+  | "severity"
+  | "titleSnippet"
+  | "humanReplies"
+  | "authorizedReplies"
+  | "untrustedReplies"
+  | "threadUrl"
+>;
+
 export function buildVerificationUserContent(params: {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
   readonly pushedCommits: readonly PushedCommit[];
-  readonly threads: readonly BotFindingThread[];
+  readonly threads: readonly VerificationPromptThread[];
   readonly compareFilesTruncated?: boolean;
 }): string {
   const lines = [
