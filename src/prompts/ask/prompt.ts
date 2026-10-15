@@ -1,6 +1,6 @@
 import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.js";
 import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import {
   context7OutboundDataGuidance,
   wrapTrustedContext,
@@ -27,7 +27,7 @@ export function buildAskSystemPrompt(): string {
     context7OutboundDataGuidance,
     "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
     "",
-    readerFirstOutputGuidance,
+    communicationGuidance,
     "",
     "## How to write the answer",
     "- Lead with the next action, or with the direct answer when the question is purely explanatory, so the first line is doable or decisive on its own.",

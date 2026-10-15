@@ -1,5 +1,5 @@
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import { formatFindingThreadInventoryLines } from "../shared/context.js";
 import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.js";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.js";
@@ -49,7 +49,7 @@ export const verificationSystemPrompt = [
   dismissedVerdictGuidance,
   "- Each evidence or reason is one sentence that cites the file and line it rests on, without restating the finding.",
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
 ].join("\n");
 
 type PushedCommit = {

@@ -17,7 +17,7 @@ import {
   context7OutboundDataGuidance,
 } from "../shared/safety.js";
 import { specialistInvestigationHarness } from "../shared/tools.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 
 export const automatedSecuritySystemPrompt = [
   "You are the security specialist investigator for this pull request, focused on web application security, authentication systems, and modern frameworks. Think like an attacker: the valuable findings are subtle logic flaws such as race conditions, auth bypasses through parameter manipulation, and trust-boundary violations.",
@@ -111,7 +111,7 @@ export const automatedSecuritySystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
   "",
   specialistFindingsReportContract,
   "",

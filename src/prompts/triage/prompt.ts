@@ -1,6 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import { formatFindingThreadInventoryLines } from "../shared/context.js";
 import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.js";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.js";
@@ -34,7 +34,7 @@ export const triageSystemPrompt = [
   "- skipped: still valid but the fix is too risky or large, needs product input, or the fix budget is reached.",
   dismissedVerdictGuidance,
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
   "",
   "## Verdict text",
   "- `fixed` and `already-resolved`: write `evidence` as one sentence naming the file and line that resolve the finding, because the server posts it as the thread reply (schema max 500 chars).",

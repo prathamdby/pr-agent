@@ -1,5 +1,5 @@
 import { noToolsTurnGuidance } from "../shared/output.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import { wrapUntrustedBlock } from "../shared/safety.js";
 
 export const ciGateRowContract = [
@@ -22,7 +22,7 @@ export const CI_SUMMARY_SYSTEM_PROMPT = [
   "",
   ciGateRowContract,
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
 ].join("\n");
 
 export function buildCiContextUserMessage(params: {

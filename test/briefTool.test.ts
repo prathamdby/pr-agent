@@ -519,6 +519,18 @@ describe("orchestrator prompts", () => {
     expect(relocatedPrompt).toContain("dereferences an absent value");
     expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
 
+    const sameSubstanceDifferentEndLine = { ...finding, endLine: 6 } as const;
+    const extendedOutcome = toOutcome([sameSubstanceDifferentEndLine]);
+    const extendedPrompt = renderJudgmentTurn(
+      extendedOutcome,
+      slimAcceptedFindings(extendedOutcome, postedLedger),
+    );
+
+    expect(extendedPrompt).not.toContain("already accepted");
+    expect(extendedPrompt).not.toContain('"findingId"');
+    expect(extendedPrompt).toContain("dereferences an absent value");
+    expect(extendedPrompt).toContain(JSON.stringify(extendedOutcome.report, null, 2));
+
     const resumedLedger = createFindingLedger({
       accepted: [
         {
@@ -581,7 +593,7 @@ describe("orchestrator prompts", () => {
   });
 
   it("documents STE100 and gate fields in the orchestrator system prompt", () => {
-    expect(orchestratorSystemPrompt).toContain("## Writing style (ASD-STE100)");
+    expect(orchestratorSystemPrompt).toContain("## Reader-first communication (ASD-STE100)");
     expect(orchestratorSystemPrompt).toContain("## Review gates");
     expect(orchestratorSystemPrompt).toContain(
       "Set category to security on every finding that names a security risk",
