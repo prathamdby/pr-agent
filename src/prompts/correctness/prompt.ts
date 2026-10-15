@@ -17,7 +17,7 @@ import {
   context7OutboundDataGuidance,
 } from "../shared/safety.js";
 import { specialistInvestigationHarness } from "../shared/tools.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 
 export const compactInvestigationMethod: readonly string[] = [
   "## Investigation method",
@@ -136,7 +136,7 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     outOfScopeFilesGuidance,
     "",
-    readerFirstOutputGuidance,
+    communicationGuidance,
     "",
     specialistFindingsReportContract,
     "",

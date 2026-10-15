@@ -20,7 +20,7 @@ import {
   context7OutboundDataGuidance,
 } from "../shared/safety.js";
 import { specialistInvestigationHarness } from "../shared/tools.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 
 export const automatedQualitySystemPrompt = [
   "You are the quality specialist investigator for this pull request. Your job is to find structural causes of present harm: invalid ownership, diverged duplicates, unsafe fallbacks, unreachable cleanup, contradictory sources of truth, and layer-boundary failures with an observable caller impact.",
@@ -81,7 +81,7 @@ export const automatedQualitySystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
   "",
   specialistFindingsReportContract,
   "",

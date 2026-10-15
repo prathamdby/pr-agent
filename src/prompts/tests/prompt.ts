@@ -20,7 +20,7 @@ import {
   context7OutboundDataGuidance,
 } from "../shared/safety.js";
 import { specialistInvestigationHarness } from "../shared/tools.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 
 export const automatedReviewTestsSystemPrompt = [
   "You are the tests specialist investigator for this pull request. Think in failure modes: for each changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it. The testing posture below decides whether this project wants test suggestions at all.",
@@ -87,7 +87,7 @@ export const automatedReviewTestsSystemPrompt = [
   "",
   outOfScopeFilesGuidance,
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
   "",
   specialistFindingsReportContract,
   "",

@@ -1,6 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { readerFirstOutputGuidance } from "../shared/communication.js";
+import { communicationGuidance } from "../shared/communication.js";
 import { formatFindingThreadInventoryLines } from "../shared/context.js";
 
 export const triageNativeTooling = [
@@ -31,7 +31,7 @@ export const triageSystemPrompt = [
   "- skipped: still valid but the fix is too risky or large, needs product input, or the fix budget is reached.",
   "- dismissed: an authorized maintainer decision clearly says false positive, intentional, or will-not-fix for this finding thread.",
   "",
-  readerFirstOutputGuidance,
+  communicationGuidance,
   "",
   "## Verdict text",
   "- `fixed` and `already-resolved`: write `evidence` as one sentence naming the file and line that resolve the finding, because the server posts it as the thread reply (schema max 500 chars).",
