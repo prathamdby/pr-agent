@@ -591,11 +591,16 @@ describe("architecture rules", () => {
     ).toEqual([
       [
         "src/prompts/shared/**",
+        "src/prompts/correctness/**",
+        "src/prompts/quality/**",
+        "src/prompts/security/**",
+        "src/prompts/tests/**",
         "src/agent/tools/workspaceToolset.ts",
         "src/agent/tools/context7Tools.ts",
         "src/agent/tools/toolParams.ts",
         "src/agent/tools/defineWorkspaceTool.ts",
         "src/agent/codemode/guestCatalogue.ts",
+        "src/review/orchestrator/specialistTools.ts",
       ],
     ]);
   });
