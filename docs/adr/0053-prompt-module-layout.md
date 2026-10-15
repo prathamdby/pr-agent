@@ -184,8 +184,9 @@ a second plugin with the same name, so new rules join this entry.
    circumstances" in any case. Lowercase modal words are not banned.
    Field-contract lines, tag-name and regex-flag literals, and the ADR 0047
    keep-list exports and their helpers are exempt. The explicit allow-lists
-   live in the rule module. A `.oxlintrc.json` override enables errors only for
-   cleaned units; each wording PR widens that ratchet.
+   live in the rule module. A `.oxlintrc.json` override enables errors for
+   `src/**`, and the rule limits itself to prompt exports and tool-description
+   sites.
 5. `test/architectureRules.test.ts` holds must-catch and must-allow probes for
    each rule. The probe helper writes nested `src/prompts/<dir>/` paths into a
    temporary tree and runs oxlint with the repository rule config or an

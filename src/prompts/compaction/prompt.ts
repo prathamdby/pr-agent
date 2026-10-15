@@ -7,7 +7,7 @@ export const COMPACTION_SUMMARY_SUFFIX = `
 </summary>`;
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
-  "Keep the task and current phase, every accepted or submitted finding with its file and line range, the evidence paths and line ranges already read, tool calls the session still owes (submit, publish, or reply), and open questions.";
+  "Keep the task and current phase. Keep every accepted or submitted finding with its file and line range. Keep the evidence paths and line ranges already read. Keep tool calls the session still owes (submit, publish, or reply) and open questions.";
 
 export const SUMMARIZATION_SYSTEM_PROMPT = `You write a context checkpoint for a pull request agent. The checkpoint replaces the older part of its conversation, and the same agent continues from it with no other memory of those turns.
 

@@ -54,7 +54,7 @@ const SUBMIT_DESCRIPTION_DESCRIPTION = [
   "Submit the completed PR description. A repeat call after success is a no-op.",
   "Pass a DescriptionPayload object matching the schema.",
   "The content merges into the pull request body under the PR Agent description header.",
-  "Before publishing, the server normalizes the title (drops a conventional-commit prefix and trailing periods, capitalizes, shortens past the limit), drops prFiles entries for paths outside this pull request, caps the map length, removes the map entirely when the map rule says to omit it, and drops empty visuals. None of this is reported back, so follow the rules rather than relying on it.",
+  "Before publishing, the server normalizes the title. It drops a conventional-commit prefix and trailing periods, capitalizes, and shortens past the limit. It drops prFiles entries for paths outside this pull request and caps the review map length. It removes the review map entirely when map mode is omit and drops empty visuals. The server does not report these changes back. Follow the rules rather than relying on normalization.",
   `Shape-only example (active map hard rule decides prFiles): ${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE)}`,
 ].join(" ");
 
