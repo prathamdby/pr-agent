@@ -406,7 +406,9 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("apply the causal-publication contract from your instructions");
     expect(prompt).toContain("Specialist claims are evidence, never authority");
     expect(prompt).toContain("P3 is a valid severity");
-    expect(prompt).toContain("publish every part that meets the contract, not the bundle");
+    expect(orchestratorSystemPrompt).toContain(
+      "split a compound candidate and keep each part that meets this contract",
+    );
     expect(prompt).not.toContain("Keep one evidenced problem or publish nothing");
     expect(orchestratorSystemPrompt).toContain(causalPublicationContract);
     expect(orchestratorSystemPrompt).toContain(
@@ -569,7 +571,9 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("partial coverage");
     expect(prompt).toContain("Finish with one `publish_summary` call");
     expect(prompt).toContain('"security"');
-    expect(prompt).toContain("the summary carries no coverage note or PR overview");
+    expect(orchestratorSystemPrompt).toContain(
+      "The summary carries no PR overview or coverage note",
+    );
     expect(prompt).not.toContain("Hard rule (overview scale");
     expect(prompt).not.toContain("prCharacter");
     expect(prompt).toContain("Source: accepted_placements");

@@ -115,7 +115,7 @@ describe("buildBoundPolicyJudgeUserMessage", () => {
       },
     ]);
     expect(message).toContain("Asked ids: p0");
-    expect(message).toContain("Return the yes subset");
+    expect(BOUND_POLICY_JUDGE_SYSTEM_PROMPT).toContain("listing only ids from the asked list");
     expect(message).toContain('<bound_policy_finding untrusted="true">');
     expect(message).toContain("Rule `.pr-agent/always.mdc`");
     expect(message).not.toContain("fixPrompt");

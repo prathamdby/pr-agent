@@ -29,10 +29,5 @@ export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudg
       wrapUntrustedBlock("bound_policy_finding", findingLines),
     ].join("\n");
   });
-  return [
-    "Return the yes subset of these asked pair ids: the pairs whose finding is an evidenced violation of its rule.",
-    `Asked ids: ${asked}`,
-    "",
-    ...blocks,
-  ].join("\n");
+  return [`Asked ids: ${asked}`, "", ...blocks].join("\n");
 }

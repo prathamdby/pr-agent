@@ -6,6 +6,11 @@ import {
 } from "../../agent/codemode/guestCatalogue.js";
 import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 
+export const nativeToolCallingGuidance = "Call native tools directly. There is no `execute` cell.";
+
+export const unavailableConversationToolsGuidance =
+  "No tool reads the PR conversation, issues, or external URLs.";
+
 export function renderCodeModeHarness(params: {
   readonly guest: readonly GuestCapabilitySpec[];
   readonly nativeTools: readonly string[];
@@ -48,7 +53,7 @@ export const specialistInvestigationHarness = [
   }),
   "",
   "## Investigation protocol",
-  "The installed `tools.*` rules above cover literal search, truncation, and blame. No tool reads the PR conversation, issues, or external URLs.",
+  `The installed \`tools.*\` rules above cover literal search, truncation, and blame. ${unavailableConversationToolsGuidance}`,
   "- `listChangedFiles` gives the paths; diffs show what changed and cost less than whole files; focused reads supply the surrounding context a diff lacks.",
   "- Anchor every finding to the changed line that best supports it. For a cross-file issue, use the changed line that most directly exposes the problem.",
   "- Findings are issues this PR introduces or exposes. Pre-existing issues the PR does not touch belong to a different review.",

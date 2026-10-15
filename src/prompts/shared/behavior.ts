@@ -27,3 +27,9 @@ export const highStakesTrivialTrapGuidance = [
   "Small, docs-only, or formatting-heavy diffs can still break auth, migrations, config, or security invariants.",
   "When the change set touches high-stakes paths, review them with the rigor of large feature work. Low line count does not mean low risk.",
 ].join("\n");
+
+export const alreadyResolvedVerdictGuidance =
+  "- already-resolved: the current code no longer has the issue";
+
+export const dismissedVerdictGuidance =
+  "- dismissed: an authorized maintainer decision clearly says false positive, intentional, or will-not-fix for this finding thread.";

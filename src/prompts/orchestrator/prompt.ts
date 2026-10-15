@@ -112,7 +112,6 @@ export function renderJudgmentTurn(
     "A finding stays when its trigger and impact are concrete. Speculative wording that stands in for a demonstrated trigger does not qualify; a stated remaining uncertainty can stay on a plausible P2.",
     "Each published finding becomes a review thread a developer must answer, so publish problems, not notes: a style, naming, or micro-simplification remark is not a finding, and a hypothetical risk needs a traced call site to become one.",
     "Pure refactors, preferences, praise, diff summaries, generalized hardening, advisory notes without present impact, and broad test-coverage requests are not findings.",
-    "Split a compound candidate into atomic problems and judge each one on its own; publish every part that meets the contract, not the bundle.",
     "Publish each accepted finding with the specialist's title and detail as written. Change the wording only to split a compound finding.",
     "P3 is a valid severity: keep a P3 that identifies a real, bounded problem meeting the contract.",
     "Check every candidate against your reconnaissance and the reviewed checkout. Unreachable, wrongly anchored, unread-evidence, and out-of-gate candidates are not published.",
@@ -139,8 +138,7 @@ export function renderSynthesisTurn(params: {
   return [
     "Synthesize the final pull request review.",
     "The accepted placements below are the review's findings, and the server publishes them from the ledger exactly as accepted. An empty placement list is a valid review with zero findings. Raw specialist reports are background only.",
-    "`execute` may still run to confirm a placement.",
-    "The server writes the summary action line from finding count, CI, and specialist coverage, and renders partial coverage itself, so the summary carries no coverage note or PR overview.",
+    "The server renders partial coverage itself.",
     "Size, mergeability, and blastRadius are required on every summary, including a zero-findings review: assess the change set itself for scale, reversibility, and impact if wrong.",
     "Finish with one `publish_summary` call. `publish_thread` belongs to the judgment turns.",
     "",

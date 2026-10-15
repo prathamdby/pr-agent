@@ -7,3 +7,6 @@ export function renderSpecialistReportRepair(validationError: string): string {
     "Fix the report and call submit_findings_report now. This repair turn allows only a couple of tool calls, so submit from the evidence you already have.",
   ].join("\n\n");
 }
+
+export const rejectedFindingSubmissionGuidance =
+  "A rejected submission returns the reasons; fix them and submit again.";
