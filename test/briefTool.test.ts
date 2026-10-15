@@ -517,6 +517,18 @@ describe("orchestrator prompts", () => {
     expect(relocatedPrompt).toContain("dereferences an absent value");
     expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
 
+    const sameSubstanceDifferentEndLine = { ...finding, endLine: 6 } as const;
+    const extendedOutcome = toOutcome([sameSubstanceDifferentEndLine]);
+    const extendedPrompt = renderJudgmentTurn(
+      extendedOutcome,
+      slimAcceptedFindings(extendedOutcome, postedLedger),
+    );
+
+    expect(extendedPrompt).not.toContain("already accepted");
+    expect(extendedPrompt).not.toContain('"findingId"');
+    expect(extendedPrompt).toContain("dereferences an absent value");
+    expect(extendedPrompt).toContain(JSON.stringify(extendedOutcome.report, null, 2));
+
     const resumedLedger = createFindingLedger({
       accepted: [
         {

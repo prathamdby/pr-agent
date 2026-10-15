@@ -40,7 +40,8 @@ export function slimAcceptedFindings(
             ?.some(
               (placement) =>
                 placement.placement.finding.file === finding.file &&
-                placement.placement.finding.startLine === finding.startLine,
+                placement.placement.finding.startLine === finding.startLine &&
+                placement.placement.finding.endLine === finding.endLine,
             ),
         ) ?? null;
       if (findingId == null) return finding;
