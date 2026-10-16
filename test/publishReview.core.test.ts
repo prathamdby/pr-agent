@@ -12,7 +12,6 @@ import {
   completeFindingInventory,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
@@ -269,7 +268,7 @@ describe("publishReview core", () => {
   });
 
   it("loads inline comments from every resumed review batch", async () => {
-    const stored = fingerprintFinding(payload.findings[0], "review");
+    const findingId = legacyFindingId("thread-node-41");
     const publishState = testPublishState({
       inlineReviewIds: [41, 42],
     });
@@ -280,7 +279,7 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       reconciled: reconciledAs(payload.findings[0], {
         kind: "reaffirm",
-        id: legacyFindingId(stored),
+        id: findingId,
         severity: payload.findings[0].severity,
       }),
       resumedPlacements: [
@@ -292,8 +291,7 @@ describe("publishReview core", () => {
             inlineLine: 4,
             inlinePosted: true,
           },
-          findingId: legacyFindingId(stored),
-          canonicalFingerprint: stored,
+          findingId,
           reviewId: 41,
         },
       ],

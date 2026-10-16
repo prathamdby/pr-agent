@@ -250,7 +250,6 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(publishRecords.loadReviewExecutorPublishContext).mockResolvedValue({
       publishState: { summaryPublished: false, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });

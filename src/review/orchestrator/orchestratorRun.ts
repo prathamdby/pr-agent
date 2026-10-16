@@ -473,7 +473,6 @@ export async function runOrchestratedPrReview(
         ledger: createFindingLedger(canonical.ledger),
         coverage: canonical.coverage,
         staleReview: canonical.staleReview,
-        dedupedFindingCount: canonical.dedupedFindingCount,
         recoveryDecision: decision,
       });
       recoveredSummary = result.kind === "published";
@@ -494,7 +493,6 @@ export async function runOrchestratedPrReview(
       ledger: createFindingLedger(inputs.ledger),
       coverage: inputs.coverage,
       staleReview: inputs.staleReview,
-      dedupedFindingCount: inputs.dedupedFindingCount,
     });
     recoveredSummary = result.kind === "published";
     recoveredCheck = result.kind === "published" ? result.check : null;

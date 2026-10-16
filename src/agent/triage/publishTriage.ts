@@ -34,7 +34,6 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
-  type Config,
 } from "../../settings/index.js";
 import {
   assertTriagePullRequestWritable,
@@ -51,7 +50,6 @@ import {
   publishOnce,
   throwIfExecutionAborted,
 } from "../../agentWork/publishOnce.js";
-import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
 import {
   StaleHeadPushError,
@@ -87,7 +85,6 @@ type PublishTriageParams = {
   readonly previouslyResolvedCount: number;
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
   readonly signal?: AbortSignal;
   readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;
@@ -955,29 +952,6 @@ async function publishTriageBody(
       bulkOutcomes,
     }),
   });
-
-  if (params.findingHistoryCfg) {
-    const activeThreadById = new Map(
-      params.inventory.map((thread) => [thread.rootCommentId, thread]),
-    );
-    for (const verdict of params.payload.verdicts) {
-      const thread = activeThreadById.get(verdict.threadRootCommentId);
-      if (!thread) continue;
-      safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
-        scope: {
-          installationId: params.installationId,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          workItemId: params.workItemId,
-          headSha: params.headSha,
-        },
-        resourceKey: params.resourceKey,
-        thread,
-        outcome: verdict.verdict,
-      });
-    }
-  }
 
   return { pushOutcome, missingThreadAction, ...(partialBulk ? { partialBulk: true } : {}) };
 }

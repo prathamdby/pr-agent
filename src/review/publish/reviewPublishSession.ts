@@ -16,10 +16,7 @@ import {
 
 export type PublishStopReason = "superseded" | "stale_head";
 
-export type ReviewPublishConfig = Pick<
-  Config,
-  "models" | "features" | "agentEvents" | "findingHistory" | "review"
->;
+export type ReviewPublishConfig = Pick<Config, "models" | "features" | "agentEvents" | "review">;
 
 type VerdictTarget = {
   readonly pool: Pool;

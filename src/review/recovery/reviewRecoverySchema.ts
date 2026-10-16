@@ -13,7 +13,6 @@ const placement = v.object({
   inlineLine: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
   inlinePosted: v.boolean(),
   inlineCommentUrl: v.optional(v.string()),
-  inlineFingerprint: v.optional(v.string()),
 });
 const accepted = v.variant("kind", [
   v.strictObject({
@@ -21,7 +20,6 @@ const accepted = v.variant("kind", [
     source,
     placement,
     findingId: findingIdSchema,
-    canonicalFingerprint: v.string(),
     reviewId: count,
     reopens: v.optional(findingIdSchema),
   }),
@@ -30,7 +28,6 @@ const accepted = v.variant("kind", [
     source,
     placement,
     findingId: findingIdSchema,
-    canonicalFingerprint: v.string(),
     reason: v.picklist(["cap", "budget", "anchor", "inventory_incomplete", "unanswered_overlap"]),
     reopens: v.optional(findingIdSchema),
   }),
@@ -74,7 +71,6 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     inline: v.array(
       v.object({
         ...placement.entries,
-        inlineFingerprint: v.string(),
         findingId: findingIdSchema,
         reopens: v.optional(findingIdSchema),
         relatedLinks: v.optional(v.array(v.string())),
@@ -93,7 +89,6 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     ledger: findingLedgerSnapshotSchema,
     coverage: reviewCoverageSchema,
     staleReview: v.boolean(),
-    dedupedFindingCount: count,
     judgmentDegraded: v.boolean(),
     briefFallback: v.optional(v.boolean(), false),
   }),

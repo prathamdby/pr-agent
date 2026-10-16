@@ -25,7 +25,7 @@ import {
 import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.js";
 import { renderCodeModeHarness } from "../shared/tools.js";
 
-export { formatPriorInlineFeedbackBlock, formatFindingHistoryTrustedBlock } from "./context.js";
+export { formatPriorInlineFeedbackBlock } from "./context.js";
 
 export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
@@ -240,7 +240,6 @@ export function buildTrustedReviewContextForReview(params: {
   pathProfile: ReviewPathProfile;
   sizeBudget: ReviewSizeBudget;
   priorInlineFeedback?: string;
-  findingHistoryTrustedBlock?: string;
   repoPolicyBlock?: string;
   agentInstructionFilesBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
@@ -259,9 +258,6 @@ export function buildTrustedReviewContextForReview(params: {
   }
   if (params.priorInlineFeedback) {
     blocks.push("", params.priorInlineFeedback);
-  }
-  if (params.findingHistoryTrustedBlock) {
-    blocks.push("", params.findingHistoryTrustedBlock);
   }
   if (params.repoPolicyBlock) {
     blocks.push("", params.repoPolicyBlock);

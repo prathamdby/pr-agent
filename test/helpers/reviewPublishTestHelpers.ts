@@ -70,7 +70,6 @@ export async function runTestPublishFlow(
     mode?: AnyReviewLens;
     cfg: Pick<Config, "models" | "features">;
     payload: ReviewPayload;
-    dedupedFindingCount?: number;
     publishState: PublishTestState;
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
@@ -99,7 +98,6 @@ export async function runTestPublishFlow(
   const session = createReviewPublishSession({
     cfg: makeTestConfig({
       agentEvents: { enabled: false },
-      findingHistory: { enabled: false },
       ...params.cfg,
     }),
     ctx: params,
@@ -151,7 +149,6 @@ export async function runTestPublishFlow(
     payload: params.payload,
     ledger,
     staleReview: params.staleReview,
-    dedupedFindingCount: params.dedupedFindingCount,
   });
   if (summaryResult.kind === "stopped") {
     params.publishState.publishSuperseded = true;
@@ -166,16 +163,8 @@ export function publishSummaryForTest(
       readonly leaseEpoch?: number | null;
     },
 ) {
-  const {
-    payload,
-    ledger,
-    coverage,
-    staleReview,
-    dedupedFindingCount,
-    resourceKey,
-    leaseEpoch,
-    ...sessionInput
-  } = params;
+  const { payload, ledger, coverage, staleReview, resourceKey, leaseEpoch, ...sessionInput } =
+    params;
   return publishReviewSummaryOnly(
     createReviewPublishSession({
       ...sessionInput,
@@ -184,7 +173,7 @@ export function publishSummaryForTest(
       verdictResourceKey: sessionInput.verdictResourceKey ?? resourceKey,
       verdictLeaseEpoch: sessionInput.verdictLeaseEpoch ?? leaseEpoch,
     }),
-    { payload, ledger, coverage, staleReview, dedupedFindingCount },
+    { payload, ledger, coverage, staleReview },
   );
 }
 
@@ -210,7 +199,6 @@ export async function publishReviewForTest(
   await runTestPublishFlow({
     ...params,
     payload: prepared.prepared.payload,
-    dedupedFindingCount: prepared.prepared.dedupedCount,
   });
 }
 

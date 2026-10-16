@@ -701,7 +701,6 @@ function postedThisRun(
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: 5, inlinePosted: true },
     findingId,
-    canonicalFingerprint: "fp",
     reviewId: 1,
   };
 }
@@ -712,7 +711,6 @@ function heldThisRun(findingId: FindingId, severity: ReviewFinding["severity"]):
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: null, inlinePosted: false },
     findingId,
-    canonicalFingerprint: "fp",
     reason: "cap",
   };
 }

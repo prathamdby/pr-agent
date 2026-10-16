@@ -62,7 +62,6 @@ export async function publishReviewSummaryOnly(
     readonly ledger: FindingLedger;
     readonly coverage?: ReviewCoverage;
     readonly staleReview?: boolean;
-    readonly dedupedFindingCount?: number;
     readonly recoveryDecision?: RecoveryDecision;
   },
 ): Promise<PublishSummaryOnlyResult> {
@@ -80,7 +79,6 @@ export async function publishReviewSummaryOnly(
         ledger: createFindingLedger(saved.inputs.ledger),
         coverage: saved.inputs.coverage,
         staleReview: saved.inputs.staleReview,
-        dedupedFindingCount: saved.inputs.dedupedFindingCount,
       }
     : requestedInput;
   if (saved) {
@@ -229,7 +227,6 @@ export async function publishReviewSummaryOnly(
     ledger: snapshotFindingLedger(input.ledger),
     coverage: coverage.kind === "full" ? coverage : { ...coverage, failed: [...coverage.failed] },
     staleReview: input.staleReview ?? false,
-    dedupedFindingCount: input.dedupedFindingCount ?? 0,
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
     briefFallback: session.recovery?.getBriefFallback() ?? false,
   };
@@ -305,7 +302,6 @@ export async function publishReviewSummaryOnly(
     meta: {
       inlineCount: input.ledger.postedInlineCount,
       summaryOnlyCount,
-      dedupedFindingCount: input.dedupedFindingCount ?? 0,
       diffCacheEmpty: session.cachedDiffIndex == null || session.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
       ...summaryCommentVerdictMeta({

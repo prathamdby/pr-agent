@@ -111,7 +111,6 @@ export type AcceptedPlacement =
       readonly source: FindingSource;
       readonly placement: InlinePlacement;
       readonly findingId: FindingId;
-      readonly canonicalFingerprint: string;
       readonly reviewId: number;
       readonly reopens?: FindingId;
     }
@@ -120,7 +119,6 @@ export type AcceptedPlacement =
       readonly source: FindingSource;
       readonly placement: InlinePlacement;
       readonly findingId: FindingId;
-      readonly canonicalFingerprint: string;
       readonly reason: SummaryOnlyReason;
       readonly reopens?: FindingId;
     };

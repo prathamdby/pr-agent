@@ -9,7 +9,7 @@ import { reviewPayloadSchema } from "../reviewSchema.js";
 import { canonicalReviewDecisionSchema } from "./reviewRecoverySchema.js";
 
 export const REVIEW_CONTRACT_VERSION = "review-1";
-export const REVIEW_ARTIFACT_SCHEMA_VERSION = 3;
+export const REVIEW_ARTIFACT_SCHEMA_VERSION = 4;
 
 const hashSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/));
 const identityText = (max: number) =>

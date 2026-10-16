@@ -218,7 +218,6 @@ export function createVerificationWorkExecution({
         changedFilePaths,
         changedFilePathsTruncated: changedMembershipTruncated,
         policyResult: result.policyResult,
-        findingHistoryCfg: cfg,
         leaseEpoch: env.leaseEpoch,
       });
       await clearVerificationFailureSignal({

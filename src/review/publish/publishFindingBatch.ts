@@ -15,7 +15,6 @@ import {
   renderSpecialistReviewBody,
 } from "../run/reviewRender.js";
 import { AppError } from "../../errors/appError.js";
-import { fingerprintInlinePlacements } from "../findings/reviewFindingFingerprint.js";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
@@ -43,7 +42,6 @@ import type {
 } from "../orchestrator/orchestratorTypes.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.js";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.js";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
@@ -58,7 +56,6 @@ const publishedPlacementSchema = v.object({
   inlineLine: v.nullable(v.number()),
   inlinePosted: v.boolean(),
   inlineCommentUrl: v.optional(v.string()),
-  inlineFingerprint: v.string(),
   findingId: findingIdSchema,
   reopens: v.optional(findingIdSchema),
   relatedLinks: v.optional(v.array(v.string())),
@@ -79,12 +76,10 @@ type StoredInlineBatch = {
   readonly reviewId: number;
   readonly reviewUrl: string;
   readonly event: "COMMENT";
-  readonly fingerprints: readonly string[];
   readonly findingIds: readonly FindingId[];
   readonly placements: readonly {
     readonly finding: ReviewFinding;
     readonly resolvedLine: number;
-    readonly canonicalFingerprint: string;
     readonly findingId: FindingId;
   }[];
   readonly counts: {
@@ -225,16 +220,9 @@ function reconcileBatch(
         identities.set(key, { findingId: outcome.id });
         postable.push(placement);
         break;
-      case "summary_only": {
-        const [fingerprinted] = fingerprintInlinePlacements([placement], "review");
-        if (fingerprinted != null) {
-          held.push({
-            placement: { ...fingerprinted, findingId: outcome.id },
-            reason: outcome.reason,
-          });
-        }
+      case "summary_only":
+        held.push({ placement: { ...placement, findingId: outcome.id }, reason: outcome.reason });
         break;
-      }
       case "reaffirm":
         reaffirmed.push(reaffirmedFinding(placement, outcome, source, reconciled.inventory));
         break;
@@ -269,7 +257,6 @@ function summaryOnlyPlacement(
     source,
     placement: { ...ledgerPlacement(placement), inlinePosted: false },
     findingId: placement.findingId,
-    canonicalFingerprint: placement.inlineFingerprint,
     reason,
     ...(placement.reopens != null ? { reopens: placement.reopens } : {}),
   };
@@ -310,7 +297,6 @@ function storedPlacement(
   return {
     finding: placement.finding,
     resolvedLine: placement.inlineLine,
-    canonicalFingerprint: placement.inlineFingerprint,
     findingId: placement.findingId,
   };
 }
@@ -668,7 +654,6 @@ export async function publishFindingBatch(
     source: input.source,
     placement: ledgerPlacement(placement),
     findingId: placement.findingId,
-    canonicalFingerprint: placement.inlineFingerprint,
     reviewId: review.id,
     ...(placement.reopens != null ? { reopens: placement.reopens } : {}),
   }));
@@ -683,7 +668,6 @@ export async function publishFindingBatch(
         reviewId: review.id,
         reviewUrl: review.url,
         event: "COMMENT",
-        fingerprints: posted.map((placement) => placement.inlineFingerprint),
         findingIds: posted.map((placement) => placement.findingId),
         placements: posted.map(storedPlacement),
         counts: {
@@ -713,23 +697,6 @@ export async function publishFindingBatch(
       anchorDropped: inlineResult.anchorDroppedPlacements.length,
       latencyMs: publishLatencyMs,
     });
-  }
-
-  if (session.pool && session.installationId != null) {
-    const postedFingerprints = posted.map((placement) => placement.inlineFingerprint);
-    safeUpsertFindingHistoryOpen(
-      session.pool,
-      session.cfg,
-      {
-        installationId: session.installationId,
-        owner: session.ctx.owner,
-        repo: session.ctx.repo,
-        prNumber: session.ctx.prNumber,
-        workItemId: session.workItemId ?? null,
-        headSha: session.ctx.headSha,
-      },
-      postedFingerprints,
-    );
   }
 
   return {
