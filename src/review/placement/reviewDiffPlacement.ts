@@ -11,12 +11,10 @@ export type InlinePlacement = {
   readonly inlineCommentUrl?: string;
 };
 
-export type FingerprintedInlinePlacement = InlinePlacement & {
-  readonly inlineFingerprint: string;
-};
-
-export type IdentifiedInlinePlacement = FingerprintedInlinePlacement & {
+export type IdentifiedInlinePlacement = InlinePlacement & {
   readonly findingId: FindingId;
+  readonly reopens?: FindingId;
+  readonly relatedLinks?: readonly string[];
 };
 
 export function planInlinePlacements(

@@ -12,8 +12,8 @@ import {
 import type { PrSurface } from "../../github/prSurfaceTypes.js";
 import type { FindingId } from "../findingIdentity/findingMarker.js";
 import {
-  buildFindingInventory,
   loadFindingInventory,
+  unavailableFindingInventory,
   type FindingInventory,
   type InventoryFinding,
 } from "../findingIdentity/findingInventory.js";
@@ -418,15 +418,6 @@ function selectInventoryFindingThreads(
   });
 }
 
-const UNAVAILABLE_FINDING_INVENTORY = buildFindingInventory({
-  threads: { status: "unavailable", threads: [] },
-  summary: null,
-  summaryComplete: false,
-  botLogin: "",
-  renames: new Map(),
-  deletedPaths: new Set(),
-});
-
 export async function fetchPriorInlineFeedback(
   prSurface: PrSurface,
   params: {
@@ -442,8 +433,8 @@ export async function fetchPriorInlineFeedback(
       maintainerDecisionAssociations:
         params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
     }),
-    loadFindingInventory(prSurface, { renames: new Map(), deletedPaths: new Set() }).catch(
-      () => UNAVAILABLE_FINDING_INVENTORY,
+    loadFindingInventory(prSurface, { renames: new Map(), deletedPaths: new Set() }).catch(() =>
+      unavailableFindingInventory({ renames: new Map(), deletedPaths: new Set() }),
     ),
   ]);
   return mapAssembledThreadsToPriorInlineFeedback(

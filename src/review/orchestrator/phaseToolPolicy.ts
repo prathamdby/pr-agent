@@ -3,6 +3,7 @@ import type { AgentSessionPhase } from "../../agent/runtime/types.js";
 export const ORCHESTRATOR_PHASE_TOOLS = [
   "submit_specialist_brief",
   "publish_thread",
+  "declare_duplicate",
   "publish_summary",
 ] as const;
 
@@ -14,7 +15,7 @@ const ALLOWED_BY_PHASE: Readonly<
   Partial<Record<AgentSessionPhase, ReadonlySet<OrchestratorPhaseTool>>>
 > = {
   recon: new Set(["submit_specialist_brief"]),
-  judgment: new Set(["publish_thread"]),
+  judgment: new Set(["publish_thread", "declare_duplicate"]),
   synthesis: new Set(["publish_summary"]),
   validation_repair: new Set(["publish_summary"]),
   publish_recovery: new Set(["publish_summary"]),

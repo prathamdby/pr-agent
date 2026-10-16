@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended by [ADR 0054](0054-finding-identity-on-github.md): judgment
+observations carry a `relation` to inventory finding IDs, and judgment also
+accepts `declare_duplicate`.
 
 This ADR replaces separate security, quality, and tests lens work items and
 sentinels. It amends [ADR 0003](0003-structured-review-output.md),

@@ -55,6 +55,12 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
+vi.mock("../src/review/findingIdentity/threadMutationLock.js", () => ({
+  threadMutationLock:
+    (): import("../src/review/findingIdentity/threadMutationLock.js").ThreadMutationLock =>
+    (apply) =>
+      apply(),
+}));
 vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),

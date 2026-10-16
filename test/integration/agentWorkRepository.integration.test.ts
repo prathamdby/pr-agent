@@ -719,7 +719,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         leaseEpoch: null,
         outcome: {
           kind: "published" as const,
-          findings: [{ severity: "P1" as const }],
+          conclusion: "failure" as const,
+          blockingCount: 1,
           summary: "first verdict",
         },
       };
@@ -734,7 +735,12 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         second = reviewVerdict({ ...params }).close(
           sameOutcome
             ? params.outcome
-            : { kind: "published", findings: [], summary: "losing verdict" },
+            : {
+                kind: "published",
+                conclusion: "success",
+                blockingCount: 0,
+                summary: "losing verdict",
+              },
         );
         await Promise.race([second, timeout]);
         const apply = vi.fn(async () => true);
@@ -806,7 +812,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       headSha: "h",
       commitStatusEnabled: true,
       leaseEpoch: null,
-    }).close({ kind: "published", findings: [] });
+    }).close({ kind: "published", conclusion: "success", blockingCount: 0 });
     const before = await pool.query(
       "SELECT id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
       [id],
@@ -916,7 +922,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       leaseEpoch: null,
       outcome: {
         kind: "published" as const,
-        findings: [{ severity: "P1" as const }],
+        conclusion: "failure" as const,
+        blockingCount: 1,
         summary: "winner",
       },
     };
@@ -1033,7 +1040,11 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         commitStatusEnabled: true,
       };
       const finish = vi.spyOn(surface, "finishReviewCheck");
-      await reviewVerdict(params).close({ kind: "published", findings: [{ severity: "P1" }] });
+      await reviewVerdict(params).close({
+        kind: "published",
+        conclusion: "failure",
+        blockingCount: 1,
+      });
       const before = await closeRepository.getOwnVerdictCloseRecord(pool, identity);
       expect(finish).not.toHaveBeenCalled();
       expect(before?.checkState).toBe(
@@ -1173,7 +1184,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         prNumber: 1,
         headSha: "h",
         commitStatusEnabled: true,
-      }).close({ kind: "published", findings: [] }),
+      }).close({ kind: "published", conclusion: "success", blockingCount: 0 }),
     ).rejects.toMatchObject(error);
     expect(finish).not.toHaveBeenCalled();
     expect(status).not.toHaveBeenCalled();
@@ -1520,7 +1531,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       reviewLens: "review" as const,
       headSha: "h",
       commitStatusEnabled: false,
-      outcome: { kind: "published" as const, findings: [] },
+      outcome: { kind: "published" as const, conclusion: "success" as const, blockingCount: 0 },
     };
     try {
       await recordReviewCheckRun(scopedPool, {
@@ -1599,7 +1610,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       expect(open.rows[0].detail.status).toBe("in_progress");
       await reviewVerdict({ ...params, pool, headSha: "h", commitStatusEnabled: true }).close({
         kind: "published",
-        findings: [],
+        conclusion: "success",
+        blockingCount: 0,
       });
       expect(status).toHaveBeenLastCalledWith(
         "h",
@@ -1855,7 +1867,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       reviewLens: "review" as const,
       headSha: "h",
       commitStatusEnabled: false,
-      outcome: { kind: "published" as const, findings: [] },
+      outcome: { kind: "published" as const, conclusion: "success" as const, blockingCount: 0 },
     };
     await expect(
       reviewVerdict({ ...params, leaseEpoch: leaseEpoch + 1 }).close(params.outcome),

@@ -3,15 +3,11 @@ import { MAX_INLINE_REVIEW_COMMENTS, REVIEW_SEVERITY_RANK } from "../../settings
 import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
 import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
-import { dedupeReviewFindings } from "./reviewFindingDedup.js";
-import {
-  fingerprintInlinePlacements,
-  suppressInlinePlacementsByFingerprint,
-} from "./reviewFindingFingerprint.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
+  reviewFindingPlacementKey,
   type IdentifiedInlinePlacement,
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
@@ -23,7 +19,6 @@ import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;
-  readonly dedupedCount: number;
   readonly placements: readonly InlinePlacement[];
 };
 
@@ -33,7 +28,6 @@ export type PreparedFindingTargets = {
   readonly inline: readonly IdentifiedInlinePlacement[];
   readonly summaryOnly: readonly IdentifiedInlinePlacement[];
   readonly dropped: {
-    readonly suppressedInlineCount: number;
     readonly inlineCommentCapExcluded: number;
     readonly anchorUnresolved: number;
   };
@@ -52,9 +46,8 @@ export function prepareReviewPayloadForPublish(params: {
 }):
   | { ok: true; prepared: PreparedReviewPayload }
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
-  const deduped = dedupeReviewFindings(params.payload.findings);
   const minConfidence = params.reviewMinConfidence ?? 1;
-  const confidenceFiltered = deduped.filter(
+  const confidenceFiltered = params.payload.findings.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,
   );
   const severityFiltered = confidenceFiltered.filter((finding) => {
@@ -69,7 +62,6 @@ export function prepareReviewPayloadForPublish(params: {
         }).accepted
       : severityFiltered;
   const candidate = { ...params.payload, findings: evidenceFiltered };
-  const dedupedCount = params.payload.findings.length - deduped.length;
 
   const validation = validateReviewPayload({
     payload: candidate,
@@ -117,16 +109,20 @@ export function prepareReviewPayloadForPublish(params: {
   });
   return {
     ok: true,
-    prepared: { payload, dedupedCount, placements },
+    prepared: { payload, placements },
   };
 }
+
+export type PlacementIdentity = Pick<
+  IdentifiedInlinePlacement,
+  "findingId" | "reopens" | "relatedLinks"
+>;
 
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
-  storedInlineFingerprints?: readonly string[];
-  crossPrSuppressionFingerprints?: readonly string[];
+  identify?: (placement: InlinePlacement) => PlacementIdentity | undefined;
   maxInlineComments?: number;
   findingIdScope?: readonly string[];
 }): PreparedFindingTargets {
@@ -135,28 +131,20 @@ export function prepareFindingsForPublish(params: {
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
   const occurrences = new Map<string, number>();
-  const planned = fingerprintInlinePlacements(plannedPlacements, "review").map(
-    (placement): IdentifiedInlinePlacement => {
-      if (params.findingIdScope == null) return { ...placement, findingId: mintFindingId() };
-      const occurrence = occurrences.get(placement.inlineFingerprint) ?? 0;
-      occurrences.set(placement.inlineFingerprint, occurrence + 1);
-      return {
-        ...placement,
-        findingId: derivedFindingId([
-          ...params.findingIdScope,
-          placement.inlineFingerprint,
-          String(occurrence),
-        ]),
-      };
-    },
-  );
-  const suppressionFingerprints = [
-    ...(params.storedInlineFingerprints ?? []),
-    ...(params.crossPrSuppressionFingerprints ?? []),
-  ];
-  const suppression = suppressInlinePlacementsByFingerprint(planned, suppressionFingerprints);
+  const planned = plannedPlacements.map((placement): IdentifiedInlinePlacement => {
+    const placementKey = reviewFindingPlacementKey(placement.finding);
+    const occurrence = occurrences.get(placementKey) ?? 0;
+    occurrences.set(placementKey, occurrence + 1);
+    const identity = params.identify?.(placement);
+    if (identity != null) return { ...placement, ...identity };
+    if (params.findingIdScope == null) return { ...placement, findingId: mintFindingId() };
+    return {
+      ...placement,
+      findingId: derivedFindingId([...params.findingIdScope, placementKey, String(occurrence)]),
+    };
+  });
   const inlineCap = applyInlineCommentCap(
-    suppression.placements,
+    planned,
     params.maxInlineComments ?? MAX_INLINE_REVIEW_COMMENTS,
   );
   const placements = inlineCap.placements;
@@ -167,7 +155,6 @@ export function prepareFindingsForPublish(params: {
     inline: placements.filter((placement) => placement.inlinePosted),
     summaryOnly: placements.filter((placement) => !placement.inlinePosted),
     dropped: {
-      suppressedInlineCount: suppression.suppressedInlineCount,
       inlineCommentCapExcluded: inlineCap.inlineCommentCapExcluded,
       anchorUnresolved: placements.filter(
         (placement) => isInlineSeverity(placement.finding.severity) && placement.inlineLine == null,

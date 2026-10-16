@@ -9,6 +9,9 @@ export function statusFindings(count: number): string {
   return `✅ ${count} ${count === 1 ? "finding" : "findings"}`;
 }
 
+export const FINDING_INVENTORY_UNAVAILABLE_NOTE =
+  "Open findings from earlier reviews could not be loaded.";
+
 export function checkRunFindingsSummary(count: number): string {
   if (count <= 0) return "No findings";
   return `${count} ${count === 1 ? "finding" : "findings"}`;

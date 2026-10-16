@@ -24,7 +24,7 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.clearAllMocks();
   });
 
-  it("restores current batch review ids and merges stored fingerprints", async () => {
+  it("restores current batch review ids from batch details that still carry fingerprints", async () => {
     const postedFinding = {
       severity: "P1",
       file: "src/a.ts",
@@ -34,6 +34,7 @@ describe("loadReviewExecutorPublishContext", () => {
       detail: "The payload can be null.",
       fixPrompt: "Guard the payload before dereferencing it.",
     };
+    const sameAnchorFinding = { ...postedFinding, detail: "The header can be null." };
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [
         {
@@ -54,6 +55,11 @@ describe("loadReviewExecutorPublishContext", () => {
                     resolvedLine: 10,
                     canonicalFingerprint: "fp-1",
                   },
+                  {
+                    finding: sameAnchorFinding,
+                    resolvedLine: 10,
+                    canonicalFingerprint: "fp-3",
+                  },
                 ],
               },
               { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
@@ -63,45 +69,43 @@ describe("loadReviewExecutorPublishContext", () => {
         { step: "summary_comment", github_id: "99" },
       ],
       prior_summary_exists: true,
-      fingerprint_details: [
-        {
-          detail: {
-            fingerprints: ["fp-legacy"],
-            batches: [
-              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
-              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
-              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
-            ],
-          },
-        },
-      ],
       latest_progress_comment_github_id: "1001",
     });
 
-    await expect(
-      loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review"),
-    ).resolves.toEqual({
+    const context = await loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review");
+    expect(context).toEqual({
       publishState: {
         summaryPublished: true,
         inlineReviewIds: [42, 43],
         threadCallCount: 2,
       },
       shouldLinkToSummary: true,
-      storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],
       resumedPlacements: [
         {
           kind: "resumed",
           source: "correctness",
           placement: { finding: postedFinding, inlineLine: 10, inlinePosted: true },
           findingId: expect.stringMatching(/^f_[0-9A-HJKMNP-TV-Z]{26}$/),
-          canonicalFingerprint: "fp-1",
+          reviewId: 42,
+        },
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: { finding: sameAnchorFinding, inlineLine: 10, inlinePosted: true },
+          findingId: expect.stringMatching(/^f_[0-9A-HJKMNP-TV-Z]{26}$/),
           reviewId: 42,
         },
       ],
       progressCommentGithubId: 1001,
     });
+    const [first, second] = context.resumedPlacements;
+    expect(first?.findingId).not.toEqual(second?.findingId);
+    const reloaded = await loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review");
+    expect(reloaded.resumedPlacements.map((placement) => placement.findingId)).toEqual(
+      context.resumedPlacements.map((placement) => placement.findingId),
+    );
 
-    expect(queryOne).toHaveBeenCalledTimes(1);
+    expect(queryOne).toHaveBeenCalledTimes(2);
     expect(vi.mocked(queryOne).mock.calls[0]?.[1]).toContain("json_agg");
     expect(vi.mocked(queryOne).mock.calls[0]?.[2]).toEqual(["o/r#1", "review", "wi-1"]);
   });
@@ -110,7 +114,6 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [],
       prior_summary_exists: false,
-      fingerprint_details: [],
       latest_progress_comment_github_id: "1001",
     });
 

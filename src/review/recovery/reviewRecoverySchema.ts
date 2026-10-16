@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { evidenceDescriptorSchema } from "../findings/evidenceLedger.js";
-import { reviewFindingSchema } from "../reviewSchema.js";
+import { reviewFindingEntries, reviewFindingSchema } from "../reviewSchema.js";
 import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.js";
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -13,7 +13,6 @@ const placement = v.object({
   inlineLine: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
   inlinePosted: v.boolean(),
   inlineCommentUrl: v.optional(v.string()),
-  inlineFingerprint: v.optional(v.string()),
 });
 const accepted = v.variant("kind", [
   v.strictObject({
@@ -21,22 +20,30 @@ const accepted = v.variant("kind", [
     source,
     placement,
     findingId: findingIdSchema,
-    canonicalFingerprint: v.string(),
     reviewId: count,
+    reopens: v.optional(findingIdSchema),
   }),
   v.strictObject({
     kind: v.literal("summary_only"),
     source,
     placement,
     findingId: findingIdSchema,
-    canonicalFingerprint: v.string(),
-    reason: v.picklist(["historical", "cap", "budget", "anchor"]),
+    reason: v.picklist(["cap", "budget", "anchor", "inventory_incomplete", "unanswered_overlap"]),
+    reopens: v.optional(findingIdSchema),
   }),
 ]);
+const reaffirmed = v.strictObject({
+  id: findingIdSchema,
+  source,
+  severity: reviewFindingEntries.severity,
+  heldBy: v.picklist(["thread", "summary", "run"]),
+  placement,
+});
 
 export const findingLedgerSnapshotSchema = v.strictObject({
   accepted: v.array(accepted),
-  suppressionFingerprints: v.array(v.string()),
+  reaffirmed: v.array(reaffirmed),
+  suppressedDismissedCount: count,
   inlineReviewIds: v.array(count),
   postedInlineCount: count,
   threadCallCount: count,
@@ -62,7 +69,12 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     ledgerBefore: findingLedgerSnapshotSchema,
     localDelta: findingLedgerSnapshotSchema,
     inline: v.array(
-      v.object({ ...placement.entries, inlineFingerprint: v.string(), findingId: findingIdSchema }),
+      v.object({
+        ...placement.entries,
+        findingId: findingIdSchema,
+        reopens: v.optional(findingIdSchema),
+        relatedLinks: v.optional(v.array(v.string())),
+      }),
     ),
     footers: v.array(v.tuple([v.string(), v.array(v.string())])),
     counts: v.strictObject({ suppressed: count, capDowngraded: count }),
@@ -77,7 +89,6 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     ledger: findingLedgerSnapshotSchema,
     coverage: reviewCoverageSchema,
     staleReview: v.boolean(),
-    dedupedFindingCount: count,
     judgmentDegraded: v.boolean(),
     briefFallback: v.optional(v.boolean(), false),
   }),

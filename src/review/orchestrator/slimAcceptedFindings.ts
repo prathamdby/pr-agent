@@ -1,17 +1,25 @@
 import type {
   AcceptedFindingSlimReference,
-  AcceptedPlacement,
   FindingLedger,
   SpecialistId,
 } from "./orchestratorTypes.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 import type { SpecialistReport } from "./specialistReport.js";
-import { fingerprintCandidates } from "../findings/reviewFindingFingerprint.js";
 
 type ReportOutcome = {
   readonly specialist: SpecialistId;
   readonly report: SpecialistReport;
 };
+
+function samePublishedFinding(left: ReviewFinding, right: ReviewFinding): boolean {
+  return (
+    left.file === right.file &&
+    left.startLine === right.startLine &&
+    left.endLine === right.endLine &&
+    left.title === right.title &&
+    left.detail === right.detail
+  );
+}
 
 export function slimAcceptedFindings(
   outcome: ReportOutcome,
@@ -19,35 +27,19 @@ export function slimAcceptedFindings(
 ): { readonly json: string; readonly count: number } {
   const findings = outcome.report.findings;
   if (findings.length === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
-  const acceptedByFingerprint = new Map<string, AcceptedPlacement[]>();
-  for (const placement of ledger.accepted) {
-    if (placement.kind === "posted" || placement.kind === "resumed") {
-      const existing = acceptedByFingerprint.get(placement.canonicalFingerprint);
-      if (existing) {
-        existing.push(placement);
-      } else {
-        acceptedByFingerprint.set(placement.canonicalFingerprint, [placement]);
-      }
-    }
-  }
+  const published = ledger.accepted.filter(
+    (placement) => placement.kind === "posted" || placement.kind === "resumed",
+  );
   let count = 0;
   const slimmed: readonly (ReviewFinding | AcceptedFindingSlimReference)[] = findings.map(
     (finding) => {
-      const findingId =
-        fingerprintCandidates(finding).find((candidate) =>
-          acceptedByFingerprint
-            .get(candidate)
-            ?.some(
-              (placement) =>
-                placement.placement.finding.file === finding.file &&
-                placement.placement.finding.startLine === finding.startLine &&
-                placement.placement.finding.endLine === finding.endLine,
-            ),
-        ) ?? null;
-      if (findingId == null) return finding;
+      const match = published.find((placement) =>
+        samePublishedFinding(placement.placement.finding, finding),
+      );
+      if (match == null) return finding;
       count += 1;
       return {
-        findingId,
+        findingId: match.findingId,
         file: finding.file,
         startLine: finding.startLine,
         endLine: finding.endLine,

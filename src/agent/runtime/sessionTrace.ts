@@ -149,7 +149,7 @@ function createRecording(
     return { code, message: boundText(redactText(message), TRACE_ERROR_CHARS).text };
   }
 
-  function fingerprint(
+  function toolCallKey(
     name: string,
     input: unknown,
   ): { readonly key: string; readonly hash: string } {
@@ -608,7 +608,7 @@ function createRecording(
         toolCalls += 1;
         lastTool = tool.name;
         lastActivity = tool.startedAt;
-        const printed = fingerprint(tool.name, event.args);
+        const printed = toolCallKey(tool.name, event.args);
         toolCallKeys.set(printed.key, (toolCallKeys.get(printed.key) ?? 0) + 1);
       }
       if (event.type === "tool_execution_end") {
@@ -639,7 +639,7 @@ function createRecording(
       if (!tool) return undefined;
       hostCallCount += 1;
       lastActivity = Date.now();
-      const printed = fingerprint(name, input);
+      const printed = toolCallKey(name, input);
       const seen = hostCallKeys.get(printed.key);
       if (seen) seen.count += 1;
       else hostCallKeys.set(printed.key, { tool: name, hash: printed.hash, count: 1 });

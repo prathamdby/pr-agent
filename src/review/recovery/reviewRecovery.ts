@@ -26,7 +26,8 @@ export type RecoveryDecision = {
 export function snapshotFindingLedger(ledger: FindingLedger): FindingLedgerSnapshot {
   return {
     accepted: ledger.accepted.map((entry) => ({ ...entry, placement: { ...entry.placement } })),
-    suppressionFingerprints: [...ledger.suppressionFingerprints],
+    reaffirmed: ledger.reaffirmed.map((entry) => ({ ...entry, placement: { ...entry.placement } })),
+    suppressedDismissedCount: ledger.suppressedDismissedCount,
     inlineReviewIds: [...ledger.inlineReviewIds],
     postedInlineCount: ledger.postedInlineCount,
     threadCallCount: ledger.threadCallCount,

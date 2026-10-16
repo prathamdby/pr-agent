@@ -31,6 +31,13 @@ describe("publishReviewRunFailureNotice", () => {
       reviewMode: "review",
       publishAttempts: 2,
       lastFailure,
+      findingView: {
+        completeness: "complete",
+        rows: [],
+        blockingCount: 0,
+        suppressedDismissedCount: 0,
+        duplicates: [],
+      },
     });
     expect(warnSpy).toHaveBeenCalledWith(
       "agent_publish_fallback",

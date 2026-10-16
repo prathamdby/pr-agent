@@ -91,11 +91,13 @@ const INTERNAL_ERROR_KIND: {
     mutation_outcome_unknown: "publish",
   },
   review: {
+    declare_duplicate_validation_failed: "validation",
     deterministic_finding_publish_failed: "publish",
     publish_summary_failed: "publish",
     publish_summary_semantic_validation_failed: "validation",
     publish_summary_validation_failed: "validation",
     publish_thread_failed: "publish",
+    publish_thread_overlap_unanswered: "publish",
     publish_thread_source_required: "publish",
     publish_thread_validation_failed: "validation",
   },
