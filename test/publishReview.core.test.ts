@@ -2,7 +2,6 @@ import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js"
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
 import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
@@ -10,6 +9,7 @@ import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
+  completeFindingInventory,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
@@ -43,14 +43,7 @@ const payload = publishReviewTestPayload;
 
 function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
   return {
-    inventory: buildFindingInventory({
-      threads: { status: "ok", threads: [] },
-      summary: null,
-      summaryComplete: true,
-      botLogin: "pr-agent[bot]",
-      renames: new Map(),
-      deletedPaths: new Set(),
-    }),
+    inventory: completeFindingInventory(),
     outcomes: new Map([[reviewFindingPlacementKey(finding), outcome]]),
   };
 }

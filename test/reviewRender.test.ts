@@ -5,7 +5,6 @@ import {
 } from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it } from "vitest";
 import {
-  countReviewFindingsForActionLine,
   formatReviewCoverageStatus,
   renderAgentFixPrompt,
   renderInlineThreadBody,
@@ -47,6 +46,12 @@ const ctx = {
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
   mode: "review" as const,
   runFooter: { durationMs: 680_000, model: "grok-4.5" },
+  findingView: {
+    completeness: "complete" as const,
+    rows: [],
+    blockingCount: 0,
+    suppressedDismissedCount: 0,
+  },
 };
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
@@ -469,15 +474,16 @@ describe("renderReviewSummaryComment", () => {
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacements(payload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
       coverage: { kind: "partial", failed: ["quality"] },
     });
     expect(body).toContain(
-      "2 findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran except quality.",
+      "1 of 2 open findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran except quality.",
     );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
-    expect(body.indexOf("2 findings block merge")).toBeLessThan(body.indexOf("<table>"));
+    expect(body.indexOf("1 of 2 open findings block merge")).toBeLessThan(body.indexOf("<table>"));
   });
 
   it("adds the follow-up count segment to the action line, singular included", () => {
@@ -507,6 +513,7 @@ describe("renderReviewSummaryComment", () => {
     const twoBody = renderReviewSummaryComment(twoPayload, {
       ...ctx,
       placements: testPlacements(twoPayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 2 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(twoBody).toContain(
@@ -530,6 +537,7 @@ describe("renderReviewSummaryComment", () => {
     const oneBody = renderReviewSummaryComment(onePayload, {
       ...ctx,
       placements: testPlacements(onePayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(oneBody).toContain(
@@ -552,6 +560,7 @@ describe("renderReviewSummaryComment", () => {
     const zeroBody = renderReviewSummaryComment(zeroPayload, {
       ...ctx,
       placements: testPlacements(zeroPayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(zeroBody).toContain(
@@ -727,6 +736,7 @@ describe("renderReviewSummaryComment", () => {
       {
         ...ctx,
         placements: testPlacements(payload.findings, { inlinePosted: false }),
+        findingView: { ...ctx.findingView, blockingCount: 12 },
       },
       2_500,
     );
@@ -818,6 +828,7 @@ describe("renderReviewSummaryComment", () => {
       {
         ...ctx,
         placements: testPlacements(payload.findings, { inlinePosted: false }),
+        findingView: { ...ctx.findingView, blockingCount: 12 },
       },
       2_500,
     );
@@ -827,15 +838,27 @@ describe("renderReviewSummaryComment", () => {
 });
 
 describe("review action line helpers", () => {
-  it("counts every supplied P0–P3 row", () => {
-    expect(countReviewFindingsForActionLine([])).toBe(0);
-    expect(
-      countReviewFindingsForActionLine([
-        { severity: "P0" },
-        { severity: "P3" },
-        { severity: "P2" },
-      ]),
-    ).toBe(3);
+  it("says how many open findings block merge", () => {
+    const line = (openCount: number, blockingCount: number) =>
+      renderReviewActionLine({
+        openCount,
+        blockingCount,
+        followUpCount: 0,
+        ciStatusText: "CI is passing",
+        coverageStatusText: "with full coverage",
+      });
+    expect(line(1, 0)).toBe(
+      "1 open finding, none blocks merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 0)).toBe(
+      "3 open findings, none block merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 1)).toBe(
+      "1 of 3 open findings block merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 3)).toBe(
+      "3 findings block merge. CI is passing. All specialists ran with full coverage.",
+    );
   });
 
   it("formats coverage for full, partial, and none", () => {
@@ -857,7 +880,8 @@ describe("review action line helpers", () => {
   it("joins the three action-line facts", () => {
     expect(
       renderReviewActionLine({
-        findingCount: 0,
+        openCount: 0,
+        blockingCount: 0,
         followUpCount: 0,
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
@@ -867,7 +891,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 1,
+        openCount: 1,
+        blockingCount: 1,
         followUpCount: 0,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
@@ -878,7 +903,8 @@ describe("review action line helpers", () => {
   it("adds the follow-up count segment between findings and CI, singular included", () => {
     expect(
       renderReviewActionLine({
-        findingCount: 2,
+        openCount: 2,
+        blockingCount: 2,
         followUpCount: 2,
         ciStatusText: "CI is passing",
         coverageStatusText: "with full coverage",
@@ -888,7 +914,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 1,
+        openCount: 1,
+        blockingCount: 1,
         followUpCount: 1,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
@@ -898,7 +925,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 0,
+        openCount: 0,
+        blockingCount: 0,
         followUpCount: 3,
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",

@@ -45,7 +45,7 @@ import {
   type ReviewThreadComment,
 } from "../src/review/run/reviewPriorFeedback.js";
 import { createPrSurface } from "../src/github/prSurface.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import { unavailableFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.js";
 import { unfencedSurface } from "../src/agentWork/writeFence.js";
@@ -105,14 +105,7 @@ function fetchBotFindingThreads(
     {
       botUserId,
       publishRecordLenses,
-      inventory: buildFindingInventory({
-        threads: { status: "unavailable", threads: [] },
-        summary: null,
-        summaryComplete: false,
-        botLogin: "pr-agent[bot]",
-        renames: new Map(),
-        deletedPaths: new Set(),
-      }),
+      inventory: unavailableFindingInventory({ renames: new Map(), deletedPaths: new Set() }),
     },
   );
 }

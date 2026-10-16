@@ -41,9 +41,18 @@ import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { createFindingLedger } from "../orchestrator/orchestratorTypes.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
+import {
+  buildFindingView,
+  findingCheck,
+  type FindingCheck,
+} from "../findingIdentity/findingLifecycle.js";
 
 export type PublishSummaryOnlyResult =
-  | { readonly kind: "published"; readonly summaryCommentId: number }
+  | {
+      readonly kind: "published";
+      readonly summaryCommentId: number;
+      readonly check: FindingCheck;
+    }
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
 export async function publishReviewSummaryOnly(
@@ -91,6 +100,11 @@ export async function publishReviewSummaryOnly(
       context: { failedSpecialists: coverage.failed },
     });
   }
+  const findingView = buildFindingView(session.findingInventory, {
+    kind: "reviewed",
+    ledger: input.ledger,
+  });
+  const check = findingCheck(findingView);
   const startedAt = Date.now();
   const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
     if (session.agentEvents) {
@@ -105,7 +119,7 @@ export async function publishReviewSummaryOnly(
         }),
       );
     }
-    return { kind: "published", summaryCommentId };
+    return { kind: "published", summaryCommentId, check };
   };
   const { owner, repo, prNumber, headSha } = session.ctx;
   const mode = session.mode;
@@ -162,6 +176,7 @@ export async function publishReviewSummaryOnly(
     ...session.ctx,
     summarySentinel,
     placements: enrichedPlacements,
+    findingView,
     mode,
     staleReview: input.staleReview ?? false,
     cachedDiffIndex: session.cachedDiffIndex,
@@ -294,7 +309,7 @@ export async function publishReviewSummaryOnly(
       ...summaryCommentVerdictMeta({
         kind: coverage.kind === "partial" ? "partial" : "published",
         note: coverage.kind === "partial" ? coverage.note : undefined,
-        findings: input.payload.findings,
+        conclusion: check.conclusion,
       }),
     },
   });
@@ -325,7 +340,7 @@ export async function publishReviewSummaryOnly(
     }).close(
       coverage.kind === "partial"
         ? { kind: "partial", note: coverage.note }
-        : { kind: "published", findings: input.payload.findings },
+        : { kind: "published", ...check },
     );
   }
 

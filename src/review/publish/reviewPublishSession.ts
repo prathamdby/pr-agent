@@ -8,6 +8,7 @@ import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
 import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
+import type { FindingInventory } from "../findingIdentity/findingInventory.js";
 
 export type PublishStopReason = "superseded" | "stale_head";
 
@@ -29,6 +30,7 @@ export type ReviewPublishSession = {
   readonly ctx: ReviewPublishContext;
   readonly mode: AnyReviewLens;
   readonly prSurface: PrSurface;
+  readonly findingInventory: FindingInventory;
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly shouldLinkToSummary?: boolean;
   readonly progressCommentIdHint?: number | null;
@@ -49,6 +51,7 @@ export type ReviewPublishSessionInput = {
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly prSurface: PrSurface;
+  readonly findingInventory: FindingInventory;
   readonly mode?: AnyReviewLens;
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly shouldLinkToSummary?: boolean;
@@ -79,6 +82,7 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput): Re
     ctx: input.ctx,
     mode: input.mode ?? "review",
     prSurface: input.prSurface,
+    findingInventory: input.findingInventory,
     cachedDiffIndex: input.cachedDiffIndex,
     shouldLinkToSummary: input.shouldLinkToSummary,
     progressCommentIdHint: input.progressCommentIdHint,

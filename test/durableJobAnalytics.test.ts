@@ -436,6 +436,7 @@ describe("durableJob analytics forwarding", () => {
         handled: true,
         published: true,
         summaryId: 42,
+        check: { conclusion: "success", blockingCount: 0 },
       });
       const cleanupError = new Error("verdict cleanup failed");
       verdict.close.mockImplementation(async () => {

@@ -1,3 +1,5 @@
+import { errorMessage } from "../../errors/errorMessage.js";
+import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurfaceTypes.js";
 import type {
   ListReviewThreadResolutionResult,
@@ -294,4 +296,31 @@ export async function loadFindingInventory(
     botLogin,
     ...context,
   });
+}
+
+export function unavailableFindingInventory(context: InventoryPathContext): FindingInventory {
+  return buildFindingInventory({
+    threads: { status: "unavailable", threads: [] },
+    summary: null,
+    summaryComplete: false,
+    botLogin: "",
+    ...context,
+  });
+}
+
+export async function loadFindingInventoryOrUnavailable(
+  surface: PrSurface,
+  context: InventoryPathContext,
+): Promise<FindingInventory> {
+  try {
+    return await loadFindingInventory(surface, context);
+  } catch (error) {
+    logWarn("review_finding_inventory_failed", {
+      owner: surface.owner,
+      repo: surface.repo,
+      pr: surface.prNumber,
+      message: errorMessage(error),
+    });
+    return unavailableFindingInventory(context);
+  }
 }

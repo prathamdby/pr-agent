@@ -40,6 +40,14 @@ import {
   type FindingRowMarker,
 } from "../findingIdentity/findingMarker.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import type { InventoryFinding } from "../findingIdentity/findingInventory.js";
+import {
+  findingSeverityLabel,
+  renderCarriedFindingCell,
+  type FindingView,
+  type FindingViewRow,
+} from "../findingIdentity/findingLifecycle.js";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.js";
 import {
   normalizeGitHeadSha,
   renderReviewRunFooter,
@@ -90,6 +98,7 @@ export function renderLightweightReviewCompletion(
   options?: {
     readonly ciSummary?: CiSummary | null;
     readonly ciVersion?: number;
+    readonly findingsSection?: string;
   },
 ): string {
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
@@ -111,6 +120,10 @@ export function renderLightweightReviewCompletion(
   rows.push("");
   rows.push(renderKeyValueTable(tableRows));
   rows.push("");
+  if (options?.findingsSection != null && options.findingsSection.length > 0) {
+    rows.push(options.findingsSection);
+    rows.push("");
+  }
   rows.push(
     renderStaleReviewMetadataComment({
       headSha: footer.headSha,
@@ -405,6 +418,7 @@ export type ReviewActionLineCoverage = {
 type ReviewSummaryRenderCtx = RenderContext & {
   summarySentinel: string;
   placements: readonly SummaryPlacement[];
+  findingView: FindingView;
   mode: AnyReviewLens;
   runFooter: ReviewRunFooterMeta;
   staleReview?: boolean;
@@ -414,10 +428,16 @@ type ReviewSummaryRenderCtx = RenderContext & {
   coverage?: ReviewActionLineCoverage;
 };
 
-export function countReviewFindingsForActionLine(
-  rows: readonly { severity: "P0" | "P1" | "P2" | "P3" }[],
-): number {
-  return rows.length;
+type CarriedSummaryRow = readonly [FindingViewRow, InventoryFinding];
+
+function carriedSummaryRows(view: FindingView): CarriedSummaryRow[] {
+  return view.rows.flatMap((row): CarriedSummaryRow[] =>
+    row.observedThisRun || row.held == null ? [] : [[row, row.held]],
+  );
+}
+
+function isDurableCarriedRow([, held]: CarriedSummaryRow): boolean {
+  return held.source === "summary";
 }
 
 export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
@@ -434,22 +454,30 @@ export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): 
 export { formatReviewActionLineCiStatus };
 
 export function renderReviewActionLine(input: {
-  findingCount: number;
+  openCount: number;
+  blockingCount: number;
   followUpCount: number;
   ciStatusText: string;
   coverageStatusText: string;
 }): string {
   const followUpSegment =
-    input.findingCount > 0 && input.followUpCount > 0
+    input.openCount > 0 && input.followUpCount > 0
       ? ` ${formatFollowUpCountClause(input.followUpCount)}.`
       : "";
-  return `${formatFindingCountClause(input.findingCount)}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
+  return `${formatFindingCountClause(input.openCount, input.blockingCount)}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
 }
 
-function formatFindingCountClause(count: number): string {
-  if (count === 0) return "No findings, ready to merge";
-  if (count === 1) return "1 finding blocks merge";
-  return `${count} findings block merge`;
+function formatFindingCountClause(openCount: number, blockingCount: number): string {
+  if (openCount === 0) return "No findings, ready to merge";
+  if (blockingCount === 0) {
+    return openCount === 1
+      ? "1 open finding, none blocks merge"
+      : `${openCount} open findings, none block merge`;
+  }
+  if (blockingCount >= openCount) {
+    return openCount === 1 ? "1 finding blocks merge" : `${openCount} findings block merge`;
+  }
+  return `${blockingCount} of ${openCount} open findings block merge`;
 }
 
 function formatFollowUpCountClause(count: number): string {
@@ -472,20 +500,21 @@ function buildReviewSummaryBody(
   ctx: ReviewSummaryRenderCtx,
   options: SummaryRenderOptions,
 ): string {
-  let visiblePlacements = [...ctx.placements];
-  if (options.findingRowLimit != null) {
-    let droppableRowsLeft = options.findingRowLimit;
-    visiblePlacements = visiblePlacements.filter((placement) => {
-      if (placement.findingRow != null) return true;
-      droppableRowsLeft -= 1;
-      return droppableRowsLeft >= 0;
-    });
-  }
+  const carriedRows = carriedSummaryRows(ctx.findingView);
+  let droppableRowsLeft = options.findingRowLimit ?? Number.POSITIVE_INFINITY;
+  const keepRow = (durable: boolean): boolean => {
+    if (durable) return true;
+    droppableRowsLeft -= 1;
+    return droppableRowsLeft >= 0;
+  };
+  const visiblePlacements = ctx.placements.filter((placement) =>
+    keepRow(placement.findingRow != null),
+  );
+  const visibleCarriedRows = carriedRows.filter((row) => keepRow(isDurableCarriedRow(row)));
   const coverage = ctx.coverage ?? { kind: "full", failed: [] };
   const actionLine = renderReviewActionLine({
-    findingCount: countReviewFindingsForActionLine(
-      ctx.placements.map((placement) => placement.finding),
-    ),
+    openCount: ctx.placements.length + carriedRows.length,
+    blockingCount: ctx.findingView.blockingCount,
     ciStatusText: renderReviewActionLineCiStatus(ctx.ciSummary),
     coverageStatusText: formatReviewCoverageStatus(coverage),
     followUpCount: payload.followUps.length,
@@ -503,7 +532,7 @@ function buildReviewSummaryBody(
 
   const summaryOnlyAccordions: string[] = [];
 
-  if (visiblePlacements.length === 0) {
+  if (visiblePlacements.length === 0 && visibleCarriedRows.length === 0) {
     tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
   } else {
     for (const placement of visiblePlacements) {
@@ -535,6 +564,12 @@ function buildReviewSummaryBody(
         );
       }
     }
+    for (const [row, held] of visibleCarriedRows) {
+      tableRows.push([
+        renderTableStrong(findingSeverityLabel(row.severity)),
+        renderCarriedFindingCell(row, held),
+      ]);
+    }
   }
 
   if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
@@ -563,6 +598,11 @@ function buildReviewSummaryBody(
     rows.push(
       assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements, ctx.ciSummary)),
     );
+  }
+
+  if (ctx.findingView.completeness !== "complete") {
+    rows.push("");
+    rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, FINDING_INVENTORY_UNAVAILABLE_NOTE));
   }
 
   if (options.compactionNote) {
@@ -617,9 +657,9 @@ export function fitReviewSummaryBody(
     compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
   );
   const sortedCtx = { ...ctx, placements: sortedPlacements };
-  const droppableCount = sortedPlacements.filter(
-    (placement) => placement.findingRow == null,
-  ).length;
+  const droppableCount =
+    sortedPlacements.filter((placement) => placement.findingRow == null).length +
+    carriedSummaryRows(ctx.findingView).filter((row) => !isDurableCarriedRow(row)).length;
 
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,

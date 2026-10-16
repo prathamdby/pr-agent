@@ -220,6 +220,7 @@ function dumpAll() {
   const publishSession = createReviewPublishSession({
     ctx,
     prSurface,
+    findingInventory: emptyFindingInventory,
     cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
     cfg: makeTestConfig({

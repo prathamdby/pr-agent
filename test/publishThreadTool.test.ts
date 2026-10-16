@@ -8,19 +8,13 @@ import { buildPublishThreadTool } from "../src/review/orchestrator/publishThread
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForLines,
+  completeFindingInventory,
+} from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
-
-const emptyInventory = buildFindingInventory({
-  threads: { status: "ok", threads: [] },
-  summary: null,
-  summaryComplete: true,
-  botLogin: "pr-agent[bot]",
-  renames: new Map(),
-  deletedPaths: new Set(),
-});
+const emptyInventory = completeFindingInventory();
 
 let nextReviewId = 100;
 
@@ -53,6 +47,7 @@ function threadSession(
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
     prSurface: surface,
+    findingInventory: emptyInventory,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,

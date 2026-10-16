@@ -31,6 +31,21 @@ import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.js
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../../src/review/reviewSchema.js";
 import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
+import {
+  buildFindingInventory,
+  type FindingInventory,
+} from "../../src/review/findingIdentity/findingInventory.js";
+
+export function completeFindingInventory(): FindingInventory {
+  return buildFindingInventory({
+    threads: { status: "ok", threads: [] },
+    summary: null,
+    summaryComplete: true,
+    botLogin: "",
+    renames: new Map(),
+    deletedPaths: new Set(),
+  });
+}
 
 export type PublishTestState = {
   inlineReviewIds: number[];
@@ -89,6 +104,7 @@ export async function runTestPublishFlow(
     }),
     ctx: params,
     prSurface: params.prSurface,
+    findingInventory: completeFindingInventory(),
     mode: params.mode,
     cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
     shouldLinkToSummary: params.shouldLinkToSummary,
@@ -143,8 +159,9 @@ export async function runTestPublishFlow(
 }
 
 export function publishSummaryForTest(
-  params: ReviewPublishSessionInput &
-    Parameters<typeof publishReviewSummaryOnly>[1] & {
+  params: Omit<ReviewPublishSessionInput, "findingInventory"> & {
+    readonly findingInventory?: FindingInventory;
+  } & Parameters<typeof publishReviewSummaryOnly>[1] & {
       readonly resourceKey?: string;
       readonly leaseEpoch?: number | null;
     },
@@ -162,6 +179,7 @@ export function publishSummaryForTest(
   return publishReviewSummaryOnly(
     createReviewPublishSession({
       ...sessionInput,
+      findingInventory: sessionInput.findingInventory ?? completeFindingInventory(),
       verdictWorkItemId: sessionInput.verdictWorkItemId ?? sessionInput.workItemId,
       verdictResourceKey: sessionInput.verdictResourceKey ?? resourceKey,
       verdictLeaseEpoch: sessionInput.verdictLeaseEpoch ?? leaseEpoch,

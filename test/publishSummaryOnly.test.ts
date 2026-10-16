@@ -54,7 +54,10 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  completeFindingInventory,
+  publishSummaryForTest,
+} from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
@@ -208,6 +211,7 @@ describe("publishReviewSummaryOnly", () => {
       cfg: makeTestConfig(),
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
       prSurface: surface,
+      findingInventory: completeFindingInventory(),
       recovery,
     });
     await expect(
@@ -216,7 +220,11 @@ describe("publishReviewSummaryOnly", () => {
         ledger,
         coverage: { kind: "partial", failed: ["tests"], note: "Partial coverage" },
       }),
-    ).resolves.toEqual({ kind: "published", summaryCommentId: 2 });
+    ).resolves.toEqual({
+      kind: "published",
+      summaryCommentId: 2,
+      check: { conclusion: "failure", blockingCount: 1 },
+    });
     expect(parseReviewArtifactEnvelope(rows.get("final-summary"))?.artifact).toMatchObject({
       inputs: {
         kind: "summary",
@@ -292,7 +300,11 @@ describe("publishReviewSummaryOnly", () => {
       },
     });
 
-    expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
+    expect(result).toEqual({
+      kind: "published",
+      summaryCommentId: 2,
+      check: { conclusion: "failure", blockingCount: 2 },
+    });
     expect(close).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(upsertProgressComment).toHaveBeenCalledTimes(1);
@@ -454,7 +466,11 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(close).toHaveBeenCalledWith({ kind: "published", findings: [finding(10)] });
+    expect(close).toHaveBeenCalledWith({
+      kind: "published",
+      conclusion: "success",
+      blockingCount: 0,
+    });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,

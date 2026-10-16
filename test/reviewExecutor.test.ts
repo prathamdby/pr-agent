@@ -401,7 +401,7 @@ describe("review work definition", () => {
           : verdictOwner.summaryCommentVerdictMeta({
               kind: receipt === "partial" ? "partial" : "published",
               ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
-              findings: [],
+              conclusion: "success",
             }),
       );
       if (receipt === "wrong_outcome")
@@ -1142,7 +1142,12 @@ describe("review work definition", () => {
   it("runs auto preflight and lightweight completion before full review", async () => {
     mockDurableExecution("auto");
     const listChangedFiles = mockAutoPrFiles();
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
 
     await runExecution();
 
@@ -1175,7 +1180,7 @@ describe("review work definition", () => {
       publishAttempts: 1,
       publishStepCount: 3,
       publishSuperseded: false,
-      publishedFindings: [{ severity: "P1" }],
+      findingCheck: { conclusion: "failure", blockingCount: 1 },
       coverage: { kind: "full" },
     });
 
@@ -1270,7 +1275,12 @@ describe("review work definition", () => {
 
   it("completes lightweight review without a full review", async () => {
     mockDurableExecution("auto");
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
 
     await runExecution();
 
@@ -1302,7 +1312,12 @@ describe("review work definition", () => {
 
   it("propagates lightweight verdict cleanup failure", async () => {
     mockDurableExecution("auto");
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
     vi.mocked(verdictMethods.close).mockRejectedValue(new Error("check-run update failed"));
 
     await expect(runExecution()).rejects.toThrow("check-run update failed");

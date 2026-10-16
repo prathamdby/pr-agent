@@ -23,6 +23,7 @@ import {
 } from "../src/review/reviewSchema.js";
 import { REVIEW_GATE_PROSE_MAX_CHARS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function summarySession() {
@@ -36,6 +37,7 @@ function summarySession() {
       hasDescriptionReviewMap: false,
     },
     prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+    findingInventory: completeFindingInventory(),
   });
 }
 
@@ -124,6 +126,7 @@ describe("buildPublishSummaryTool", () => {
     vi.mocked(publishReviewSummaryOnly).mockResolvedValue({
       kind: "published",
       summaryCommentId: 91,
+      check: { conclusion: "success", blockingCount: 0 },
     });
   });
 
@@ -301,13 +304,18 @@ describe("buildPublishSummaryTool", () => {
     const tool = buildTool({ getLedger: () => ledger, state });
     vi.mocked(publishReviewSummaryOnly)
       .mockImplementationOnce(async () => ({ kind: "stopped", reason: "superseded" }))
-      .mockImplementationOnce(async () => ({ kind: "published", summaryCommentId: 92 }));
+      .mockImplementationOnce(async () => ({
+        kind: "published",
+        summaryCommentId: 92,
+        check: { conclusion: "failure", blockingCount: 1 },
+      }));
 
     const stopped = await tool.executor(summaryInput());
     const published = await tool.executor(summaryInput());
 
     expect(stopped).toEqual({ ok: false, reason: "superseded" });
     expect(published).toEqual({ ok: true, summaryCommentId: 92 });
+    expect(state.check).toEqual({ conclusion: "failure", blockingCount: 1 });
     expect(state.published).toBe(true);
   });
 

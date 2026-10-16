@@ -383,7 +383,13 @@ async function runLightweightCompletionOrSkip(args: {
     summaryCommentId: lightweightResult.published ? lightweightResult.summaryId : null,
   }).close(
     lightweightResult.published
-      ? { kind: "published", findings: [], summary: "Documentation-only change set." }
+      ? {
+          kind: "published",
+          ...lightweightResult.check,
+          ...(lightweightResult.check.conclusion === "success"
+            ? { summary: "Documentation-only change set." }
+            : {}),
+        }
       : { kind: "cancelled", summary: "Review was cancelled before lightweight completion." },
   );
   return { done: true, result: { kind: "completed" } };
@@ -589,7 +595,15 @@ async function handleReviewPublishResult(args: {
       outcome:
         result.coverage?.kind === "partial"
           ? { kind: "partial", note: result.coverage.note }
-          : { kind: "published", findings: result.publishedFindings ?? [] },
+          : result.findingCheck != null
+            ? { kind: "published", ...result.findingCheck }
+            : ownVerdictFromSummaryDetail(
+                await createPublishContext(pool, {
+                  workItemId: item.id,
+                  resourceKey: item.resourceKey,
+                  reviewLens,
+                }).completed("summary_comment"),
+              ),
     });
   }
   if (result.published || result.publishSuperseded) {

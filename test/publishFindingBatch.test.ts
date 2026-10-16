@@ -80,12 +80,14 @@ import {
   legacyFindingId,
   renderFindingMarker,
 } from "../src/review/findingIdentity/findingMarker.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
 import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
-import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForLines,
+  completeFindingInventory,
+} from "./helpers/reviewPublishTestHelpers.js";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
@@ -167,21 +169,14 @@ function postedFindingIds(result: Awaited<ReturnType<typeof publishFindingBatch>
 
 function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
   return {
-    inventory: buildFindingInventory({
-      threads: { status: "ok", threads: [] },
-      summary: null,
-      summaryComplete: true,
-      botLogin: "pr-agent[bot]",
-      renames: new Map(),
-      deletedPaths: new Set(),
-    }),
+    inventory: completeFindingInventory(),
     outcomes: new Map([[reviewFindingPlacementKey(target), outcome]]),
   };
 }
 
 let harness: PublishReviewTestHarness;
 
-type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx">> &
+type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx" | "findingInventory">> &
   Partial<FindingBatchInput> & {
     readonly seedFindings?: readonly ReviewFinding[];
   };
@@ -220,6 +215,7 @@ function batchContext(
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,
     prSurface: harness.surface,
+    findingInventory: completeFindingInventory(),
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
     ...sessionOverrides,

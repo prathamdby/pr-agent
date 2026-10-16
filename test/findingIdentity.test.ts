@@ -18,10 +18,21 @@ import {
   reconcileObservation,
   type ObservationRelation,
 } from "../src/review/findingIdentity/findingReconcile.js";
+import {
+  buildFindingView,
+  checkConclusion,
+  renderFindingsSection,
+  type FindingRunOutcomes,
+} from "../src/review/findingIdentity/findingLifecycle.js";
 import type {
   ReviewThreadResolutionStatus,
   ReviewThreadSnapshot,
 } from "../src/github/reviewThreadResolution.js";
+import type {
+  AcceptedPlacement,
+  ReaffirmedFinding,
+} from "../src/review/orchestrator/orchestratorTypes.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 const BOT = "pr-agent[bot]";
 
@@ -657,5 +668,378 @@ describe("observation reconciliation", () => {
         outcome: { kind: "summary_only", id: MINTED, reason: "inventory_incomplete" },
       });
     }
+  });
+});
+
+const D = id("f_0000000000000000000000000D");
+
+function runFinding(severity: ReviewFinding["severity"]): ReviewFinding {
+  return {
+    severity,
+    file: "src/run.ts",
+    startLine: 5,
+    endLine: 5,
+    title: "Run finding",
+    detail: "detail",
+    fixPrompt: "fix",
+  };
+}
+
+function postedThisRun(
+  findingId: FindingId,
+  severity: ReviewFinding["severity"],
+): AcceptedPlacement {
+  return {
+    kind: "posted",
+    source: "correctness",
+    placement: { finding: runFinding(severity), inlineLine: 5, inlinePosted: true },
+    findingId,
+    canonicalFingerprint: "fp",
+    reviewId: 1,
+  };
+}
+
+function heldThisRun(findingId: FindingId, severity: ReviewFinding["severity"]): AcceptedPlacement {
+  return {
+    kind: "summary_only",
+    source: "correctness",
+    placement: { finding: runFinding(severity), inlineLine: null, inlinePosted: false },
+    findingId,
+    canonicalFingerprint: "fp",
+    reason: "cap",
+  };
+}
+
+function reaffirmedThisRun(
+  findingId: FindingId,
+  severity: ReviewFinding["severity"],
+  heldBy: ReaffirmedFinding["heldBy"],
+): ReaffirmedFinding {
+  return {
+    id: findingId,
+    source: "correctness",
+    severity,
+    heldBy,
+    placement: {
+      finding: runFinding(severity),
+      inlineLine: null,
+      inlinePosted: heldBy === "thread",
+    },
+  };
+}
+
+function reviewed(
+  ledger: {
+    readonly accepted?: readonly AcceptedPlacement[];
+    readonly reaffirmed?: readonly ReaffirmedFinding[];
+    readonly suppressedDismissedCount?: number;
+  } = {},
+): FindingRunOutcomes {
+  return {
+    kind: "reviewed",
+    ledger: {
+      accepted: ledger.accepted ?? [],
+      reaffirmed: ledger.reaffirmed ?? [],
+      suppressedDismissedCount: ledger.suppressedDismissedCount ?? 0,
+    },
+  };
+}
+
+function summaryWithRows(
+  rows: readonly { readonly id: FindingId; readonly severity: ReviewFinding["severity"] }[],
+) {
+  return {
+    body: rows
+      .map((row) =>
+        renderFindingRowMarker({
+          id: row.id,
+          lens: "review",
+          severity: row.severity,
+          path: "src/held.ts",
+          line: 3,
+          title: `Held ${row.id}`,
+        }),
+      )
+      .join("\n"),
+    authorLogin: BOT,
+    url: "https://github.com/o/r/pull/1#issuecomment-9",
+  };
+}
+
+describe("finding lifecycle view", () => {
+  it("keeps an omitted prior thread listed and failing", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P1") })]),
+      reviewed(),
+    );
+    expect(view.rows).toMatchObject([{ id: A, status: "open_unverified", blocking: true }]);
+    expect(view.blockingCount).toBe(1);
+    expect(checkConclusion(view)).toBe("failure");
+  });
+
+  it("labels an omitted outdated thread as outdated location", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P2"), isOutdated: true })]),
+      reviewed(),
+    );
+    expect(view.rows).toMatchObject([{ id: A, status: "outdated_location", blocking: true }]);
+  });
+
+  it("labels a thread with an unknown position as outdated, never as line 1", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P3"), line: null })]),
+      reviewed(),
+    );
+    expect(view.rows).toMatchObject([{ id: A, status: "outdated_location" }]);
+    expect(view.rows[0]?.held?.line).toBeNull();
+  });
+
+  it("confirms a reaffirmed thread at the higher of marker and reaffirmed severity", () => {
+    const raised = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P3") })]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P1", "thread")] }),
+    );
+    expect(raised.rows).toMatchObject([
+      { id: A, status: "confirmed_at_head", severity: "P1", blocking: true },
+    ]);
+    const lowered = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P1") })]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P3", "thread")] }),
+    );
+    expect(lowered.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+  });
+
+  it("never counts an unknown severity as blocking", () => {
+    const known = inventoryOf([thread({ rootBody: markedBody(A) })]).findings.get(A);
+    if (known == null) throw new Error("expected inventory finding");
+    const view = buildFindingView(
+      { ...inventoryOf([]), findings: new Map([[A, { ...known, severity: "unknown" }]]) },
+      reviewed(),
+    );
+    expect(view.rows).toMatchObject([{ id: A, severity: "unknown", blocking: false }]);
+    expect(checkConclusion(view)).toBe("success");
+  });
+
+  it("does not list fixed, dismissed, or duplicate threads", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        thread({
+          rootBody: markedBody(A, "P0"),
+          isResolved: true,
+          replies: [{ body: renderReceipt({ kind: "fixed", id: A }), authorLogin: BOT }],
+        }),
+        thread({ rootBody: markedBody(B, "P0"), isResolved: true }),
+        thread({
+          rootBody: markedBody(C, "P0"),
+          isResolved: true,
+          replies: [
+            { body: renderReceipt({ kind: "duplicate", id: C, canonical: A }), authorLogin: BOT },
+          ],
+        }),
+      ]),
+      reviewed(),
+    );
+    expect(view.rows).toEqual([]);
+    expect(checkConclusion(view)).toBe("success");
+  });
+
+  it("counts a finding held on two threads once", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        thread({ rootBody: markedBody(A, "P1"), rootCommentId: 1 }),
+        thread({ rootBody: markedBody(A, "P1"), rootCommentId: 2 }),
+      ]),
+      reviewed(),
+    );
+    expect(view.rows).toHaveLength(1);
+    expect(view.blockingCount).toBe(1);
+  });
+
+  it("lists findings posted or held this run once each", () => {
+    const view = buildFindingView(
+      inventoryOf([]),
+      reviewed({
+        accepted: [postedThisRun(A, "P2"), heldThisRun(B, "P3")],
+        reaffirmed: [reaffirmedThisRun(A, "P0", "run")],
+      }),
+    );
+    expect(view.rows).toMatchObject([
+      { id: A, status: "new", severity: "P2", blocking: true, held: null, observedThisRun: true },
+      {
+        id: B,
+        status: "summary_only",
+        severity: "P3",
+        blocking: false,
+        held: null,
+        observedThisRun: true,
+      },
+    ]);
+  });
+
+  it("lists a promoted summary finding once, as new", () => {
+    const view = buildFindingView(
+      inventoryOf([], { summary: summaryWithRows([{ id: A, severity: "P2" }]) }),
+      reviewed({ accepted: [postedThisRun(A, "P2")] }),
+    );
+    expect(view.rows).toMatchObject([{ id: A, status: "new" }]);
+  });
+
+  it("drops an unobserved summary row after a review but keeps a re-observed one", () => {
+    const inventory = inventoryOf([], {
+      summary: summaryWithRows([
+        { id: A, severity: "P1" },
+        { id: B, severity: "P1" },
+      ]),
+    });
+    const view = buildFindingView(
+      inventory,
+      reviewed({ reaffirmed: [reaffirmedThisRun(B, "P2", "summary")] }),
+    );
+    expect(view.rows).toMatchObject([{ id: B, status: "summary_only", severity: "P1" }]);
+    expect(view.rows[0]?.held?.source).toBe("summary");
+  });
+
+  it("carries every open summary row when no review ran", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(C, "P3") })], {
+        summary: summaryWithRows([{ id: A, severity: "P1" }]),
+      }),
+      { kind: "not_reviewed" },
+    );
+    expect(view.rows).toMatchObject([
+      { id: A, status: "summary_only", blocking: true },
+      { id: C, status: "open_unverified", blocking: false },
+    ]);
+    expect(checkConclusion(view)).toBe("failure");
+  });
+
+  it("lists a reopened finding under its new id and not the fixed one", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        thread({
+          rootBody: markedBody(A, "P1"),
+          isResolved: true,
+          replies: [{ body: renderReceipt({ kind: "fixed", id: A }), authorLogin: BOT }],
+        }),
+      ]),
+      reviewed({ accepted: [{ ...postedThisRun(D, "P1"), reopens: A }] }),
+    );
+    expect(view.rows.map((row) => row.id)).toEqual([D]);
+  });
+
+  it("keeps a finding on a deleted file open and flagged", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P1") })], {
+        deletedPaths: new Set(["src/a.ts"]),
+      }),
+      reviewed(),
+    );
+    expect(view.rows).toMatchObject([
+      { id: A, blocking: true, held: { fileDeleted: true }, observedThisRun: false },
+    ]);
+  });
+
+  it("sorts carried rows by severity after this run's rows", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        thread({ rootBody: markedBody(A, "P3") }),
+        thread({ rootBody: markedBody(B, "P0") }),
+      ]),
+      reviewed({ accepted: [postedThisRun(C, "P3")] }),
+    );
+    expect(view.rows.map((row) => row.id)).toEqual([C, B, A]);
+  });
+
+  it("never concludes success from an incomplete inventory", () => {
+    for (const status of ["partial", "unavailable", "permission_denied"] as const) {
+      const empty = buildFindingView(inventoryOf([], { status }), reviewed());
+      expect(checkConclusion(empty)).toBe("neutral");
+      const blocking = buildFindingView(
+        inventoryOf([thread({ rootBody: markedBody(A, "P1") })], { status }),
+        reviewed(),
+      );
+      expect(checkConclusion(blocking)).toBe("failure");
+    }
+    expect(
+      checkConclusion(buildFindingView(inventoryOf([], { summaryComplete: false }), reviewed())),
+    ).toBe("neutral");
+  });
+
+  it("concludes success when only low-severity findings stay open", () => {
+    const view = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P3") })]),
+      reviewed({ accepted: [heldThisRun(B, "P3")] }),
+    );
+    expect(checkConclusion(view)).toBe("success");
+  });
+
+  it("carries the dismissed-suppression count", () => {
+    expect(
+      buildFindingView(inventoryOf([]), reviewed({ suppressedDismissedCount: 2 }))
+        .suppressedDismissedCount,
+    ).toBe(2);
+  });
+});
+
+describe("findings section", () => {
+  it("renders exact counts, status labels, and links for carried findings", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        thread({ rootBody: markedBody(A, "P1"), rootCommentId: 41 }),
+        thread({ rootBody: markedBody(B, "P3"), rootCommentId: 42, isOutdated: true }),
+      ]),
+      { kind: "not_reviewed" },
+    );
+    const section = renderFindingsSection(view, 60_000);
+    expect(section).toContain("2 open · 1 blocking");
+    expect(section).toContain("Open, not rechecked");
+    expect(section).toContain("Outdated location");
+    expect(section).toContain("https://github.com/o/r/pull/1#discussion_r41");
+  });
+
+  it("says the open findings could not be loaded when the inventory is unavailable", () => {
+    const section = renderFindingsSection(
+      buildFindingView(inventoryOf([], { status: "unavailable" }), { kind: "not_reviewed" }),
+      60_000,
+    );
+    expect(section).toContain("could not be loaded");
+  });
+
+  it("renders nothing when a complete inventory has no open findings", () => {
+    expect(
+      renderFindingsSection(buildFindingView(inventoryOf([]), { kind: "not_reviewed" }), 60_000),
+    ).toBe("");
+  });
+
+  it("re-emits summary row markers so held findings survive the rewrite", () => {
+    const view = buildFindingView(
+      inventoryOf([], { summary: summaryWithRows([{ id: A, severity: "P1" }]) }),
+      { kind: "not_reviewed" },
+    );
+    const section = renderFindingsSection(view, 60_000);
+    expect(
+      parseOwnedFindingRows({ body: section, authorLogin: BOT }, BOT).map((row) => row.id),
+    ).toEqual([A]);
+  });
+
+  it("drops thread rows before summary rows when over budget and keeps counts exact", () => {
+    const threads = Array.from({ length: 30 }, (_, index) =>
+      thread({
+        rootBody: markedBody(id(`f_${String(index).padStart(26, "0")}`), "P2"),
+        rootCommentId: 500 + index,
+      }),
+    );
+    const view = buildFindingView(
+      inventoryOf(threads, { summary: summaryWithRows([{ id: A, severity: "P3" }]) }),
+      { kind: "not_reviewed" },
+    );
+    const full = renderFindingsSection(view, 60_000);
+    const trimmed = renderFindingsSection(view, Math.floor(full.length / 3));
+    expect(trimmed.length).toBeLessThanOrEqual(Math.floor(full.length / 3));
+    expect(trimmed).toContain("31 open · 30 blocking");
+    expect(
+      parseOwnedFindingRows({ body: trimmed, authorLogin: BOT }, BOT).map((row) => row.id),
+    ).toEqual([A]);
+    expect(trimmed).toMatch(/\d+ more open findings/);
   });
 });

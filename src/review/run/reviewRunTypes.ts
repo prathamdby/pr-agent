@@ -4,7 +4,8 @@ import type { Config, AnyReviewLens } from "../../settings/index.js";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { ReviewFinding, WorkSource } from "../reviewSchema.js";
+import type { WorkSource } from "../reviewSchema.js";
+import type { FindingCheck } from "../findingIdentity/findingLifecycle.js";
 import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import type { RecordPublishStepWithCoordination } from "../publish/reviewSummaryComment.js";
 import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.js";
@@ -54,6 +55,6 @@ export type ReviewRunResult = {
   readonly publishStepCount: number;
   readonly publishSuperseded: boolean;
   readonly lastFailure?: ClassifiedFailure;
-  readonly publishedFindings?: readonly Pick<ReviewFinding, "severity">[];
+  readonly findingCheck?: FindingCheck;
   readonly coverage?: ReviewCoverage;
 };

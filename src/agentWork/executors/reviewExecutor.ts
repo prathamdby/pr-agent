@@ -3,7 +3,9 @@ import { productionInstallationSurface } from "../installationSurface.js";
 import { createPublishContext } from "../publishOnce.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
-import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
+import { renderFailureNoticeWithFindings } from "../../review/run/reviewRunFallback.js";
+import { loadFindingInventoryOrUnavailable } from "../../review/findingIdentity/findingInventory.js";
+import { buildFindingView } from "../../review/findingIdentity/findingLifecycle.js";
 import { runReviewForWorkItem } from "../../review/runReviewForWorkItem.js";
 import { isOwnCheckOpen, ownVerdictFromSummaryDetail, reviewVerdict } from "../reviewVerdict.js";
 import { getProgressCommentOwner } from "../publishRecordRepository.js";
@@ -90,16 +92,20 @@ export function createReviewWorkExecution({
       }
       const owner = await getProgressCommentOwner(pool, item.resourceKey, reviewLens);
       const weOwnStub = owner == null || owner.workItemId === item.id;
-      const failureNotice = renderReviewFailureNotice({
-        mode: reviewLens,
-        retryCommand: "/review",
-      });
-      const notice =
-        isAppError(error) && error.code === "github.essential_access_denied"
-          ? `${failureNotice}\n\nGitHub installation access is missing for this review. Restore the repository grants, then run \`/review\`.`
-          : failureNotice;
       let commentId: number | null = null;
       if (weOwnStub) {
+        const accessSuffix =
+          isAppError(error) && error.code === "github.essential_access_denied"
+            ? "\n\nGitHub installation access is missing for this review. Restore the repository grants, then run `/review`."
+            : "";
+        const findingView = buildFindingView(
+          await loadFindingInventoryOrUnavailable(prSurface, {
+            renames: new Map(),
+            deletedPaths: new Set(),
+          }),
+          { kind: "not_reviewed" },
+        );
+        const notice = `${renderFailureNoticeWithFindings(reviewLens, findingView, accessSuffix.length)}${accessSuffix}`;
         const summary = await createReviewSummaryComment({
           prSurface,
           reviewLens,

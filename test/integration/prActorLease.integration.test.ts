@@ -2089,7 +2089,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               headSha: "h",
               leaseEpoch: env.leaseEpoch,
               commitStatusEnabled: false,
-            }).close({ kind: "published", findings: [{ severity: "P1" }], summary: "winner" });
+            }).close({
+              kind: "published",
+              conclusion: "failure",
+              blockingCount: 1,
+              summary: "winner",
+            });
             return { kind: "completed" };
           },
         });

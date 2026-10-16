@@ -19,6 +19,14 @@ import { shouldSkipWork } from "./workItemStateRepository.js";
 import type { AgentWorkItem } from "./types.js";
 import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
 import { fenceForEpoch } from "./writeFence.js";
+import { loadFindingInventoryOrUnavailable } from "../review/findingIdentity/findingInventory.js";
+import {
+  buildFindingView,
+  findingCheck,
+  renderFindingsSection,
+  type FindingCheck,
+} from "../review/findingIdentity/findingLifecycle.js";
+import { REVIEW_SUMMARY_BODY_MAX_CHARS } from "../settings/index.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -31,6 +39,7 @@ export type LightweightAutoReviewResult =
       readonly handled: true;
       readonly published: true;
       readonly summaryId: number | string;
+      readonly check: FindingCheck;
     };
 
 export async function tryLightweightAutoReviewCompletion(
@@ -65,21 +74,38 @@ export async function tryLightweightAutoReviewCompletion(
     params.item.headSha,
     params.item.installationId,
   );
-  const body = renderLightweightReviewCompletion(
-    {
-      headSha: params.item.headSha,
-      durationMs: resolveReviewWallClockMs({
-        metricsStartedAtMs: metricsSnapshot?.startedAtMs,
-        endedAtMs: Date.now(),
-      }),
-      model: params.model,
-    },
-    { ciSummary: renderedCi.summary, ciVersion: renderedCi.version },
+  const findingView = buildFindingView(
+    await loadFindingInventoryOrUnavailable(params.prSurface, {
+      renames: new Map(),
+      deletedPaths: new Set(),
+    }),
+    { kind: "not_reviewed" },
   );
+  const check = findingCheck(findingView);
+  const footer = {
+    headSha: params.item.headSha,
+    durationMs: resolveReviewWallClockMs({
+      metricsStartedAtMs: metricsSnapshot?.startedAtMs,
+      endedAtMs: Date.now(),
+    }),
+    model: params.model,
+  };
+  const ciOptions = { ciSummary: renderedCi.summary, ciVersion: renderedCi.version };
   const sentinel = REVIEW_SUMMARY_SENTINEL;
   const operationKey = reviewSummaryOperationKey(params.item.resourceKey, params.reviewLens);
   const operationMarker = operationIntentMarker(operationKey, params.item.id);
-  const bodyWithMarker = `${body}\n${operationMarker}`;
+  const withMarker = (body: string) => `${body}\n${operationMarker}`;
+  const sectionSeparators = "\n\n";
+  const findingsBudget =
+    REVIEW_SUMMARY_BODY_MAX_CHARS -
+    withMarker(renderLightweightReviewCompletion(footer, ciOptions)).length -
+    sectionSeparators.length;
+  const bodyWithMarker = withMarker(
+    renderLightweightReviewCompletion(footer, {
+      ...ciOptions,
+      findingsSection: renderFindingsSection(findingView, findingsBudget),
+    }),
+  );
   const storedId = await getSummaryCommentGithubId(
     pool,
     params.item.resourceKey,
@@ -146,9 +172,9 @@ export async function tryLightweightAutoReviewCompletion(
     detail: {
       lightweightCompletion: true,
       trivialReason: "docs_only",
-      ...summaryCommentVerdictMeta({ kind: "published", findings: [] }),
+      ...summaryCommentVerdictMeta({ kind: "published", conclusion: check.conclusion }),
     },
     leaseEpoch: params.leaseEpoch,
   }).record();
-  return { handled: true, published: true, summaryId: summary.id };
+  return { handled: true, published: true, summaryId: summary.id, check };
 }

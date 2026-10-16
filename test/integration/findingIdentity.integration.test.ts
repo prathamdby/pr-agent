@@ -8,7 +8,12 @@ import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
 } from "../../src/agentWork/publishOnce.js";
-import { createFakePrSurface, type PrSurface } from "../../src/github/prSurface.js";
+import {
+  createFakePrSurface,
+  type FakePrSurfaceControls,
+  type PrSurface,
+} from "../../src/github/prSurface.js";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
 import { publishVerification } from "../../src/agent/verification/publishVerification.js";
 import {
   loadFindingInventory,
@@ -25,18 +30,26 @@ import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseT
 import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.js";
 import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.js";
 import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.js";
-import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
+import {
+  createFindingLedger,
+  type FindingLedger,
+} from "../../src/review/orchestrator/orchestratorTypes.js";
 import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.js";
 import { createReviewPublishSession } from "../../src/review/publish/reviewPublishSession.js";
+import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
 import { createReviewArtifactBinding } from "../../src/review/recovery/reviewArtifacts.js";
 import { openReviewRecovery } from "../../src/review/recovery/reviewRecovery.js";
-import type { ReviewFinding } from "../../src/review/reviewSchema.js";
+import { reviewPayloadFromFindings, type ReviewFinding } from "../../src/review/reviewSchema.js";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../../src/review/statusCopy.js";
 import { makeTestConfig } from "../helpers/config.js";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
 } from "../helpers/evidenceTestHelpers.js";
-import { cachedDiffForLines } from "../helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForLines,
+  completeFindingInventory,
+} from "../helpers/reviewPublishTestHelpers.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const HEAD_SHA = "abc1234";
@@ -110,6 +123,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       client: Pool,
       prSurface: PrSurface,
       observations: readonly ReviewFinding[] = [],
+      findingInventory: FindingInventory = completeFindingInventory(),
     ) => {
       const evidenceLedger = createTestEvidenceLedger(HEAD_SHA);
       seedEvidenceForFindings(evidenceLedger, [...findings, ...observations]);
@@ -137,6 +151,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         workItemId,
         recovery,
         prSurface,
+        findingInventory,
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 11]),
         resolveProgressCommentUrl: async () =>
           `https://github.com/finding-identity-it/${repo}/pull/1#issuecomment-99`,
@@ -157,10 +172,58 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     return { workItemId, resourceKey, surface, controls, attempt, cleanup };
   }
 
-  async function rerun(surface: PrSurface, observations: readonly ReviewFinding[] = []) {
+  async function rerun(
+    surface: PrSurface,
+    observations: readonly ReviewFinding[] = [],
+    findingInventory?: FindingInventory,
+  ) {
     const next = await seedReviewPublication();
     rerunCleanups.push(next.cleanup);
-    return next.attempt(pool, surface, observations);
+    return {
+      ...next.attempt(pool, surface, observations, findingInventory),
+      workItemId: next.workItemId,
+      resourceKey: next.resourceKey,
+    };
+  }
+
+  async function publishSummaryWithVerdict(
+    surface: PrSurface,
+    run: Awaited<ReturnType<typeof rerun>>,
+    ledger: FindingLedger,
+  ) {
+    const verdictTarget = {
+      pool,
+      workItemId: run.workItemId,
+      resourceKey: run.resourceKey,
+      leaseEpoch: LEASE_EPOCH,
+    };
+    await reviewVerdict({
+      ...verdictTarget,
+      prSurface: surface,
+      owner: "finding-identity-it",
+      repo: surface.repo,
+      prNumber: 1,
+      reviewLens: "review",
+      headSha: HEAD_SHA,
+      commitStatusEnabled: false,
+    }).pending();
+    return publishReviewSummaryOnly(
+      { ...run.session, verdict: verdictTarget },
+      { payload: reviewPayloadFromFindings([]), ledger },
+    );
+  }
+
+  function lastSummaryBody(controls: FakePrSurfaceControls): string {
+    const upserts = controls.events.flatMap((event) =>
+      event.kind === "upsertProgressComment" ? [event.body] : [],
+    );
+    return upserts.at(-1) ?? "";
+  }
+
+  function checkConclusions(controls: FakePrSurfaceControls) {
+    return controls.events.flatMap((event) =>
+      event.kind === "finishReviewCheck" ? [event.conclusion] : [],
+    );
   }
 
   function threadTool(
@@ -654,6 +717,81 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       expect(
         [...after.findings.values()].filter((entry) => entry.state === "open").map((e) => e.id),
       ).toEqual([marker?.id]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("lists open threads a rerun did not recheck and fails the check on them", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      await publishFirstRound(seeded);
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      const lineTen = openIdAt(inventory, 10);
+      const lineEleven = openIdAt(inventory, 11);
+      const lineElevenUrl = inventory.findings.get(lineEleven)?.url;
+      if (lineElevenUrl == null) throw new Error("expected the line 11 thread url");
+
+      const silent = await rerun(surface, [], inventory);
+      const silentResult = await publishSummaryWithVerdict(surface, silent, silent.input.ledger);
+      expect(silentResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 2 },
+      });
+      expect(lastSummaryBody(controls).split("Open, not rechecked")).toHaveLength(3);
+      expect(lastSummaryBody(controls)).toContain(lineElevenUrl);
+
+      const reaffirmed = observed(10);
+      const partialRun = await rerun(surface, [reaffirmed], inventory);
+      const tool = threadTool(partialRun, inventory);
+      await tool.executor({
+        findings: [{ ...reaffirmed, relation: { kind: "continues", findingId: lineTen } }],
+      });
+      const partialResult = await publishSummaryWithVerdict(surface, partialRun, tool.getLedger());
+      expect(partialResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 2 },
+      });
+      const body = lastSummaryBody(controls);
+      expect(body.split("Open, not rechecked")).toHaveLength(2);
+      expect(body).toContain(lineElevenUrl);
+      expect(checkConclusions(controls)).toEqual(["failure", "failure"]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("reports an incomplete inventory as a neutral check unless a finding blocks", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      controls.setThreadResolutionStatus("partial", "thread page missing");
+      const empty = await loadFindingInventory(surface, noPathChanges);
+      expect(empty.completeness).toBe("partial");
+      const quiet = await rerun(surface, [], empty);
+      const quietResult = await publishSummaryWithVerdict(surface, quiet, quiet.input.ledger);
+      expect(quietResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "neutral", blockingCount: 0 },
+      });
+      expect(lastSummaryBody(controls)).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
+
+      controls.setThreadResolutionStatus("ok");
+      await publishFirstRound(seeded);
+      controls.setThreadResolutionStatus("partial", "thread page missing");
+      const carried = await loadFindingInventory(surface, noPathChanges);
+      expect(carried.completeness).toBe("partial");
+      const blocked = await rerun(surface, [], carried);
+      const blockedResult = await publishSummaryWithVerdict(surface, blocked, blocked.input.ledger);
+      expect(blockedResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 2 },
+      });
+      expect(lastSummaryBody(controls)).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
+      expect(checkConclusions(controls)).toEqual(["neutral", "failure"]);
     } finally {
       await seeded.cleanup();
     }
