@@ -15,6 +15,11 @@ import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorCont
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
+import {
+  appendRootResolutionReceipt,
+  unpostedResolutionReceipt,
+} from "../../review/findingIdentity/resolutionReceipt.js";
+import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
   TriagePayloadSchema,
@@ -29,7 +34,6 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
-  type Config,
 } from "../../settings/index.js";
 import {
   assertTriagePullRequestWritable,
@@ -46,7 +50,6 @@ import {
   publishOnce,
   throwIfExecutionAborted,
 } from "../../agentWork/publishOnce.js";
-import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
 import {
   StaleHeadPushError,
@@ -82,7 +85,6 @@ type PublishTriageParams = {
   readonly previouslyResolvedCount: number;
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
   readonly signal?: AbortSignal;
   readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;
@@ -315,6 +317,7 @@ async function replyToThread(
     readonly thread: BotFindingThread;
     readonly verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>;
     readonly operationMarker: string;
+    readonly receipt: string;
   },
 ): Promise<void> {
   await params.prSurface.replyAt(
@@ -323,7 +326,7 @@ async function replyToThread(
       prNumber: params.prNumber,
       inReplyToCommentId: params.thread.rootCommentId,
     },
-    `${replyBody(params.verdict)}\n${params.operationMarker}`,
+    `${replyBody(params.verdict)}\n${params.operationMarker}${params.receipt}`,
   );
 }
 
@@ -786,6 +789,7 @@ async function publishTriageBody(
     }).actedThreads("triage_thread_actions"),
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
+  const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
   for (const verdict of params.payload.verdicts) {
     await assertTriagePublicationActive(params);
     if (!shouldResolveTriageThread(verdict, pushOutcome)) continue;
@@ -796,13 +800,73 @@ async function publishTriageBody(
       continue;
     }
     if (resolution.isResolved) continue;
-    if (
-      shouldReplyToTriageThread(verdict) &&
-      !actedThreadIds.has(verdict.threadRootCommentId) &&
-      thread.hasTriageReply !== true
-    ) {
-      const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
-      const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+    const findingId = thread.findingId;
+    if (findingId == null) {
+      missingThreadAction = true;
+      continue;
+    }
+    await withThreadLock(async () => {
+      if (
+        shouldReplyToTriageThread(verdict) &&
+        !actedThreadIds.has(verdict.threadRootCommentId) &&
+        thread.hasTriageReply !== true
+      ) {
+        const receipt = await unpostedResolutionReceipt(params.prSurface, {
+          threadNodeId: resolution.threadNodeId,
+          findingId,
+          kind: "fixed",
+        });
+        const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+        await publishOnce<void>({
+          fence: fenceForEpoch(params.leaseEpoch),
+          client: params.pool,
+          workItemId: params.workItemId,
+          leaseEpoch: params.leaseEpoch,
+          signal: params.signal,
+          operationKey,
+          mutationKind: "github.triage_thread_reply",
+          allowsUndefinedResult: true,
+          detail: {
+            step: "triage_thread_actions",
+            resourceKey: params.resourceKey,
+            reviewLens: TRIAGE_PUBLISH_LENS,
+            threadRootCommentId: verdict.threadRootCommentId,
+            operationMarker,
+          },
+          recover: async () => {
+            const existing = await findMarkedComment(
+              params.prSurface,
+              operationMarker,
+              verdict.threadRootCommentId,
+            );
+            return existing == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: undefined };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+          mutate: async () => {
+            await assertTriagePublicationActive(params);
+            if (receipt == null) return;
+            return replyToThread({
+              ...params,
+              thread,
+              verdict,
+              operationMarker,
+              receipt,
+            });
+          },
+        });
+        actedThreadIds.add(verdict.threadRootCommentId);
+        await createPublishContext(params.pool, {
+          workItemId: params.workItemId,
+          resourceKey: params.resourceKey,
+          reviewLens: TRIAGE_PUBLISH_LENS,
+          step: "triage_thread_actions",
+          leaseEpoch: params.leaseEpoch,
+        }).recordActedThreads("triage_thread_actions", [...actedThreadIds]);
+      }
+      const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
       await publishOnce<void>({
         fence: fenceForEpoch(params.leaseEpoch),
         client: params.pool,
@@ -810,72 +874,33 @@ async function publishTriageBody(
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
         operationKey,
-        mutationKind: "github.triage_thread_reply",
+        mutationKind: "github.triage_thread_resolve",
         allowsUndefinedResult: true,
         detail: {
           step: "triage_thread_actions",
           resourceKey: params.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
           threadRootCommentId: verdict.threadRootCommentId,
-          operationMarker,
         },
         recover: async () => {
-          const existing = await findMarkedComment(
-            params.prSurface,
-            operationMarker,
-            verdict.threadRootCommentId,
-          );
-          return existing == null
-            ? { kind: "absent" as const }
-            : { kind: "reconciled" as const, value: undefined };
+          const current = await params.prSurface.listInlineReviewThreads();
+          return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
+            ? { kind: "reconciled" as const, value: undefined }
+            : { kind: "absent" as const };
         },
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
         mutate: async () => {
           await assertTriagePublicationActive(params);
-          return replyToThread({
-            ...params,
-            thread,
-            verdict,
-            operationMarker,
-          });
+          if (verdict.verdict === "dismissed") {
+            await appendRootResolutionReceipt(params.prSurface, {
+              threadNodeId: resolution.threadNodeId,
+              findingId,
+              kind: "dismissed",
+            });
+          }
+          await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
         },
       });
-      actedThreadIds.add(verdict.threadRootCommentId);
-      await createPublishContext(params.pool, {
-        workItemId: params.workItemId,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        step: "triage_thread_actions",
-        leaseEpoch: params.leaseEpoch,
-      }).recordActedThreads("triage_thread_actions", [...actedThreadIds]);
-    }
-    const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
-    await publishOnce<void>({
-      fence: fenceForEpoch(params.leaseEpoch),
-      client: params.pool,
-      workItemId: params.workItemId,
-      leaseEpoch: params.leaseEpoch,
-      signal: params.signal,
-      operationKey,
-      mutationKind: "github.triage_thread_resolve",
-      allowsUndefinedResult: true,
-      detail: {
-        step: "triage_thread_actions",
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        threadRootCommentId: verdict.threadRootCommentId,
-      },
-      recover: async () => {
-        const current = await params.prSurface.listInlineReviewThreads();
-        return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
-          ? { kind: "reconciled" as const, value: undefined }
-          : { kind: "absent" as const };
-      },
-      isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-      mutate: async () => {
-        await assertTriagePublicationActive(params);
-        await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
-      },
     });
   }
 
@@ -927,29 +952,6 @@ async function publishTriageBody(
       bulkOutcomes,
     }),
   });
-
-  if (params.findingHistoryCfg) {
-    const activeThreadById = new Map(
-      params.inventory.map((thread) => [thread.rootCommentId, thread]),
-    );
-    for (const verdict of params.payload.verdicts) {
-      const thread = activeThreadById.get(verdict.threadRootCommentId);
-      if (!thread) continue;
-      safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
-        scope: {
-          installationId: params.installationId,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          workItemId: params.workItemId,
-          headSha: params.headSha,
-        },
-        resourceKey: params.resourceKey,
-        thread,
-        outcome: verdict.verdict,
-      });
-    }
-  }
 
   return { pushOutcome, missingThreadAction, ...(partialBulk ? { partialBulk: true } : {}) };
 }

@@ -8,13 +8,15 @@ import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
 import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
+import type { FindingInventory } from "../findingIdentity/findingInventory.js";
+import {
+  createReviewDuplicateCleanup,
+  type ReviewDuplicateCleanup,
+} from "./reviewDuplicateCleanup.js";
 
 export type PublishStopReason = "superseded" | "stale_head";
 
-export type ReviewPublishConfig = Pick<
-  Config,
-  "models" | "features" | "agentEvents" | "findingHistory" | "review"
->;
+export type ReviewPublishConfig = Pick<Config, "models" | "features" | "agentEvents" | "review">;
 
 type VerdictTarget = {
   readonly pool: Pool;
@@ -29,6 +31,8 @@ export type ReviewPublishSession = {
   readonly ctx: ReviewPublishContext;
   readonly mode: AnyReviewLens;
   readonly prSurface: PrSurface;
+  readonly findingInventory: FindingInventory;
+  readonly duplicateCleanup: ReviewDuplicateCleanup;
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly shouldLinkToSummary?: boolean;
   readonly progressCommentIdHint?: number | null;
@@ -49,6 +53,7 @@ export type ReviewPublishSessionInput = {
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly prSurface: PrSurface;
+  readonly findingInventory: FindingInventory;
   readonly mode?: AnyReviewLens;
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly shouldLinkToSummary?: boolean;
@@ -79,6 +84,8 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput): Re
     ctx: input.ctx,
     mode: input.mode ?? "review",
     prSurface: input.prSurface,
+    findingInventory: input.findingInventory,
+    duplicateCleanup: createReviewDuplicateCleanup(input.findingInventory),
     cachedDiffIndex: input.cachedDiffIndex,
     shouldLinkToSummary: input.shouldLinkToSummary,
     progressCommentIdHint: input.progressCommentIdHint,

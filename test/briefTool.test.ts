@@ -1,5 +1,7 @@
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
@@ -15,12 +17,20 @@ import {
 } from "../src/prompts/orchestrator/prompt.js";
 import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { causalPublicationContract } from "../src/prompts/shared/behavior.js";
-import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createFindingLedger,
   SPECIALIST_IDS,
   type SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
+
+const emptyInventory = buildFindingInventory({
+  threads: { status: "ok", threads: [] },
+  summary: null,
+  summaryComplete: true,
+  botLogin: "pr-agent[bot]",
+  renames: new Map(),
+  deletedPaths: new Set(),
+});
 
 function validRiskArea() {
   return {
@@ -396,10 +406,30 @@ describe("orchestrator prompts", () => {
     const prompt = renderJudgmentTurn(
       outcome,
       slimAcceptedFindings(outcome, createFindingLedger()),
+      judgmentInventory(emptyInventory, outcome.report.findings),
     );
 
     expect(prompt).toContain("Finish with one `publish_thread` call");
-    expect(prompt).toContain("same-file overlap hints");
+    expect(prompt).toContain("Every published finding carries a `relation`");
+    expect(prompt).toContain("fails once and lists overlap questions");
+    expect(prompt).toContain("Source: finding_inventory");
+    expect(prompt).not.toContain("The inventory is partial");
+    const partialPrompt = renderJudgmentTurn(
+      outcome,
+      slimAcceptedFindings(outcome, createFindingLedger()),
+      judgmentInventory(
+        buildFindingInventory({
+          threads: { status: "partial", threads: [] },
+          summary: null,
+          summaryComplete: true,
+          botLogin: "pr-agent[bot]",
+          renames: new Map(),
+          deletedPaths: new Set(),
+        }),
+        outcome.report.findings,
+      ),
+    );
+    expect(partialPrompt).toContain("The inventory is partial this run");
     expect(prompt).toContain("A call with zero findings is valid");
     expect(prompt).toContain("commentable right line range");
     expect(prompt).toContain("Source: specialist_report");
@@ -452,8 +482,7 @@ describe("orchestrator prompts", () => {
       durationMs: 1,
       report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
     });
-    const [candidate] = fingerprintCandidates({ ...finding });
-    const canonical = candidate ?? "fp";
+    const acceptedId = legacyFindingId("thread-node-1");
     const placementFor = (entry: SlimFinding) => ({
       finding: { ...entry },
       inlineLine: 4,
@@ -465,8 +494,7 @@ describe("orchestrator prompts", () => {
           kind: "posted",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reviewId: 1,
         },
       ],
@@ -476,21 +504,23 @@ describe("orchestrator prompts", () => {
     const hitPrompt = renderJudgmentTurn(
       hitOutcome,
       slimAcceptedFindings(hitOutcome, postedLedger),
+      judgmentInventory(emptyInventory, hitOutcome.report.findings),
     );
 
     expect(hitPrompt).toContain("already accepted");
     expect(hitPrompt).toContain('"findingId"');
-    expect(hitPrompt).toContain(canonical);
+    expect(hitPrompt).toContain(acceptedId);
     expect(hitPrompt).not.toContain("dereferences an absent value");
 
     const missOutcome = toOutcome([nearMiss]);
     const missPrompt = renderJudgmentTurn(
       missOutcome,
       slimAcceptedFindings(missOutcome, postedLedger),
+      judgmentInventory(emptyInventory, missOutcome.report.findings),
     );
 
     expect(missPrompt).not.toContain("already accepted");
-    expect(missPrompt).not.toContain('"findingId"');
+    expect(missPrompt).not.toContain(acceptedId);
     expect(missPrompt).toContain("retries the absent value without a guard");
     expect(missPrompt).toContain(JSON.stringify(missOutcome.report, null, 2));
 
@@ -498,6 +528,7 @@ describe("orchestrator prompts", () => {
     const mixedPrompt = renderJudgmentTurn(
       mixedOutcome,
       slimAcceptedFindings(mixedOutcome, postedLedger),
+      judgmentInventory(emptyInventory, mixedOutcome.report.findings),
     );
 
     expect(mixedPrompt).toContain("already accepted");
@@ -514,10 +545,11 @@ describe("orchestrator prompts", () => {
     const relocatedPrompt = renderJudgmentTurn(
       relocatedOutcome,
       slimAcceptedFindings(relocatedOutcome, postedLedger),
+      judgmentInventory(emptyInventory, relocatedOutcome.report.findings),
     );
 
     expect(relocatedPrompt).not.toContain("already accepted");
-    expect(relocatedPrompt).not.toContain('"findingId"');
+    expect(relocatedPrompt).not.toContain(acceptedId);
     expect(relocatedPrompt).toContain("dereferences an absent value");
     expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
 
@@ -526,10 +558,11 @@ describe("orchestrator prompts", () => {
     const extendedPrompt = renderJudgmentTurn(
       extendedOutcome,
       slimAcceptedFindings(extendedOutcome, postedLedger),
+      judgmentInventory(emptyInventory, extendedOutcome.report.findings),
     );
 
     expect(extendedPrompt).not.toContain("already accepted");
-    expect(extendedPrompt).not.toContain('"findingId"');
+    expect(extendedPrompt).not.toContain(acceptedId);
     expect(extendedPrompt).toContain("dereferences an absent value");
     expect(extendedPrompt).toContain(JSON.stringify(extendedOutcome.report, null, 2));
 
@@ -539,8 +572,7 @@ describe("orchestrator prompts", () => {
           kind: "resumed",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reviewId: 2,
         },
       ],
@@ -548,6 +580,7 @@ describe("orchestrator prompts", () => {
     const resumedPrompt = renderJudgmentTurn(
       hitOutcome,
       slimAcceptedFindings(hitOutcome, resumedLedger),
+      judgmentInventory(emptyInventory, hitOutcome.report.findings),
     );
 
     expect(resumedPrompt).toContain("already accepted");
@@ -559,8 +592,7 @@ describe("orchestrator prompts", () => {
           kind: "summary_only",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reason: "cap",
         },
       ],
@@ -568,10 +600,11 @@ describe("orchestrator prompts", () => {
     const summaryPrompt = renderJudgmentTurn(
       hitOutcome,
       slimAcceptedFindings(hitOutcome, summaryLedger),
+      judgmentInventory(emptyInventory, hitOutcome.report.findings),
     );
 
     expect(summaryPrompt).not.toContain("already accepted");
-    expect(summaryPrompt).not.toContain('"findingId"');
+    expect(summaryPrompt).not.toContain(acceptedId);
     expect(summaryPrompt).toContain("dereferences an absent value");
     expect(summaryPrompt).toContain(JSON.stringify(hitOutcome.report, null, 2));
   });

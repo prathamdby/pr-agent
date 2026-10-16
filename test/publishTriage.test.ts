@@ -55,6 +55,12 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
+vi.mock("../src/review/findingIdentity/threadMutationLock.js", () => ({
+  threadMutationLock:
+    (): import("../src/review/findingIdentity/threadMutationLock.js").ThreadMutationLock =>
+    (apply) =>
+      apply(),
+}));
 vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
@@ -90,6 +96,7 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
 });
 
 import { triagePushOperationKey } from "../src/agentWork/publishOnce.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import {
   isTriagePushOutcome,
   parseStoredTriagePreviewDetail,
@@ -110,6 +117,7 @@ import {
 
 const thread = {
   rootCommentId: 1,
+  findingId: legacyFindingId("node"),
   lens: "review" as const,
   path: "src/app.ts",
   line: 1,
@@ -118,7 +126,12 @@ const thread = {
   humanReplies: [],
   threadUrl: "https://github.test/thread",
 };
-const secondThread = { ...thread, rootCommentId: 2, titleSnippet: "P2 · Already fixed" };
+const secondThread = {
+  ...thread,
+  rootCommentId: 2,
+  findingId: legacyFindingId("node-2"),
+  titleSnippet: "P2 · Already fixed",
+};
 
 function checkout(push: () => Promise<void>): WritablePrCheckout {
   return {

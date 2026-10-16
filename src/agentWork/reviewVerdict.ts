@@ -7,8 +7,14 @@ import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContrac
 import type { PrSurface } from "../github/prSurface.js";
 import type { InstallationOperation } from "../github/installationCapabilities.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
-import { checkRunFindingsSummary } from "../review/statusCopy.js";
-import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
+import {
+  checkRunFindingsSummary,
+  FINDING_INVENTORY_UNAVAILABLE_NOTE,
+} from "../review/statusCopy.js";
+import type {
+  FindingCheck,
+  FindingCheckConclusion,
+} from "../review/findingIdentity/findingLifecycle.js";
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
@@ -70,17 +76,6 @@ function leaseEpochParam(
   epoch: number | null | undefined,
 ): { readonly leaseEpoch: number } | Record<string, never> {
   return epoch == null ? {} : { leaseEpoch: epoch };
-}
-
-export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
-  conclusion: ReviewCheckRunConclusion;
-  summary: string;
-} {
-  const bugCount = findings.filter((f) => isCheckFailingSeverity(f.severity)).length;
-  return {
-    conclusion: bugCount > 0 ? "failure" : "success",
-    summary: checkRunFindingsSummary(bugCount),
-  };
 }
 
 export async function waitForReviewCheckRunGithubId(
@@ -535,11 +530,7 @@ async function completeSelectedCheck(
 export type ReviewCommitStatusState = "pending" | "success" | "failure" | "error";
 
 export type OwnVerdictOutcome =
-  | {
-      readonly kind: "published";
-      readonly findings: readonly Pick<ReviewFinding, "severity">[];
-      readonly summary?: string;
-    }
+  | (FindingCheck & { readonly kind: "published"; readonly summary?: string })
   | { readonly kind: "partial"; readonly note: string }
   | { readonly kind: "cancelled"; readonly summary?: string }
   | { readonly kind: "superseded"; readonly summary?: string }
@@ -561,16 +552,24 @@ const DEFAULT_SUMMARIES = {
   not_published: "PR Agent could not publish a structured review.",
 } as const;
 
+const PUBLISHED_COMMIT_STATUS = {
+  failure: "failure",
+  neutral: "error",
+  success: "success",
+} as const satisfies Record<FindingCheckConclusion, OwnVerdictSurfaces["commitStatus"]>;
+
 export function ownVerdictSurfaces(outcome: OwnVerdictOutcome): OwnVerdictSurfaces {
   switch (outcome.kind) {
-    case "published": {
-      const check = reviewCheckRunOutcome(outcome.findings);
+    case "published":
       return {
-        checkRun: check.conclusion,
-        commitStatus: check.conclusion === "failure" ? "failure" : "success",
-        summary: outcome.summary ?? check.summary,
+        checkRun: outcome.conclusion,
+        commitStatus: PUBLISHED_COMMIT_STATUS[outcome.conclusion],
+        summary:
+          outcome.summary ??
+          (outcome.conclusion === "neutral"
+            ? FINDING_INVENTORY_UNAVAILABLE_NOTE
+            : checkRunFindingsSummary(outcome.blockingCount)),
       };
-    }
     case "partial":
       return { checkRun: "neutral", commitStatus: "error", summary: outcome.note };
     case "cancelled":
@@ -872,23 +871,25 @@ export function asTerminalOwnCheckStatus(status: string): TerminalOwnCheckStatus
 export function summaryCommentVerdictMeta(params: {
   readonly kind: "published" | "partial";
   readonly note?: string;
-  readonly findings: readonly Pick<ReviewFinding, "severity">[];
+  readonly conclusion: FindingCheckConclusion;
 }): {
   readonly ownVerdictKind: "published" | "partial";
   readonly ownVerdictNote?: string;
   readonly ownCheckFailing: boolean;
+  readonly ownCheckIncomplete?: true;
 } {
-  const ownCheckFailing = params.findings.some((finding) =>
-    isCheckFailingSeverity(finding.severity),
-  );
+  const check = {
+    ownCheckFailing: params.conclusion === "failure",
+    ...(params.conclusion === "neutral" ? { ownCheckIncomplete: true as const } : {}),
+  };
   if (params.kind === "partial") {
     return {
       ownVerdictKind: "partial",
       ...(params.note != null && params.note.length > 0 ? { ownVerdictNote: params.note } : {}),
-      ownCheckFailing,
+      ...check,
     };
   }
-  return { ownVerdictKind: "published", ownCheckFailing };
+  return { ownVerdictKind: "published", ...check };
 }
 
 export function ownVerdictFromSummaryDetail(
@@ -902,9 +903,11 @@ export function ownVerdictFromSummaryDetail(
         : "Partial specialist coverage.";
     return { kind: "partial", note };
   }
-  const findings: readonly Pick<ReviewFinding, "severity">[] =
-    detail.ownCheckFailing === true ? [{ severity: "P1" }] : [];
-  return { kind: "published", findings };
+  if (detail.ownCheckFailing === true)
+    return { kind: "published", conclusion: "failure", blockingCount: 1 };
+  if (detail.ownCheckIncomplete === true)
+    return { kind: "published", conclusion: "neutral", blockingCount: 0 };
+  return { kind: "published", conclusion: "success", blockingCount: 0 };
 }
 
 export async function resolveOwnVerdictForTerminalReview(params: {

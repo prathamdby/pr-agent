@@ -52,6 +52,7 @@ const EXPECTED_MIGRATIONS = [
   "038_github_capabilities.sql",
   "039_agent_traces.sql",
   "040_drop_agent_traces.sql",
+  "041_drop_finding_history.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -120,6 +121,13 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
               to_regclass('agent_work_items') AS work`,
     );
     expect(rows).toEqual([{ spans: null, parts: null, blobs: null, work: "agent_work_items" }]);
+  });
+
+  it("drops the finding history table", async () => {
+    const { rows } = await pool.query<{ history: string | null }>(
+      "SELECT to_regclass('repo_finding_history') AS history",
+    );
+    expect(rows).toEqual([{ history: null }]);
   });
 
   it("creates retention-supporting indexes", async () => {

@@ -250,7 +250,6 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(publishRecords.loadReviewExecutorPublishContext).mockResolvedValue({
       publishState: { summaryPublished: false, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });
@@ -436,6 +435,7 @@ describe("durableJob analytics forwarding", () => {
         handled: true,
         published: true,
         summaryId: 42,
+        check: { conclusion: "success", blockingCount: 0 },
       });
       const cleanupError = new Error("verdict cleanup failed");
       verdict.close.mockImplementation(async () => {

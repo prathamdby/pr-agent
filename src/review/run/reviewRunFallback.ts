@@ -1,4 +1,8 @@
-import type { Config, AnyReviewLens } from "../../settings/index.js";
+import {
+  REVIEW_SUMMARY_BODY_MAX_CHARS,
+  type Config,
+  type AnyReviewLens,
+} from "../../settings/index.js";
 import {
   classifiedFailureLogFields,
   type ClassifiedFailure,
@@ -11,6 +15,7 @@ import {
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import { renderFindingsSection, type FindingView } from "../findingIdentity/findingLifecycle.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
@@ -22,6 +27,7 @@ export async function publishReviewRunFailureNotice(params: {
   readonly reviewMode: AnyReviewLens;
   readonly publishAttempts: number;
   readonly lastFailure?: ClassifiedFailure;
+  readonly findingView: FindingView;
 }): Promise<void> {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
@@ -33,9 +39,7 @@ export async function publishReviewRunFailureNotice(params: {
       prSurface: params.setup.prSurface,
       reviewLens: params.reviewMode,
       coordination: params.summaryCoordination,
-    }).conclude({
-      body: renderReviewFailureNotice({ mode: params.reviewMode, retryCommand: "/review" }),
-    });
+    }).conclude({ body: renderFailureNoticeWithFindings(params.reviewMode, params.findingView) });
   } catch (error) {
     logWarn("review_publish_fallback_comment_failed", {
       mode: params.reviewMode,
@@ -45,4 +49,22 @@ export async function publishReviewRunFailureNotice(params: {
       message: errorMessage(error),
     });
   }
+}
+
+export function renderFailureNoticeWithFindings(
+  mode: AnyReviewLens,
+  findingView: FindingView,
+  reservedChars = 0,
+): string {
+  const notice = { mode, retryCommand: "/review" };
+  const blankLine = "\n\n";
+  const budget =
+    REVIEW_SUMMARY_BODY_MAX_CHARS -
+    renderReviewFailureNotice(notice).length -
+    blankLine.length -
+    reservedChars;
+  return renderReviewFailureNotice({
+    ...notice,
+    findingsSection: renderFindingsSection(findingView, budget),
+  });
 }

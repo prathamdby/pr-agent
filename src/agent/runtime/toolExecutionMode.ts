@@ -6,6 +6,7 @@ export const SEQUENTIAL_TOOL_NAMES: ReadonlySet<string> = new Set([
   "submit_findings_report",
   "submit_specialist_brief",
   "publish_thread",
+  "declare_duplicate",
   "publish_summary",
   "submitDescription",
   "submitTriage",

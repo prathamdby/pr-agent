@@ -342,7 +342,6 @@ describe("review work definition", () => {
         threadCallCount: 0,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });
@@ -391,7 +390,6 @@ describe("review work definition", () => {
       mocks.loadPublishContext.mockResolvedValueOnce({
         publishState: { summaryPublished: true, inlineReviewIds: [41], threadCallCount: 1 },
         shouldLinkToSummary: false,
-        storedInlineFingerprints: [],
         resumedPlacements: [],
         progressCommentGithubId: 2,
       });
@@ -401,7 +399,7 @@ describe("review work definition", () => {
           : verdictOwner.summaryCommentVerdictMeta({
               kind: receipt === "partial" ? "partial" : "published",
               ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
-              findings: [],
+              conclusion: "success",
             }),
       );
       if (receipt === "wrong_outcome")
@@ -511,7 +509,6 @@ describe("review work definition", () => {
     mocks.loadPublishContext.mockResolvedValue({
       publishState: { summaryPublished: true, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: 2,
     });
@@ -617,7 +614,6 @@ describe("review work definition", () => {
         threadCallCount: 8,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });
@@ -667,7 +663,6 @@ describe("review work definition", () => {
         threadCallCount: 0,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: 4321,
     });
@@ -1142,7 +1137,12 @@ describe("review work definition", () => {
   it("runs auto preflight and lightweight completion before full review", async () => {
     mockDurableExecution("auto");
     const listChangedFiles = mockAutoPrFiles();
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
 
     await runExecution();
 
@@ -1175,7 +1175,7 @@ describe("review work definition", () => {
       publishAttempts: 1,
       publishStepCount: 3,
       publishSuperseded: false,
-      publishedFindings: [{ severity: "P1" }],
+      findingCheck: { conclusion: "failure", blockingCount: 1 },
       coverage: { kind: "full" },
     });
 
@@ -1270,7 +1270,12 @@ describe("review work definition", () => {
 
   it("completes lightweight review without a full review", async () => {
     mockDurableExecution("auto");
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
 
     await runExecution();
 
@@ -1302,7 +1307,12 @@ describe("review work definition", () => {
 
   it("propagates lightweight verdict cleanup failure", async () => {
     mockDurableExecution("auto");
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    mocks.lightweight.mockResolvedValue({
+      handled: true,
+      published: true,
+      summaryId: 42,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
     vi.mocked(verdictMethods.close).mockRejectedValue(new Error("check-run update failed"));
 
     await expect(runExecution()).rejects.toThrow("check-run update failed");
@@ -1597,7 +1607,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1640,7 +1649,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
@@ -1688,7 +1696,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1790,7 +1797,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1821,7 +1827,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
       checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
