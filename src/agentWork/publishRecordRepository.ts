@@ -14,8 +14,8 @@ import {
 import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
 import { reviewFindingPlacementKey } from "../review/placement/reviewDiffPlacement.js";
 import {
+  derivedFindingId,
   isFindingId,
-  mintFindingId,
   type FindingId,
 } from "../review/findingIdentity/findingMarker.js";
 import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.js";
@@ -867,9 +867,15 @@ function parseResumedPlacements(
   for (const batch of parseStoredInlineBatches(inlineRow?.detail ?? {})) {
     if (batch.workItemId !== workItemId || batch.reviewId == null || batch.source == null) continue;
     for (const placement of batch.placements) {
-      const key = placement.findingId ?? reviewFindingPlacementKey(placement.finding);
-      if (seen.has(key)) continue;
-      seen.add(key);
+      const findingId =
+        placement.findingId ??
+        derivedFindingId([
+          batch.workItemId,
+          reviewFindingPlacementKey(placement.finding),
+          placement.finding.detail,
+        ]);
+      if (seen.has(findingId)) continue;
+      seen.add(findingId);
       accepted.push({
         kind: "resumed",
         source: batch.source,
@@ -878,7 +884,7 @@ function parseResumedPlacements(
           inlineLine: placement.resolvedLine,
           inlinePosted: true,
         },
-        findingId: placement.findingId ?? mintFindingId(),
+        findingId,
         reviewId: batch.reviewId,
       });
     }
