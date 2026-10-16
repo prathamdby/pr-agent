@@ -65,7 +65,9 @@ function compareAge(left: InventoryFinding, right: InventoryFinding): number {
 export function selectCanonical(group: readonly InventoryFinding[]): InventoryFinding {
   const [first] = group.toSorted(
     (left, right) =>
-      Number(right.hasHumanReplies) - Number(left.hasHumanReplies) || compareAge(left, right),
+      Number(left.aliasOf != null) - Number(right.aliasOf != null) ||
+      Number(right.hasHumanReplies) - Number(left.hasHumanReplies) ||
+      compareAge(left, right),
   );
   if (first == null) throw new Error("duplicate group is empty");
   return first;
@@ -126,6 +128,7 @@ export function planDuplicateCleanup(
     if (refused != null) return { refused };
   }
   const canonical = selectCanonical(members);
+  if (canonical.aliasOf != null) return { refused: "aliased" };
   for (const member of members) {
     if (member === canonical) continue;
     const refused = placementRefusal(canonical, member);

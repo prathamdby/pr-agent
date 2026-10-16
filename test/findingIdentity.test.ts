@@ -1313,6 +1313,27 @@ describe("duplicate cleanup planning", () => {
     expect(planDuplicateCleanup([A, B], inventory)).toEqual({ refused: "aliased" });
   });
 
+  it("never makes a member already aliased inside the group canonical", () => {
+    const aliasedTo = (from: FindingId, to: FindingId) => ({
+      body: renderReceipt({ kind: "duplicate", id: from, canonical: to }),
+      authorLogin: BOT,
+    });
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(B, {
+        rootCommentId: 2,
+        replies: [aliasedTo(B, A), { body: "still relevant", authorLogin: "alice" }],
+      }),
+      openThreadFinding(C, { rootCommentId: 3 }),
+    ]);
+    expect(planDuplicateCleanup([B, C, A], inventory)).toMatchObject({ canonical: { id: A } });
+    const cycle = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 4, replies: [aliasedTo(A, B)] }),
+      openThreadFinding(B, { rootCommentId: 5, replies: [aliasedTo(B, A)] }),
+    ]);
+    expect(planDuplicateCleanup([A, B], cycle)).toEqual({ refused: "aliased" });
+  });
+
   it("plans same-id copies against the oldest thread without the model", () => {
     const inventory = inventoryOf([
       openThreadFinding(A, { rootCommentId: 1 }),
