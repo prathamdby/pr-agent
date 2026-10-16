@@ -284,29 +284,40 @@ export function createFakePrSurface(
   const threadSnapshot = (
     rootCommentId: number,
     thread: ReviewThreadResolution | ReviewThreadSnapshot,
-  ): ReviewThreadSnapshot => {
-    if ("rootCommentId" in thread) return thread;
+  ): ReviewThreadSnapshot | null => {
+    const snapshotComment = (comment: PrReviewComment) => ({
+      databaseId: comment.id,
+      authorLogin: comment.authorLogin,
+      body: reviewCommentBodies.get(comment.id) ?? comment.body,
+      createdAt: "",
+      url: comment.htmlUrl,
+    });
+    const threadReplies = reviewComments
+      .filter((comment) => comment.inReplyToId === rootCommentId)
+      .map(snapshotComment);
+    if ("rootCommentId" in thread) {
+      const known = new Set(thread.comments.map((comment) => comment.databaseId));
+      return {
+        ...thread,
+        comments: [
+          ...thread.comments,
+          ...threadReplies.filter((reply) => !known.has(reply.databaseId)),
+        ],
+      };
+    }
     const root = reviewComments.find((comment) => comment.id === rootCommentId);
-    const comments = reviewComments
-      .filter((comment) => comment.id === rootCommentId || comment.inReplyToId === rootCommentId)
-      .map((comment) => ({
-        databaseId: comment.id,
-        authorLogin: comment.authorLogin,
-        body: reviewCommentBodies.get(comment.id) ?? comment.body,
-        createdAt: "",
-        url: comment.htmlUrl,
-      }));
+    if (root == null) return null;
     return {
       ...thread,
       rootCommentId,
-      path: root?.path ?? null,
-      line: root?.line ?? null,
+      path: root.path,
+      line: root.line,
       startLine: null,
-      originalLine: root?.originalLine ?? null,
+      originalLine: root.originalLine,
       originalStartLine: null,
       isOutdated: false,
-      diffSide: root == null ? null : "RIGHT",
-      comments,
+      diffSide: "RIGHT",
+      comments: [snapshotComment(root), ...threadReplies],
       commentsComplete: true,
     };
   };
@@ -642,7 +653,7 @@ export function createFakePrSurface(
             { threadNodeId: thread.threadNodeId, isResolved: thread.isResolved },
           ]),
         ),
-        threads: [...threads].map(([rootId, thread]) => threadSnapshot(rootId, thread)),
+        threads: [...threads].flatMap(([rootId, thread]) => threadSnapshot(rootId, thread) ?? []),
         status: threadResolutionStatus,
         ...(threadResolutionWarning != null ? { warning: threadResolutionWarning } : {}),
       };
