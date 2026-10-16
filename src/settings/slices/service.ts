@@ -3,9 +3,6 @@ import {
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   DEFAULT_CONTEXT7_API_KEY,
-  DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
-  DEFAULT_FINDING_HISTORY_ENABLED,
-  DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_REDACT,
   DEFAULT_POSTHOG_HOST,
@@ -35,12 +32,6 @@ export type RuntimeSlice = {
 export type AgentEventsSlice = {
   readonly enabled: boolean;
   readonly retentionSeconds: number;
-};
-
-export type FindingHistorySlice = {
-  readonly enabled: boolean;
-  readonly dismissSuppressAfter: number;
-  readonly lookbackDays: number;
 };
 
 export type CodeModeSlice = {
@@ -82,20 +73,6 @@ export function readAgentEventsSlice(): AgentEventsSlice {
     retentionSeconds: readNonNegativeNumber(
       ENV.AGENT_EVENTS_RETENTION_SECONDS,
       DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
-    ),
-  };
-}
-
-export function readFindingHistorySlice(): FindingHistorySlice {
-  return {
-    enabled: readStrictBoolean(ENV.FINDING_HISTORY_ENABLED, DEFAULT_FINDING_HISTORY_ENABLED),
-    dismissSuppressAfter: readPositiveNumber(
-      ENV.FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
-      DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
-    ),
-    lookbackDays: readPositiveNumber(
-      ENV.FINDING_HISTORY_LOOKBACK_DAYS,
-      DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
     ),
   };
 }

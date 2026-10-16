@@ -47,7 +47,6 @@ import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
 } from "../src/agentWork/publishOnce.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
@@ -55,6 +54,7 @@ import {
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   publishFindingBatch,
+  reconciledFindingKey,
   type FindingBatchInput,
 } from "../src/review/publish/publishFindingBatch.js";
 import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
@@ -76,9 +76,17 @@ import {
   parseReviewArtifactEnvelope,
 } from "../src/review/recovery/reviewArtifacts.js";
 import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
+import {
+  legacyFindingId,
+  renderFindingMarker,
+} from "../src/review/findingIdentity/findingMarker.js";
+import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
-import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForLines,
+  completeFindingInventory,
+} from "./helpers/reviewPublishTestHelpers.js";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
@@ -110,9 +118,64 @@ function findingAt(line: number): ReviewFinding {
 
 const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
 
+const stubPool = {} as Pool;
+
+function memoryRecovery() {
+  const binding = createReviewArtifactBinding(
+    {
+      workItemId: "00000000-0000-4000-8000-000000000002",
+      resourceKey: "o/r#1",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      installationId: 1,
+      baseSha: "base",
+      headSha: "abc1234",
+      mode: "review",
+    },
+    "a".repeat(64),
+  );
+  const rows = new Map<string, unknown>();
+  const store = {
+    load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
+    save: async (value: unknown) => {
+      const envelope = parseReviewArtifactEnvelope(value);
+      if (!envelope) throw new Error("invalid envelope");
+      rows.set(envelope.logicalKey, envelope);
+      return "stored" as const;
+    },
+  };
+  return () => openReviewRecovery(binding, store);
+}
+
+function recordLineTenRead(input: FindingBatchInput) {
+  if (input.evidenceLedger)
+    recordDeliveredFileRead(input.evidenceLedger, {
+      path: "src/a.ts",
+      headSha: "abc1234",
+      tool: "readWorkspaceFile",
+      startLine: 10,
+      endLine: 10,
+      content: "line ten",
+    });
+}
+
+function postedFindingIds(result: Awaited<ReturnType<typeof publishFindingBatch>>) {
+  return result.kind === "stopped"
+    ? []
+    : result.delta.accepted.flatMap((entry) => (entry.kind === "posted" ? [entry.findingId] : []));
+}
+
+function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
+  return {
+    inventory: completeFindingInventory(),
+    outcomes: new Map([[reconciledFindingKey(target), outcome]]),
+  };
+}
+
 let harness: PublishReviewTestHarness;
 
-type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx">> &
+type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx" | "findingInventory">> &
   Partial<FindingBatchInput> & {
     readonly seedFindings?: readonly ReviewFinding[];
   };
@@ -132,7 +195,7 @@ function batchContext(
     sameRepo,
     boundPolicyJudge,
     readCheckoutFile,
-    crossPrSuppressionFingerprints,
+    reconciled,
     ...sessionOverrides
   } = overrides;
   const evidenceLedger = evidenceOverride ?? createTestEvidenceLedger("abc1234");
@@ -151,6 +214,7 @@ function batchContext(
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,
     prSurface: harness.surface,
+    findingInventory: completeFindingInventory(),
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
     ...sessionOverrides,
@@ -167,7 +231,7 @@ function batchContext(
       sameRepo,
       boundPolicyJudge,
       readCheckoutFile,
-      crossPrSuppressionFingerprints,
+      reconciled,
     },
   ];
 }
@@ -207,12 +271,6 @@ describe("publishFindingBatch", () => {
       reviewRecoveryInputDigest({
         ...input,
         modelApis: { orchestrator: "anthropic-messages" },
-      }),
-    ).not.toBe(digest);
-    expect(
-      reviewRecoveryInputDigest({
-        ...input,
-        cfg: makeTestConfig({ findingHistory: { enabled: !cfg.findingHistory.enabled } }),
       }),
     ).not.toBe(digest);
     expect(
@@ -368,7 +426,8 @@ describe("publishFindingBatch", () => {
         source: "correctness",
         ledgerBefore: {
           accepted: [],
-          suppressionFingerprints: [],
+          reaffirmed: [],
+          suppressedDismissedCount: 0,
           inlineReviewIds: [],
           postedInlineCount: 0,
           threadCallCount: 0,
@@ -376,7 +435,8 @@ describe("publishFindingBatch", () => {
         },
         localDelta: {
           accepted: [],
-          suppressionFingerprints: [],
+          reaffirmed: [],
+          suppressedDismissedCount: 0,
           inlineReviewIds: [],
           postedInlineCount: 0,
           threadCallCount: 1,
@@ -495,32 +555,31 @@ describe("publishFindingBatch", () => {
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
     expect(result.delta.accepted).toEqual([]);
-    expect(result.delta.suppressionFingerprints).toEqual([]);
+    expect(result.delta.reaffirmed).toEqual([]);
   });
 
-  it("does not create a GitHub review when suppression empties the batch", async () => {
+  it("does not create a GitHub review when reconcile reaffirms the whole batch", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
+    const id = legacyFindingId("reaffirmed-thread");
     const result = await publishFindingBatch(
       [finding],
-      ...batchContext(
-        createFindingLedger({
-          suppressionFingerprints: [fingerprintFinding(finding, "review")],
-        }),
-        recordPublishStep,
-      ),
+      ...batchContext(createFindingLedger(), recordPublishStep, {
+        reconciled: reconciledAs(finding, { kind: "reaffirm", id, severity: finding.severity }),
+      }),
     );
 
     expect(result.kind).toBe("empty");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
-    expect(result.delta.accepted).toEqual([
-      expect.objectContaining({ kind: "summary_only", reason: "historical" }),
+    expect(result.delta.accepted).toEqual([]);
+    expect(result.delta.reaffirmed).toEqual([
+      expect.objectContaining({ id, heldBy: "run", severity: finding.severity }),
     ]);
     expect(result.delta.threadCallCount).toBe(1);
   });
 
-  it("suppresses a finding already posted by an earlier batch", async () => {
+  it("keeps a finding reconciled to an earlier batch out of a second review", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const initialLedger = createFindingLedger();
     const first = await publishFindingBatch(
@@ -535,16 +594,17 @@ describe("publishFindingBatch", () => {
       expect.objectContaining({
         githubId: 1,
         meta: expect.objectContaining({
-          version: 2,
+          version: 3,
           workItemId: "wi-1",
           specialist: "correctness",
           reviewId: 1,
           event: "COMMENT",
+          findingIds: postedFindingIds(first),
           placements: [
             expect.objectContaining({
               finding,
               resolvedLine: 10,
-              canonicalFingerprint: fingerprintFinding(finding, "review"),
+              findingId: postedFindingIds(first)[0],
             }),
           ],
         }),
@@ -552,13 +612,26 @@ describe("publishFindingBatch", () => {
     );
     const ledger = applyFindingLedgerDelta(createFindingLedger(), first.delta);
 
-    const second = await publishFindingBatch([finding], ...batchContext(ledger, recordPublishStep));
+    const [firstId] = postedFindingIds(first);
+    if (firstId == null) throw new Error("first batch posted no finding");
+
+    const second = await publishFindingBatch(
+      [finding],
+      ...batchContext(ledger, recordPublishStep, {
+        reconciled: reconciledAs(finding, {
+          kind: "reaffirm",
+          id: firstId,
+          severity: finding.severity,
+        }),
+      }),
+    );
 
     expect(second.kind).toBe("empty");
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     expect(recordPublishStep).toHaveBeenCalledTimes(1);
     if (second.kind !== "empty") return;
     expect(second.delta.accepted).toEqual([]);
+    expect(second.delta.reaffirmed).toEqual([expect.objectContaining({ id: firstId })]);
   });
 
   it("does not publish findings that lack evidence", async () => {
@@ -572,68 +645,6 @@ describe("publishFindingBatch", () => {
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
     expect(result.delta.accepted).toEqual([]);
-  });
-
-  it("publishes one thread for overlapping duplicate findings", async () => {
-    const duplicate = { ...finding, severity: "P2" as const };
-    const result = await publishFindingBatch(
-      [finding, duplicate],
-      ...batchContext(createFindingLedger(), undefined, {
-        seedFindings: [finding, duplicate],
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    if (result.kind !== "published") return;
-    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
-    expect(result.delta.postedInlineCount).toBe(1);
-    expect(result.delta.accepted.filter((placement) => placement.kind === "posted")).toHaveLength(
-      1,
-    );
-    expect(result.delta.accepted[0]?.canonicalFingerprint).toBe(
-      fingerprintFinding(finding, "review"),
-    );
-  });
-
-  it("records open finding history without changing publication", async () => {
-    const query = vi.fn(async () => ({ rowCount: 1 }));
-    const result = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), undefined, {
-        pool: { query } as unknown as Pool,
-        installationId: 9,
-        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    if (result.kind !== "published") return;
-    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
-    expect(result.delta.postedInlineCount).toBe(1);
-    expect(result.reviewId).toBe(1);
-    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
-    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain("FROM unnest($7::text[])");
-    expect(values[6]).toEqual([fingerprintFinding(finding, "review")]);
-  });
-
-  it("keeps publication when finding-history upsert fails", async () => {
-    const query = vi.fn(async () => {
-      throw new Error("db down");
-    });
-    const result = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), undefined, {
-        pool: { query } as unknown as Pool,
-        installationId: 9,
-        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
   });
 
   it("drops leftover violatedRule and posts no Bound footer without policy", async () => {
@@ -756,19 +767,30 @@ describe("publishFindingBatch", () => {
     expect(commentBody).not.toContain("sk-");
   });
 
-  it("suppresses findings whose fingerprints are in cross-PR history", async () => {
+  it("posts a reconciled reopen with its marker link and related threads", async () => {
+    const id = legacyFindingId("reopened-thread");
+    const reopens = legacyFindingId("fixed-thread");
+    const related = "https://github.com/o/r/pull/1#discussion_r7";
     const result = await publishFindingBatch(
       [finding],
       ...batchContext(createFindingLedger(), undefined, {
-        crossPrSuppressionFingerprints: [fingerprintFinding(finding, "review")],
+        reconciled: reconciledAs(finding, {
+          kind: "post_thread",
+          id,
+          reopens,
+          relatedLinks: [related],
+        }),
       }),
     );
 
-    expect(result.kind).toBe("empty");
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    if (result.kind !== "empty") return;
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(commentBody).toContain(`id=${id}`);
+    expect(commentBody).toContain(`reopens=${reopens}`);
+    expect(commentBody).toContain(`[thread](${related})`);
     expect(result.delta.accepted).toEqual([
-      expect.objectContaining({ kind: "summary_only", reason: "cap" }),
+      expect.objectContaining({ kind: "posted", findingId: id, reopens }),
     ]);
   });
 
@@ -789,7 +811,6 @@ describe("publishFindingBatch", () => {
       expect.objectContaining({
         kind: "summary_only",
         reason: "anchor",
-        canonicalFingerprint: fingerprintFinding(unresolved, "review"),
       }),
     ]);
   });
@@ -872,13 +893,11 @@ describe("publishFindingBatch", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "posted",
-          canonicalFingerprint: fingerprintFinding(first, "review"),
           placement: expect.objectContaining({ finding: first }),
         }),
         expect.objectContaining({
           kind: "summary_only",
           reason: "anchor",
-          canonicalFingerprint: fingerprintFinding(second, "review"),
           placement: expect.objectContaining({ finding: second }),
         }),
       ]),
@@ -1058,46 +1077,78 @@ describe("publishFindingBatch", () => {
     ]);
   });
 
-  it("uses a stable batch id and operation key across retries", async () => {
-    const pool = {} as Pool;
-    const fingerprint = fingerprintFinding(finding, "review");
-    const expectedBatchId = deterministicInlineBatchId({
-      workItemId: "wi-1",
-      specialist: "correctness",
-      findingFingerprints: [fingerprint],
-    });
-    const expectedKey = reviewInlineBatchOperationKey(expectedBatchId);
+  it("derives the batch id from minted finding ids and reuses it on replay", async () => {
+    const pool = stubPool;
     const recordPublishStep = vi.fn(async () => undefined);
+    const openRecovery = memoryRecovery();
+    const [session, input] = batchContext(createFindingLedger(), recordPublishStep, {
+      operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
+    });
+    recordLineTenRead(input);
 
     const first = await publishFindingBatch(
       [finding],
-      ...batchContext(createFindingLedger(), recordPublishStep, {
-        operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
-      }),
+      { ...session, recovery: openRecovery() },
+      input,
     );
     expect(first.kind).toBe("published");
+    const [findingId] = postedFindingIds(first);
+    expect(findingId).toMatch(/^f_[0-9A-HJKMNP-TV-Z]{26}$/);
+    const expectedBatchId = deterministicInlineBatchId({
+      workItemId: "wi-1",
+      headSha: "abc1234",
+      findingIds: postedFindingIds(first),
+    });
+    const expectedKey = reviewInlineBatchOperationKey(expectedBatchId);
     expect(recordPublishStep).toHaveBeenCalledWith(
       "inline_review",
       expect.objectContaining({
         meta: expect.objectContaining({ batchId: expectedBatchId }),
       }),
     );
+    const body = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(body.split("\n").at(-1)).toBe(
+      renderFindingMarker({ id: findingId, lens: "correctness", severity: "P1" }),
+    );
     expect(
       (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
     ).toBe("reconciled");
 
     harness.publishThreadBatch.mockClear();
+    const replay = openRecovery();
+    const [decision] = await replay.decisions();
     const second = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), recordPublishStep, {
-        operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
-      }),
+      [],
+      { ...session, recovery: replay },
+      { ...input, recoveryDecision: decision },
     );
-    expect(second.kind).toBe("published");
+    expect(second).toEqual(first);
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(
       (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
     ).toBe("reconciled");
+  });
+
+  it("reuses finding ids and the operation key when a retry has no journaled decision", async () => {
+    const attempt = () =>
+      publishFindingBatch(
+        [finding],
+        ...batchContext(
+          createFindingLedger(),
+          vi.fn(async () => undefined),
+          {
+            operationIntent: { client: stubPool, workItemId: "wi-1", resourceKey: "o/r#1" },
+          },
+        ),
+      );
+
+    const first = await attempt();
+    expect(first.kind).toBe("published");
+    harness.publishThreadBatch.mockClear();
+    const second = await attempt();
+
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(postedFindingIds(second)).toEqual(postedFindingIds(first));
   });
 
   it("does not emit a key-only marker without a work-item instance", async () => {
@@ -1120,8 +1171,9 @@ describe("publishFindingBatch", () => {
   });
 
   it("reconciles an accepted review after a missing response without creating a second review", async () => {
-    const pool = {} as Pool;
+    const pool = stubPool;
     const recordPublishStep = vi.fn(async () => undefined);
+    const openRecovery = memoryRecovery();
     const remoteReview = {
       reviewId: 77,
       reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-77",
@@ -1149,32 +1201,49 @@ describe("publishFindingBatch", () => {
             },
           ];
     });
+    harness.listReviewComments.mockImplementation(async () => ({
+      comments: (lostReview?.comments ?? []).map((comment, index) => ({
+        id: 770 + index,
+        inReplyToId: null,
+        pullRequestReviewId: remoteReview.reviewId,
+        userId: null,
+        authorLogin: "pr-agent[bot]",
+        body: comment.body,
+        path: comment.path,
+        line: comment.line,
+        originalLine: comment.line,
+        htmlUrl: `https://github.com/o/r/pull/1#discussion_r${770 + index}`,
+      })),
+      truncated: false,
+    }));
+    const [session, input] = batchContext(createFindingLedger(), recordPublishStep, {
+      operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
+      workItemId: "wi-review-unknown",
+    });
+    recordLineTenRead(input);
 
     await expect(
-      publishFindingBatch(
-        [finding],
-        ...batchContext(createFindingLedger(), recordPublishStep, {
-          operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
-          workItemId: "wi-review-unknown",
-        }),
-      ),
+      publishFindingBatch([finding], { ...session, recovery: openRecovery() }, input),
     ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
 
+    const replay = openRecovery();
+    const [decision] = await replay.decisions();
     const recovered = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), recordPublishStep, {
-        operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
-        workItemId: "wi-review-unknown",
-      }),
+      [],
+      { ...session, recovery: replay },
+      { ...input, recoveryDecision: decision },
     );
 
     expect(recovered.kind).toBe("published");
     expect(harness.publishThreadBatch).toHaveBeenCalledOnce();
     expect(recoveryCalls).toBe(2);
+    const recoveredIds = postedFindingIds(recovered);
+    expect(recoveredIds).toHaveLength(1);
+    expect(lostReview?.comments?.[0]?.body).toContain(`id=${recoveredIds[0]} `);
     const expectedBatchId = deterministicInlineBatchId({
       workItemId: "wi-review-unknown",
-      specialist: "correctness",
-      findingFingerprints: [fingerprintFinding(finding, "review")],
+      headSha: "abc1234",
+      findingIds: recoveredIds,
     });
     expect(
       (
@@ -1191,8 +1260,59 @@ describe("publishFindingBatch", () => {
     );
   });
 
+  it("refuses marker-less recovery evidence as an unknown outcome", async () => {
+    const pool = stubPool;
+    const openRecovery = memoryRecovery();
+    let lostReview: ThreadBatchReview | undefined;
+    harness.publishThreadBatch.mockImplementation(async (review) => {
+      lostReview = review;
+      throw Object.assign(new Error("response lost after GitHub accepted review"), {
+        status: 503,
+      });
+    });
+    vi.spyOn(harness.surface, "listPullRequestReviews").mockImplementation(async () =>
+      lostReview == null
+        ? []
+        : [
+            {
+              id: 78,
+              userId: null,
+              authorLogin: "pr-agent[bot]",
+              body: lostReview.body,
+              commitId: lostReview.commitId ?? null,
+              htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-78",
+            },
+          ],
+    );
+    harness.listReviewComments.mockImplementation(async () => ({
+      comments: (lostReview?.comments ?? []).map((comment) => ({
+        id: 780,
+        inReplyToId: null,
+        pullRequestReviewId: 78,
+        userId: null,
+        authorLogin: "pr-agent[bot]",
+        body: comment.body.split("\n").slice(0, -1).join("\n"),
+        path: comment.path,
+        line: comment.line,
+        originalLine: comment.line,
+        htmlUrl: "https://github.com/o/r/pull/1#discussion_r780",
+      })),
+      truncated: false,
+    }));
+    const [session, input] = batchContext(createFindingLedger(), undefined, {
+      operationIntent: { client: pool, workItemId: "wi-review-markerless", resourceKey: "o/r#1" },
+      workItemId: "wi-review-markerless",
+    });
+    recordLineTenRead(input);
+
+    await expect(
+      publishFindingBatch([finding], { ...session, recovery: openRecovery() }, input),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+    expect(harness.publishThreadBatch).toHaveBeenCalledOnce();
+  });
+
   it("retries a review when the provider proves rejection before acceptance", async () => {
-    const pool = {} as Pool;
+    const pool = stubPool;
     const accepted = {
       reviewId: 78,
       reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-78",
@@ -1229,33 +1349,40 @@ describe("publishFindingBatch", () => {
   });
 
   it("does not remutate after crash between GitHub accept and reconcile", async () => {
-    const pool = {} as Pool;
-    const fingerprint = fingerprintFinding(finding, "review");
-    const batchId = deterministicInlineBatchId({
-      workItemId: "wi-crash",
-      specialist: "correctness",
-      findingFingerprints: [fingerprint],
-    });
-    const operationKey = reviewInlineBatchOperationKey(batchId);
+    const pool = stubPool;
+    const openRecovery = memoryRecovery();
     vi.spyOn(publishStoreState.store, "reconcileOperationIntent").mockRejectedValueOnce(
       new Error("crash before reconcile"),
     );
+    const [session, input] = batchContext(
+      createFindingLedger(),
+      vi.fn(async () => undefined),
+      {
+        workItemId: "wi-crash",
+        operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
+      },
+    );
+    recordLineTenRead(input);
 
     await expect(
-      publishFindingBatch(
-        [finding],
-        ...batchContext(
-          createFindingLedger(),
-          vi.fn(async () => undefined),
-          {
-            workItemId: "wi-crash",
-            operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
-          },
-        ),
-      ),
+      publishFindingBatch([finding], { ...session, recovery: openRecovery() }, input),
     ).rejects.toThrow("crash before reconcile");
 
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    const replay = openRecovery();
+    const [decision] = await replay.decisions();
+    const savedIds =
+      decision?.prepared.artifact.canonical.kind === "threads"
+        ? decision.prepared.artifact.canonical.inline.map((placement) => placement.findingId)
+        : [];
+    expect(savedIds).toHaveLength(1);
+    const operationKey = reviewInlineBatchOperationKey(
+      deterministicInlineBatchId({
+        workItemId: "wi-crash",
+        headSha: "abc1234",
+        findingIds: savedIds,
+      }),
+    );
     const pending = await publishStoreState.store.getOperationIntent(
       pool,
       "wi-crash",
@@ -1270,18 +1397,13 @@ describe("publishFindingBatch", () => {
 
     harness.publishThreadBatch.mockClear();
     const recovered = await publishFindingBatch(
-      [finding],
-      ...batchContext(
-        createFindingLedger(),
-        vi.fn(async () => undefined),
-        {
-          workItemId: "wi-crash",
-          operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
-        },
-      ),
+      [],
+      { ...session, recovery: replay },
+      { ...input, recoveryDecision: decision },
     );
 
     expect(recovered.kind).toBe("published");
+    expect(postedFindingIds(recovered)).toEqual(savedIds);
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(
       (await publishStoreState.store.getOperationIntent(pool, "wi-crash", operationKey))?.status,

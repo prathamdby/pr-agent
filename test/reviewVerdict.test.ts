@@ -149,11 +149,11 @@ import {
   REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
   reviewVerdict,
   reviewCheckRunName,
-  reviewCheckRunOutcome,
   waitForReviewCheckRunGithubId,
 } from "../src/agentWork/reviewVerdict.js";
 
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../src/review/statusCopy.js";
 import { persistOperationIntent } from "../src/agentWork/operationIntentRepository.js";
 
 const pool = {} as never;
@@ -401,44 +401,31 @@ describe("review check run lifecycle", () => {
     expect(reviewCheckRunName()).toBe("PR Agent Review");
   });
 
-  it("fails the check when P0–P2 findings exist and passes otherwise", () => {
-    expect(reviewCheckRunOutcome([{ severity: "P0" }])).toEqual({
-      conclusion: "failure",
-      summary: "1 finding",
+  it("maps a published finding check to its conclusion, status, and summary", () => {
+    expect(
+      ownVerdictSurfaces({ kind: "published", conclusion: "failure", blockingCount: 2 }),
+    ).toEqual({ checkRun: "failure", commitStatus: "failure", summary: "2 findings" });
+    expect(
+      ownVerdictSurfaces({ kind: "published", conclusion: "success", blockingCount: 0 }),
+    ).toEqual({ checkRun: "success", commitStatus: "success", summary: "No findings" });
+    expect(
+      ownVerdictSurfaces({ kind: "published", conclusion: "neutral", blockingCount: 0 }),
+    ).toEqual({
+      checkRun: "neutral",
+      commitStatus: "error",
+      summary: FINDING_INVENTORY_UNAVAILABLE_NOTE,
     });
-    expect(reviewCheckRunOutcome([{ severity: "P1" }])).toEqual({
-      conclusion: "failure",
-      summary: "1 finding",
-    });
-    expect(reviewCheckRunOutcome([{ severity: "P2" }, { severity: "P3" }])).toEqual({
-      conclusion: "failure",
-      summary: "1 finding",
-    });
-    expect(reviewCheckRunOutcome([{ severity: "P0" }, { severity: "P2" }])).toEqual({
-      conclusion: "failure",
-      summary: "2 findings",
-    });
-    expect(reviewCheckRunOutcome([])).toEqual({
-      conclusion: "success",
-      summary: "No findings",
-    });
-    expect(reviewCheckRunOutcome([{ severity: "P3" }])).toEqual({
-      conclusion: "success",
-      summary: "No findings",
-    });
+    expect(
+      ownVerdictSurfaces({
+        kind: "published",
+        conclusion: "success",
+        blockingCount: 0,
+        summary: "Documentation-only change set.",
+      }).summary,
+    ).toBe("Documentation-only change set.");
   });
 
   it("maps each own-verdict outcome to one check conclusion and commit status", () => {
-    expect(ownVerdictSurfaces({ kind: "published", findings: [{ severity: "P1" }] })).toEqual({
-      checkRun: "failure",
-      commitStatus: "failure",
-      summary: "1 finding",
-    });
-    expect(ownVerdictSurfaces({ kind: "published", findings: [] })).toEqual({
-      checkRun: "success",
-      commitStatus: "success",
-      summary: "No findings",
-    });
     expect(ownVerdictSurfaces({ kind: "partial", note: "Coverage partial." })).toEqual({
       checkRun: "neutral",
       commitStatus: "error",
@@ -477,18 +464,28 @@ describe("review check run lifecycle", () => {
     ).toEqual({ kind: "partial", note: "Security specialist failed." });
     expect(ownVerdictFromSummaryDetail({ ownCheckFailing: true })).toEqual({
       kind: "published",
-      findings: [{ severity: "P1" }],
+      conclusion: "failure",
+      blockingCount: 1,
     });
     expect(ownVerdictFromSummaryDetail({ ownVerdictKind: "published" })).toEqual({
       kind: "published",
-      findings: [],
+      conclusion: "success",
+      blockingCount: 0,
     });
     expect(
-      summaryCommentVerdictMeta({
-        kind: "published",
-        findings: [{ severity: "P1" }],
-      }),
-    ).toEqual({ ownVerdictKind: "published", ownCheckFailing: true });
+      ownVerdictFromSummaryDetail(
+        summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" }),
+      ),
+    ).toEqual({ kind: "published", conclusion: "neutral", blockingCount: 0 });
+    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "failure" })).toEqual({
+      ownVerdictKind: "published",
+      ownCheckFailing: true,
+    });
+    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" })).toEqual({
+      ownVerdictKind: "published",
+      ownCheckFailing: false,
+      ownCheckIncomplete: true,
+    });
   });
 
   it("creates and records an in-progress check run", async () => {
@@ -774,7 +771,8 @@ describe("review check run lifecycle", () => {
     await expect(
       reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
         kind: "published",
-        findings: [{ severity: "P1" }],
+        conclusion: "failure",
+        blockingCount: 1,
         summary: "1 finding",
       }),
     ).resolves.toBeUndefined();
@@ -803,7 +801,7 @@ describe("review check run lifecycle", () => {
     const pending = verdict.pending();
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toBe(123);
-    await verdict.close({ kind: "published", findings: [] });
+    await verdict.close({ kind: "published", conclusion: "success", blockingCount: 0 });
     expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({ checkRunId: 123, conclusion: "success" }),
     );
@@ -833,7 +831,8 @@ describe("review check run lifecycle", () => {
     await expect(
       reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
         kind: "published",
-        findings: [],
+        conclusion: "success",
+        blockingCount: 0,
         summary: "No findings",
       }),
     ).resolves.toBeUndefined();
@@ -861,7 +860,8 @@ describe("review check run lifecycle", () => {
     await expect(
       reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
         kind: "published",
-        findings: [],
+        conclusion: "success",
+        blockingCount: 0,
         summary: "No findings",
       }),
     ).resolves.toBeUndefined();

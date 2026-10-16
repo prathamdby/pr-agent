@@ -214,6 +214,7 @@ export function renderReviewProgressComment(params: {
 export function renderReviewFailureNotice(params: {
   mode: AnyReviewLens;
   retryCommand: string;
+  findingsSection?: string;
 }): string {
   return [
     REVIEW_SUMMARY_SENTINEL,
@@ -222,6 +223,9 @@ export function renderReviewFailureNotice(params: {
       REVIEW_FAILURE_ALERT,
       `Review did not finish. Run \`${params.retryCommand}\` to try again.`,
     ),
+    ...(params.findingsSection != null && params.findingsSection.length > 0
+      ? ["", params.findingsSection]
+      : []),
   ].join("\n");
 }
 

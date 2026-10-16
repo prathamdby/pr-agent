@@ -431,7 +431,6 @@ try {
     const children = new Set<ReturnType<typeof fork>>();
     const cfg = makeTestConfig({
       review: { recoveryEnabled: true, maxInlineComments: 1, maxThreadPublishCalls: 1 },
-      findingHistory: { enabled: false },
       agentEvents: { enabled: false },
       features: { reviewLabels: "off" },
     });
@@ -1324,20 +1323,20 @@ try {
         expect(await ctx.completed("inline_review")).toBeNull();
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "first", fingerprints: ["one"] },
+          detail: { batchId: "first", findingIds: ["one"] },
         });
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "second", fingerprints: ["two"] },
+          detail: { batchId: "second", findingIds: ["two"] },
         });
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "first", fingerprints: ["one"] },
+          detail: { batchId: "first", findingIds: ["one"] },
         });
         expect(await ctx.completed("inline_review")).toEqual({
           batches: [
-            { batchId: "first", fingerprints: ["one"] },
-            { batchId: "second", fingerprints: ["two"] },
+            { batchId: "first", findingIds: ["one"] },
+            { batchId: "second", findingIds: ["two"] },
           ],
         });
         const snapshot = await ctx.completed("inline_review");
@@ -2169,8 +2168,8 @@ try {
     const resourceKey = prResourceKey("golden", "repo", 7);
     const batchId = deterministicInlineBatchId({
       workItemId: "golden-work",
-      specialist: "correctness",
-      findingFingerprints: ["fp-b", "fp-a"],
+      headSha: "abc1234",
+      findingIds: ["f_01J00000000000000000000002", "f_01J00000000000000000000001"],
     });
     const keys = [
       askReplyOperationKey(resourceKey),
@@ -2203,7 +2202,7 @@ try {
       "ask:failure_reply:golden/repo#7",
       "ask:failure_reply:golden/repo#7:70",
       "description:pr_body:golden/repo#7",
-      "review:inline:ac9015646ef60021fd1f416ef9f5c0b4",
+      "review:inline:cc23cc57c4010b1fbf7eb7c487896581",
       "review:summary:review:golden/repo#7",
       "triage:push:golden/repo#7",
       "triage:thread:70",
@@ -2862,6 +2861,7 @@ try {
             },
             resolvedLine: 10,
             canonicalFingerprint: "fp-1",
+            findingId: "f_01J00000000000000000000001",
           },
         ],
       };
@@ -2887,15 +2887,6 @@ try {
       await write(firstBatch);
       await write(firstBatch);
       await write(secondBatch);
-      await createPublishContext(pool, {
-        workItemId,
-        leaseEpoch: null,
-        resourceKey,
-        reviewLens: "review-security",
-        step: "inline_review",
-        githubId: 40,
-        detail: { fingerprints: ["fp-legacy"] },
-      }).record();
 
       const result = await pool.query<{ github_id: string; detail: { batches: unknown[] } }>(
         `SELECT github_id, detail
@@ -2919,7 +2910,6 @@ try {
       );
       expect(context.publishState.inlineReviewIds).toEqual([first.reviewId, second.reviewId]);
       expect(context.publishState.threadCallCount).toBe(2);
-      expect(context.storedInlineFingerprints.toSorted()).toEqual(["fp-1", "fp-2", "fp-legacy"]);
       expect(context.resumedPlacements).toEqual([
         {
           kind: "resumed",
@@ -2929,7 +2919,7 @@ try {
             inlineLine: 10,
             inlinePosted: true,
           },
-          canonicalFingerprint: "fp-1",
+          findingId: "f_01J00000000000000000000001",
           reviewId: first.reviewId,
         },
       ]);

@@ -14,7 +14,13 @@ import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
+import {
+  carriedReaffirmedFindings,
+  type AcceptedPlacement,
+  type FindingLedger,
+  type ReaffirmedFinding,
+  type ReviewCoverage,
+} from "../orchestrator/orchestratorTypes.js";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
@@ -22,13 +28,12 @@ import {
   reviewLabelsFromPayload,
   syncReviewLabels,
 } from "../run/reviewLabels.js";
-import { renderReviewSummaryComment } from "../run/reviewRender.js";
+import { renderReviewSummaryComment, type SummaryPlacement } from "../run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js";
 import { createReviewSummaryComment } from "./reviewSummaryComment.js";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
-import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
@@ -36,9 +41,18 @@ import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { createFindingLedger } from "../orchestrator/orchestratorTypes.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
+import {
+  buildFindingView,
+  findingCheck,
+  type FindingCheck,
+} from "../findingIdentity/findingLifecycle.js";
 
 export type PublishSummaryOnlyResult =
-  | { readonly kind: "published"; readonly summaryCommentId: number }
+  | {
+      readonly kind: "published";
+      readonly summaryCommentId: number;
+      readonly check: FindingCheck;
+    }
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
 export async function publishReviewSummaryOnly(
@@ -48,7 +62,6 @@ export async function publishReviewSummaryOnly(
     readonly ledger: FindingLedger;
     readonly coverage?: ReviewCoverage;
     readonly staleReview?: boolean;
-    readonly dedupedFindingCount?: number;
     readonly recoveryDecision?: RecoveryDecision;
   },
 ): Promise<PublishSummaryOnlyResult> {
@@ -66,7 +79,6 @@ export async function publishReviewSummaryOnly(
         ledger: createFindingLedger(saved.inputs.ledger),
         coverage: saved.inputs.coverage,
         staleReview: saved.inputs.staleReview,
-        dedupedFindingCount: saved.inputs.dedupedFindingCount,
       }
     : requestedInput;
   if (saved) {
@@ -86,6 +98,13 @@ export async function publishReviewSummaryOnly(
       context: { failedSpecialists: coverage.failed },
     });
   }
+  const duplicates = await session.duplicateCleanup.clean(session);
+  const findingView = buildFindingView(session.findingInventory, {
+    kind: "reviewed",
+    ledger: input.ledger,
+    duplicates,
+  });
+  const check = findingCheck(findingView);
   const startedAt = Date.now();
   const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
     if (session.agentEvents) {
@@ -100,12 +119,15 @@ export async function publishReviewSummaryOnly(
         }),
       );
     }
-    return { kind: "published", summaryCommentId };
+    return { kind: "published", summaryCommentId, check };
   };
   const { owner, repo, prNumber, headSha } = session.ctx;
   const mode = session.mode;
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
-  const summaryPlacements = input.ledger.accepted.map((accepted) => accepted.placement);
+  const summaryPlacements = [
+    ...input.ledger.accepted.map(summaryPlacement),
+    ...carriedReaffirmedFindings(input.ledger).map(reaffirmedSummaryPlacement),
+  ];
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
@@ -154,6 +176,7 @@ export async function publishReviewSummaryOnly(
     ...session.ctx,
     summarySentinel,
     placements: enrichedPlacements,
+    findingView,
     mode,
     staleReview: input.staleReview ?? false,
     cachedDiffIndex: session.cachedDiffIndex,
@@ -204,7 +227,6 @@ export async function publishReviewSummaryOnly(
     ledger: snapshotFindingLedger(input.ledger),
     coverage: coverage.kind === "full" ? coverage : { ...coverage, failed: [...coverage.failed] },
     staleReview: input.staleReview ?? false,
-    dedupedFindingCount: input.dedupedFindingCount ?? 0,
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
     briefFallback: session.recovery?.getBriefFallback() ?? false,
   };
@@ -280,13 +302,12 @@ export async function publishReviewSummaryOnly(
     meta: {
       inlineCount: input.ledger.postedInlineCount,
       summaryOnlyCount,
-      dedupedFindingCount: input.dedupedFindingCount ?? 0,
       diffCacheEmpty: session.cachedDiffIndex == null || session.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
       ...summaryCommentVerdictMeta({
         kind: coverage.kind === "partial" ? "partial" : "published",
         note: coverage.kind === "partial" ? coverage.note : undefined,
-        findings: input.payload.findings,
+        conclusion: check.conclusion,
       }),
     },
   });
@@ -317,7 +338,7 @@ export async function publishReviewSummaryOnly(
     }).close(
       coverage.kind === "partial"
         ? { kind: "partial", note: coverage.note }
-        : { kind: "published", findings: input.payload.findings },
+        : { kind: "published", ...check },
     );
   }
 
@@ -429,10 +450,43 @@ function reviewCommentAnchorKey(path: string, line: number): string {
   return `${path}:${line}`;
 }
 
+function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
+  if (accepted.kind !== "summary_only") return accepted.placement;
+  const { finding } = accepted.placement;
+  return {
+    ...accepted.placement,
+    findingRow: {
+      id: accepted.findingId,
+      lens: accepted.source,
+      severity: finding.severity,
+      path: finding.file,
+      line: finding.startLine,
+      title: finding.title,
+      ...(accepted.reopens != null ? { reopens: accepted.reopens } : {}),
+    },
+  };
+}
+
+function reaffirmedSummaryPlacement(entry: ReaffirmedFinding): SummaryPlacement {
+  if (entry.heldBy !== "summary") return entry.placement;
+  const { finding } = entry.placement;
+  return {
+    ...entry.placement,
+    findingRow: {
+      id: entry.id,
+      lens: entry.source,
+      severity: entry.severity,
+      path: finding.file,
+      line: finding.startLine,
+      title: finding.title,
+    },
+  };
+}
+
 function enrichPlacementsWithInlineCommentUrls(
-  placements: readonly InlinePlacement[],
+  placements: readonly SummaryPlacement[],
   comments: readonly PublishedReviewComment[],
-): InlinePlacement[] {
+): SummaryPlacement[] {
   const commentsByAnchor = new Map<string, PublishedReviewComment[]>();
   for (const comment of comments) {
     const key = reviewCommentAnchorKey(comment.path, comment.line);

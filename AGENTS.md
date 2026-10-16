@@ -288,7 +288,7 @@ A zero-row progress write rechecks the lease, then warns and raises
 the writer is unleased. Preflight foreign-owner ticks above revision zero warn
 and skip. Neither path reassigns the replacement's progress record.
 
-`src/db/sessionLock.ts` owns shared progress/verdict half-pool admission,
+`src/db/sessionLock.ts` owns shared progress/verdict/thread half-pool admission,
 typed `SessionLockKey` encoding, session try-locks, bounded progress waits,
 and safe unlock/release precedence. Callers cannot supply admission capacity.
 `src/agentWork/fencedWrite.ts` owns numeric-epoch precheck/write/zero-row

@@ -72,6 +72,9 @@ import {
 } from "../src/review/orchestrator/briefTool.js";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "../src/review/orchestrator/declareDuplicateTool.js";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
@@ -114,6 +117,7 @@ import {
   type AgentInstructionFile,
 } from "../src/review/agentInstructionFiles.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import {
   FINDING_ANTI_SUPPRESSION,
   wrapTrustedContext,
@@ -130,6 +134,15 @@ import {
   MISSING_REPORT_ERROR,
   renderSpecialistReportRepair,
 } from "../src/prompts/shared/repair.js";
+
+const emptyFindingInventory = buildFindingInventory({
+  threads: { status: "ok", threads: [] },
+  summary: null,
+  summaryComplete: true,
+  botLogin: "pr-agent[bot]",
+  renames: new Map(),
+  deletedPaths: new Set(),
+});
 
 function unavailable(): never {
   throw new Error("Prompt inspection must not execute workspace, config, or provider actions");
@@ -208,13 +221,12 @@ function dumpAll() {
   const publishSession = createReviewPublishSession({
     ctx,
     prSurface,
+    findingInventory: emptyFindingInventory,
     cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
     cfg: makeTestConfig({
       models: { model: "" },
       agentEvents: { enabled: false },
-      findingHistory: { enabled: false },
-
       features: {
         review: "manual",
         describe: "off",
@@ -227,7 +239,12 @@ function dumpAll() {
       },
     }),
   });
-  const thread = buildPublishThreadTool({ phaseRef, session: publishSession }).piTool;
+  const thread = buildPublishThreadTool({
+    phaseRef,
+    session: publishSession,
+    inventory: emptyFindingInventory,
+  }).piTool;
+  const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession }).piTool;
   const summary = buildPublishSummaryTool({
     phaseRef,
     session: publishSession,
@@ -293,6 +310,7 @@ function dumpAll() {
         ...reviewWorkspace,
         buildSpecialistBriefTool(phaseRef).piTool,
         thread,
+        declareDuplicate,
         summary,
       ],
       ask: [...codeModeLocal, ...context7],
@@ -657,7 +675,6 @@ function dumpContext() {
         totalChanges: 40000,
       }),
       priorInlineFeedback,
-      findingHistoryTrustedBlock: "Sample finding history block.",
       repoPolicyBlock: renderRepoPolicyBlock({
         policy: sampleRepoPolicy,
         changedFiles: files,
@@ -717,14 +734,14 @@ function dumpExtraTurns() {
           kind: "posted",
           source: "correctness",
           placement: { finding: sampleFinding, inlineLine: 12, inlinePosted: true },
-          canonicalFingerprint: "fp-1",
+          findingId: legacyFindingId("sample-thread-1"),
           reviewId: 9001,
         },
         {
           kind: "summary_only",
           source: "security",
           placement: { finding: sampleFinding, inlineLine: null, inlinePosted: false },
-          canonicalFingerprint: "fp-2",
+          findingId: legacyFindingId("sample-thread-2"),
           reason: "cap",
         },
       ],
@@ -818,14 +835,8 @@ const prompts: Record<string, string> = {
   judgment: [orchestratorSystemPrompt, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
   "judgment-turn": renderJudgmentTurn(
     judgmentOutcome,
-    slimAcceptedFindings(judgmentOutcome, {
-      accepted: [],
-      suppressionFingerprints: new Set(),
-      inlineReviewIds: [],
-      postedInlineCount: 0,
-      threadCallCount: 0,
-      threadBudgetExhausted: false,
-    }),
+    slimAcceptedFindings(judgmentOutcome, createFindingLedger()),
+    judgmentInventory(emptyFindingInventory, judgmentOutcome.report.findings),
   ),
   security: automatedSecuritySystemPrompt,
   quality: automatedQualitySystemPrompt,

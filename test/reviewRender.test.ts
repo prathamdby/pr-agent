@@ -1,6 +1,11 @@
+import {
+  legacyFindingId,
+  parseOwnedFindingMarker,
+  parseOwnedFindingRows,
+  renderFindingMarker,
+} from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it } from "vitest";
 import {
-  countReviewFindingsForActionLine,
   formatReviewCoverageStatus,
   renderAgentFixPrompt,
   renderInlineThreadBody,
@@ -42,6 +47,13 @@ const ctx = {
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
   mode: "review" as const,
   runFooter: { durationMs: 680_000, model: "grok-4.5" },
+  findingView: {
+    completeness: "complete" as const,
+    rows: [],
+    blockingCount: 0,
+    suppressedDismissedCount: 0,
+    duplicates: [],
+  },
 };
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
@@ -464,15 +476,16 @@ describe("renderReviewSummaryComment", () => {
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacements(payload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
       coverage: { kind: "partial", failed: ["quality"] },
     });
     expect(body).toContain(
-      "2 findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran except quality.",
+      "1 of 2 open findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran except quality.",
     );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
-    expect(body.indexOf("2 findings block merge")).toBeLessThan(body.indexOf("<table>"));
+    expect(body.indexOf("1 of 2 open findings block merge")).toBeLessThan(body.indexOf("<table>"));
   });
 
   it("adds the follow-up count segment to the action line, singular included", () => {
@@ -502,6 +515,7 @@ describe("renderReviewSummaryComment", () => {
     const twoBody = renderReviewSummaryComment(twoPayload, {
       ...ctx,
       placements: testPlacements(twoPayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 2 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(twoBody).toContain(
@@ -525,6 +539,7 @@ describe("renderReviewSummaryComment", () => {
     const oneBody = renderReviewSummaryComment(onePayload, {
       ...ctx,
       placements: testPlacements(onePayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(oneBody).toContain(
@@ -547,6 +562,7 @@ describe("renderReviewSummaryComment", () => {
     const zeroBody = renderReviewSummaryComment(zeroPayload, {
       ...ctx,
       placements: testPlacements(zeroPayload.findings),
+      findingView: { ...ctx.findingView, blockingCount: 1 },
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(zeroBody).toContain(
@@ -722,6 +738,7 @@ describe("renderReviewSummaryComment", () => {
       {
         ...ctx,
         placements: testPlacements(payload.findings, { inlinePosted: false }),
+        findingView: { ...ctx.findingView, blockingCount: 12 },
       },
       2_500,
     );
@@ -813,24 +830,114 @@ describe("renderReviewSummaryComment", () => {
       {
         ...ctx,
         placements: testPlacements(payload.findings, { inlinePosted: false }),
+        findingView: { ...ctx.findingView, blockingCount: 12 },
       },
       2_500,
     );
     expect(body).toContain("12 findings block merge.");
     expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
   });
+
+  it("trims marked summary rows when they alone exceed the body budget", () => {
+    const findings = Array.from({ length: 40 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const placements = testPlacements(payload.findings, { inlinePosted: false }).map(
+      (placement, i) => ({
+        ...placement,
+        findingRow: {
+          id: legacyFindingId(`row-${i}`),
+          lens: "correctness" as const,
+          severity: placement.finding.severity,
+          path: placement.finding.file,
+          line: placement.finding.startLine,
+          title: placement.finding.title,
+        },
+      }),
+    );
+    const body = fitReviewSummaryBody(payload, { ...ctx, placements }, 6_000);
+
+    expect(body.length).toBeLessThanOrEqual(6_000);
+    const rows = parseOwnedFindingRows({ body, authorLogin: "pr-agent[bot]" }, "pr-agent[bot]");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(40);
+    expect(body).toContain(`${40 - rows.length} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`);
+  });
+
+  it("keeps finding rows when only the fix-all prompt overflows the body budget", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "Short detail.",
+      fixPrompt: "y".repeat(3000),
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      { ...ctx, placements: testPlacements(payload.findings, { inlinePosted: false }) },
+      2_500,
+    );
+
+    expect(body.length).toBeLessThanOrEqual(2_500);
+    expect(body).toContain("Bug 0");
+    expect(body).not.toContain(REVIEW_FINDINGS_NONE);
+  });
+
+  it("names omitted findings in the table when no finding row fits", () => {
+    const findings = Array.from({ length: 3 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "Short detail.",
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      { ...ctx, placements: testPlacements(payload.findings, { inlinePosted: false }) },
+      0,
+    );
+
+    expect(body).not.toContain(REVIEW_FINDINGS_NONE);
+    expect(body).not.toContain("Bug 0");
+    expect(body).toContain(`3 ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`);
+  });
 });
 
 describe("review action line helpers", () => {
-  it("counts every supplied P0–P3 row", () => {
-    expect(countReviewFindingsForActionLine([])).toBe(0);
-    expect(
-      countReviewFindingsForActionLine([
-        { severity: "P0" },
-        { severity: "P3" },
-        { severity: "P2" },
-      ]),
-    ).toBe(3);
+  it("says how many open findings block merge", () => {
+    const line = (openCount: number, blockingCount: number) =>
+      renderReviewActionLine({
+        openCount,
+        blockingCount,
+        followUpCount: 0,
+        ciStatusText: "CI is passing",
+        coverageStatusText: "with full coverage",
+      });
+    expect(line(1, 0)).toBe(
+      "1 open finding, none blocks merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 0)).toBe(
+      "3 open findings, none block merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 1)).toBe(
+      "1 of 3 open findings block merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(line(3, 3)).toBe(
+      "3 findings block merge. CI is passing. All specialists ran with full coverage.",
+    );
   });
 
   it("formats coverage for full, partial, and none", () => {
@@ -852,7 +959,8 @@ describe("review action line helpers", () => {
   it("joins the three action-line facts", () => {
     expect(
       renderReviewActionLine({
-        findingCount: 0,
+        openCount: 0,
+        blockingCount: 0,
         followUpCount: 0,
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
@@ -862,7 +970,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 1,
+        openCount: 1,
+        blockingCount: 1,
         followUpCount: 0,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
@@ -873,7 +982,8 @@ describe("review action line helpers", () => {
   it("adds the follow-up count segment between findings and CI, singular included", () => {
     expect(
       renderReviewActionLine({
-        findingCount: 2,
+        openCount: 2,
+        blockingCount: 2,
         followUpCount: 2,
         ciStatusText: "CI is passing",
         coverageStatusText: "with full coverage",
@@ -883,7 +993,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 1,
+        openCount: 1,
+        blockingCount: 1,
         followUpCount: 1,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
@@ -893,7 +1004,8 @@ describe("review action line helpers", () => {
     );
     expect(
       renderReviewActionLine({
-        findingCount: 0,
+        openCount: 0,
+        blockingCount: 0,
         followUpCount: 3,
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
@@ -912,6 +1024,8 @@ const inlineCtx = {
   hasDescriptionReviewMap: false,
 };
 
+const inlineIdentity = { id: legacyFindingId("inline-thread"), lens: "correctness" as const };
+
 describe("renderInlineThreadBody", () => {
   it("P0 with fixPrompt accordion", () => {
     const body = renderInlineThreadBody(
@@ -925,6 +1039,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Guard the map with a mutex or use Ref.modify.",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toMatchSnapshot();
     expect(body).toContain("<details>");
@@ -932,6 +1047,40 @@ describe("renderInlineThreadBody", () => {
     expect(body).toContain("Repository: acme/widgets");
     expect(body).toContain("[P0] @src/a.ts lines 5-7");
     expect(body).toContain("Guard the map with a mutex");
+    expect(body.split("\n").at(-1)).toBe(
+      renderFindingMarker({ ...inlineIdentity, severity: "P0" }),
+    );
+    expect(
+      parseOwnedFindingMarker({ body, authorLogin: "pr-agent[bot]", isRoot: true }, "pr-agent"),
+    ).toEqual({ ...inlineIdentity, severity: "P0" });
+  });
+
+  it("keeps the trailing marker the only parseable one when finding text echoes markers", () => {
+    const echoed = renderFindingMarker({
+      id: legacyFindingId("echoed"),
+      lens: "security",
+      severity: "P0",
+    });
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/a.ts",
+        startLine: 5,
+        endLine: 5,
+        title: "Echoed marker",
+        detail: `The fixture contains:\n${echoed}\nand more.`,
+        fixPrompt: `Remove\n${echoed}`,
+        suggestedCode: echoed,
+      },
+      inlineCtx,
+      inlineIdentity,
+    );
+
+    expect(body).not.toContain("```suggestion");
+    expect(body.split("\n").filter((line) => line === echoed)).toEqual([]);
+    expect(
+      parseOwnedFindingMarker({ body, authorLogin: "pr-agent[bot]", isRoot: true }, "pr-agent"),
+    ).toEqual({ ...inlineIdentity, severity: "P1" });
   });
 
   it("P1 with fixPrompt accordion", () => {
@@ -946,6 +1095,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Await the promise before returning.",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toMatchSnapshot();
   });
@@ -962,6 +1112,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Wrap with ```ts and close with ```",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toContain("\\`\\`\\`ts");
     expect(body).not.toContain("Wrap with ```ts");
@@ -980,6 +1131,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return await run();",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).toContain("```suggestion\nreturn await run();\n```");
@@ -998,6 +1150,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return await run();",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("```suggestion");
@@ -1016,6 +1169,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return ```literal```;",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("```suggestion");
@@ -1034,11 +1188,19 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Move the shared helper into a neutral module.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/web-worker-boundary.mdc"],
     );
 
     expect(body).toContain("</details>\n\n<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>");
-    expect(body.endsWith("<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>")).toBe(true);
+    expect(
+      body.endsWith(
+        `<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>\n\n${renderFindingMarker({
+          ...inlineIdentity,
+          severity: "P2",
+        })}`,
+      ),
+    ).toBe(true);
     expect(body).not.toContain("Rule ·");
   });
 
@@ -1054,6 +1216,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Move the shared helper into a neutral module.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"],
     );
 
@@ -1073,6 +1236,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Await the promise before returning.",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("<sub>Bound");
@@ -1091,6 +1255,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Reformat.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/evil<script>.mdc"],
     );
 

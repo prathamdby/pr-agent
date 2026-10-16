@@ -7,6 +7,7 @@ import type {
   SpecialistBrief,
   SpecialistBriefRenderOptions,
 } from "../../review/orchestrator/briefTool.js";
+import type { JudgmentInventory } from "../../review/orchestrator/judgmentInventory.js";
 import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile.js";
 import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
@@ -24,7 +25,7 @@ import {
 import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.js";
 import { renderCodeModeHarness } from "../shared/tools.js";
 
-export { formatPriorInlineFeedbackBlock, formatFindingHistoryTrustedBlock } from "./context.js";
+export { formatPriorInlineFeedbackBlock } from "./context.js";
 
 export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
@@ -34,11 +35,12 @@ export const orchestratorHarness = renderCodeModeHarness({
     "getLibraryDocs",
     "submit_specialist_brief",
     "publish_thread",
+    "declare_duplicate",
     "publish_summary",
   ],
   cellBoundary: "Submitting and publishing happen outside the cell, through the active phase tool.",
   extra: [
-    "Each phase accepts one terminal tool: recon `submit_specialist_brief`, judgment `publish_thread`, synthesis `publish_summary`. The others return a wrong-phase error. `execute` stays available in every phase.",
+    "Each phase accepts one terminal tool: recon `submit_specialist_brief`, judgment `publish_thread`, synthesis `publish_summary`. The others return a wrong-phase error. `execute` stays available in every phase, and judgment also accepts `declare_duplicate`.",
     "Confirm `findFiles` and `resolveSymbol` hints with `await tools.readWorkspaceFile` inside `execute` before naming a path or symbol.",
   ],
 });
@@ -100,9 +102,30 @@ export const ORCHESTRATOR_RECON_INSTRUCTION = [
 
 type JudgmentTurnOutcome = Pick<SpecialistOutcome, "specialist">;
 
+function renderInventoryGuidance(inventory: JudgmentInventory): string[] {
+  return [
+    "Every published finding carries a `relation` to the findings this pull request already has. The finding inventory below lists them by `findingId` with status, severity, lens, file, line, and title. Findings accepted earlier in this run are listed too, with status `accepted_this_run`.",
+    'Set `relation` to `{ "kind": "continues", "findingId": "…" }` when a candidate reports the same defect as a listed or earlier-accepted finding, even when it is reworded, moved a few lines, reported by another specialist, or sits in a renamed file. The server keeps the existing finding instead of opening a second thread. A `continues` on a fixed finding reopens it as a new thread; on a dismissed finding it stays dismissed.',
+    'Use `{ "kind": "distinct_from", "findingIds": […], "reason": "…" }` when a candidate is a different defect near listed findings, such as a second defect on the same line. Use `{ "kind": "uncertain", "findingIds": […] }` when you cannot tell; the server opens a new thread that links to them. Use `{ "kind": "new" }` only when no listed finding sits near the candidate.',
+    "When a candidate sits near a finding its relation does not name, `publish_thread` fails once and lists overlap questions. Add the answering `relation` to each listed finding and call `publish_thread` again with the whole batch. A finding still unanswered on that second call lands summary-only.",
+    "When two or more open findings in the inventory describe the same defect, call `declare_duplicate` with their `findingId`s and a one-line reason before `publish_thread`. The server keeps one thread, links each copy to it, and resolves copies nobody has replied to. Findings that only sit near each other are not duplicates. A refusal names the reason; leave those findings as they are.",
+    ...(inventory.completeness === "complete"
+      ? []
+      : [
+          `The inventory is ${inventory.completeness} this run, so the server lists new findings summary-only instead of opening threads. A \`continues\` on an open listed finding still keeps that finding.`,
+        ]),
+    ...(inventory.omitted > 0
+      ? [
+          `The inventory shows the ${inventory.count} findings nearest this report; ${inventory.omitted} more are not shown.`,
+        ]
+      : []),
+  ];
+}
+
 export function renderJudgmentTurn(
   outcome: JudgmentTurnOutcome,
   slimmed: { readonly json: string; readonly count: number },
+  inventory: JudgmentInventory,
 ): string {
   return [
     `Judge the ${outcome.specialist} specialist report below.`,
@@ -115,13 +138,17 @@ export function renderJudgmentTurn(
     "P3 is a valid severity: keep a P3 that identifies a real, bounded problem meeting the contract.",
     "Check every candidate against your reconnaissance and the reviewed checkout. Unreachable, wrongly anchored, unread-evidence, and out-of-gate candidates are not published.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. Keep an actionable finding about a real coverage gap even when it cites only an unedited path. The server will place it as summary-only when no commentable right line range exists.",
-    "Compare candidates with the already-published same-file overlap hints returned by earlier `publish_thread` calls, and leave out duplicates and near-duplicates.",
+    ...renderInventoryGuidance(inventory),
     ...(slimmed.count > 0
       ? [
           "Entries below shaped as slim references ({findingId, file, startLine, endLine, title}) were already accepted from earlier `publish_thread` calls in this run. They are published already, so judge only the full findings, which still carry the detail, trigger, and lines needed for independent re-verification.",
         ]
       : []),
     "Finish with one `publish_thread` call carrying every remaining finding that meets the contract. A call with zero findings is valid when none survive judgment. The summary comes in the synthesis turn.",
+    "",
+    "<finding_inventory>",
+    wrapUntrustedEvidence("finding_inventory", inventory.json),
+    "</finding_inventory>",
     "",
     "<specialist_report>",
     wrapUntrustedEvidence("specialist_report", slimmed.json),
@@ -213,7 +240,6 @@ export function buildTrustedReviewContextForReview(params: {
   pathProfile: ReviewPathProfile;
   sizeBudget: ReviewSizeBudget;
   priorInlineFeedback?: string;
-  findingHistoryTrustedBlock?: string;
   repoPolicyBlock?: string;
   agentInstructionFilesBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
@@ -232,9 +258,6 @@ export function buildTrustedReviewContextForReview(params: {
   }
   if (params.priorInlineFeedback) {
     blocks.push("", params.priorInlineFeedback);
-  }
-  if (params.findingHistoryTrustedBlock) {
-    blocks.push("", params.findingHistoryTrustedBlock);
   }
   if (params.repoPolicyBlock) {
     blocks.push("", params.repoPolicyBlock);

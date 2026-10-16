@@ -41,7 +41,9 @@ Head SHA: abc123def456
 Guard the map with a mutex or use Ref.modify.
 \`\`\`
 
-</details>"
+</details>
+
+<!-- pr-agent:finding v=1 id=l_1RHN0T8AAC34BEHSKD7AX21ZXR lens=correctness sev=P0 -->"
 `;
 
 exports[`renderInlineThreadBody > P1 with fixPrompt accordion 1`] = `
@@ -65,7 +67,9 @@ Head SHA: abc123def456
 Await the promise before returning.
 \`\`\`
 
-</details>"
+</details>
+
+<!-- pr-agent:finding v=1 id=l_1RHN0T8AAC34BEHSKD7AX21ZXR lens=correctness sev=P1 -->"
 `;
 
 exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `

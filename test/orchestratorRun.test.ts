@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
@@ -160,39 +161,41 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
     }) => {
       testState.progressUrlResolvers.push(params.session.resolveProgressCommentUrl);
       testState.ledger = params.initialLedger ?? createFindingLedger();
+      const executor = vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
+        if (!testState.activeSource) throw new Error("missing active source");
+        testState.publishOrder.push(testState.activeSource);
+        testState.publishedBatchCount += 1;
+        const ledger = testState.ledger ?? createFindingLedger();
+        const accepted = (args.findings ?? []).map((item, index) => ({
+          kind: "posted" as const,
+          source: testState.activeSource ?? "correctness",
+          placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
+          findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
+          reviewId: testState.publishOrder.length,
+        }));
+        testState.ledger = {
+          ...ledger,
+          accepted: [...ledger.accepted, ...accepted],
+          postedInlineCount: ledger.postedInlineCount + accepted.length,
+          threadCallCount: ledger.threadCallCount + 1,
+        };
+        return {
+          kind: "empty",
+          delta: {
+            accepted: [],
+            reaffirmed: [],
+            suppressedDismissedCount: 0,
+            inlineReviewIds: [],
+            postedInlineCount: 0,
+            threadCallCount: 1,
+            threadBudgetExhausted: false,
+          },
+        };
+      });
       return {
         piTool: { name: "publish_thread", description: "publish", parameters: {} },
-        executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
-          if (!testState.activeSource) throw new Error("missing active source");
-          testState.publishOrder.push(testState.activeSource);
-          testState.publishedBatchCount += 1;
-          const ledger = testState.ledger ?? createFindingLedger();
-          const accepted = (args.findings ?? []).map((item, index) => ({
-            kind: "posted" as const,
-            source: testState.activeSource ?? "correctness",
-            placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
-            canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
-            reviewId: testState.publishOrder.length,
-          }));
-          testState.ledger = {
-            ...ledger,
-            accepted: [...ledger.accepted, ...accepted],
-            postedInlineCount: ledger.postedInlineCount + accepted.length,
-            threadCallCount: ledger.threadCallCount + 1,
-          };
-          return {
-            kind: "empty",
-            delta: {
-              accepted: [],
-              suppressionFingerprints: [],
-              inlineReviewIds: [],
-              postedInlineCount: 0,
-              threadCallCount: 1,
-              threadBudgetExhausted: false,
-            },
-            publishedThreadOverlapHints: [],
-          };
-        }),
+        executor,
+        publishWithoutModel: (findings: readonly ReviewFinding[]) => executor({ findings }),
         setSource: (source: SpecialistId) => {
           testState.activeSource = source;
         },
@@ -359,10 +362,10 @@ function acceptedPlacement(
       inlineLine: kind === "summary_only" ? null : item.startLine,
       inlinePosted: kind !== "summary_only",
     },
-    canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
+    findingId: legacyFindingId(`${source}:${item.file}:${item.startLine}`),
   } as const;
   if (kind === "summary_only") {
-    return { kind, ...base, reason: "historical" };
+    return { kind, ...base, reason: "anchor" };
   }
   return { kind, ...base, reviewId: kind === "posted" ? 11 : 22 };
 }
@@ -1792,10 +1795,16 @@ describe("runOrchestratedPrReview", () => {
     await run;
 
     expect(testState.lastSessionToolNames).toEqual(
-      expect.arrayContaining(["submit_specialist_brief", "publish_thread", "publish_summary"]),
+      expect.arrayContaining([
+        "submit_specialist_brief",
+        "publish_thread",
+        "declare_duplicate",
+        "publish_summary",
+      ]),
     );
-    expect(testState.lastSessionToolNames.at(-3)).toBe("submit_specialist_brief");
-    expect(testState.lastSessionToolNames.at(-2)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-4)).toBe("submit_specialist_brief");
+    expect(testState.lastSessionToolNames.at(-3)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-2)).toBe("declare_duplicate");
     expect(testState.lastSessionToolNames.at(-1)).toBe("publish_summary");
   });
 

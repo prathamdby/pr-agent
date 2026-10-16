@@ -27,6 +27,7 @@ import * as verificationExecutorModule from "../../src/agentWork/executors/verif
 import * as askExecutorModule from "../../src/agentWork/executors/askExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
+import { legacyFindingId } from "../../src/review/findingIdentity/findingMarker.js";
 import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
@@ -736,6 +737,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         inventory: [
           {
             rootCommentId: 9,
+            findingId: legacyFindingId("PRRT_9"),
             lens: "review" as const,
             path: "src/a.ts",
             line: 1,
@@ -2087,7 +2089,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               headSha: "h",
               leaseEpoch: env.leaseEpoch,
               commitStatusEnabled: false,
-            }).close({ kind: "published", findings: [{ severity: "P1" }], summary: "winner" });
+            }).close({
+              kind: "published",
+              conclusion: "failure",
+              blockingCount: 1,
+              summary: "winner",
+            });
             return { kind: "completed" };
           },
         });
@@ -2418,7 +2425,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             workItemId,
             specialist: "correctness",
             reviewId: batch.reviewId,
-            fingerprints: [],
             placements: [],
           },
         }).record();

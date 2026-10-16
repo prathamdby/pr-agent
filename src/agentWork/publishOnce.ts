@@ -109,15 +109,20 @@ export function reviewInlineBatchOperationKey(batchId: string): string {
 
 export function deterministicInlineBatchId(params: {
   readonly workItemId: string;
-  readonly specialist: string;
-  readonly findingFingerprints: readonly string[];
+  readonly headSha: string;
+  readonly findingIds: readonly string[];
 }): string {
-  const material = [
-    params.workItemId,
-    params.specialist,
-    ...params.findingFingerprints.toSorted(),
-  ].join("\0");
+  const material = [params.workItemId, params.headSha, ...params.findingIds.toSorted()].join("\0");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+}
+
+export function reviewDuplicateOperationKey(step: {
+  readonly kind: "duplicate_reply" | "duplicate_resolve";
+  readonly duplicateId: string;
+  readonly canonicalId: string;
+  readonly threadId: string;
+}): string {
+  return `review:${step.kind}:${step.duplicateId}:${step.canonicalId}:${step.threadId}`;
 }
 
 export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string): string {

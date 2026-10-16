@@ -49,7 +49,7 @@ describe("publishInlineReviewComments", () => {
       event: "COMMENT",
       commitId: "sha",
       inlinePlacements: [p1, p2],
-      renderCommentBody: (f) => f.title,
+      renderCommentBody: (placement) => placement.finding.title,
     });
 
     expect(result.review?.id).toBe(9);
@@ -84,7 +84,7 @@ describe("publishInlineReviewComments", () => {
       event: "COMMENT",
       commitId: "sha",
       inlinePlacements: [p1, p2, p3],
-      renderCommentBody: (f) => f.title,
+      renderCommentBody: (placement) => placement.finding.title,
     });
 
     expect(result.postedPlacements).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("publishInlineReviewComments", () => {
         renderReviewBody: () => "pointer",
         event: "COMMENT",
         inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
-        renderCommentBody: (f) => f.title,
+        renderCommentBody: (placement) => placement.finding.title,
       }),
     ).rejects.toThrow("rate limited");
   });

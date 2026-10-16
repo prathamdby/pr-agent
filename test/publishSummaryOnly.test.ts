@@ -10,6 +10,7 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
     ) => actual.createPublishContext(client, identity, records),
   };
 });
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
 const publishStoreState = vi.hoisted(() => {
   let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
@@ -53,7 +54,10 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  completeFindingInventory,
+  publishSummaryForTest,
+} from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
@@ -195,7 +199,7 @@ describe("publishReviewSummaryOnly", () => {
             inlineLine: 10,
             inlinePosted: false,
           },
-          canonicalFingerprint: "fp",
+          findingId: legacyFindingId("fp"),
           reason: "budget",
         },
       ],
@@ -206,6 +210,7 @@ describe("publishReviewSummaryOnly", () => {
       cfg: makeTestConfig(),
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
       prSurface: surface,
+      findingInventory: completeFindingInventory(),
       recovery,
     });
     await expect(
@@ -214,7 +219,11 @@ describe("publishReviewSummaryOnly", () => {
         ledger,
         coverage: { kind: "partial", failed: ["tests"], note: "Partial coverage" },
       }),
-    ).resolves.toEqual({ kind: "published", summaryCommentId: 2 });
+    ).resolves.toEqual({
+      kind: "published",
+      summaryCommentId: 2,
+      check: { conclusion: "failure", blockingCount: 1 },
+    });
     expect(parseReviewArtifactEnvelope(rows.get("final-summary"))?.artifact).toMatchObject({
       inputs: {
         kind: "summary",
@@ -243,14 +252,14 @@ describe("publishReviewSummaryOnly", () => {
           kind: "posted",
           source: "correctness",
           placement: { finding: first, inlineLine: 10, inlinePosted: true },
-          canonicalFingerprint: "fp-1",
+          findingId: legacyFindingId("fp-1"),
           reviewId: 41,
         },
         {
           kind: "posted",
           source: "security",
           placement: { finding: second, inlineLine: 20, inlinePosted: true },
-          canonicalFingerprint: "fp-2",
+          findingId: legacyFindingId("fp-2"),
           reviewId: 42,
         },
       ],
@@ -288,7 +297,11 @@ describe("publishReviewSummaryOnly", () => {
       },
     });
 
-    expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
+    expect(result).toEqual({
+      kind: "published",
+      summaryCommentId: 2,
+      check: { conclusion: "failure", blockingCount: 2 },
+    });
     expect(close).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(upsertProgressComment).toHaveBeenCalledTimes(1);
@@ -450,7 +463,11 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(close).toHaveBeenCalledWith({ kind: "published", findings: [finding(10)] });
+    expect(close).toHaveBeenCalledWith({
+      kind: "published",
+      conclusion: "success",
+      blockingCount: 0,
+    });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,

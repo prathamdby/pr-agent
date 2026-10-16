@@ -1,5 +1,6 @@
 import type { ReviewFinding } from "../reviewSchema.js";
 import { isInlineSeverity } from "../reviewSchema.js";
+import type { FindingId } from "../findingIdentity/findingMarker.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { resolveInlineAnchorLine, type CachedPrDiffIndex } from "./reviewDiffIndex.js";
 
@@ -10,8 +11,10 @@ export type InlinePlacement = {
   readonly inlineCommentUrl?: string;
 };
 
-export type FingerprintedInlinePlacement = InlinePlacement & {
-  readonly inlineFingerprint: string;
+export type IdentifiedInlinePlacement = InlinePlacement & {
+  readonly findingId: FindingId;
+  readonly reopens?: FindingId;
+  readonly relatedLinks?: readonly string[];
 };
 
 export function planInlinePlacements(

@@ -1,14 +1,17 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
+import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
+import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
+  completeFindingInventory,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
@@ -36,6 +39,13 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
 });
 
 const payload = publishReviewTestPayload;
+
+function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
+  return {
+    inventory: completeFindingInventory(),
+    outcomes: new Map([[reconciledFindingKey(finding), outcome]]),
+  };
+}
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
@@ -82,24 +92,6 @@ describe("publishReview core", () => {
     expect(publishState.inlineReviewIds).toEqual([1]);
   });
 
-  it("suppresses inline review when stored fingerprint matches", async () => {
-    const finding = payload.findings[0];
-    const stored = fingerprintFinding(finding, "review");
-
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      storedInlineFingerprints: [stored],
-    });
-
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(harness.upsertProgressComment).toHaveBeenCalled();
-    const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0];
-    expect(summaryBody).toContain("Summary only");
-    expect(summaryBody).toContain("Bug");
-  });
-
   it("keeps a later finding summary-only after resuming eight thread calls", async () => {
     const publishState = testPublishState({ threadCallCount: 8 });
 
@@ -115,20 +107,23 @@ describe("publishReview core", () => {
     expect(publishState.threadCallCount).toBe(9);
   });
 
-  it("does not record a zero-comment inline review when all findings are suppressed", async () => {
+  it("does not record a zero-comment inline review when every finding matches a dismissed one", async () => {
     const finding = payload.findings[0];
-    const stored = fingerprintFinding(finding, "review");
     const recordPublishStep = vi.fn<RecordPublishStep>(async () => undefined);
 
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      storedInlineFingerprints: [stored],
+      reconciled: reconciledAs(finding, {
+        kind: "suppressed_dismissed",
+        id: legacyFindingId("dismissed-thread"),
+      }),
       workItemId: "wi-test",
       recordPublishStep,
     });
 
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalledWith("inline_review", expect.anything());
   });
 
@@ -273,7 +268,7 @@ describe("publishReview core", () => {
   });
 
   it("loads inline comments from every resumed review batch", async () => {
-    const stored = fingerprintFinding(payload.findings[0], "review");
+    const findingId = legacyFindingId("thread-node-41");
     const publishState = testPublishState({
       inlineReviewIds: [41, 42],
     });
@@ -282,7 +277,11 @@ describe("publishReview core", () => {
       ...baseParams,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      storedInlineFingerprints: [stored],
+      reconciled: reconciledAs(payload.findings[0], {
+        kind: "reaffirm",
+        id: findingId,
+        severity: payload.findings[0].severity,
+      }),
       resumedPlacements: [
         {
           kind: "resumed",
@@ -292,7 +291,7 @@ describe("publishReview core", () => {
             inlineLine: 4,
             inlinePosted: true,
           },
-          canonicalFingerprint: stored,
+          findingId,
           reviewId: 41,
         },
       ],

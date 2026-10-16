@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import { describe, expect, it } from "vitest";
 import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
@@ -88,7 +89,7 @@ describe("published inline comment links", () => {
           kind: "posted",
           source: "review",
           placement: p,
-          canonicalFingerprint: p.finding.title,
+          findingId: legacyFindingId(p.finding.title),
           reviewId: 1,
         })),
       }),
@@ -137,7 +138,7 @@ describe("published inline comment links", () => {
           kind: "posted",
           source: "review",
           placement: p,
-          canonicalFingerprint: p.finding.title,
+          findingId: legacyFindingId(p.finding.title),
           reviewId: 1,
         })),
       }),
@@ -181,7 +182,7 @@ describe("published inline comment links", () => {
           kind: "posted",
           source: "review",
           placement: p,
-          canonicalFingerprint: p.finding.title,
+          findingId: legacyFindingId(p.finding.title),
           reviewId: 1,
         })),
       }),
