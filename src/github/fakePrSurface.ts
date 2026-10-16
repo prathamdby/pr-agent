@@ -662,10 +662,7 @@ export function createFakePrSurface(
     async getReviewThread(threadNodeId) {
       events.push({ kind: "getReviewThread", threadNodeId });
       for (const [rootId, thread] of threads) {
-        if (thread.threadNodeId !== threadNodeId) continue;
-        const snapshot = threadSnapshot(rootId, thread);
-        if (snapshot == null) throw new Error("reviewThread GraphQL returned a malformed thread");
-        return snapshot;
+        if (thread.threadNodeId === threadNodeId) return threadSnapshot(rootId, thread);
       }
       return null;
     },
