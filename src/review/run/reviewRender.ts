@@ -43,6 +43,7 @@ import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { InventoryFinding } from "../findingIdentity/findingInventory.js";
 import {
   findingSeverityLabel,
+  largestFittingBody,
   renderCarriedFindingCell,
   type FindingView,
   type FindingViewRow,
@@ -727,26 +728,6 @@ export function fitReviewSummaryBody(
   );
 }
 
-function largestFittingBody(
-  maxLimit: number,
-  maxBodyChars: number,
-  render: (limit: number) => string,
-): string | null {
-  let lo = 0;
-  let hi = maxLimit;
-  let best: string | null = null;
-  while (lo <= hi) {
-    const limit = Math.floor((lo + hi) / 2);
-    const body = render(limit);
-    if (body.length <= maxBodyChars) {
-      best = body;
-      lo = limit + 1;
-    } else {
-      hi = limit - 1;
-    }
-  }
-  return best;
-}
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,

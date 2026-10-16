@@ -1042,4 +1042,25 @@ describe("findings section", () => {
     ).toEqual([A]);
     expect(trimmed).toMatch(/\d+ more open findings/);
   });
+
+  it("drops summary rows only when they cannot fit and never exceeds the budget", () => {
+    const view = buildFindingView(
+      inventoryOf([], {
+        summary: summaryWithRows([
+          { id: A, severity: "P2" },
+          { id: id(`f_${"9".repeat(26)}`), severity: "P3" },
+        ]),
+      }),
+      { kind: "not_reviewed" },
+    );
+    const full = renderFindingsSection(view, 60_000);
+    for (const budget of [full.length - 1, 80, 10, 0, -50]) {
+      expect(renderFindingsSection(view, budget).length).toBeLessThanOrEqual(Math.max(0, budget));
+    }
+    const oneRow = renderFindingsSection(view, full.length - 1);
+    expect(
+      parseOwnedFindingRows({ body: oneRow, authorLogin: BOT }, BOT).map((row) => row.id),
+    ).toHaveLength(1);
+    expect(renderFindingsSection(view, -50)).toBe("");
+  });
 });
