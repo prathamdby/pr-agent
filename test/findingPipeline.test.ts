@@ -4,6 +4,7 @@ import {
   prepareReviewPayloadForPublish,
 } from "../src/review/findings/findingPipeline.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
+import { mintFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -91,26 +92,31 @@ describe("findingPipeline", () => {
     expect(result.prepared.placements[0]?.finding.detail).not.toContain("sk-");
   });
 
-  it("returns inline and summary-only targets after fingerprint suppression and inline cap", () => {
-    const suppressed = finding({ title: "Suppress repeat", startLine: 1, severity: "P1" });
+  it("returns inline and summary-only targets after the inline cap with assigned identities", () => {
+    const repeated = finding({ title: "Repeat finding", startLine: 1, severity: "P1" });
     const capped = finding({ title: "Cap lower priority", startLine: 2, severity: "P2" });
     const kept = finding({ title: "Keep critical", startLine: 3, severity: "P0" });
+    const keptId = mintFindingId();
+    const reopened = mintFindingId();
 
     const result = prepareFindingsForPublish({
-      payload: makeReviewPayload({ findings: [suppressed, capped, kept] }),
-      inlinePlacements: [placement(suppressed), placement(capped), placement(kept)],
-      storedInlineFingerprints: [fingerprintFinding(suppressed, "review")],
+      payload: makeReviewPayload({ findings: [repeated, capped, kept] }),
+      inlinePlacements: [placement(repeated), placement(capped), placement(kept)],
+      identify: (target) =>
+        target.finding.title === "Keep critical"
+          ? { findingId: keptId, reopens: reopened }
+          : { findingId: mintFindingId() },
       maxInlineComments: 1,
     });
 
     expect(result.planned.map((target) => target.finding.title)).toEqual([
-      "Suppress repeat",
+      "Repeat finding",
       "Cap lower priority",
       "Keep critical",
     ]);
     expect(result.planned.map((target) => target.inlinePosted)).toEqual([true, true, true]);
     expect(result.planned.map((target) => target.inlineFingerprint)).toEqual([
-      fingerprintFinding(suppressed, "review"),
+      fingerprintFinding(repeated, "review"),
       fingerprintFinding(capped, "review"),
       fingerprintFinding(kept, "review"),
     ]);
@@ -118,14 +124,15 @@ describe("findingPipeline", () => {
     expect(result.placements.map((target) => target.inlineFingerprint)).toEqual(
       result.planned.map((target) => target.inlineFingerprint),
     );
-    expect(result.inline.map((target) => target.finding.title)).toEqual(["Keep critical"]);
+    expect(result.inline).toEqual([
+      expect.objectContaining({ findingId: keptId, reopens: reopened }),
+    ]);
     expect(result.summaryOnly.map((target) => target.finding.title).toSorted()).toEqual([
       "Cap lower priority",
-      "Suppress repeat",
+      "Repeat finding",
     ]);
     expect(result.dropped).toEqual({
-      suppressedInlineCount: 1,
-      inlineCommentCapExcluded: 1,
+      inlineCommentCapExcluded: 2,
       anchorUnresolved: 0,
     });
   });
@@ -140,7 +147,6 @@ describe("findingPipeline", () => {
     expect(result.inline).toEqual([]);
     expect(result.summaryOnly).toEqual([]);
     expect(result.dropped).toEqual({
-      suppressedInlineCount: 0,
       inlineCommentCapExcluded: 0,
       anchorUnresolved: 0,
     });
@@ -176,49 +182,9 @@ describe("findingPipeline", () => {
     expect(result.inline.map((target) => target.finding.title)).toEqual(["Anchored"]);
     expect(result.summaryOnly.map((target) => target.finding.title)).toEqual(["Unresolved"]);
     expect(result.dropped).toEqual({
-      suppressedInlineCount: 0,
       inlineCommentCapExcluded: 0,
       anchorUnresolved: 1,
     });
-  });
-
-  it("keeps inline when cross-PR dismiss history is below threshold", () => {
-    const item = finding({ title: "Repeat risk", startLine: 4 });
-    const fp = fingerprintFinding(item, "review");
-
-    const result = prepareFindingsForPublish({
-      payload: makeReviewPayload({ findings: [item] }),
-      inlinePlacements: [placement(item)],
-      crossPrSuppressionFingerprints: [],
-      storedInlineFingerprints: [],
-    });
-
-    expect(result.planned).toHaveLength(1);
-    expect(result.planned[0]?.inlinePosted).toBe(true);
-    expect(result.planned[0]?.inlineFingerprint).toBe(fp);
-    expect(result.inline).toHaveLength(1);
-    expect(result.inline[0]?.inlineFingerprint).toBe(fp);
-  });
-
-  it("downgrades to summary-only when cross-PR dismiss threshold is met", () => {
-    const item = finding({ title: "Repeat risk", startLine: 4 });
-    const fp = fingerprintFinding(item, "review");
-
-    const result = prepareFindingsForPublish({
-      payload: makeReviewPayload({ findings: [item] }),
-      inlinePlacements: [placement(item)],
-      crossPrSuppressionFingerprints: [fp],
-      storedInlineFingerprints: [],
-    });
-
-    expect(result.planned).toHaveLength(1);
-    expect(result.planned[0]?.inlinePosted).toBe(true);
-    expect(result.planned[0]?.inlineFingerprint).toBe(fp);
-    expect(result.inline).toHaveLength(0);
-    expect(result.summaryOnly).toHaveLength(1);
-    expect(result.summaryOnly[0]?.finding.title).toBe("Repeat risk");
-    expect(result.summaryOnly[0]?.inlinePosted).toBe(false);
-    expect(result.dropped.suppressedInlineCount).toBe(1);
   });
 
   it("records new fingerprints under the merged review mode", () => {

@@ -161,40 +161,42 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
     }) => {
       testState.progressUrlResolvers.push(params.session.resolveProgressCommentUrl);
       testState.ledger = params.initialLedger ?? createFindingLedger();
+      const executor = vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
+        if (!testState.activeSource) throw new Error("missing active source");
+        testState.publishOrder.push(testState.activeSource);
+        testState.publishedBatchCount += 1;
+        const ledger = testState.ledger ?? createFindingLedger();
+        const accepted = (args.findings ?? []).map((item, index) => ({
+          kind: "posted" as const,
+          source: testState.activeSource ?? "correctness",
+          placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
+          findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
+          canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
+          reviewId: testState.publishOrder.length,
+        }));
+        testState.ledger = {
+          ...ledger,
+          accepted: [...ledger.accepted, ...accepted],
+          postedInlineCount: ledger.postedInlineCount + accepted.length,
+          threadCallCount: ledger.threadCallCount + 1,
+        };
+        return {
+          kind: "empty",
+          delta: {
+            accepted: [],
+            reaffirmed: [],
+            suppressedDismissedCount: 0,
+            inlineReviewIds: [],
+            postedInlineCount: 0,
+            threadCallCount: 1,
+            threadBudgetExhausted: false,
+          },
+        };
+      });
       return {
         piTool: { name: "publish_thread", description: "publish", parameters: {} },
-        executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
-          if (!testState.activeSource) throw new Error("missing active source");
-          testState.publishOrder.push(testState.activeSource);
-          testState.publishedBatchCount += 1;
-          const ledger = testState.ledger ?? createFindingLedger();
-          const accepted = (args.findings ?? []).map((item, index) => ({
-            kind: "posted" as const,
-            source: testState.activeSource ?? "correctness",
-            placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
-            findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
-            canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
-            reviewId: testState.publishOrder.length,
-          }));
-          testState.ledger = {
-            ...ledger,
-            accepted: [...ledger.accepted, ...accepted],
-            postedInlineCount: ledger.postedInlineCount + accepted.length,
-            threadCallCount: ledger.threadCallCount + 1,
-          };
-          return {
-            kind: "empty",
-            delta: {
-              accepted: [],
-              suppressionFingerprints: [],
-              inlineReviewIds: [],
-              postedInlineCount: 0,
-              threadCallCount: 1,
-              threadBudgetExhausted: false,
-            },
-            publishedThreadOverlapHints: [],
-          };
-        }),
+        executor,
+        publishWithoutModel: (findings: readonly ReviewFinding[]) => executor({ findings }),
         setSource: (source: SpecialistId) => {
           testState.activeSource = source;
         },
@@ -365,7 +367,7 @@ function acceptedPlacement(
     canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
   } as const;
   if (kind === "summary_only") {
-    return { kind, ...base, reason: "historical" };
+    return { kind, ...base, reason: "anchor" };
   }
   return { kind, ...base, reviewId: kind === "posted" ? 11 : 22 };
 }

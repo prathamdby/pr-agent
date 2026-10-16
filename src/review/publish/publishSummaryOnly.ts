@@ -14,10 +14,12 @@ import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import type {
-  AcceptedPlacement,
-  FindingLedger,
-  ReviewCoverage,
+import {
+  carriedReaffirmedFindings,
+  type AcceptedPlacement,
+  type FindingLedger,
+  type ReaffirmedFinding,
+  type ReviewCoverage,
 } from "../orchestrator/orchestratorTypes.js";
 import {
   dominantReviewCategory,
@@ -108,7 +110,10 @@ export async function publishReviewSummaryOnly(
   const { owner, repo, prNumber, headSha } = session.ctx;
   const mode = session.mode;
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
-  const summaryPlacements = input.ledger.accepted.map(summaryPlacement);
+  const summaryPlacements = [
+    ...input.ledger.accepted.map(summaryPlacement),
+    ...carriedReaffirmedFindings(input.ledger).map(reaffirmedSummaryPlacement),
+  ];
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
@@ -433,8 +438,7 @@ function reviewCommentAnchorKey(path: string, line: number): string {
 }
 
 function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
-  if (accepted.kind !== "summary_only" || accepted.reason === "historical")
-    return accepted.placement;
+  if (accepted.kind !== "summary_only") return accepted.placement;
   const { finding } = accepted.placement;
   return {
     ...accepted.placement,
@@ -442,6 +446,23 @@ function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
       id: accepted.findingId,
       lens: accepted.source,
       severity: finding.severity,
+      path: finding.file,
+      line: finding.startLine,
+      title: finding.title,
+      ...(accepted.reopens != null ? { reopens: accepted.reopens } : {}),
+    },
+  };
+}
+
+function reaffirmedSummaryPlacement(entry: ReaffirmedFinding): SummaryPlacement {
+  if (entry.heldBy !== "summary") return entry.placement;
+  const { finding } = entry.placement;
+  return {
+    ...entry.placement,
+    findingRow: {
+      id: entry.id,
+      lens: entry.source,
+      severity: entry.severity,
       path: finding.file,
       line: finding.startLine,
       title: finding.title,

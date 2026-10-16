@@ -16,7 +16,10 @@ import {
 import type { ReviewPayload, ReviewPublishContext } from "../../src/review/reviewSchema.js";
 import type { RepoPolicyResult } from "../../src/review/repoPolicy.js";
 import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.js";
-import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.js";
+import {
+  publishFindingBatch,
+  type ReconciledFindings,
+} from "../../src/review/publish/publishFindingBatch.js";
 import {
   createReviewPublishSession,
   type ReviewPublishSessionInput,
@@ -59,7 +62,7 @@ export async function runTestPublishFlow(
     progressCommentIdHint?: number | null;
     staleReview?: boolean;
     recordPublishStep?: RecordPublishStepWithCoordination;
-    storedInlineFingerprints?: readonly string[];
+    reconciled?: ReconciledFindings;
     workItemId?: string;
     resumedPlacements?: readonly AcceptedPlacement[];
     shouldAbortPublish?: () => Promise<boolean>;
@@ -73,7 +76,6 @@ export async function runTestPublishFlow(
   const resumedPlacements = params.resumedPlacements ?? [];
   let ledger = createFindingLedger({
     accepted: resumedPlacements,
-    suppressionFingerprints: params.storedInlineFingerprints,
     inlineReviewIds: params.publishState.inlineReviewIds,
     postedInlineCount: resumedPlacements.length,
     threadCallCount: params.publishState.threadCallCount,
@@ -117,6 +119,7 @@ export async function runTestPublishFlow(
     sameRepo: params.sameRepo,
     boundPolicyJudge: params.boundPolicyJudge,
     readCheckoutFile: params.readCheckoutFile,
+    reconciled: params.reconciled,
     ledger,
   });
   if (batchResult.kind === "stopped") {

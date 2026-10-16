@@ -98,6 +98,13 @@ export function isFindingSource(value: unknown): value is FindingSource {
   return value === "review" || SPECIALIST_IDS.some((specialist) => specialist === value);
 }
 
+export type SummaryOnlyReason =
+  | "cap"
+  | "budget"
+  | "anchor"
+  | "inventory_incomplete"
+  | "unanswered_overlap";
+
 export type AcceptedPlacement =
   | {
       readonly kind: "posted" | "resumed";
@@ -106,6 +113,7 @@ export type AcceptedPlacement =
       readonly findingId: FindingId;
       readonly canonicalFingerprint: string;
       readonly reviewId: number;
+      readonly reopens?: FindingId;
     }
   | {
       readonly kind: "summary_only";
@@ -113,12 +121,22 @@ export type AcceptedPlacement =
       readonly placement: InlinePlacement;
       readonly findingId: FindingId;
       readonly canonicalFingerprint: string;
-      readonly reason: "historical" | "cap" | "budget" | "anchor";
+      readonly reason: SummaryOnlyReason;
+      readonly reopens?: FindingId;
     };
+
+export type ReaffirmedFinding = {
+  readonly id: FindingId;
+  readonly source: FindingSource;
+  readonly severity: InlinePlacement["finding"]["severity"];
+  readonly heldBy: "thread" | "summary" | "run";
+  readonly placement: InlinePlacement;
+};
 
 export type FindingLedger = {
   readonly accepted: readonly AcceptedPlacement[];
-  readonly suppressionFingerprints: ReadonlySet<string>;
+  readonly reaffirmed: readonly ReaffirmedFinding[];
+  readonly suppressedDismissedCount: number;
   readonly inlineReviewIds: readonly number[];
   readonly postedInlineCount: number;
   readonly threadCallCount: number;
@@ -127,7 +145,8 @@ export type FindingLedger = {
 
 export type FindingLedgerDelta = {
   readonly accepted: readonly AcceptedPlacement[];
-  readonly suppressionFingerprints: readonly string[];
+  readonly reaffirmed: readonly ReaffirmedFinding[];
+  readonly suppressedDismissedCount: number;
   readonly inlineReviewIds: readonly number[];
   readonly postedInlineCount: number;
   readonly threadCallCount: number;
@@ -141,7 +160,8 @@ export type ReviewCoverage =
 
 export function createFindingLedger(initial?: {
   readonly accepted?: readonly AcceptedPlacement[];
-  readonly suppressionFingerprints?: Iterable<string>;
+  readonly reaffirmed?: readonly ReaffirmedFinding[];
+  readonly suppressedDismissedCount?: number;
   readonly inlineReviewIds?: readonly number[];
   readonly postedInlineCount?: number;
   readonly threadCallCount?: number;
@@ -149,7 +169,8 @@ export function createFindingLedger(initial?: {
 }): FindingLedger {
   return {
     accepted: [...(initial?.accepted ?? [])],
-    suppressionFingerprints: new Set(initial?.suppressionFingerprints ?? []),
+    reaffirmed: [...(initial?.reaffirmed ?? [])],
+    suppressedDismissedCount: initial?.suppressedDismissedCount ?? 0,
     inlineReviewIds: [...new Set(initial?.inlineReviewIds ?? [])],
     postedInlineCount: initial?.postedInlineCount ?? 0,
     threadCallCount: initial?.threadCallCount ?? 0,
@@ -163,10 +184,8 @@ export function applyFindingLedgerDelta(
 ): FindingLedger {
   return {
     accepted: [...ledger.accepted, ...delta.accepted],
-    suppressionFingerprints: new Set([
-      ...ledger.suppressionFingerprints,
-      ...delta.suppressionFingerprints,
-    ]),
+    reaffirmed: [...ledger.reaffirmed, ...delta.reaffirmed],
+    suppressedDismissedCount: ledger.suppressedDismissedCount + delta.suppressedDismissedCount,
     inlineReviewIds: [...new Set([...ledger.inlineReviewIds, ...delta.inlineReviewIds])],
     postedInlineCount: ledger.postedInlineCount + delta.postedInlineCount,
     threadCallCount: ledger.threadCallCount + delta.threadCallCount,
@@ -174,8 +193,27 @@ export function applyFindingLedgerDelta(
   };
 }
 
+export function carriedReaffirmedFindings(ledger: FindingLedger): ReaffirmedFinding[] {
+  const seen = new Set<FindingId>(ledger.accepted.map((accepted) => accepted.findingId));
+  return ledger.reaffirmed.filter((entry) => {
+    if (entry.heldBy === "run" || seen.has(entry.id)) return false;
+    seen.add(entry.id);
+    return true;
+  });
+}
+
+export function ledgerFindings(ledger: FindingLedger): InlinePlacement["finding"][] {
+  return [
+    ...ledger.accepted.map((accepted) => accepted.placement.finding),
+    ...carriedReaffirmedFindings(ledger).map((entry) => entry.placement.finding),
+  ];
+}
+
 export function countAcceptedForSource(ledger: FindingLedger, source: FindingSource): number {
-  return ledger.accepted.filter((placement) => placement.source === source).length;
+  return (
+    ledger.accepted.filter((placement) => placement.source === source).length +
+    ledger.reaffirmed.filter((entry) => entry.source === source).length
+  );
 }
 
 export function specialistDonePhase(

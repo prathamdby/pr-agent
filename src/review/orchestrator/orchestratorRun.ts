@@ -61,6 +61,7 @@ import {
 import { pumpSpecialistCompletions } from "./completionPump.js";
 import {
   createFindingLedger,
+  ledgerFindings,
   SPECIALIST_IDS,
   specialistDonePhase,
   type OrchestratedRunState,
@@ -74,6 +75,13 @@ import {
 import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
+import { judgmentInventory } from "./judgmentInventory.js";
+import {
+  buildFindingInventory,
+  loadFindingInventory,
+  type FindingInventory,
+} from "../findingIdentity/findingInventory.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
@@ -199,11 +207,6 @@ function initialLedger(params: OrchestratedReviewRunParams) {
   const resumed = params.resumedPlacements ?? [];
   return createFindingLedger({
     accepted: resumed,
-    suppressionFingerprints: [
-      ...(params.storedInlineFingerprints ?? []),
-      ...(params.crossPrSuppressionFingerprints ?? []),
-      ...resumed.map((placement) => placement.canonicalFingerprint),
-    ],
     inlineReviewIds: [
       ...(params.initialPublishState?.inlineReviewIds ?? []),
       ...resumed.flatMap((placement) =>
@@ -213,6 +216,35 @@ function initialLedger(params: OrchestratedReviewRunParams) {
     postedInlineCount: resumed.filter((placement) => placement.kind !== "summary_only").length,
     threadCallCount: params.initialPublishState?.threadCallCount ?? 0,
   });
+}
+
+async function loadReviewFindingInventory(
+  params: OrchestratedReviewRunParams,
+): Promise<FindingInventory> {
+  const renames = new Map<string, string>();
+  const deletedPaths = new Set<string>();
+  for (const file of params.workspace.reader.changedFiles) {
+    if (file.status === "renamed" && file.oldPath != null) renames.set(file.oldPath, file.path);
+    if (file.status === "deleted") deletedPaths.add(file.path);
+  }
+  try {
+    return await loadFindingInventory(params.prSurface, { renames, deletedPaths });
+  } catch (error) {
+    logWarn("review_finding_inventory_failed", {
+      owner: params.owner,
+      repo: params.repo,
+      pr: params.prNumber,
+      message: errorMessage(error),
+    });
+    return buildFindingInventory({
+      threads: { status: "unavailable", threads: [] },
+      summary: null,
+      summaryComplete: false,
+      botLogin: "",
+      renames,
+      deletedPaths,
+    });
+  }
 }
 
 function coverage(state: OrchestratedRunState): ReviewCoverage {
@@ -382,6 +414,7 @@ export async function runOrchestratedPrReview(
     }
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
   };
+  const findingInventory = await loadReviewFindingInventory(params);
   const verdictIdentity = ownVerdictPublishParams(params);
   const publishSession = createReviewPublishSession({
     recovery,
@@ -431,8 +464,8 @@ export async function runOrchestratedPrReview(
       evidenceLedger: setup.evidenceLedger,
       checkoutCoverage: params.workspace.reader.getCoverage(),
       isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
-      crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
     },
+    inventory: findingInventory,
     initialLedger:
       recoveredDecisions[0]?.prepared.artifact.canonical.kind === "threads"
         ? createFindingLedger(recoveredDecisions[0].prepared.artifact.canonical.ledgerBefore)
@@ -942,7 +975,7 @@ export async function runOrchestratedPrReview(
 
     let result: Awaited<ReturnType<typeof publishThread.executor>>;
     try {
-      result = await publishThread.executor({ findings: outcome.report.findings });
+      result = await publishThread.publishWithoutModel(outcome.report.findings);
     } catch (error) {
       publishAttempts += 1;
       throw error;
@@ -1015,9 +1048,7 @@ export async function runOrchestratedPrReview(
   const publishDeterministicSummary = async (): Promise<void> => {
     if (summaryState.published) return;
     const ledger = publishThread.getLedger();
-    const payload = reviewPayloadFromFindings(
-      ledger.accepted.map((accepted) => accepted.placement.finding),
-    );
+    const payload = reviewPayloadFromFindings(ledgerFindings(ledger));
 
     let result: Awaited<ReturnType<typeof publishReviewSummaryOnly>>;
     try {
@@ -1210,7 +1241,11 @@ export async function runOrchestratedPrReview(
               publishStepCount += 1;
               const judgment = await sendWithRetry(
                 "judgment",
-                renderJudgmentTurn(outcome, slimAcceptedFindings(outcome, ledgerBefore)),
+                renderJudgmentTurn(
+                  outcome,
+                  slimAcceptedFindings(outcome, ledgerBefore),
+                  judgmentInventory(findingInventory, outcome.report.findings),
+                ),
                 {
                   maxToolRounds: escalatedToolRounds(
                     ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
@@ -1487,7 +1522,7 @@ export async function runOrchestratedPrReview(
     ...(lastFailure != null ? { lastFailure } : {}),
     ...(summaryState.published
       ? {
-          publishedFindings: ledger.accepted.map((accepted) => accepted.placement.finding),
+          publishedFindings: ledgerFindings(ledger),
           coverage: runCoverage,
         }
       : {}),

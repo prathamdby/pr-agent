@@ -13,8 +13,16 @@ import { publishVerification } from "../../src/agent/verification/publishVerific
 import {
   loadFindingInventory,
   loadFindingInventoryFromThreads,
+  type FindingInventory,
 } from "../../src/review/findingIdentity/findingInventory.js";
-import { parseOwnedFindingMarker } from "../../src/review/findingIdentity/findingMarker.js";
+import {
+  parseOwnedFindingMarker,
+  renderReceipt,
+  type FindingId,
+} from "../../src/review/findingIdentity/findingMarker.js";
+import { AppError } from "../../src/errors/appError.js";
+import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseToolPolicy.js";
+import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.js";
 import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.js";
 import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.js";
 import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
@@ -56,8 +64,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     await pool.end();
   });
 
-  afterEach(() => {
+  const rerunCleanups: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
     vi.restoreAllMocks();
+    for (const cleanup of rerunCleanups.splice(0)) await cleanup();
   });
 
   async function seedReviewPublication() {
@@ -95,9 +106,13 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       prNumber: 1,
     });
 
-    const attempt = (client: Pool, prSurface: PrSurface) => {
+    const attempt = (
+      client: Pool,
+      prSurface: PrSurface,
+      observations: readonly ReviewFinding[] = [],
+    ) => {
       const evidenceLedger = createTestEvidenceLedger(HEAD_SHA);
-      seedEvidenceForFindings(evidenceLedger, findings);
+      seedEvidenceForFindings(evidenceLedger, [...findings, ...observations]);
       recordDeliveredFileRead(evidenceLedger, {
         path: "src/a.ts",
         headSha: HEAD_SHA,
@@ -141,6 +156,60 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
 
     return { workItemId, resourceKey, surface, controls, attempt, cleanup };
   }
+
+  async function rerun(surface: PrSurface, observations: readonly ReviewFinding[] = []) {
+    const next = await seedReviewPublication();
+    rerunCleanups.push(next.cleanup);
+    return next.attempt(pool, surface, observations);
+  }
+
+  function threadTool(
+    run: ReturnType<Awaited<ReturnType<typeof seedReviewPublication>>["attempt"]>,
+    inventory: FindingInventory,
+  ) {
+    const tool = buildPublishThreadTool({
+      phaseRef: createOrchestratorPhaseRef("judgment"),
+      session: run.session,
+      inventory,
+      policy: { evidenceLedger: run.input.evidenceLedger },
+    });
+    tool.setSource("correctness");
+    return tool;
+  }
+
+  function openIdAt(inventory: FindingInventory, line: number): FindingId {
+    const match = [...inventory.findings.values()].find(
+      (entry) => entry.state === "open" && entry.line === line,
+    );
+    if (match == null) throw new Error(`expected an open finding at line ${line}`);
+    return match.id;
+  }
+
+  function observed(line: number, extras: Partial<ReviewFinding> = {}): ReviewFinding {
+    return {
+      severity: "P1",
+      file: "src/a.ts",
+      startLine: line,
+      endLine: line,
+      title: `Payload can be null near line ${line}`,
+      detail: `A null payload reaches the dereference near line ${line}.`,
+      fixPrompt: "Check the payload for null first.",
+      ...extras,
+    };
+  }
+
+  async function publishFirstRound(
+    seeded: Awaited<ReturnType<typeof seedReviewPublication>>,
+  ): Promise<number> {
+    const first = seeded.attempt(pool, seeded.surface);
+    const published = await publishFindingBatch(findings, first.session, first.input);
+    if (published.kind !== "published") throw new Error("expected the first round to publish");
+    const [reviewId] = published.delta.inlineReviewIds;
+    if (reviewId == null) throw new Error("expected an inline review");
+    return reviewId;
+  }
+
+  const noPathChanges = { renames: new Map<string, string>(), deletedPaths: new Set<string>() };
 
   it("recovers a batch killed after GitHub accepted it by the finding markers GitHub returns", async () => {
     const { workItemId, surface, controls, attempt, cleanup } = await seedReviewPublication();
@@ -223,8 +292,8 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     }
   });
 
-  it("rebuilds the same finding ids from GitHub after database loss", async () => {
-    const { workItemId, surface, attempt, cleanup } = await seedReviewPublication();
+  it("rebuilds the same finding ids from GitHub after database loss and posts no duplicate", async () => {
+    const { workItemId, surface, controls, attempt, cleanup } = await seedReviewPublication();
 
     try {
       const first = attempt(pool, surface);
@@ -249,15 +318,29 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       await cleanup();
       expect(Number(await durableRows())).toBe(0);
 
-      const inventory = await loadFindingInventory(surface, {
-        renames: new Map(),
-        deletedPaths: new Set(),
-      });
+      const inventory = await loadFindingInventory(surface, noPathChanges);
       expect(inventory.completeness).toBe("complete");
       const open = [...inventory.findings.values()].filter((finding) => finding.state === "open");
       expect(open.every((finding) => !finding.legacy)).toBe(true);
       expect(new Set(open.map((finding) => finding.id))).toEqual(new Set(recordedIds));
       expect(new Set(open.map((finding) => finding.line))).toEqual(new Set([10, 11]));
+
+      const batchesBefore = controls.threadBatches.length;
+      const tool = threadTool(await rerun(surface), inventory);
+      const result = await tool.executor({
+        findings: findings.map((finding) => ({
+          ...finding,
+          relation: { kind: "continues", findingId: openIdAt(inventory, finding.startLine) },
+        })),
+      });
+      expect(controls.threadBatches).toHaveLength(batchesBefore);
+      expect(result.kind).toBe("empty");
+      if (result.kind !== "empty") return;
+      expect(result.delta.accepted).toEqual([]);
+      expect(new Set(result.delta.reaffirmed.map((entry) => entry.id))).toEqual(
+        new Set(recordedIds),
+      );
+      expect(result.delta.reaffirmed.every((entry) => entry.heldBy === "thread")).toBe(true);
     } finally {
       await cleanup();
     }
@@ -409,16 +492,170 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       expect(
         fixedRoot?.comments[0]?.body.split(`kind=fixed id=${silentlyFixed.findingId}`),
       ).toHaveLength(2);
-      const rebuilt = await loadFindingInventory(surface, {
-        renames: new Map(),
-        deletedPaths: new Set(),
-      });
+      const rebuilt = await loadFindingInventory(surface, noPathChanges);
       expect(rebuilt.findings.get(silentlyFixed.findingId)).toMatchObject({
         state: "resolved",
         resolution: "fixed",
       });
     } finally {
       await cleanup();
+    }
+  });
+
+  it("keeps reworded, moved, other-lens, and renamed observations on their open threads", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      await publishFirstRound(seeded);
+      const batchesBefore = controls.threadBatches.length;
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      expect(inventory.completeness).toBe("complete");
+      const lineTen = openIdAt(inventory, 10);
+      const lineEleven = openIdAt(inventory, 11);
+      const reworded = observed(10);
+      const moved = observed(11 + 10, { title: "Null payload reaches the dereference" });
+      const otherLens = observed(10, { title: "Unchecked payload is a crash vector" });
+      const tool = threadTool(await rerun(surface, [reworded, moved, otherLens]), inventory);
+
+      const sameLens = await tool.executor({
+        findings: [
+          { ...reworded, relation: { kind: "continues", findingId: lineTen } },
+          { ...moved, relation: { kind: "continues", findingId: lineEleven } },
+        ],
+      });
+      tool.setSource("security");
+      const crossLens = await tool.executor({
+        findings: [{ ...otherLens, relation: { kind: "continues", findingId: lineTen } }],
+      });
+
+      const renamed = observed(10, { file: "src/b.ts" });
+      const renamedInventory = await loadFindingInventory(surface, {
+        renames: new Map([["src/a.ts", "src/b.ts"]]),
+        deletedPaths: new Set(),
+      });
+      const renamedTool = threadTool(await rerun(surface, [renamed]), renamedInventory);
+      const afterRename = await renamedTool.executor({
+        findings: [{ ...renamed, relation: { kind: "continues", findingId: lineTen } }],
+      });
+
+      expect(controls.threadBatches).toHaveLength(batchesBefore);
+      const reaffirmed = [sameLens, crossLens, afterRename].flatMap((result) =>
+        result.kind === "empty" ? result.delta.reaffirmed : [],
+      );
+      expect(reaffirmed.map((entry) => [entry.id, entry.heldBy])).toEqual([
+        [lineTen, "thread"],
+        [lineEleven, "thread"],
+        [lineTen, "thread"],
+        [lineTen, "thread"],
+      ]);
+      expect(reaffirmed.map((entry) => entry.source)).toEqual([
+        "correctness",
+        "correctness",
+        "security",
+        "correctness",
+      ]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("asks once about an unanswered overlap, then holds the finding summary-only", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      await publishFirstRound(seeded);
+      const batchesBefore = controls.threadBatches.length;
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      const lineTen = openIdAt(inventory, 10);
+      const nearby = observed(12, { title: "Retry loop never terminates" });
+      const tool = threadTool(await rerun(surface, [nearby]), inventory);
+
+      const asked = await tool.executor({ findings: [nearby] }).then(
+        () => null,
+        (error: unknown) => error,
+      );
+      expect(asked).toBeInstanceOf(AppError);
+      if (!(asked instanceof AppError)) return;
+      expect(asked.code).toBe("review.publish_thread_overlap_unanswered");
+      expect(asked.message).toContain(lineTen);
+      expect(controls.threadBatches).toHaveLength(batchesBefore);
+
+      const held = await tool.executor({ findings: [nearby] });
+      expect(controls.threadBatches).toHaveLength(batchesBefore);
+      expect(held.kind).toBe("empty");
+      if (held.kind !== "empty") return;
+      expect(held.delta.accepted).toEqual([
+        expect.objectContaining({ kind: "summary_only", reason: "unanswered_overlap" }),
+      ]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("keeps a dismissed finding suppressed and reopens a fixed one with a reopens marker", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      const reviewId = await publishFirstRound(seeded);
+      const before = await loadFindingInventory(surface, noPathChanges);
+      const fixedId = openIdAt(before, 10);
+      const dismissedId = openIdAt(before, 11);
+      const roots = (await surface.listReviewComments()).comments.filter(
+        (comment) => comment.pullRequestReviewId === reviewId,
+      );
+      const fixedRoot = roots.find((comment) => comment.line === 10);
+      if (fixedRoot == null) throw new Error("expected the line 10 root comment");
+      await surface.replyAt(
+        { kind: "inlineReviewThread", prNumber: 1, inReplyToCommentId: fixedRoot.id },
+        renderReceipt({ kind: "fixed", id: fixedId }),
+      );
+      for (const thread of before.findings.values()) {
+        if (thread.threadId != null) await surface.resolveInlineReviewThread(thread.threadId);
+      }
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      expect(inventory.findings.get(fixedId)).toMatchObject({ resolution: "fixed" });
+      expect(inventory.findings.get(dismissedId)).toMatchObject({ resolution: "dismissed" });
+      const batchesBefore = controls.threadBatches.length;
+      const regressed = observed(10);
+      const repeated = observed(11);
+      const tool = threadTool(await rerun(surface, [regressed, repeated]), inventory);
+
+      const result = await tool.executor({
+        findings: [
+          { ...regressed, relation: { kind: "continues", findingId: fixedId } },
+          { ...repeated, relation: { kind: "continues", findingId: dismissedId } },
+        ],
+      });
+
+      expect(controls.threadBatches).toHaveLength(batchesBefore + 1);
+      expect(controls.threadBatches.at(-1)?.comments).toHaveLength(1);
+      expect(result.kind).toBe("published");
+      if (result.kind !== "published") return;
+      expect(result.delta.reaffirmed).toEqual([]);
+      expect(result.delta.suppressedDismissedCount).toBe(1);
+      const [reopened] = result.delta.accepted;
+      expect(reopened).toMatchObject({ kind: "posted", reopens: fixedId });
+      const botLogin = await surface.getBotLogin();
+      const marker = parseOwnedFindingMarker(
+        {
+          body: controls.threadBatches.at(-1)?.comments?.[0]?.body ?? "",
+          authorLogin: botLogin,
+          isRoot: true,
+        },
+        botLogin,
+      );
+      expect(marker).toMatchObject({ id: reopened?.findingId, reopens: fixedId });
+      expect(marker?.id).not.toBe(fixedId);
+      const after = await loadFindingInventory(surface, noPathChanges);
+      expect(after.findings.get(dismissedId)).toMatchObject({ resolution: "dismissed" });
+      expect(
+        [...after.findings.values()].filter((entry) => entry.state === "open").map((e) => e.id),
+      ).toEqual([marker?.id]);
+    } finally {
+      await seeded.cleanup();
     }
   });
 });

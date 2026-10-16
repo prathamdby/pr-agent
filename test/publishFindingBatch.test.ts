@@ -76,7 +76,13 @@ import {
   parseReviewArtifactEnvelope,
 } from "../src/review/recovery/reviewArtifacts.js";
 import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
-import { renderFindingMarker } from "../src/review/findingIdentity/findingMarker.js";
+import {
+  legacyFindingId,
+  renderFindingMarker,
+} from "../src/review/findingIdentity/findingMarker.js";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
+import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -159,6 +165,20 @@ function postedFindingIds(result: Awaited<ReturnType<typeof publishFindingBatch>
     : result.delta.accepted.flatMap((entry) => (entry.kind === "posted" ? [entry.findingId] : []));
 }
 
+function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
+  return {
+    inventory: buildFindingInventory({
+      threads: { status: "ok", threads: [] },
+      summary: null,
+      summaryComplete: true,
+      botLogin: "pr-agent[bot]",
+      renames: new Map(),
+      deletedPaths: new Set(),
+    }),
+    outcomes: new Map([[reviewFindingPlacementKey(target), outcome]]),
+  };
+}
+
 let harness: PublishReviewTestHarness;
 
 type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx">> &
@@ -181,7 +201,7 @@ function batchContext(
     sameRepo,
     boundPolicyJudge,
     readCheckoutFile,
-    crossPrSuppressionFingerprints,
+    reconciled,
     ...sessionOverrides
   } = overrides;
   const evidenceLedger = evidenceOverride ?? createTestEvidenceLedger("abc1234");
@@ -216,7 +236,7 @@ function batchContext(
       sameRepo,
       boundPolicyJudge,
       readCheckoutFile,
-      crossPrSuppressionFingerprints,
+      reconciled,
     },
   ];
 }
@@ -417,7 +437,8 @@ describe("publishFindingBatch", () => {
         source: "correctness",
         ledgerBefore: {
           accepted: [],
-          suppressionFingerprints: [],
+          reaffirmed: [],
+          suppressedDismissedCount: 0,
           inlineReviewIds: [],
           postedInlineCount: 0,
           threadCallCount: 0,
@@ -425,7 +446,8 @@ describe("publishFindingBatch", () => {
         },
         localDelta: {
           accepted: [],
-          suppressionFingerprints: [],
+          reaffirmed: [],
+          suppressedDismissedCount: 0,
           inlineReviewIds: [],
           postedInlineCount: 0,
           threadCallCount: 1,
@@ -544,32 +566,31 @@ describe("publishFindingBatch", () => {
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
     expect(result.delta.accepted).toEqual([]);
-    expect(result.delta.suppressionFingerprints).toEqual([]);
+    expect(result.delta.reaffirmed).toEqual([]);
   });
 
-  it("does not create a GitHub review when suppression empties the batch", async () => {
+  it("does not create a GitHub review when reconcile reaffirms the whole batch", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
+    const id = legacyFindingId("reaffirmed-thread");
     const result = await publishFindingBatch(
       [finding],
-      ...batchContext(
-        createFindingLedger({
-          suppressionFingerprints: [fingerprintFinding(finding, "review")],
-        }),
-        recordPublishStep,
-      ),
+      ...batchContext(createFindingLedger(), recordPublishStep, {
+        reconciled: reconciledAs(finding, { kind: "reaffirm", id, severity: finding.severity }),
+      }),
     );
 
     expect(result.kind).toBe("empty");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
-    expect(result.delta.accepted).toEqual([
-      expect.objectContaining({ kind: "summary_only", reason: "historical" }),
+    expect(result.delta.accepted).toEqual([]);
+    expect(result.delta.reaffirmed).toEqual([
+      expect.objectContaining({ id, heldBy: "run", severity: finding.severity }),
     ]);
     expect(result.delta.threadCallCount).toBe(1);
   });
 
-  it("suppresses a finding already posted by an earlier batch", async () => {
+  it("keeps a finding reconciled to an earlier batch out of a second review", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const initialLedger = createFindingLedger();
     const first = await publishFindingBatch(
@@ -603,13 +624,26 @@ describe("publishFindingBatch", () => {
     );
     const ledger = applyFindingLedgerDelta(createFindingLedger(), first.delta);
 
-    const second = await publishFindingBatch([finding], ...batchContext(ledger, recordPublishStep));
+    const [firstId] = postedFindingIds(first);
+    if (firstId == null) throw new Error("first batch posted no finding");
+
+    const second = await publishFindingBatch(
+      [finding],
+      ...batchContext(ledger, recordPublishStep, {
+        reconciled: reconciledAs(finding, {
+          kind: "reaffirm",
+          id: firstId,
+          severity: finding.severity,
+        }),
+      }),
+    );
 
     expect(second.kind).toBe("empty");
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     expect(recordPublishStep).toHaveBeenCalledTimes(1);
     if (second.kind !== "empty") return;
     expect(second.delta.accepted).toEqual([]);
+    expect(second.delta.reaffirmed).toEqual([expect.objectContaining({ id: firstId })]);
   });
 
   it("does not publish findings that lack evidence", async () => {
@@ -807,19 +841,30 @@ describe("publishFindingBatch", () => {
     expect(commentBody).not.toContain("sk-");
   });
 
-  it("suppresses findings whose fingerprints are in cross-PR history", async () => {
+  it("posts a reconciled reopen with its marker link and related threads", async () => {
+    const id = legacyFindingId("reopened-thread");
+    const reopens = legacyFindingId("fixed-thread");
+    const related = "https://github.com/o/r/pull/1#discussion_r7";
     const result = await publishFindingBatch(
       [finding],
       ...batchContext(createFindingLedger(), undefined, {
-        crossPrSuppressionFingerprints: [fingerprintFinding(finding, "review")],
+        reconciled: reconciledAs(finding, {
+          kind: "post_thread",
+          id,
+          reopens,
+          relatedLinks: [related],
+        }),
       }),
     );
 
-    expect(result.kind).toBe("empty");
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    if (result.kind !== "empty") return;
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(commentBody).toContain(`id=${id}`);
+    expect(commentBody).toContain(`reopens=${reopens}`);
+    expect(commentBody).toContain(`[thread](${related})`);
     expect(result.delta.accepted).toEqual([
-      expect.objectContaining({ kind: "summary_only", reason: "cap" }),
+      expect.objectContaining({ kind: "posted", findingId: id, reopens }),
     ]);
   });
 

@@ -77,10 +77,7 @@ import {
   type OwnVerdictOutcome,
   ownVerdictFromSummaryDetail,
 } from "../agentWork/reviewVerdict.js";
-import {
-  safeLoadCrossPrSuppressionFingerprints,
-  safeLoadFindingHistoryCandidates,
-} from "../agentWork/findingHistoryRepository.js";
+import { safeLoadFindingHistoryCandidates } from "../agentWork/findingHistoryRepository.js";
 import {
   loadReviewExecutorPublishContext,
   type ReviewExecutorPublishContext,
@@ -679,7 +676,6 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly headSha: string;
   readonly pullRequest: PullRequestForFileList | undefined;
   readonly publishContext: ReviewExecutorPublishContext;
-  readonly crossPrSuppressionFingerprints: readonly string[];
   readonly findingHistoryTrustedBlock?: string;
   readonly publishAbortState: { staleHead?: boolean };
   readonly staleHeadAtPublish: { value: boolean };
@@ -703,7 +699,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     headSha,
     pullRequest,
     publishContext,
-    crossPrSuppressionFingerprints,
     findingHistoryTrustedBlock,
     publishAbortState,
     staleHeadAtPublish,
@@ -718,7 +713,6 @@ async function runFullReviewAgainstRepositoryView(args: {
   const {
     publishState,
     shouldLinkToSummary,
-    storedInlineFingerprints,
     resumedPlacements,
     progressCommentGithubId: progressCommentIdHint,
   } = publishContext;
@@ -831,8 +825,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     mode: reviewLens,
     userSupplement: payload.userSupplement,
     trustedContext,
-    storedInlineFingerprints,
-    crossPrSuppressionFingerprints,
     workItemId: item.id,
     resumedPlacements,
     cwd: repositoryView.agentCwd,
@@ -952,22 +944,16 @@ async function runClaimedReview(args: {
   });
   if (staleHeadResult) return staleHeadResult;
 
-  const [publishContext, crossPrSuppressionFingerprints, findingHistoryCandidates] =
-    await recordReviewPhaseSpan("db-read", () =>
-      Promise.all([
-        loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
-        safeLoadCrossPrSuppressionFingerprints(pool, cfg, {
-          installationId: item.installationId,
-          owner: item.owner,
-          repo: item.repo,
-        }),
-        safeLoadFindingHistoryCandidates(pool, cfg, {
-          installationId: item.installationId,
-          owner: item.owner,
-          repo: item.repo,
-        }),
-      ]),
-    );
+  const [publishContext, findingHistoryCandidates] = await recordReviewPhaseSpan("db-read", () =>
+    Promise.all([
+      loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
+      safeLoadFindingHistoryCandidates(pool, cfg, {
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+      }),
+    ]),
+  );
   const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
     findingHistoryCandidates,
     cfg.findingHistory.dismissSuppressAfter,
@@ -1108,7 +1094,6 @@ async function runClaimedReview(args: {
           headSha,
           pullRequest: env.pullRequest,
           publishContext,
-          crossPrSuppressionFingerprints,
           findingHistoryTrustedBlock,
           publishAbortState,
           staleHeadAtPublish,

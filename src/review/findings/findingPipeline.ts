@@ -4,10 +4,7 @@ import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
 import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
-import {
-  fingerprintInlinePlacements,
-  suppressInlinePlacementsByFingerprint,
-} from "./reviewFindingFingerprint.js";
+import { fingerprintInlinePlacements } from "./reviewFindingFingerprint.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   applyInlineCommentCap,
@@ -33,7 +30,6 @@ export type PreparedFindingTargets = {
   readonly inline: readonly IdentifiedInlinePlacement[];
   readonly summaryOnly: readonly IdentifiedInlinePlacement[];
   readonly dropped: {
-    readonly suppressedInlineCount: number;
     readonly inlineCommentCapExcluded: number;
     readonly anchorUnresolved: number;
   };
@@ -121,28 +117,32 @@ export function prepareReviewPayloadForPublish(params: {
   };
 }
 
+export type PlacementIdentity = Pick<
+  IdentifiedInlinePlacement,
+  "findingId" | "reopens" | "relatedLinks"
+>;
+
+function mintedIdentity(): PlacementIdentity {
+  return { findingId: mintFindingId() };
+}
+
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
-  storedInlineFingerprints?: readonly string[];
-  crossPrSuppressionFingerprints?: readonly string[];
+  identify?: (placement: InlinePlacement) => PlacementIdentity;
   maxInlineComments?: number;
 }): PreparedFindingTargets {
   const plannedPlacements =
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
+  const identify = params.identify ?? mintedIdentity;
   const planned = fingerprintInlinePlacements(plannedPlacements, "review").map(
-    (placement): IdentifiedInlinePlacement => ({ ...placement, findingId: mintFindingId() }),
+    (placement): IdentifiedInlinePlacement => ({ ...placement, ...identify(placement) }),
   );
-  const suppressionFingerprints = [
-    ...(params.storedInlineFingerprints ?? []),
-    ...(params.crossPrSuppressionFingerprints ?? []),
-  ];
-  const suppression = suppressInlinePlacementsByFingerprint(planned, suppressionFingerprints);
   const inlineCap = applyInlineCommentCap(
-    suppression.placements,
+    planned,
     params.maxInlineComments ?? MAX_INLINE_REVIEW_COMMENTS,
   );
   const placements = inlineCap.placements;
@@ -153,7 +153,6 @@ export function prepareFindingsForPublish(params: {
     inline: placements.filter((placement) => placement.inlinePosted),
     summaryOnly: placements.filter((placement) => !placement.inlinePosted),
     dropped: {
-      suppressedInlineCount: suppression.suppressedInlineCount,
       inlineCommentCapExcluded: inlineCap.inlineCommentCapExcluded,
       anchorUnresolved: placements.filter(
         (placement) => isInlineSeverity(placement.finding.severity) && placement.inlineLine == null,

@@ -17,6 +17,8 @@ export type FingerprintedInlinePlacement = InlinePlacement & {
 
 export type IdentifiedInlinePlacement = FingerprintedInlinePlacement & {
   readonly findingId: FindingId;
+  readonly reopens?: FindingId;
+  readonly relatedLinks?: readonly string[];
 };
 
 export function planInlinePlacements(

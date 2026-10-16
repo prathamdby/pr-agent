@@ -16,7 +16,7 @@ import {
   REVIEW_PUBLISH_SUMMARY_FIELDS,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
+import { ledgerFindings, type FindingLedger, type ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_SUMMARY_FIELDS);
@@ -76,7 +76,7 @@ function reconstructPayload(
   ledger: FindingLedger,
   input: SummaryInput,
 ): ReviewPayload {
-  const findings = ledger.accepted.map((accepted) => accepted.placement.finding);
+  const findings = ledgerFindings(ledger);
   const parsed = v.safeParse(createReviewPayloadSchema(), { ...input, findings });
   if (!parsed.success) {
     throwValidationError(

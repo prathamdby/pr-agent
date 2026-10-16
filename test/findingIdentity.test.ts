@@ -12,6 +12,12 @@ import {
   type FindingId,
 } from "../src/review/findingIdentity/findingMarker.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import {
+  OVERLAP_WINDOW_LINES,
+  overlaps,
+  reconcileObservation,
+  type ObservationRelation,
+} from "../src/review/findingIdentity/findingReconcile.js";
 import type {
   ReviewThreadResolutionStatus,
   ReviewThreadSnapshot,
@@ -452,5 +458,204 @@ describe("finding inventory", () => {
     expect(inventoryOf([], { summary: { ...summary, authorLogin: "mallory" } }).findings.size).toBe(
       0,
     );
+  });
+});
+
+const MINTED = id("f_00000000000000000000000MNT");
+
+function observation(overrides: { file?: string; startLine?: number; endLine?: number } = {}) {
+  return {
+    file: overrides.file ?? "src/a.ts",
+    startLine: overrides.startLine ?? 12,
+    endLine: overrides.endLine ?? overrides.startLine ?? 12,
+    severity: "P1" as const,
+    title: "Reworded null dereference",
+  };
+}
+
+function reconcile(
+  relation: ObservationRelation,
+  threads: readonly ReviewThreadSnapshot[],
+  options: {
+    readonly obs?: ReturnType<typeof observation>;
+    readonly status?: ReviewThreadResolutionStatus;
+    readonly overlapRoundsLeft?: 0 | 1;
+    readonly accepted?: Parameters<typeof reconcileObservation>[0]["acceptedThisRun"];
+  } = {},
+) {
+  return reconcileObservation({
+    observation: options.obs ?? observation(),
+    relation,
+    inventory: inventoryOf(threads, { status: options.status }),
+    acceptedThisRun: options.accepted ?? [],
+    overlapRoundsLeft: options.overlapRoundsLeft ?? 1,
+    mint: () => MINTED,
+  });
+}
+
+describe("observation reconciliation", () => {
+  const open = () => thread({ rootBody: markedBody(A), line: 10 });
+
+  it("overlaps within the window on the same path, ignoring lens", () => {
+    const finding = inventoryOf([open()]).findings.get(A);
+    if (finding == null) throw new Error("missing finding");
+    expect(overlaps(observation({ startLine: 10 + OVERLAP_WINDOW_LINES }), finding)).toBe(true);
+    expect(overlaps(observation({ startLine: 11 + OVERLAP_WINDOW_LINES }), finding)).toBe(false);
+    expect(overlaps(observation({ file: "src/b.ts", startLine: 10 }), finding)).toBe(false);
+  });
+
+  it("overlaps anywhere in the file when the finding position is unknown or stale", () => {
+    const unknown = inventoryOf([thread({ rootBody: markedBody(A), line: null })]).findings.get(A);
+    const stale = inventoryOf([thread({ rootBody: markedBody(A), isOutdated: true })]).findings.get(
+      A,
+    );
+    if (unknown == null || stale == null) throw new Error("missing finding");
+    expect(overlaps(observation({ startLine: 900 }), unknown)).toBe(true);
+    expect(overlaps(observation({ startLine: 900 }), stale)).toBe(true);
+  });
+
+  it("posts a brand-new observation that overlaps nothing with a minted id", () => {
+    expect(reconcile({ kind: "new" }, [])).toEqual({
+      outcome: { kind: "post_thread", id: MINTED, relatedLinks: [] },
+    });
+  });
+
+  it("asks instead of matching when a new observation overlaps an open finding", () => {
+    const step = reconcile({ kind: "new" }, [open()]);
+    expect(step).toMatchObject({ question: { candidates: [{ findingId: A }] } });
+  });
+
+  it("keeps an unanswered overlap off the PR as a durable summary row", () => {
+    expect(reconcile({ kind: "new" }, [open()], { overlapRoundsLeft: 0 })).toEqual({
+      outcome: { kind: "summary_only", id: MINTED, reason: "unanswered_overlap" },
+    });
+  });
+
+  it("reaffirms a reworded or moved observation that continues an open finding", () => {
+    expect(reconcile({ kind: "continues", findingId: A }, [open()])).toEqual({
+      outcome: { kind: "reaffirm", id: A, severity: "P1" },
+    });
+  });
+
+  it("follows a rename when the observation continues a finding on the old path", () => {
+    const renamed = thread({ rootBody: markedBody(A), path: "src/old.ts" });
+    const step = reconcileObservation({
+      observation: observation({ file: "src/new.ts" }),
+      relation: { kind: "continues", findingId: A },
+      inventory: inventoryOf([renamed], { renames: new Map([["src/old.ts", "src/new.ts"]]) }),
+      acceptedThisRun: [],
+      overlapRoundsLeft: 1,
+      mint: () => MINTED,
+    });
+    expect(step).toEqual({ outcome: { kind: "reaffirm", id: A, severity: "P1" } });
+  });
+
+  it("rejects continues on an unknown, distant, or other-file finding", () => {
+    expect(reconcile({ kind: "continues", findingId: B }, [open()])).toHaveProperty("rejected");
+    expect(
+      reconcile({ kind: "continues", findingId: A }, [open()], {
+        obs: observation({ startLine: 400 }),
+      }),
+    ).toHaveProperty("rejected");
+    expect(
+      reconcile({ kind: "continues", findingId: A }, [open()], {
+        obs: observation({ file: "src/z.ts" }),
+      }),
+    ).toHaveProperty("rejected");
+  });
+
+  it("posts two defects on one line when the model answers distinct_from", () => {
+    expect(
+      reconcile({ kind: "distinct_from", findingIds: [A], reason: "different variable" }, [open()]),
+    ).toEqual({ outcome: { kind: "post_thread", id: MINTED, relatedLinks: [] } });
+  });
+
+  it("still asks when distinct_from leaves an overlapping candidate unanswered", () => {
+    const other = thread({ rootBody: markedBody(B), line: 14 });
+    expect(
+      reconcile({ kind: "distinct_from", findingIds: [A], reason: "x" }, [open(), other]),
+    ).toMatchObject({ question: { candidates: [{ findingId: B }] } });
+  });
+
+  it("keeps both on uncertain, linking the possibly related thread", () => {
+    const step = reconcile({ kind: "uncertain", findingIds: [A] }, [open()]);
+    expect(step).toMatchObject({ outcome: { kind: "post_thread", id: MINTED } });
+    if (!("outcome" in step) || step.outcome.kind !== "post_thread")
+      throw new Error("expected post");
+    expect(step.outcome.relatedLinks).toHaveLength(1);
+  });
+
+  it("suppresses recurrence of a dismissed finding and reopens a fixed one", () => {
+    const dismissed = thread({ rootBody: markedBody(A), isResolved: true });
+    expect(reconcile({ kind: "continues", findingId: A }, [dismissed])).toEqual({
+      outcome: { kind: "suppressed_dismissed", id: A },
+    });
+    const fixed = thread({
+      rootBody: `${markedBody(A)}\n${renderReceipt({ kind: "fixed", id: A })}`,
+      isResolved: true,
+    });
+    expect(reconcile({ kind: "continues", findingId: A }, [fixed])).toEqual({
+      outcome: { kind: "post_thread", id: MINTED, reopens: A, relatedLinks: [] },
+    });
+  });
+
+  it("resolves continues on a duplicate to its canonical finding", () => {
+    const duplicate = thread({
+      rootBody: markedBody(B),
+      isResolved: true,
+      replies: [
+        { body: renderReceipt({ kind: "duplicate", id: B, canonical: A }), authorLogin: BOT },
+      ],
+    });
+    expect(reconcile({ kind: "continues", findingId: B }, [open(), duplicate])).toEqual({
+      outcome: { kind: "reaffirm", id: A, severity: "P1" },
+    });
+  });
+
+  it("promotes a summary-only finding with the same id when it is re-observed", () => {
+    const summary = {
+      body: renderFindingRowMarker({
+        id: A,
+        lens: "review",
+        severity: "P2",
+        path: "src/a.ts",
+        line: 12,
+        title: "Row",
+      }),
+      authorLogin: BOT,
+      url: "https://github.com/o/r/pull/1#issuecomment-1",
+    };
+    const step = reconcileObservation({
+      observation: observation(),
+      relation: { kind: "continues", findingId: A },
+      inventory: inventoryOf([], { summary }),
+      acceptedThisRun: [],
+      overlapRoundsLeft: 1,
+      mint: () => MINTED,
+    });
+    expect(step).toEqual({ outcome: { kind: "promote", id: A } });
+  });
+
+  it("treats same-run accepted findings as overlap candidates", () => {
+    const accepted = [
+      { id: B, path: "src/a.ts", startLine: 12, endLine: 12, title: "Earlier", url: "" },
+    ];
+    expect(reconcile({ kind: "new" }, [], { accepted })).toMatchObject({
+      question: { candidates: [{ findingId: B }] },
+    });
+    expect(reconcile({ kind: "continues", findingId: B }, [], { accepted })).toEqual({
+      outcome: { kind: "reaffirm", id: B, severity: "P1" },
+    });
+  });
+
+  it("never posts a thread from an incomplete inventory", () => {
+    for (const status of ["partial", "unavailable", "permission_denied"] as const) {
+      expect(reconcile({ kind: "new" }, [], { status })).toEqual({
+        outcome: { kind: "summary_only", id: MINTED, reason: "inventory_incomplete" },
+      });
+      expect(reconcile({ kind: "uncertain", findingIds: [A] }, [open()], { status })).toEqual({
+        outcome: { kind: "summary_only", id: MINTED, reason: "inventory_incomplete" },
+      });
+    }
   });
 });

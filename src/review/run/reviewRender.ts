@@ -273,9 +273,15 @@ function renderBoundPolicyFooter(boundPaths: readonly string[]): string[] {
 export function renderInlineThreadBody(
   finding: ReviewFinding,
   ctx: RenderContext,
-  identity: { readonly id: FindingId; readonly lens: FindingSource },
+  identity: {
+    readonly id: FindingId;
+    readonly lens: FindingSource;
+    readonly reopens?: FindingId;
+    readonly relatedLinks?: readonly string[];
+  },
   boundPaths: readonly string[] = [],
 ): string {
+  const relatedLinks = identity.relatedLinks ?? [];
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
     "",
@@ -293,8 +299,16 @@ export function renderInlineThreadBody(
     "",
     "</details>",
     ...renderBoundPolicyFooter(boundPaths),
+    ...(relatedLinks.length > 0
+      ? ["", `Possibly related: ${relatedLinks.map((url) => `[thread](${url})`).join(", ")}`]
+      : []),
     "",
-    renderFindingMarker({ id: identity.id, lens: identity.lens, severity: finding.severity }),
+    renderFindingMarker({
+      id: identity.id,
+      lens: identity.lens,
+      severity: finding.severity,
+      ...(identity.reopens != null ? { reopens: identity.reopens } : {}),
+    }),
   ];
   return lines.join("\n");
 }

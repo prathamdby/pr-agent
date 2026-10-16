@@ -2,9 +2,16 @@ import crypto from "node:crypto";
 import * as v from "valibot";
 import {
   type IdentifiedInlinePlacement,
+  type InlinePlacement,
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.js";
-import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.js";
+import {
+  mintFindingId,
+  parseOwnedFindingMarker,
+  type FindingId,
+} from "../findingIdentity/findingMarker.js";
+import type { FindingInventory } from "../findingIdentity/findingInventory.js";
+import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.js";
 import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
 import {
   renderInlineThreadBody,
@@ -12,10 +19,11 @@ import {
   renderSpecialistReviewBody,
 } from "../run/reviewRender.js";
 import { AppError } from "../../errors/appError.js";
-import { fingerprintCandidates } from "../findings/reviewFindingFingerprint.js";
+import { fingerprintInlinePlacements } from "../findings/reviewFindingFingerprint.js";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
+  type PlacementIdentity,
 } from "../findings/findingPipeline.js";
 import { reviewFindingEntries, type ReviewFinding } from "../reviewSchema.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
@@ -34,6 +42,8 @@ import type {
   FindingLedger,
   FindingLedgerDelta,
   FindingSource,
+  ReaffirmedFinding,
+  SummaryOnlyReason,
 } from "../orchestrator/orchestratorTypes.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
@@ -54,6 +64,8 @@ const publishedPlacementSchema = v.object({
   inlineCommentUrl: v.optional(v.string()),
   inlineFingerprint: v.string(),
   findingId: findingIdSchema,
+  reopens: v.optional(findingIdSchema),
+  relatedLinks: v.optional(v.array(v.string())),
 });
 const inlineResultSchema = v.object({
   review: v.optional(v.object({ id: v.number(), url: v.string() })),
@@ -105,13 +117,30 @@ export type FindingBatchInput = {
   readonly sameRepo?: boolean;
   readonly boundPolicyJudge?: BoundPolicyJudge;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
-  readonly crossPrSuppressionFingerprints?: readonly string[];
+  readonly reconciled?: ReconciledFindings;
+};
+
+export type ReconciledFindings = {
+  readonly inventory: FindingInventory;
+  readonly outcomes: ReadonlyMap<string, ReconcileOutcome>;
+};
+
+type ReconciledBatch = {
+  readonly postable: readonly InlinePlacement[];
+  readonly identify: (placement: InlinePlacement) => PlacementIdentity;
+  readonly held: readonly {
+    readonly placement: IdentifiedInlinePlacement;
+    readonly reason: SummaryOnlyReason;
+  }[];
+  readonly reaffirmed: readonly ReaffirmedFinding[];
+  readonly suppressedDismissedCount: number;
 };
 
 function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta {
   return {
     accepted: [],
-    suppressionFingerprints: [],
+    reaffirmed: [],
+    suppressedDismissedCount: 0,
     inlineReviewIds: [],
     postedInlineCount: 0,
     threadCallCount: 1,
@@ -120,22 +149,112 @@ function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta
   };
 }
 
-function hasAcceptedFingerprint(
-  placement: IdentifiedInlinePlacement,
-  ledger: FindingLedger,
-): boolean {
-  const candidates = new Set(fingerprintCandidates(placement.finding));
-  return ledger.accepted.some((accepted) => candidates.has(accepted.canonicalFingerprint));
+function reaffirmedFinding(
+  placement: InlinePlacement,
+  outcome: Extract<ReconcileOutcome, { kind: "reaffirm" }>,
+  source: FindingSource,
+  inventory: FindingInventory,
+): ReaffirmedFinding {
+  const held = inventory.findings.get(outcome.id);
+  const base = { id: outcome.id, source, severity: outcome.severity };
+  if (held?.source === "thread") {
+    return {
+      ...base,
+      heldBy: "thread",
+      placement: {
+        finding: placement.finding,
+        inlineLine: held.line,
+        inlinePosted: true,
+        ...(held.url.length > 0 ? { inlineCommentUrl: held.url } : {}),
+      },
+    };
+  }
+  return {
+    ...base,
+    heldBy: held == null ? "run" : "summary",
+    placement: { finding: placement.finding, inlineLine: null, inlinePosted: false },
+  };
 }
 
-function ledgerPlacement({ findingId: _findingId, ...placement }: IdentifiedInlinePlacement) {
+function reconcileBatch(
+  placements: readonly InlinePlacement[],
+  source: FindingSource,
+  reconciled: ReconciledFindings | undefined,
+): ReconciledBatch {
+  const identities = new Map<string, PlacementIdentity>();
+  const identify = (placement: InlinePlacement): PlacementIdentity =>
+    identities.get(reviewFindingPlacementKey(placement.finding)) ?? { findingId: mintFindingId() };
+  if (reconciled == null) {
+    return {
+      postable: placements,
+      identify,
+      held: [],
+      reaffirmed: [],
+      suppressedDismissedCount: 0,
+    };
+  }
+  const postable: InlinePlacement[] = [];
+  const held: { placement: IdentifiedInlinePlacement; reason: SummaryOnlyReason }[] = [];
+  const reaffirmed: ReaffirmedFinding[] = [];
+  let suppressedDismissedCount = 0;
+  for (const placement of placements) {
+    const key = reviewFindingPlacementKey(placement.finding);
+    const outcome = reconciled.outcomes.get(key);
+    if (outcome == null) {
+      postable.push(placement);
+      continue;
+    }
+    switch (outcome.kind) {
+      case "post_thread":
+        identities.set(key, {
+          findingId: outcome.id,
+          ...(outcome.reopens != null ? { reopens: outcome.reopens } : {}),
+          ...(outcome.relatedLinks.length > 0 ? { relatedLinks: outcome.relatedLinks } : {}),
+        });
+        postable.push(placement);
+        break;
+      case "promote":
+        identities.set(key, { findingId: outcome.id });
+        postable.push(placement);
+        break;
+      case "summary_only": {
+        const [fingerprinted] = fingerprintInlinePlacements([placement], "review");
+        if (fingerprinted != null) {
+          held.push({
+            placement: { ...fingerprinted, findingId: outcome.id },
+            reason: outcome.reason,
+          });
+        }
+        break;
+      }
+      case "reaffirm":
+        reaffirmed.push(reaffirmedFinding(placement, outcome, source, reconciled.inventory));
+        break;
+      case "suppressed_dismissed":
+        suppressedDismissedCount += 1;
+        break;
+      default: {
+        const exhaustive: never = outcome;
+        return exhaustive;
+      }
+    }
+  }
+  return { postable, identify, held, reaffirmed, suppressedDismissedCount };
+}
+
+function ledgerPlacement({
+  findingId: _findingId,
+  reopens: _reopens,
+  relatedLinks: _relatedLinks,
+  ...placement
+}: IdentifiedInlinePlacement) {
   return placement;
 }
 
 function summaryOnlyPlacement(
   placement: IdentifiedInlinePlacement,
   source: FindingSource,
-  reason: Extract<AcceptedPlacement, { kind: "summary_only" }>["reason"],
+  reason: SummaryOnlyReason,
 ): AcceptedPlacement {
   return {
     kind: "summary_only",
@@ -144,37 +263,30 @@ function summaryOnlyPlacement(
     findingId: placement.findingId,
     canonicalFingerprint: placement.inlineFingerprint,
     reason,
+    ...(placement.reopens != null ? { reopens: placement.reopens } : {}),
   };
 }
 
 function acceptedSummaryPlacements(params: {
   readonly targets: readonly IdentifiedInlinePlacement[];
   readonly planned: readonly IdentifiedInlinePlacement[];
+  readonly batch: ReconciledBatch;
   readonly source: FindingSource;
-  readonly ledger: FindingLedger;
   readonly budgetExhausted?: boolean;
 }): AcceptedPlacement[] {
   const plannedByKey = new Map(
     params.planned.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
-  return params.targets.flatMap((placement) => {
-    if (
-      fingerprintCandidates(placement.finding).some((candidate) =>
-        params.ledger.suppressionFingerprints.has(candidate),
-      )
-    ) {
-      if (hasAcceptedFingerprint(placement, params.ledger)) return [];
-      return [summaryOnlyPlacement(placement, params.source, "historical")];
-    }
+  const held = params.batch.held.map(({ placement, reason }) =>
+    summaryOnlyPlacement(placement, params.source, reason),
+  );
+  const fromTargets = params.targets.flatMap((placement) => {
     if (placement.inlinePosted && !params.budgetExhausted) return [];
     const planned = plannedByKey.get(reviewFindingPlacementKey(placement.finding));
     const reason = params.budgetExhausted ? "budget" : planned?.inlinePosted ? "cap" : "anchor";
     return [summaryOnlyPlacement(placement, params.source, reason)];
   });
-}
-
-function acceptedFingerprints(accepted: readonly AcceptedPlacement[]): string[] {
-  return [...new Set(accepted.map((placement) => placement.canonicalFingerprint))];
+  return [...held, ...fromTargets];
 }
 
 function storedPlacement(
@@ -225,12 +337,16 @@ export async function publishFindingBatch(
     0,
     session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
+  const reconciledBatch = reconcileBatch(
+    prepared.prepared.placements,
+    input.source,
+    saved ? undefined : input.reconciled,
+  );
   const calculatedTargets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: session.cachedDiffIndex,
-    inlinePlacements: prepared.prepared.placements,
-    storedInlineFingerprints: [...input.ledger.suppressionFingerprints],
-    crossPrSuppressionFingerprints: input.crossPrSuppressionFingerprints,
+    inlinePlacements: reconciledBatch.postable,
+    identify: reconciledBatch.identify,
     maxInlineComments: remainingInline,
   });
   const targets = saved
@@ -239,11 +355,24 @@ export async function publishFindingBatch(
         inline: saved.inline,
         dropped: {
           ...calculatedTargets.dropped,
-          suppressedInlineCount: saved.counts.suppressed,
           inlineCommentCapExcluded: saved.counts.capDowngraded,
         },
       }
     : calculatedTargets;
+  const reconciledDelta = input.recoveryWithoutEvidence
+    ? { reaffirmed: [], suppressedDismissedCount: 0 }
+    : saved
+      ? {
+          reaffirmed: saved.localDelta.reaffirmed,
+          suppressedDismissedCount: saved.localDelta.suppressedDismissedCount,
+        }
+      : {
+          reaffirmed: reconciledBatch.reaffirmed,
+          suppressedDismissedCount: reconciledBatch.suppressedDismissedCount,
+        };
+  const suppressedCount = saved
+    ? saved.counts.suppressed
+    : reconciledBatch.reaffirmed.length + reconciledBatch.suppressedDismissedCount;
   const evidence = input.evidenceLedger
     ? evidenceForCachedFindings(input.evidenceLedger, prepared.prepared.payload.findings)
     : prepared.prepared.payload.findings.length === 0
@@ -261,10 +390,13 @@ export async function publishFindingBatch(
     localDelta: {
       ...localDelta,
       accepted: [...localDelta.accepted],
-      suppressionFingerprints: [...localDelta.suppressionFingerprints],
+      reaffirmed: [...localDelta.reaffirmed],
       inlineReviewIds: [...localDelta.inlineReviewIds],
     },
-    inline: targets.inline.map((entry) => ({ ...entry })),
+    inline: targets.inline.map(({ relatedLinks, ...entry }) => ({
+      ...entry,
+      ...(relatedLinks != null ? { relatedLinks: [...relatedLinks] } : {}),
+    })),
     footers: [...footers].map(([key, paths]) => [key, [...paths]]),
     resultKind,
     evidence: evidence ?? [],
@@ -272,7 +404,7 @@ export async function publishFindingBatch(
     briefFallback: session.recovery?.getBriefFallback() ?? false,
     coverage: session.recovery?.getCoverage() ?? { kind: "full" },
     counts: {
-      suppressed: targets.dropped.suppressedInlineCount,
+      suppressed: suppressedCount,
       capDowngraded: targets.dropped.inlineCommentCapExcluded,
     },
   });
@@ -300,7 +432,7 @@ export async function publishFindingBatch(
     if (input.recoveryWithoutEvidence)
       return {
         kind: saved.resultKind,
-        delta: { ...saved.localDelta, accepted: [], suppressionFingerprints: [] },
+        delta: { ...saved.localDelta, ...reconciledDelta, accepted: [] },
       };
     return finishLocal({ kind: saved.resultKind, delta: saved.localDelta });
   }
@@ -313,17 +445,13 @@ export async function publishFindingBatch(
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,
       planned: targets.planned,
+      batch: reconciledBatch,
       source: input.source,
-      ledger: input.ledger,
       budgetExhausted: true,
     });
     return finishLocal({
       kind: "budget_exhausted",
-      delta: emptyDelta({
-        accepted,
-        suppressionFingerprints: acceptedFingerprints(accepted),
-        threadBudgetExhausted: true,
-      }),
+      delta: emptyDelta({ accepted, ...reconciledDelta, threadBudgetExhausted: true }),
     });
   }
 
@@ -333,16 +461,13 @@ export async function publishFindingBatch(
       acceptedSummaryPlacements({
         targets: targets.placements,
         planned: targets.planned,
+        batch: reconciledBatch,
         source: input.source,
-        ledger: input.ledger,
       }));
   if (targets.inline.length === 0) {
     return finishLocal({
       kind: "empty",
-      delta: emptyDelta({
-        accepted: acceptedBeforePublish,
-        suppressionFingerprints: acceptedFingerprints(acceptedBeforePublish),
-      }),
+      delta: emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
     });
   }
 
@@ -395,10 +520,7 @@ export async function publishFindingBatch(
     operationKey,
     saved ??
       plan(
-        emptyDelta({
-          accepted: acceptedBeforePublish,
-          suppressionFingerprints: acceptedFingerprints(acceptedBeforePublish),
-        }),
+        emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
         "remote",
         boundByKey,
       ),
@@ -429,7 +551,12 @@ export async function publishFindingBatch(
         renderInlineThreadBody(
           placement.finding,
           session.ctx,
-          { id: placement.findingId, lens: input.source },
+          {
+            id: placement.findingId,
+            lens: input.source,
+            reopens: placement.reopens,
+            relatedLinks: placement.relatedLinks,
+          },
           boundByKey.get(reviewFindingPlacementKey(placement.finding)) ?? [],
         ),
     });
@@ -523,10 +650,7 @@ export async function publishFindingBatch(
     await session.recovery?.settle(decision);
     return {
       kind: "empty",
-      delta: emptyDelta({
-        accepted: acceptedWithoutPosted,
-        suppressionFingerprints: acceptedFingerprints(acceptedWithoutPosted),
-      }),
+      delta: emptyDelta({ accepted: acceptedWithoutPosted, ...reconciledDelta }),
     };
   }
 
@@ -537,6 +661,7 @@ export async function publishFindingBatch(
     findingId: placement.findingId,
     canonicalFingerprint: placement.inlineFingerprint,
     reviewId: review.id,
+    ...(placement.reopens != null ? { reopens: placement.reopens } : {}),
   }));
   const accepted = [...acceptedWithoutPosted, ...postedAccepted];
   const batchRecord: StoredInlineBatch | undefined = session.workItemId
@@ -554,7 +679,7 @@ export async function publishFindingBatch(
         placements: posted.map(storedPlacement),
         counts: {
           posted: posted.length,
-          suppressed: targets.dropped.suppressedInlineCount,
+          suppressed: suppressedCount,
           capDowngraded: targets.dropped.inlineCommentCapExcluded,
           anchorDropped: inlineResult.anchorDroppedPlacements.length,
         },
@@ -574,7 +699,7 @@ export async function publishFindingBatch(
       specialist: input.source,
       batchId,
       postedCount: posted.length,
-      suppressedCount: targets.dropped.suppressedInlineCount,
+      suppressedCount,
       capDowngraded: targets.dropped.inlineCommentCapExcluded,
       anchorDropped: inlineResult.anchorDroppedPlacements.length,
       latencyMs: publishLatencyMs,
@@ -603,7 +728,7 @@ export async function publishFindingBatch(
     reviewId: review.id,
     delta: emptyDelta({
       accepted,
-      suppressionFingerprints: acceptedFingerprints(accepted),
+      ...reconciledDelta,
       inlineReviewIds: [review.id],
       postedInlineCount: posted.length,
     }),

@@ -11,6 +11,16 @@ import { makeTestConfig } from "./helpers/config.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+
+const emptyInventory = buildFindingInventory({
+  threads: { status: "ok", threads: [] },
+  summary: null,
+  summaryComplete: true,
+  botLogin: "pr-agent[bot]",
+  renames: new Map(),
+  deletedPaths: new Set(),
+});
 
 let nextReviewId = 100;
 
@@ -65,6 +75,7 @@ function buildTool(
   const tool = buildPublishThreadTool({
     phaseRef: createOrchestratorPhaseRef("judgment"),
     session: threadSession(surface, shouldAbortPublish, cfg),
+    inventory: emptyInventory,
     initialLedger: createFindingLedger(),
   });
   return { tool, publishThreadBatch };
@@ -76,41 +87,74 @@ describe("buildPublishThreadTool", () => {
     nextReviewId = 100;
   });
 
-  it("carries the finding ledger across calls and reports same-file published threads", async () => {
+  it("asks one overlap round against earlier accepted findings, then publishes the answered batch", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
 
     const first = await tool.executor({ findings: [finding(10)] });
+    expect(first.kind).toBe("published");
+    const [accepted] = tool.getLedger().accepted;
+    if (accepted == null) throw new Error("expected an accepted finding");
     tool.setSource("security");
-    const second = await tool.executor({ findings: [finding(10), finding(20)] });
+
+    const asked = await tool.executor({ findings: [finding(10), finding(20)] }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(asked).toMatchObject({ code: "review.publish_thread_overlap_unanswered" });
+    const askedMessage = asked instanceof Error ? asked.message : "";
+    expect(askedMessage.split(accepted.findingId)).toHaveLength(3);
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(tool.getLedger().threadCallCount).toBe(1);
+
+    const second = await tool.executor({
+      findings: [
+        { ...finding(10), relation: { kind: "continues", findingId: accepted.findingId } },
+        {
+          ...finding(20),
+          relation: {
+            kind: "distinct_from",
+            findingIds: [accepted.findingId],
+            reason: "Different return path.",
+          },
+        },
+      ],
+    });
 
     expect(tool.piTool.name).toBe("publish_thread");
-    expect(first).toMatchObject({
-      kind: "published",
-      publishedThreadOverlapHints: [
-        expect.objectContaining({
-          file: "src/a.ts",
-          startLine: 10,
-          title: "Bug at line 10",
-        }),
-      ],
-    });
-    expect(second).toMatchObject({
-      kind: "published",
-      publishedThreadOverlapHints: [
-        expect.objectContaining({ startLine: 10 }),
-        expect.objectContaining({ startLine: 20 }),
-      ],
-    });
+    expect(second.kind).toBe("published");
     expect(publishThreadBatch).toHaveBeenCalledTimes(2);
-    expect(tool.getLedger().accepted).toHaveLength(2);
+    expect(publishThreadBatch.mock.calls[1]?.[0].comments).toHaveLength(1);
     expect(tool.getLedger().accepted.map((placement) => placement.source)).toEqual([
       "correctness",
       "security",
     ]);
+    expect(tool.getLedger().reaffirmed).toEqual([
+      expect.objectContaining({ id: accepted.findingId, source: "security", heldBy: "run" }),
+    ]);
     expect(tool.getLedger().postedInlineCount).toBe(2);
     expect(tool.getLedger().threadCallCount).toBe(2);
     expect(tool.getPublishedBatchCount()).toBe(2);
+  });
+
+  it("lands still-unanswered overlaps summary-only once the round is spent", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+    await tool.executor({ findings: [finding(10)] });
+    tool.setSource("security");
+
+    await expect(tool.executor({ findings: [finding(12)] })).rejects.toMatchObject({
+      code: "review.publish_thread_overlap_unanswered",
+    });
+    const result = await tool.executor({ findings: [finding(12)] });
+
+    expect(result.kind).toBe("empty");
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(tool.getLedger().accepted.at(-1)).toMatchObject({
+      kind: "summary_only",
+      source: "security",
+      reason: "unanswered_overlap",
+    });
   });
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
@@ -122,7 +166,7 @@ describe("buildPublishThreadTool", () => {
     tool.setSource("security");
 
     await tool.executor({ findings: [finding(10)] });
-    const result = await tool.executor({ findings: [finding(20)] });
+    const result = await tool.executor({ findings: [finding(40)] });
 
     expect(result.kind).toBe("budget_exhausted");
     expect(tool.getLedger().accepted).toEqual([
@@ -168,6 +212,7 @@ describe("buildPublishThreadTool", () => {
     const tool = buildPublishThreadTool({
       phaseRef: createOrchestratorPhaseRef("recon"),
       session: threadSession(surface),
+      inventory: emptyInventory,
       initialLedger: createFindingLedger(),
     });
 

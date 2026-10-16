@@ -124,6 +124,7 @@ export const APP_ERROR_KINDS = {
     "publish_summary_semantic_validation_failed",
     "publish_summary_validation_failed",
     "publish_thread_failed",
+    "publish_thread_overlap_unanswered",
     "publish_thread_source_required",
     "publish_thread_validation_failed",
     "specialist_aborted",
