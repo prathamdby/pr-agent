@@ -9,6 +9,7 @@ import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
 import type {
   ReviewThreadResolution,
   ReviewThreadResolutionStatus,
+  ReviewThreadSnapshot,
 } from "./reviewThreadResolution.js";
 import type { GithubReactionContent } from "../settings/index.js";
 import type {
@@ -62,6 +63,7 @@ export type FakePrSurfaceEvent =
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
   | { readonly kind: "publishThreadBatch"; readonly review: ThreadBatchReview }
   | { readonly kind: "listInlineReviewThreads" }
+  | { readonly kind: "getReviewThread"; readonly threadNodeId: string }
   | { readonly kind: "resolveInlineReviewThread"; readonly threadId: string }
   | { readonly kind: "listChangedFiles"; readonly caps: ListPullRequestFilesLimits }
   | { readonly kind: "listCommitCompareFiles"; readonly base: string; readonly head: string }
@@ -136,7 +138,9 @@ export type FakePrSurfaceControls = {
     }>,
   ) => void;
   readonly setJobLogs: (jobId: number, text: string) => void;
-  readonly setThreads: (threads: Map<number, ReviewThreadResolution>) => void;
+  readonly setThreads: (
+    threads: ReadonlyMap<number, ReviewThreadResolution | ReviewThreadSnapshot>,
+  ) => void;
   readonly setReviewComments: (comments: readonly PrReviewComment[]) => void;
   readonly setPullRequestReviews: (reviews: readonly PrReview[]) => void;
   readonly setConversationComments: (comments: readonly PrConversationComment[]) => void;
@@ -230,7 +234,7 @@ export function createFakePrSurface(
       readonly legacyStatuses: CiLegacyStatus[];
     }
   >();
-  const threads = new Map<number, ReviewThreadResolution>();
+  const threads = new Map<number, ReviewThreadResolution | ReviewThreadSnapshot>();
   const checkRuns = new Map<
     number,
     {
@@ -276,6 +280,36 @@ export function createFakePrSurface(
   let inlineReplyAcceptedBeforeError = false;
   let threadResolutionStatus: ReviewThreadResolutionStatus = "ok";
   let threadResolutionWarning: string | undefined;
+
+  const threadSnapshot = (
+    rootCommentId: number,
+    thread: ReviewThreadResolution | ReviewThreadSnapshot,
+  ): ReviewThreadSnapshot => {
+    if ("rootCommentId" in thread) return thread;
+    const root = reviewComments.find((comment) => comment.id === rootCommentId);
+    const comments = reviewComments
+      .filter((comment) => comment.id === rootCommentId || comment.inReplyToId === rootCommentId)
+      .map((comment) => ({
+        databaseId: comment.id,
+        authorLogin: comment.authorLogin,
+        body: reviewCommentBodies.get(comment.id) ?? comment.body,
+        createdAt: "",
+        url: comment.htmlUrl,
+      }));
+    return {
+      ...thread,
+      rootCommentId,
+      path: root?.path ?? null,
+      line: root?.line ?? null,
+      startLine: null,
+      originalLine: root?.originalLine ?? null,
+      originalStartLine: null,
+      isOutdated: false,
+      diffSide: root == null ? null : "RIGHT",
+      comments,
+      commentsComplete: true,
+    };
+  };
 
   const controls: FakePrSurfaceControls = {
     events,
@@ -565,6 +599,27 @@ export function createFakePrSurface(
       events.push({ kind: "publishThreadBatch", review });
       threadBatches.push(review);
       const reviewId = nextReviewId++;
+      for (const comment of review.comments ?? []) {
+        const commentId = nextCommentId++;
+        reviewCommentBodies.set(commentId, comment.body);
+        reviewComments.push({
+          id: commentId,
+          inReplyToId: null,
+          pullRequestReviewId: reviewId,
+          userId: null,
+          authorLogin: "pr-agent[bot]",
+          authorAssociation: null,
+          body: comment.body,
+          path: comment.path,
+          line: comment.line,
+          originalLine: comment.line,
+          htmlUrl: `https://github.com/${params.owner}/${params.repo}/pull/${params.prNumber}#discussion_r${commentId}`,
+        });
+        threads.set(commentId, {
+          threadNodeId: `fake-thread-${commentId}`,
+          isResolved: false,
+        });
+      }
       const reviewUrl = `https://github.com/${params.owner}/${params.repo}/pull/${params.prNumber}#pullrequestreview-${reviewId}`;
       publishedThreadBatches.push({
         id: reviewId,
@@ -581,10 +636,24 @@ export function createFakePrSurface(
     async listInlineReviewThreads() {
       events.push({ kind: "listInlineReviewThreads" });
       return {
-        byRootCommentId: new Map(threads),
+        byRootCommentId: new Map(
+          [...threads].map(([rootId, thread]) => [
+            rootId,
+            { threadNodeId: thread.threadNodeId, isResolved: thread.isResolved },
+          ]),
+        ),
+        threads: [...threads].map(([rootId, thread]) => threadSnapshot(rootId, thread)),
         status: threadResolutionStatus,
         ...(threadResolutionWarning != null ? { warning: threadResolutionWarning } : {}),
       };
+    },
+
+    async getReviewThread(threadNodeId) {
+      events.push({ kind: "getReviewThread", threadNodeId });
+      for (const [rootId, thread] of threads) {
+        if (thread.threadNodeId === threadNodeId) return threadSnapshot(rootId, thread);
+      }
+      return null;
     },
 
     async resolveInlineReviewThread(threadId) {
