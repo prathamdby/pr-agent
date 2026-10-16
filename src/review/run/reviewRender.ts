@@ -65,9 +65,14 @@ const DURABLE_ROW_TITLE_MAX_CHARS = 80;
 const CODE_FENCE_RE = /```/g;
 const HTML_COMMENT_DASH_RE = /--/g;
 const HTML_COMMENT_CLOSE_RE = />/g;
+const CONTROL_MARKER_OPEN_RE = /<!--(?=\s*pr-agent:)/g;
 
 function escapeCodeFenceBreakers(text: string): string {
   return text.replace(CODE_FENCE_RE, "\\`\\`\\`");
+}
+
+function neutralizeControlMarkers(text: string): string {
+  return text.replace(CONTROL_MARKER_OPEN_RE, "&lt;!--");
 }
 
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
@@ -201,6 +206,7 @@ type SummaryRenderOptions = {
   includeAgentFixAccordion: boolean;
   compactionNote?: boolean;
   findingRowLimit?: number;
+  durableRowLimit?: number;
   omittedFindingCount?: number;
 };
 
@@ -259,7 +265,7 @@ function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
   if (finding.suggestedCode == null) return [];
   if (finding.startLine !== finding.endLine) return [];
 
-  const escapedCode = escapeCodeFenceBreakers(finding.suggestedCode);
+  const escapedCode = neutralizeControlMarkers(escapeCodeFenceBreakers(finding.suggestedCode));
   if (escapedCode !== finding.suggestedCode) return [];
 
   return ["", "```suggestion", escapedCode, "```"];
@@ -302,6 +308,9 @@ export function renderInlineThreadBody(
     ...(relatedLinks.length > 0
       ? ["", `Possibly related: ${relatedLinks.map((url) => `[thread](${url})`).join(", ")}`]
       : []),
+  ];
+  return [
+    neutralizeControlMarkers(lines.join("\n")),
     "",
     renderFindingMarker({
       id: identity.id,
@@ -309,8 +318,7 @@ export function renderInlineThreadBody(
       severity: finding.severity,
       ...(identity.reopens != null ? { reopens: identity.reopens } : {}),
     }),
-  ];
-  return lines.join("\n");
+  ].join("\n");
 }
 
 export function renderAgentFixPrompt(
@@ -472,15 +480,20 @@ function buildReviewSummaryBody(
   ctx: ReviewSummaryRenderCtx,
   options: SummaryRenderOptions,
 ): string {
-  let visiblePlacements = [...ctx.placements];
-  if (options.findingRowLimit != null) {
-    let droppableRowsLeft = options.findingRowLimit;
-    visiblePlacements = visiblePlacements.filter((placement) => {
-      if (placement.findingRow != null) return true;
-      droppableRowsLeft -= 1;
-      return droppableRowsLeft >= 0;
-    });
-  }
+  let droppableRowsLeft = options.findingRowLimit ?? Number.POSITIVE_INFINITY;
+  let durableRowsLeft = options.durableRowLimit ?? Number.POSITIVE_INFINITY;
+  const visiblePlacements = ctx.placements.filter((placement) => {
+    if (placement.findingRow != null) {
+      durableRowsLeft -= 1;
+      return durableRowsLeft >= 0;
+    }
+    droppableRowsLeft -= 1;
+    return droppableRowsLeft >= 0;
+  });
+  const omittedFindingNote =
+    options.omittedFindingCount != null && options.omittedFindingCount > 0
+      ? `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`
+      : null;
   const coverage = ctx.coverage ?? { kind: "full", failed: [] };
   const actionLine = renderReviewActionLine({
     findingCount: countReviewFindingsForActionLine(
@@ -504,7 +517,10 @@ function buildReviewSummaryBody(
   const summaryOnlyAccordions: string[] = [];
 
   if (visiblePlacements.length === 0) {
-    tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
+    tableRows.push([
+      renderTableStrong("Findings"),
+      escapeTableHtml(omittedFindingNote ?? REVIEW_FINDINGS_NONE),
+    ]);
   } else {
     for (const placement of visiblePlacements) {
       const f = placement.finding;
@@ -570,14 +586,9 @@ function buildReviewSummaryBody(
     rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
   }
 
-  if (options.omittedFindingCount != null && options.omittedFindingCount > 0) {
+  if (omittedFindingNote != null && visiblePlacements.length > 0) {
     rows.push("");
-    rows.push(
-      renderGitHubAlert(
-        REVIEW_OVERVIEW_ALERT,
-        `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`,
-      ),
-    );
+    rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, omittedFindingNote));
   }
 
   rows.push("");
@@ -620,6 +631,7 @@ export function fitReviewSummaryBody(
   const droppableCount = sortedPlacements.filter(
     (placement) => placement.findingRow == null,
   ).length;
+  const durableCount = sortedPlacements.length - droppableCount;
 
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
@@ -640,38 +652,55 @@ export function fitReviewSummaryBody(
     return compact;
   }
 
-  let lo = 0;
-  let hi = droppableCount - 1;
-  let best: string | null = null;
-  while (lo <= hi) {
-    const limit = Math.floor((lo + hi) / 2);
-    const omitted = droppableCount - limit;
-    const trimmed = buildReviewSummaryBody(payload, sortedCtx, {
+  const trimmed = largestFittingBody(droppableCount - 1, maxBodyChars, (limit) =>
+    buildReviewSummaryBody(payload, sortedCtx, {
       compact: true,
       includeSummaryAccordions: false,
       includeAgentFixAccordion: true,
       compactionNote: true,
       findingRowLimit: limit,
-      omittedFindingCount: omitted,
+      omittedFindingCount: droppableCount - limit,
+    }),
+  );
+  if (trimmed) return trimmed;
+
+  const minimal = (findingRowLimit: number, durableRowLimit: number) =>
+    buildReviewSummaryBody(payload, sortedCtx, {
+      compact: true,
+      minimalDurableRows: true,
+      includeSummaryAccordions: false,
+      includeAgentFixAccordion: false,
+      compactionNote: true,
+      findingRowLimit,
+      durableRowLimit,
+      omittedFindingCount: droppableCount - findingRowLimit + durableCount - durableRowLimit,
     });
-    if (trimmed.length <= maxBodyChars) {
-      best = trimmed;
+  return (
+    largestFittingBody(droppableCount, maxBodyChars, (limit) => minimal(limit, durableCount)) ??
+    largestFittingBody(durableCount - 1, maxBodyChars, (limit) => minimal(0, limit)) ??
+    minimal(0, 0)
+  );
+}
+
+function largestFittingBody(
+  maxLimit: number,
+  maxBodyChars: number,
+  render: (limit: number) => string,
+): string | null {
+  let lo = 0;
+  let hi = maxLimit;
+  let best: string | null = null;
+  while (lo <= hi) {
+    const limit = Math.floor((lo + hi) / 2);
+    const body = render(limit);
+    if (body.length <= maxBodyChars) {
+      best = body;
       lo = limit + 1;
     } else {
       hi = limit - 1;
     }
   }
-  if (best) return best;
-
-  return buildReviewSummaryBody(payload, sortedCtx, {
-    compact: true,
-    minimalDurableRows: true,
-    includeSummaryAccordions: false,
-    includeAgentFixAccordion: false,
-    compactionNote: true,
-    findingRowLimit: 0,
-    omittedFindingCount: droppableCount,
-  });
+  return best;
 }
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
