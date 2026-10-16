@@ -152,6 +152,25 @@ describe("buildPublishThreadTool", () => {
     });
   });
 
+  it("publishes one thread for repeated findings within one batch", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+
+    const result = await tool.executor({
+      findings: [
+        finding(10),
+        { ...finding(10), severity: "P0", startLine: 9, title: "BUG at line 10!" },
+        { ...finding(10), detail: "Same location and title, reworded detail." },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch.mock.calls[0]?.[0].comments).toHaveLength(1);
+    const accepted = tool.getLedger().accepted;
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.placement.finding.severity).toBe("P0");
+  });
+
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
     const { tool } = buildTool(
       undefined,

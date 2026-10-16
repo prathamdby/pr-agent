@@ -47,7 +47,6 @@ import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
 } from "../src/agentWork/publishOnce.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
@@ -272,12 +271,6 @@ describe("publishFindingBatch", () => {
       reviewRecoveryInputDigest({
         ...input,
         modelApis: { orchestrator: "anthropic-messages" },
-      }),
-    ).not.toBe(digest);
-    expect(
-      reviewRecoveryInputDigest({
-        ...input,
-        cfg: makeTestConfig({ findingHistory: { enabled: !cfg.findingHistory.enabled } }),
       }),
     ).not.toBe(digest);
     expect(
@@ -611,7 +604,6 @@ describe("publishFindingBatch", () => {
             expect.objectContaining({
               finding,
               resolvedLine: 10,
-              canonicalFingerprint: fingerprintFinding(finding, "review"),
               findingId: postedFindingIds(first)[0],
             }),
           ],
@@ -653,68 +645,6 @@ describe("publishFindingBatch", () => {
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
     expect(result.delta.accepted).toEqual([]);
-  });
-
-  it("publishes one thread for overlapping duplicate findings", async () => {
-    const duplicate = { ...finding, severity: "P2" as const };
-    const result = await publishFindingBatch(
-      [finding, duplicate],
-      ...batchContext(createFindingLedger(), undefined, {
-        seedFindings: [finding, duplicate],
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    if (result.kind !== "published") return;
-    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
-    expect(result.delta.postedInlineCount).toBe(1);
-    expect(result.delta.accepted.filter((placement) => placement.kind === "posted")).toHaveLength(
-      1,
-    );
-    expect(result.delta.accepted[0]?.canonicalFingerprint).toBe(
-      fingerprintFinding(finding, "review"),
-    );
-  });
-
-  it("records open finding history without changing publication", async () => {
-    const query = vi.fn(async () => ({ rowCount: 1 }));
-    const result = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), undefined, {
-        pool: { query } as unknown as Pool,
-        installationId: 9,
-        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    if (result.kind !== "published") return;
-    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
-    expect(result.delta.postedInlineCount).toBe(1);
-    expect(result.reviewId).toBe(1);
-    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
-    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(sql).toContain("FROM unnest($7::text[])");
-    expect(values[6]).toEqual([fingerprintFinding(finding, "review")]);
-  });
-
-  it("keeps publication when finding-history upsert fails", async () => {
-    const query = vi.fn(async () => {
-      throw new Error("db down");
-    });
-    const result = await publishFindingBatch(
-      [finding],
-      ...batchContext(createFindingLedger(), undefined, {
-        pool: { query } as unknown as Pool,
-        installationId: 9,
-        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
-      }),
-    );
-
-    expect(result.kind).toBe("published");
-    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
   });
 
   it("drops leftover violatedRule and posts no Bound footer without policy", async () => {
@@ -881,7 +811,6 @@ describe("publishFindingBatch", () => {
       expect.objectContaining({
         kind: "summary_only",
         reason: "anchor",
-        canonicalFingerprint: fingerprintFinding(unresolved, "review"),
       }),
     ]);
   });
@@ -964,13 +893,11 @@ describe("publishFindingBatch", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "posted",
-          canonicalFingerprint: fingerprintFinding(first, "review"),
           placement: expect.objectContaining({ finding: first }),
         }),
         expect.objectContaining({
           kind: "summary_only",
           reason: "anchor",
-          canonicalFingerprint: fingerprintFinding(second, "review"),
           placement: expect.objectContaining({ finding: second }),
         }),
       ]),

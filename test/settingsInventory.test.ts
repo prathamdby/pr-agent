@@ -40,14 +40,14 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_PROVIDER_MAX_RETRY_DELAY_MS");
     expect(envValues).toContain("AGENT_EVENTS_ENABLED");
     expect(envValues).toContain("AGENT_EVENTS_RETENTION_SECONDS");
-    expect(envValues).toContain("FINDING_HISTORY_ENABLED");
-    expect(envValues).toContain("FINDING_HISTORY_DISMISS_SUPPRESS_AFTER");
-    expect(envValues).toContain("FINDING_HISTORY_LOOKBACK_DAYS");
     expect(envValues).not.toContain("CODE_INDEX_MODE");
+    expect(envValues).not.toContain("FINDING_HISTORY_ENABLED");
+    expect(envValues).not.toContain("FINDING_HISTORY_DISMISS_SUPPRESS_AFTER");
+    expect(envValues).not.toContain("FINDING_HISTORY_LOOKBACK_DAYS");
     expect(envValues).not.toContain("TRACES_MODE");
     expect(envValues).not.toContain("TRACES_RETENTION_SECONDS");
     expect(envValues).not.toContain("TRACES_BUFFER_MAX_SPANS");
-    expect(envValues.length).toBe(74);
+    expect(envValues.length).toBe(71);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

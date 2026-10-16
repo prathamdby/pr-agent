@@ -17,7 +17,6 @@ import {
 } from "../src/prompts/orchestrator/prompt.js";
 import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { causalPublicationContract } from "../src/prompts/shared/behavior.js";
-import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createFindingLedger,
   SPECIALIST_IDS,
@@ -483,8 +482,7 @@ describe("orchestrator prompts", () => {
       durationMs: 1,
       report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
     });
-    const [candidate] = fingerprintCandidates({ ...finding });
-    const canonical = candidate ?? "fp";
+    const acceptedId = legacyFindingId("thread-node-1");
     const placementFor = (entry: SlimFinding) => ({
       finding: { ...entry },
       inlineLine: 4,
@@ -496,8 +494,7 @@ describe("orchestrator prompts", () => {
           kind: "posted",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reviewId: 1,
         },
       ],
@@ -512,7 +509,7 @@ describe("orchestrator prompts", () => {
 
     expect(hitPrompt).toContain("already accepted");
     expect(hitPrompt).toContain('"findingId"');
-    expect(hitPrompt).toContain(legacyFindingId(canonical));
+    expect(hitPrompt).toContain(acceptedId);
     expect(hitPrompt).not.toContain("dereferences an absent value");
 
     const missOutcome = toOutcome([nearMiss]);
@@ -523,7 +520,7 @@ describe("orchestrator prompts", () => {
     );
 
     expect(missPrompt).not.toContain("already accepted");
-    expect(missPrompt).not.toContain(legacyFindingId(canonical));
+    expect(missPrompt).not.toContain(acceptedId);
     expect(missPrompt).toContain("retries the absent value without a guard");
     expect(missPrompt).toContain(JSON.stringify(missOutcome.report, null, 2));
 
@@ -552,7 +549,7 @@ describe("orchestrator prompts", () => {
     );
 
     expect(relocatedPrompt).not.toContain("already accepted");
-    expect(relocatedPrompt).not.toContain(legacyFindingId(canonical));
+    expect(relocatedPrompt).not.toContain(acceptedId);
     expect(relocatedPrompt).toContain("dereferences an absent value");
     expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
 
@@ -565,7 +562,7 @@ describe("orchestrator prompts", () => {
     );
 
     expect(extendedPrompt).not.toContain("already accepted");
-    expect(extendedPrompt).not.toContain(legacyFindingId(canonical));
+    expect(extendedPrompt).not.toContain(acceptedId);
     expect(extendedPrompt).toContain("dereferences an absent value");
     expect(extendedPrompt).toContain(JSON.stringify(extendedOutcome.report, null, 2));
 
@@ -575,8 +572,7 @@ describe("orchestrator prompts", () => {
           kind: "resumed",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reviewId: 2,
         },
       ],
@@ -596,8 +592,7 @@ describe("orchestrator prompts", () => {
           kind: "summary_only",
           source: "correctness",
           placement: placementFor(finding),
-          findingId: legacyFindingId(canonical),
-          canonicalFingerprint: canonical,
+          findingId: acceptedId,
           reason: "cap",
         },
       ],
@@ -609,7 +604,7 @@ describe("orchestrator prompts", () => {
     );
 
     expect(summaryPrompt).not.toContain("already accepted");
-    expect(summaryPrompt).not.toContain(legacyFindingId(canonical));
+    expect(summaryPrompt).not.toContain(acceptedId);
     expect(summaryPrompt).toContain("dereferences an absent value");
     expect(summaryPrompt).toContain(JSON.stringify(hitOutcome.report, null, 2));
   });

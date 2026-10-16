@@ -128,6 +128,11 @@ Notes:
   does not replace it. The optional status uses that same verdict.
   Crash recovery serializes its failure decision with lease renewals and
   restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
+- Finding identity lives on the pull request. Each published finding carries a
+  hidden ID marker, and every run rebuilds the open findings from GitHub, so a
+  wiped database does not repost them. A dismissed finding stays dismissed
+  within its pull request. Nothing carries across pull requests; durable
+  preferences belong in `.pr-agent/*.mdc`.
 - Review closes only proven duplicates. When two open bot threads report the
   same defect in the same file on overlapping lines, the orchestrator declares
   them with `declare_duplicate` and the server checks the group against the

@@ -342,7 +342,6 @@ describe("review work definition", () => {
         threadCallCount: 0,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });
@@ -391,7 +390,6 @@ describe("review work definition", () => {
       mocks.loadPublishContext.mockResolvedValueOnce({
         publishState: { summaryPublished: true, inlineReviewIds: [41], threadCallCount: 1 },
         shouldLinkToSummary: false,
-        storedInlineFingerprints: [],
         resumedPlacements: [],
         progressCommentGithubId: 2,
       });
@@ -511,7 +509,6 @@ describe("review work definition", () => {
     mocks.loadPublishContext.mockResolvedValue({
       publishState: { summaryPublished: true, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: 2,
     });
@@ -617,7 +614,6 @@ describe("review work definition", () => {
         threadCallCount: 8,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: null,
     });
@@ -667,7 +663,6 @@ describe("review work definition", () => {
         threadCallCount: 0,
       },
       shouldLinkToSummary: false,
-      storedInlineFingerprints: [],
       resumedPlacements: [],
       progressCommentGithubId: 4321,
     });
@@ -1612,7 +1607,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1655,7 +1649,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
@@ -1703,7 +1696,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1805,7 +1797,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -1836,7 +1827,6 @@ describe("review work definition", () => {
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
       checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
-      findingHistoryTrustedBlock: undefined,
     });
   });
 

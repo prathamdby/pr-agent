@@ -47,10 +47,7 @@ import {
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
 } from "./agentInstructionFiles.js";
-import {
-  buildTrustedReviewContextForReview,
-  formatFindingHistoryTrustedBlock,
-} from "../prompts/orchestrator/prompt.js";
+import { buildTrustedReviewContextForReview } from "../prompts/orchestrator/prompt.js";
 import { fetchPriorInlineFeedbackBlockForReview } from "./run/reviewTrustedContext.js";
 import {
   resolveAgentEventsContext,
@@ -77,7 +74,6 @@ import {
   type OwnVerdictOutcome,
   ownVerdictFromSummaryDetail,
 } from "../agentWork/reviewVerdict.js";
-import { safeLoadFindingHistoryCandidates } from "../agentWork/findingHistoryRepository.js";
 import {
   loadReviewExecutorPublishContext,
   type ReviewExecutorPublishContext,
@@ -619,16 +615,9 @@ async function assembleTrustedReviewContext(args: {
   readonly repositoryView: PrRepositoryView;
   readonly pullRequest: PullRequestForFileList | undefined;
   readonly priorInlineFeedback: string | undefined;
-  readonly findingHistoryTrustedBlock: string | undefined;
   readonly checkoutCoverage: ReturnType<PrRepositoryView["workspace"]["reader"]["getCoverage"]>;
 }) {
-  const {
-    repositoryView,
-    pullRequest,
-    priorInlineFeedback,
-    findingHistoryTrustedBlock,
-    checkoutCoverage,
-  } = args;
+  const { repositoryView, pullRequest, priorInlineFeedback, checkoutCoverage } = args;
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const sameRepo = isSameRepoPullRequest(pullRequest);
   const [repoPolicy, instructionFiles] = await Promise.all([
@@ -661,7 +650,6 @@ async function assembleTrustedReviewContext(args: {
     ),
     sizeBudget: buildReviewSizeBudget(repositoryView.preflight),
     priorInlineFeedback,
-    findingHistoryTrustedBlock,
     repoPolicyBlock,
     agentInstructionFilesBlock,
     checkoutCoverage,
@@ -690,7 +678,6 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly headSha: string;
   readonly pullRequest: PullRequestForFileList | undefined;
   readonly publishContext: ReviewExecutorPublishContext;
-  readonly findingHistoryTrustedBlock?: string;
   readonly publishAbortState: { staleHead?: boolean };
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
@@ -713,7 +700,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     headSha,
     pullRequest,
     publishContext,
-    findingHistoryTrustedBlock,
     publishAbortState,
     staleHeadAtPublish,
     priorInlineFeedback,
@@ -756,7 +742,6 @@ async function runFullReviewAgainstRepositoryView(args: {
       repositoryView,
       pullRequest,
       priorInlineFeedback: priorInlineFeedbackResult.value,
-      findingHistoryTrustedBlock,
       checkoutCoverage,
     });
 
@@ -958,19 +943,8 @@ async function runClaimedReview(args: {
   });
   if (staleHeadResult) return staleHeadResult;
 
-  const [publishContext, findingHistoryCandidates] = await recordReviewPhaseSpan("db-read", () =>
-    Promise.all([
-      loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
-      safeLoadFindingHistoryCandidates(pool, cfg, {
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-      }),
-    ]),
-  );
-  const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
-    findingHistoryCandidates,
-    cfg.findingHistory.dismissSuppressAfter,
+  const publishContext = await recordReviewPhaseSpan("db-read", () =>
+    loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
   );
   const prSurface = env.prSurface;
   const headSha = env.headSha;
@@ -1108,7 +1082,6 @@ async function runClaimedReview(args: {
           headSha,
           pullRequest: env.pullRequest,
           publishContext,
-          findingHistoryTrustedBlock,
           publishAbortState,
           staleHeadAtPublish,
           priorInlineFeedback,

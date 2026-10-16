@@ -17,6 +17,7 @@ import {
   type ReviewFinding,
 } from "../reviewSchema.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
+import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { FindingInventory } from "../findingIdentity/findingInventory.js";
 import { isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
@@ -145,6 +146,39 @@ function acceptedThisRun(ledger: FindingLedger): AcceptedThisRun[] {
   }));
 }
 
+function normalizedSubstance(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function repeatsFinding(earlier: ReviewFinding, candidate: ReviewFinding): boolean {
+  if (reviewFindingPlacementKey(earlier) === reviewFindingPlacementKey(candidate)) return true;
+  return (
+    earlier.file === candidate.file &&
+    earlier.startLine <= candidate.endLine &&
+    candidate.startLine <= earlier.endLine &&
+    normalizedSubstance(earlier.title) === normalizedSubstance(candidate.title) &&
+    normalizedSubstance(earlier.detail) === normalizedSubstance(candidate.detail)
+  );
+}
+
+function repeatedInBatch(findings: readonly ReviewFinding[]): ReadonlySet<number> {
+  const seen: ReviewFinding[] = [];
+  const repeated = new Set<number>();
+  const byPriority = findings
+    .map((finding, index) => ({ finding, index }))
+    .toSorted((left, right) =>
+      compareReviewFindingsBySeverityFileLine(left.finding, right.finding),
+    );
+  for (const { finding, index } of byPriority) {
+    if (seen.some((earlier) => repeatsFinding(earlier, finding))) repeated.add(index);
+    seen.push(finding);
+  }
+  return repeated;
+}
+
 function validationFailed(message: string): AppError {
   return new AppError({ domain: "review", kind: "publish_thread_validation_failed", message });
 }
@@ -191,19 +225,19 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
 
   const reconcileBatch = (
     submitted: readonly SubmittedFinding[],
+    redacted: readonly ReviewFinding[],
+    repeated: ReadonlySet<number>,
     overlapRoundsLeft: number,
   ): Map<string, ReconcileOutcome> => {
     const accepted = acceptedThisRun(ledger);
     const threadBudgetSpent =
       ledger.threadBudgetExhausted ||
       ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls;
-    const redacted = redactReviewPayloadSecrets(
-      reviewPayloadFromFindings(submitted.map((entry) => entry.finding)),
-    ).findings;
     const outcomes = new Map<string, ReconcileOutcome>();
     const questions: OverlapQuestionReport[] = [];
     const rejected: RejectedRelationReport[] = [];
     for (const [findingIndex, { finding, relation }] of submitted.entries()) {
+      if (repeated.has(findingIndex)) continue;
       const key = reviewFindingPlacementKey(redacted[findingIndex] ?? finding);
       const step =
         typeof relation === "string"
@@ -259,8 +293,14 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         message: "Select the active specialist before calling publish_thread",
       });
     }
-    const outcomes = reconcileBatch(submitted, overlapRoundsLeft);
-    const findings = submitted.map((entry) => entry.finding);
+    const redacted = redactReviewPayloadSecrets(
+      reviewPayloadFromFindings(submitted.map((entry) => entry.finding)),
+    ).findings;
+    const repeated = repeatedInBatch(redacted);
+    const outcomes = reconcileBatch(submitted, redacted, repeated, overlapRoundsLeft);
+    const findings = submitted
+      .filter((_, index) => !repeated.has(index))
+      .map((entry) => entry.finding);
 
     let result: FindingBatchResult;
     try {
@@ -286,7 +326,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
       if (result.kind === "published") publishedBatchCount += 1;
       if (session.agentEvents) {
-        const submittedCount = findings.length;
+        const submittedCount = submitted.length;
         const acceptedCount = result.delta.accepted.length + result.delta.reaffirmed.length;
         safeEmitDecisionEvent(session.agentEvents, session.cfg, {
           specialist: source,

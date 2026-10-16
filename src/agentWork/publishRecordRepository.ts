@@ -6,13 +6,13 @@ import { queryOne } from "../db/postgres.js";
 import { withSessionLock } from "../db/sessionLock.js";
 import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
-import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
   isFindingSource,
   type AcceptedPlacement,
   type FindingSource,
 } from "../review/orchestrator/orchestratorTypes.js";
 import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
+import { reviewFindingPlacementKey } from "../review/placement/reviewDiffPlacement.js";
 import {
   isFindingId,
   mintFindingId,
@@ -803,32 +803,13 @@ export async function listTriageEligibleInlineReviews(
   return reviewLenses;
 }
 
-function mergeStoredInlineFingerprints(
-  rows: readonly { detail: Record<string, unknown> }[],
-): string[] {
-  const merged = new Set<string>();
-  for (const row of rows) {
-    for (const fingerprint of parseStoredInlineFingerprints(row.detail).fingerprints) {
-      merged.add(fingerprint);
-    }
-    for (const batch of parseStoredInlineBatches(row.detail)) {
-      for (const fingerprint of batch.fingerprints) {
-        merged.add(fingerprint);
-      }
-    }
-  }
-  return [...merged];
-}
-
 type StoredInlineBatchRef = {
   readonly workItemId: string;
   readonly reviewId: number | null;
-  readonly fingerprints: readonly string[];
   readonly source: FindingSource | null;
   readonly placements: readonly {
     readonly finding: ReviewFinding;
     readonly resolvedLine: number;
-    readonly canonicalFingerprint: string;
     readonly findingId: FindingId | null;
   }[];
 };
@@ -842,7 +823,6 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
     !finding.success ||
     !Number.isInteger(resolvedLine) ||
     resolvedLine <= 0 ||
-    typeof value.canonicalFingerprint !== "string" ||
     (findingId !== undefined && (typeof findingId !== "string" || !isFindingId(findingId)))
   ) {
     return null;
@@ -850,7 +830,6 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
   return {
     finding: finding.output,
     resolvedLine,
-    canonicalFingerprint: value.canonicalFingerprint,
     findingId: findingId ?? null,
   };
 }
@@ -866,9 +845,6 @@ export function parseStoredInlineBatches(detail: Record<string, unknown>): Store
     batches.push({
       workItemId: batch.workItemId,
       reviewId: Number.isFinite(reviewId) && reviewId > 0 ? reviewId : null,
-      fingerprints: Array.isArray(batch.fingerprints)
-        ? batch.fingerprints.filter((entry): entry is string => typeof entry === "string")
-        : [],
       source: isFindingSource(batch.specialist) ? batch.specialist : null,
       placements: Array.isArray(batch.placements)
         ? batch.placements.flatMap((placement) => {
@@ -891,8 +867,9 @@ function parseResumedPlacements(
   for (const batch of parseStoredInlineBatches(inlineRow?.detail ?? {})) {
     if (batch.workItemId !== workItemId || batch.reviewId == null || batch.source == null) continue;
     for (const placement of batch.placements) {
-      if (seen.has(placement.canonicalFingerprint)) continue;
-      seen.add(placement.canonicalFingerprint);
+      const key = placement.findingId ?? reviewFindingPlacementKey(placement.finding);
+      if (seen.has(key)) continue;
+      seen.add(key);
       accepted.push({
         kind: "resumed",
         source: batch.source,
@@ -902,7 +879,6 @@ function parseResumedPlacements(
           inlinePosted: true,
         },
         findingId: placement.findingId ?? mintFindingId(),
-        canonicalFingerprint: placement.canonicalFingerprint,
         reviewId: batch.reviewId,
       });
     }
@@ -953,7 +929,6 @@ export type ReviewExecutorPublishContext = {
     threadCallCount: number;
   };
   shouldLinkToSummary: boolean;
-  storedInlineFingerprints: string[];
   resumedPlacements: AcceptedPlacement[];
   progressCommentGithubId: number | null;
 };
@@ -969,7 +944,6 @@ export async function loadReviewExecutorPublishContext(
       | { step: string; github_id: string | null; detail: Record<string, unknown> | null }[]
       | null;
     prior_summary_exists: boolean;
-    fingerprint_details: { detail: Record<string, unknown> }[] | null;
     latest_progress_comment_github_id: string | null;
   }>(
     pool,
@@ -995,17 +969,6 @@ export async function loadReviewExecutorPublishContext(
             AND status = 'completed'
             AND work_item_id <> $3
        ) AS prior_summary_exists,
-       COALESCE(
-         (
-           SELECT json_agg(json_build_object('detail', detail))
-             FROM publish_records
-            WHERE resource_key = $1
-              AND review_lens IN ('review', 'review-security', 'review-quality', 'review-tests')
-              AND step = 'inline_review'
-              AND status = 'completed'
-         ),
-         '[]'::json
-       ) AS fingerprint_details,
        (
          SELECT github_id
            FROM publish_records
@@ -1028,7 +991,6 @@ export async function loadReviewExecutorPublishContext(
   return {
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,
-    storedInlineFingerprints: mergeStoredInlineFingerprints(row?.fingerprint_details ?? []),
     resumedPlacements: parseResumedPlacements(currentPublish, workItemId),
     progressCommentGithubId:
       progressCommentGithubId != null && Number.isFinite(progressCommentGithubId)

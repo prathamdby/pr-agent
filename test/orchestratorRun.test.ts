@@ -171,7 +171,6 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
           source: testState.activeSource ?? "correctness",
           placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
           findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
-          canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
           reviewId: testState.publishOrder.length,
         }));
         testState.ledger = {
@@ -364,7 +363,6 @@ function acceptedPlacement(
       inlinePosted: kind !== "summary_only",
     },
     findingId: legacyFindingId(`${source}:${item.file}:${item.startLine}`),
-    canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
   } as const;
   if (kind === "summary_only") {
     return { kind, ...base, reason: "anchor" };

@@ -227,8 +227,6 @@ function dumpAll() {
     cfg: makeTestConfig({
       models: { model: "" },
       agentEvents: { enabled: false },
-      findingHistory: { enabled: false },
-
       features: {
         review: "manual",
         describe: "off",
@@ -677,7 +675,6 @@ function dumpContext() {
         totalChanges: 40000,
       }),
       priorInlineFeedback,
-      findingHistoryTrustedBlock: "Sample finding history block.",
       repoPolicyBlock: renderRepoPolicyBlock({
         policy: sampleRepoPolicy,
         changedFiles: files,
@@ -738,7 +735,6 @@ function dumpExtraTurns() {
           source: "correctness",
           placement: { finding: sampleFinding, inlineLine: 12, inlinePosted: true },
           findingId: legacyFindingId("sample-thread-1"),
-          canonicalFingerprint: "fp-1",
           reviewId: 9001,
         },
         {
@@ -746,7 +742,6 @@ function dumpExtraTurns() {
           source: "security",
           placement: { finding: sampleFinding, inlineLine: null, inlinePosted: false },
           findingId: legacyFindingId("sample-thread-2"),
-          canonicalFingerprint: "fp-2",
           reason: "cap",
         },
       ],

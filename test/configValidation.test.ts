@@ -142,7 +142,6 @@ describe("loadConfig validation", () => {
   it.each([
     ["LOG_REDACT", (c: Config) => c.logging.redact] as const,
     ["AGENT_EVENTS_ENABLED", (c: Config) => c.agentEvents.enabled] as const,
-    ["FINDING_HISTORY_ENABLED", (c: Config) => c.findingHistory.enabled] as const,
     ["RETENTION_ENABLED", (c: Config) => c.retention.enabled] as const,
     ["REVIEW_RECOVERY_ENABLED", (c: Config) => c.review.recoveryEnabled] as const,
   ])("parses boolean knob %s as strict true/false", async (name, field) => {

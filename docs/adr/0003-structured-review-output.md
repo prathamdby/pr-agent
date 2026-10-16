@@ -6,6 +6,10 @@
 > GitHub `[!NOTE]` alert. See [ADR 0022](0022-remove-merge-verdict.md) and
 > [ADR 0009](0009-review-location-validation.md).
 >
+> 2026-10-16, published findings carry server-minted IDs in hidden markers,
+> and observations name a `relation` to existing findings; see
+> [ADR 0054](0054-finding-identity-on-github.md).
+>
 > 2026-09-14, the tests and security gate rows were removed from the summary
 > table. `publish_summary` now takes `size` and `followUps`, and finding copy
 > renders verbatim from the ledger's accepted placements; see

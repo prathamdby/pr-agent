@@ -3,7 +3,6 @@ import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
 } from "../src/review/findings/findingPipeline.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import { mintFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import {
   createCachedPrDiffIndex,
@@ -58,22 +57,6 @@ describe("findingPipeline", () => {
     if (!result.ok) return;
     expect(result.prepared.payload.findings).toEqual([]);
     expect(result.prepared.placements).toEqual([]);
-    expect(result.prepared.dedupedCount).toBe(0);
-  });
-
-  it("drops overlapping duplicate findings and keeps the higher severity", () => {
-    const stronger = finding({ severity: "P0", title: "Same issue" });
-    const weaker = finding({ severity: "P2", title: "Same issue" });
-
-    const result = prepareReviewPayloadForPublish({
-      payload: makeReviewPayload({ findings: [weaker, stronger] }),
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.prepared.payload.findings).toEqual([stronger]);
-    expect(result.prepared.placements).toHaveLength(1);
-    expect(result.prepared.dedupedCount).toBe(1);
   });
 
   it("keeps validated placements aligned with redacted findings", () => {
@@ -115,15 +98,7 @@ describe("findingPipeline", () => {
       "Keep critical",
     ]);
     expect(result.planned.map((target) => target.inlinePosted)).toEqual([true, true, true]);
-    expect(result.planned.map((target) => target.inlineFingerprint)).toEqual([
-      fingerprintFinding(repeated, "review"),
-      fingerprintFinding(capped, "review"),
-      fingerprintFinding(kept, "review"),
-    ]);
     expect(result.placements.map((target) => target.inlinePosted)).toEqual([false, false, true]);
-    expect(result.placements.map((target) => target.inlineFingerprint)).toEqual(
-      result.planned.map((target) => target.inlineFingerprint),
-    );
     expect(result.inline).toEqual([
       expect.objectContaining({ findingId: keptId, reopens: reopened }),
     ]);
@@ -174,10 +149,6 @@ describe("findingPipeline", () => {
       { title: "Anchored", posted: true },
       { title: "Unresolved", posted: false },
     ]);
-    expect(result.planned.map((target) => target.inlineFingerprint)).toEqual([
-      fingerprintFinding(anchored, "review"),
-      fingerprintFinding(unresolved, "review"),
-    ]);
     expect(result.placements.map((target) => target.inlinePosted)).toEqual([true, false]);
     expect(result.inline.map((target) => target.finding.title)).toEqual(["Anchored"]);
     expect(result.summaryOnly.map((target) => target.finding.title)).toEqual(["Unresolved"]);
@@ -185,22 +156,6 @@ describe("findingPipeline", () => {
       inlineCommentCapExcluded: 0,
       anchorUnresolved: 1,
     });
-  });
-
-  it("records new fingerprints under the merged review mode", () => {
-    const item = finding();
-    const evidenceLedger = createTestEvidenceLedger();
-    seedEvidenceForFinding(evidenceLedger, item);
-    const result = prepareFindingsForPublish({
-      payload: makeReviewPayload({ findings: [item] }),
-      inlinePlacements: [placement(item)],
-    });
-
-    expect(result.planned[0]?.inlineFingerprint).toBe(fingerprintFinding(item, "review"));
-    expect(result.inline[0]?.inlineFingerprint).toBe(result.planned[0]?.inlineFingerprint);
-    expect(result.inline[0]?.inlineFingerprint).not.toBe(
-      fingerprintFinding(item, "review-security"),
-    );
   });
 
   it("strips findings without evidence before publish preparation", () => {

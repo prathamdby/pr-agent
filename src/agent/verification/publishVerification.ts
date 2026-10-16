@@ -16,11 +16,7 @@ import {
 import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
-import {
-  VERIFICATION_STUB_MARKER,
-  VERIFICATION_PUBLISH_LENS,
-  type Config,
-} from "../../settings/index.js";
+import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -43,10 +39,6 @@ import {
 } from "../../agentWork/operationIntentRepository.js";
 import { AppError, isAppError } from "../../errors/appError.js";
 import { isRecord } from "../../util/typeGuards.js";
-import {
-  safeRecordThreadFindingHistoryOutcome,
-  type FindingHistoryOutcome,
-} from "../../agentWork/findingHistoryRepository.js";
 import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
 
@@ -66,7 +58,6 @@ type PublishVerificationParams = {
   readonly changedFilePaths: readonly string[];
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
 };
 
@@ -443,27 +434,6 @@ async function withVerificationThreadOperation(
   };
 }
 
-function recordVerificationHistoryOutcome(
-  params: PublishVerificationParams,
-  thread: BotFindingThread,
-  outcome: Exclude<FindingHistoryOutcome, "open">,
-): void {
-  if (!params.findingHistoryCfg) return;
-  safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
-    scope: {
-      installationId: params.installationId,
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      workItemId: params.workItemId,
-      headSha: params.headSha,
-    },
-    resourceKey: params.resourceKey,
-    thread,
-    outcome,
-  });
-}
-
 export async function publishVerification(
   params: PublishVerificationParams,
 ): Promise<{ degradation: readonly VerificationDegradationReason[] }> {
@@ -556,7 +526,6 @@ export async function publishVerification(
             completion,
           },
         });
-        recordVerificationHistoryOutcome(params, thread, verdict.verdict);
         break;
       }
       case "skipped": {
@@ -600,7 +569,6 @@ export async function publishVerification(
             completion,
           },
         });
-        recordVerificationHistoryOutcome(params, thread, "skipped");
         break;
       }
       case "dismissed": {
@@ -658,7 +626,6 @@ export async function publishVerification(
             completion,
           },
         });
-        recordVerificationHistoryOutcome(params, thread, "dismissed");
         break;
       }
       default: {

@@ -376,7 +376,6 @@ async function tryResumeStoredPush(params: {
     recoveryInventory: params.recoveryInventory,
     resolutionByRootCommentId: params.resolutionByRootCommentId,
     previouslyResolvedCount: params.previouslyResolvedCount,
-    findingHistoryCfg: params.cfg,
     leaseEpoch: params.leaseEpoch,
     signal: params.signal,
     ...params.reportContext,
@@ -576,7 +575,6 @@ async function runFreshTriageAgent(params: {
         resolutionByRootCommentId: params.resolutionByRootCommentId,
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
-        findingHistoryCfg: params.cfg,
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
         ...params.reportContext,
@@ -672,7 +670,6 @@ async function runBulkFromPreview(params: {
         resolutionByRootCommentId: params.resolutionByRootCommentId,
         payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
-        findingHistoryCfg: params.cfg,
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
         bulkClassification: {

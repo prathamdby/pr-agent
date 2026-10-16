@@ -24,7 +24,7 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.clearAllMocks();
   });
 
-  it("restores current batch review ids and merges stored fingerprints", async () => {
+  it("restores current batch review ids from batch details that still carry fingerprints", async () => {
     const postedFinding = {
       severity: "P1",
       file: "src/a.ts",
@@ -63,18 +63,6 @@ describe("loadReviewExecutorPublishContext", () => {
         { step: "summary_comment", github_id: "99" },
       ],
       prior_summary_exists: true,
-      fingerprint_details: [
-        {
-          detail: {
-            fingerprints: ["fp-legacy"],
-            batches: [
-              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
-              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
-              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
-            ],
-          },
-        },
-      ],
       latest_progress_comment_github_id: "1001",
     });
 
@@ -87,14 +75,12 @@ describe("loadReviewExecutorPublishContext", () => {
         threadCallCount: 2,
       },
       shouldLinkToSummary: true,
-      storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],
       resumedPlacements: [
         {
           kind: "resumed",
           source: "correctness",
           placement: { finding: postedFinding, inlineLine: 10, inlinePosted: true },
           findingId: expect.stringMatching(/^f_[0-9A-HJKMNP-TV-Z]{26}$/),
-          canonicalFingerprint: "fp-1",
           reviewId: 42,
         },
       ],
@@ -110,7 +96,6 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [],
       prior_summary_exists: false,
-      fingerprint_details: [],
       latest_progress_comment_github_id: "1001",
     });
 

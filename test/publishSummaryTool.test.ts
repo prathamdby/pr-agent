@@ -80,7 +80,6 @@ function accepted(
       source: "correctness",
       placement,
       findingId: legacyFindingId(findingId),
-      canonicalFingerprint: findingId,
       reason: "anchor",
     };
   }
@@ -89,7 +88,6 @@ function accepted(
     source: "correctness",
     placement,
     findingId: legacyFindingId(findingId),
-    canonicalFingerprint: findingId,
     reviewId: item.startLine,
   };
 }
