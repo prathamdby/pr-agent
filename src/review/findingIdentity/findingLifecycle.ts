@@ -356,35 +356,52 @@ function sectionBody(view: FindingView, rows: readonly ListedRow[], omitted: num
 }
 
 export function renderFindingsSection(view: FindingView, budgetChars: number): string {
+  const budget = Math.max(0, budgetChars);
   if (view.rows.length === 0) {
-    return view.completeness === "complete" ? "" : FINDING_INVENTORY_UNAVAILABLE_NOTE;
+    const note = view.completeness === "complete" ? "" : FINDING_INVENTORY_UNAVAILABLE_NOTE;
+    return note.length <= budget ? note : "";
   }
   const listed = view.rows.flatMap((row): ListedRow[] =>
     row.held == null || row.observedThisRun ? [] : [[row, row.held]],
   );
-  const withDroppable = (keep: number): string => {
-    let left = keep;
+  const withLimits = (droppableLimit: number, durableLimit: number): string => {
+    let droppableLeft = droppableLimit;
+    let durableLeft = durableLimit;
     const rows = listed.filter(([, finding]) => {
-      if (finding.source === "summary") return true;
-      left -= 1;
-      return left >= 0;
+      if (finding.source === "summary") {
+        durableLeft -= 1;
+        return durableLeft >= 0;
+      }
+      droppableLeft -= 1;
+      return droppableLeft >= 0;
     });
     return sectionBody(view, rows, listed.length - rows.length);
   };
-  const droppableCount = listed.filter(([, finding]) => finding.source !== "summary").length;
-  const full = withDroppable(droppableCount);
-  if (full.length <= budgetChars) return full;
-  let best = withDroppable(0);
-  let lo = 1;
-  let hi = droppableCount - 1;
+  const durableCount = listed.filter(([, finding]) => finding.source === "summary").length;
+  const droppableCount = listed.length - durableCount;
+  return (
+    largestFittingBody(droppableCount, budget, (limit) => withLimits(limit, durableCount)) ??
+    largestFittingBody(durableCount - 1, budget, (limit) => withLimits(0, limit)) ??
+    ""
+  );
+}
+
+export function largestFittingBody(
+  maxLimit: number,
+  maxBodyChars: number,
+  render: (limit: number) => string,
+): string | null {
+  let lo = 0;
+  let hi = maxLimit;
+  let best: string | null = null;
   while (lo <= hi) {
-    const keep = Math.floor((lo + hi) / 2);
-    const body = withDroppable(keep);
-    if (body.length <= budgetChars) {
+    const limit = Math.floor((lo + hi) / 2);
+    const body = render(limit);
+    if (body.length <= maxBodyChars) {
       best = body;
-      lo = keep + 1;
+      lo = limit + 1;
     } else {
-      hi = keep - 1;
+      hi = limit - 1;
     }
   }
   return best;
