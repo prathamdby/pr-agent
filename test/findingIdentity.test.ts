@@ -1537,7 +1537,7 @@ describe("duplicate cleanup execution", () => {
     expect(harness.threads.get(duplicate.threadNodeId)?.snapshot?.isResolved).toBe(false);
   });
 
-  it("re-checks the thread before resolving", async () => {
+  it("re-checks the thread before resolving and reports its fresh state", async () => {
     const { duplicate, inventory } = twoThreads();
     const harness = cleanupHarness([duplicate]);
     const reply = harness.deps.surface.replyAt;
@@ -1548,7 +1548,7 @@ describe("duplicate cleanup execution", () => {
       return result;
     };
     expect(await executeDuplicateCleanup(planned(inventory), harness.deps)).toMatchObject([
-      { outcome: "linked" },
+      { outcome: "resolved" },
     ]);
     expect(harness.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
   });

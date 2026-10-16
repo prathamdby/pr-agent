@@ -233,9 +233,8 @@ async function cleanEntry(
     }
     if (!resolve) return receipted ? "skipped" : "linked";
     const current = await deps.surface.getReviewThread(threadId);
-    if (current == null || current.isResolved || !resolvable(current, botLogin)) {
-      return receipted ? "skipped" : "linked";
-    }
+    if (current?.isResolved === true) return receipted ? "skipped" : "resolved";
+    if (current == null || !resolvable(current, botLogin)) return receipted ? "skipped" : "linked";
     await deps.publishStep(step("duplicate_resolve"), () =>
       deps.surface.resolveInlineReviewThread(threadId),
     );
