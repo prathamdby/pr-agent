@@ -284,4 +284,26 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(0);
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
   });
+
+  it("reuses the same finding ids when a failed publish is called again", async () => {
+    let calls = 0;
+    const { tool, publishThreadBatch } = buildTool(undefined, async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("GitHub unavailable");
+      return { reviewId: 200, reviewUrl: "https://example.com/reviews/200" };
+    });
+    tool.setSource("quality");
+
+    await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
+      code: "review.publish_thread_failed",
+    });
+    const result = await tool.executor({ findings: [finding(10)] });
+
+    expect(result.kind).toBe("published");
+    const bodies = publishThreadBatch.mock.calls.map((call) =>
+      call[0].comments?.map((comment) => comment.body),
+    );
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
 });

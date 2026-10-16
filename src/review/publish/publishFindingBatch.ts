@@ -125,6 +125,14 @@ export function reconciledFindingKey(finding: ReviewFinding): string {
   return JSON.stringify([reviewFindingPlacementKey(finding), finding.detail]);
 }
 
+export function findingIdScope(
+  session: Pick<ReviewPublishSession, "operationIntent" | "workItemId" | "ctx">,
+  source: FindingSource,
+): readonly string[] | undefined {
+  const workItemId = session.operationIntent?.workItemId ?? session.workItemId;
+  return workItemId == null ? undefined : [workItemId, session.ctx.headSha, source];
+}
+
 type ReconciledBatch = {
   readonly postable: readonly InlinePlacement[];
   readonly identify: (placement: InlinePlacement) => PlacementIdentity | undefined;
@@ -349,8 +357,7 @@ export async function publishFindingBatch(
     inlinePlacements: reconciledBatch.postable,
     identify: reconciledBatch.identify,
     maxInlineComments: remainingInline,
-    findingIdScope:
-      intentWorkItemId == null ? undefined : [intentWorkItemId, session.ctx.headSha, input.source],
+    findingIdScope: findingIdScope(session, input.source),
   });
   const targets = saved
     ? {
