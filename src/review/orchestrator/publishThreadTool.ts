@@ -7,7 +7,9 @@ import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import {
   type FindingBatchInput,
   type FindingBatchResult,
+  findingIdScope,
   publishFindingBatch,
+  reconciledFindingKey,
 } from "../publish/publishFindingBatch.js";
 import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
 import {
@@ -17,9 +19,8 @@ import {
   type ReviewFinding,
 } from "../reviewSchema.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
-import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { FindingInventory } from "../findingIdentity/findingInventory.js";
-import { isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
+import { derivedFindingId, isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
 import {
   MAX_OVERLAP_ROUNDS,
   reconcileObservation,
@@ -192,8 +193,11 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   const reconcileBatch = (
     submitted: readonly SubmittedFinding[],
     overlapRoundsLeft: number,
+    batchSource: SpecialistId,
   ): Map<string, ReconcileOutcome> => {
     const accepted = acceptedThisRun(ledger);
+    const scope = findingIdScope(session, batchSource);
+    const occurrences = new Map<string, number>();
     const threadBudgetSpent =
       ledger.threadBudgetExhausted ||
       ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls;
@@ -204,7 +208,11 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     const questions: OverlapQuestionReport[] = [];
     const rejected: RejectedRelationReport[] = [];
     for (const [findingIndex, { finding, relation }] of submitted.entries()) {
-      const key = reviewFindingPlacementKey(redacted[findingIndex] ?? finding);
+      const key = reconciledFindingKey(redacted[findingIndex] ?? finding);
+      const occurrence = occurrences.get(key) ?? 0;
+      occurrences.set(key, occurrence + 1);
+      const mint = () =>
+        scope == null ? mintFindingId() : derivedFindingId([...scope, key, String(occurrence)]);
       const step =
         typeof relation === "string"
           ? { rejected: relation }
@@ -214,7 +222,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
               inventory,
               acceptedThisRun: accepted,
               overlapRoundsLeft,
-              mint: mintFindingId,
+              mint,
             });
       const unanswered =
         !("outcome" in step) ||
@@ -225,7 +233,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       } else if (overlapRoundsLeft <= 0) {
         outcomes.set(key, {
           kind: "summary_only",
-          id: mintFindingId(),
+          id: mint(),
           reason: "unanswered_overlap",
         });
       } else if ("question" in step) {
@@ -259,7 +267,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         message: "Select the active specialist before calling publish_thread",
       });
     }
-    const outcomes = reconcileBatch(submitted, overlapRoundsLeft);
+    const outcomes = reconcileBatch(submitted, overlapRoundsLeft, source);
     const findings = submitted.map((entry) => entry.finding);
 
     let result: FindingBatchResult;

@@ -132,6 +132,36 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(2);
   });
 
+  it("keeps a separate decision for same-placement findings with different detail", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+    await tool.executor({ findings: [finding(10)] });
+    const [accepted] = tool.getLedger().accepted;
+    if (accepted == null) throw new Error("expected an accepted finding");
+    tool.setSource("security");
+
+    const result = await tool.executor({
+      findings: [
+        { ...finding(10), relation: { kind: "continues", findingId: accepted.findingId } },
+        {
+          ...finding(10),
+          detail: "A second defect on the same line drops the error.",
+          relation: {
+            kind: "distinct_from",
+            findingIds: [accepted.findingId],
+            reason: "Different defect.",
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch.mock.calls[1]?.[0].comments).toHaveLength(1);
+    expect(tool.getLedger().reaffirmed).toEqual([
+      expect.objectContaining({ id: accepted.findingId, source: "security" }),
+    ]);
+  });
+
   it("lands still-unanswered overlaps summary-only once the round is spent", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
@@ -248,5 +278,27 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(tool.getPublishedBatchCount()).toBe(0);
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the same finding ids when a failed publish is called again", async () => {
+    let calls = 0;
+    const { tool, publishThreadBatch } = buildTool(undefined, async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("GitHub unavailable");
+      return { reviewId: 200, reviewUrl: "https://example.com/reviews/200" };
+    });
+    tool.setSource("quality");
+
+    await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
+      code: "review.publish_thread_failed",
+    });
+    const result = await tool.executor({ findings: [finding(10)] });
+
+    expect(result.kind).toBe("published");
+    const bodies = publishThreadBatch.mock.calls.map((call) =>
+      call[0].comments?.map((comment) => comment.body),
+    );
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toEqual(bodies[0]);
   });
 });
