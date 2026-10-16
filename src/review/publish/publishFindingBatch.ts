@@ -225,6 +225,7 @@ export async function publishFindingBatch(
     0,
     session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
+  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const calculatedTargets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: session.cachedDiffIndex,
@@ -232,6 +233,8 @@ export async function publishFindingBatch(
     storedInlineFingerprints: [...input.ledger.suppressionFingerprints],
     crossPrSuppressionFingerprints: input.crossPrSuppressionFingerprints,
     maxInlineComments: remainingInline,
+    findingIdScope:
+      intentWorkItemId == null ? undefined : [intentWorkItemId, session.ctx.headSha, input.source],
   });
   const targets = saved
     ? {
@@ -367,7 +370,6 @@ export async function publishFindingBatch(
     });
   }
 
-  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const batchId =
     intentWorkItemId != null
       ? deterministicInlineBatchId({

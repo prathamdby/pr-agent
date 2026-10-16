@@ -1,6 +1,7 @@
 import {
   legacyFindingId,
   parseOwnedFindingMarker,
+  parseOwnedFindingRows,
   renderFindingMarker,
 } from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it } from "vitest";
@@ -824,6 +825,83 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("12 findings block merge.");
     expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
   });
+
+  it("trims marked summary rows when they alone exceed the body budget", () => {
+    const findings = Array.from({ length: 40 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const placements = testPlacements(payload.findings, { inlinePosted: false }).map(
+      (placement, i) => ({
+        ...placement,
+        findingRow: {
+          id: legacyFindingId(`row-${i}`),
+          lens: "correctness" as const,
+          severity: placement.finding.severity,
+          path: placement.finding.file,
+          line: placement.finding.startLine,
+          title: placement.finding.title,
+        },
+      }),
+    );
+    const body = fitReviewSummaryBody(payload, { ...ctx, placements }, 6_000);
+
+    expect(body.length).toBeLessThanOrEqual(6_000);
+    const rows = parseOwnedFindingRows({ body, authorLogin: "pr-agent[bot]" }, "pr-agent[bot]");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(40);
+    expect(body).toContain(`${40 - rows.length} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`);
+  });
+
+  it("keeps finding rows when only the fix-all prompt overflows the body budget", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "Short detail.",
+      fixPrompt: "y".repeat(3000),
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      { ...ctx, placements: testPlacements(payload.findings, { inlinePosted: false }) },
+      2_500,
+    );
+
+    expect(body.length).toBeLessThanOrEqual(2_500);
+    expect(body).toContain("Bug 0");
+    expect(body).not.toContain(REVIEW_FINDINGS_NONE);
+  });
+
+  it("names omitted findings in the table when no finding row fits", () => {
+    const findings = Array.from({ length: 3 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "Short detail.",
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      { ...ctx, placements: testPlacements(payload.findings, { inlinePosted: false }) },
+      0,
+    );
+
+    expect(body).not.toContain(REVIEW_FINDINGS_NONE);
+    expect(body).not.toContain("Bug 0");
+    expect(body).toContain(`3 ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`);
+  });
 });
 
 describe("review action line helpers", () => {
@@ -946,6 +1024,34 @@ describe("renderInlineThreadBody", () => {
     expect(
       parseOwnedFindingMarker({ body, authorLogin: "pr-agent[bot]", isRoot: true }, "pr-agent"),
     ).toEqual({ ...inlineIdentity, severity: "P0" });
+  });
+
+  it("keeps the trailing marker the only parseable one when finding text echoes markers", () => {
+    const echoed = renderFindingMarker({
+      id: legacyFindingId("echoed"),
+      lens: "security",
+      severity: "P0",
+    });
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/a.ts",
+        startLine: 5,
+        endLine: 5,
+        title: "Echoed marker",
+        detail: `The fixture contains:\n${echoed}\nand more.`,
+        fixPrompt: `Remove\n${echoed}`,
+        suggestedCode: echoed,
+      },
+      inlineCtx,
+      inlineIdentity,
+    );
+
+    expect(body).not.toContain("```suggestion");
+    expect(body.split("\n").filter((line) => line === echoed)).toEqual([]);
+    expect(
+      parseOwnedFindingMarker({ body, authorLogin: "pr-agent[bot]", isRoot: true }, "pr-agent"),
+    ).toEqual({ ...inlineIdentity, severity: "P1" });
   });
 
   it("P1 with fixPrompt accordion", () => {
