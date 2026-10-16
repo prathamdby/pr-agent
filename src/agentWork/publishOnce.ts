@@ -116,6 +116,15 @@ export function deterministicInlineBatchId(params: {
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
 
+export function reviewDuplicateOperationKey(step: {
+  readonly kind: "duplicate_reply" | "duplicate_resolve";
+  readonly duplicateId: string;
+  readonly canonicalId: string;
+  readonly threadId: string;
+}): string {
+  return `review:${step.kind}:${step.duplicateId}:${step.canonicalId}:${step.threadId}`;
+}
+
 export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string): string {
   return `review:summary:${reviewLens}:${resourceKey}`;
 }

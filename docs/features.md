@@ -119,12 +119,31 @@ Notes:
 - `FEATURE_REVIEW_LABELS=off` stops size and security labels only. Category
   labels still sync.
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
-  (`reviewVerdict(...).close`). A crash concludes the check as `action_required`. A
-  published P0–P2 finding concludes it as `failure`.
+  (`reviewVerdict(...).close`). A crash concludes the check as `action_required`.
+  Any open P0–P2 finding on the pull request concludes it as `failure`, including
+  findings from earlier reviews that this run did not recheck. When earlier
+  findings cannot be loaded and none is known to block, the check is `neutral`
+  and the status `error`, never `success`.
   Concurrent closes keep the first verdict. A later cancellation or recovery
   does not replace it. The optional status uses that same verdict.
   Crash recovery serializes its failure decision with lease renewals and
   restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
+- Finding identity lives on the pull request. Each published finding carries a
+  hidden ID marker, and every run rebuilds the open findings from GitHub, so a
+  wiped database does not repost them. A dismissed finding stays dismissed
+  within its pull request. Nothing carries across pull requests; durable
+  preferences belong in `.pr-agent/*.mdc`.
+- Review closes only proven duplicates. When two open bot threads report the
+  same defect in the same file on overlapping lines, the orchestrator declares
+  them with `declare_duplicate` and the server checks the group against the
+  finding inventory. Among threads that are not already marked as copies, the
+  thread with human replies, else the oldest, stays canonical. Each copy gets
+  one `Tracked in <link>` reply with a hidden receipt and is resolved, unless
+  someone has replied on it; then it is linked and left open, and the canonical
+  row takes its severity if higher. Two threads with the same finding ID are
+  cleaned up the same way without the model. The summary lists the result under
+  `Resolved this run`. Nothing is cleaned up while the finding inventory is
+  incomplete.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

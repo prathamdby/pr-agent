@@ -3,7 +3,6 @@ import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
 import type { PriorInlineFeedbackThread } from "../../review/run/reviewPriorFeedback.js";
-import type { FindingHistoryRow } from "../../agentWork/findingHistoryRepository.js";
 import { escapeTablePlainCell } from "../../github/markdownFormat.js";
 
 export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {
@@ -99,25 +98,5 @@ export function formatPriorInlineFeedbackBlock(
     lines.push(`  - Thread: ${escapeTablePlainCell(thread.threadUrl)}`);
   }
 
-  return lines.join("\n");
-}
-
-export function formatFindingHistoryTrustedBlock(
-  rows: readonly FindingHistoryRow[],
-  suppressAfter: number,
-): string | undefined {
-  const notable = rows.filter((row) => row.dismissCount >= suppressAfter);
-  if (notable.length === 0) return undefined;
-
-  const lines = [
-    "## Cross-PR finding history (trusted context)",
-    "Threshold memory only — not maintainer preference. Prefer `.pr-agent/*.mdc` policy suggestions over re-reporting unless code at the cited location materially changed.",
-    "",
-  ];
-  for (const row of notable) {
-    lines.push(
-      `- fingerprint \`${row.fingerprint}\` dismissed ${row.dismissCount}×; prefer policy suggestion over re-report unless code changed`,
-    );
-  }
   return lines.join("\n");
 }

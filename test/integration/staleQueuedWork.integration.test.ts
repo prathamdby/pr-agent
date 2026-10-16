@@ -1281,7 +1281,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       headSha: "h",
       leaseEpoch,
       commitStatusEnabled: false,
-    }).close({ kind: "published", findings: [] });
+    }).close({ kind: "published", conclusion: "success", blockingCount: 0 });
     expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
       expect.objectContaining({ conclusion: "success" }),
     ]);

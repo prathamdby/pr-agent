@@ -70,6 +70,7 @@ import type { AgentWorkItem } from "../src/agentWork/types.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.js";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../src/review/statusCopy.js";
 
 vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
@@ -228,6 +229,40 @@ describe("tryLightweightAutoReviewCompletion", () => {
       expect.objectContaining({ step: "summary_comment" }),
     );
     expect(requestHeadCiProjection).toHaveBeenCalled();
+  });
+
+  it("returns a neutral check and notes the gap when thread state is incomplete", async () => {
+    const { surface, controls } = fakeSurface();
+    controls.setThreadResolutionStatus("partial", "thread pagination failed");
+
+    const result = await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem(),
+      reviewLens: "review",
+      prSurface: surface,
+      model: "grok-4.5",
+      leaseEpoch: null,
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+
+    expect(result).toMatchObject({
+      handled: true,
+      published: true,
+      check: { conclusion: "neutral", blockingCount: 0 },
+    });
+    const upsertArgs = vi.mocked(summaryWrite).mock.calls[0]?.[0];
+    expect(upsertArgs?.body).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        step: "summary_comment",
+        detail: expect.objectContaining({ ownCheckFailing: false, ownCheckIncomplete: true }),
+      }),
+    );
   });
 
   it("writes a terminal lightweight body that replaces the queued stub wording", async () => {

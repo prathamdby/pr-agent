@@ -30,6 +30,9 @@ export const APP_ERROR_KINDS = {
     "slash_triage_conflict_no_winner",
     "stale_head_marker_persist_failed",
     "stale_head_parent_not_reschedulable",
+    "thread_mutation_lock_capacity",
+    "thread_mutation_lock_failed",
+    "thread_mutation_lock_timeout",
     "unreachable_insert",
   ],
   ask: ["sensitive_path_blocked"],
@@ -101,6 +104,7 @@ export const APP_ERROR_KINDS = {
   ],
   publish_store: ["invalid_detail"],
   review: [
+    "declare_duplicate_validation_failed",
     "deterministic_finding_publish_failed",
     "finding_batch_invalid",
     "orchestrator_model_deadline",

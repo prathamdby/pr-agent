@@ -8,19 +8,13 @@ import { buildPublishThreadTool } from "../src/review/orchestrator/publishThread
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForLines,
+  completeFindingInventory,
+} from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
-
-const emptyInventory = buildFindingInventory({
-  threads: { status: "ok", threads: [] },
-  summary: null,
-  summaryComplete: true,
-  botLogin: "pr-agent[bot]",
-  renames: new Map(),
-  deletedPaths: new Set(),
-});
+const emptyInventory = completeFindingInventory();
 
 let nextReviewId = 100;
 
@@ -53,6 +47,7 @@ function threadSession(
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
     prSurface: surface,
+    findingInventory: emptyInventory,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
@@ -137,36 +132,6 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(2);
   });
 
-  it("keeps a separate decision for same-placement findings with different detail", async () => {
-    const { tool, publishThreadBatch } = buildTool();
-    tool.setSource("correctness");
-    await tool.executor({ findings: [finding(10)] });
-    const [accepted] = tool.getLedger().accepted;
-    if (accepted == null) throw new Error("expected an accepted finding");
-    tool.setSource("security");
-
-    const result = await tool.executor({
-      findings: [
-        { ...finding(10), relation: { kind: "continues", findingId: accepted.findingId } },
-        {
-          ...finding(10),
-          detail: "A second defect on the same line drops the error.",
-          relation: {
-            kind: "distinct_from",
-            findingIds: [accepted.findingId],
-            reason: "Different defect.",
-          },
-        },
-      ],
-    });
-
-    expect(result.kind).toBe("published");
-    expect(publishThreadBatch.mock.calls[1]?.[0].comments).toHaveLength(1);
-    expect(tool.getLedger().reaffirmed).toEqual([
-      expect.objectContaining({ id: accepted.findingId, source: "security" }),
-    ]);
-  });
-
   it("lands still-unanswered overlaps summary-only once the round is spent", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
@@ -185,6 +150,25 @@ describe("buildPublishThreadTool", () => {
       source: "security",
       reason: "unanswered_overlap",
     });
+  });
+
+  it("publishes one thread for repeated findings within one batch", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+
+    const result = await tool.executor({
+      findings: [
+        finding(10),
+        { ...finding(10), severity: "P0", startLine: 9, title: "BUG at line 10!" },
+        { ...finding(10), detail: "Same location and title, reworded detail." },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch.mock.calls[0]?.[0].comments).toHaveLength(1);
+    const accepted = tool.getLedger().accepted;
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.placement.finding.severity).toBe("P0");
   });
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {

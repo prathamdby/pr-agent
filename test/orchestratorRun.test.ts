@@ -171,7 +171,6 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
           source: testState.activeSource ?? "correctness",
           placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
           findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
-          canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
           reviewId: testState.publishOrder.length,
         }));
         testState.ledger = {
@@ -364,7 +363,6 @@ function acceptedPlacement(
       inlinePosted: kind !== "summary_only",
     },
     findingId: legacyFindingId(`${source}:${item.file}:${item.startLine}`),
-    canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
   } as const;
   if (kind === "summary_only") {
     return { kind, ...base, reason: "anchor" };
@@ -1797,10 +1795,16 @@ describe("runOrchestratedPrReview", () => {
     await run;
 
     expect(testState.lastSessionToolNames).toEqual(
-      expect.arrayContaining(["submit_specialist_brief", "publish_thread", "publish_summary"]),
+      expect.arrayContaining([
+        "submit_specialist_brief",
+        "publish_thread",
+        "declare_duplicate",
+        "publish_summary",
+      ]),
     );
-    expect(testState.lastSessionToolNames.at(-3)).toBe("submit_specialist_brief");
-    expect(testState.lastSessionToolNames.at(-2)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-4)).toBe("submit_specialist_brief");
+    expect(testState.lastSessionToolNames.at(-3)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-2)).toBe("declare_duplicate");
     expect(testState.lastSessionToolNames.at(-1)).toBe("publish_summary");
   });
 

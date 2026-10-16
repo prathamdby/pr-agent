@@ -431,7 +431,6 @@ try {
     const children = new Set<ReturnType<typeof fork>>();
     const cfg = makeTestConfig({
       review: { recoveryEnabled: true, maxInlineComments: 1, maxThreadPublishCalls: 1 },
-      findingHistory: { enabled: false },
       agentEvents: { enabled: false },
       features: { reviewLabels: "off" },
     });
@@ -1324,20 +1323,20 @@ try {
         expect(await ctx.completed("inline_review")).toBeNull();
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "first", fingerprints: ["one"] },
+          detail: { batchId: "first", findingIds: ["one"] },
         });
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "second", fingerprints: ["two"] },
+          detail: { batchId: "second", findingIds: ["two"] },
         });
         await ctx.record({
           step: "inline_review",
-          detail: { batchId: "first", fingerprints: ["one"] },
+          detail: { batchId: "first", findingIds: ["one"] },
         });
         expect(await ctx.completed("inline_review")).toEqual({
           batches: [
-            { batchId: "first", fingerprints: ["one"] },
-            { batchId: "second", fingerprints: ["two"] },
+            { batchId: "first", findingIds: ["one"] },
+            { batchId: "second", findingIds: ["two"] },
           ],
         });
         const snapshot = await ctx.completed("inline_review");
@@ -2888,15 +2887,6 @@ try {
       await write(firstBatch);
       await write(firstBatch);
       await write(secondBatch);
-      await createPublishContext(pool, {
-        workItemId,
-        leaseEpoch: null,
-        resourceKey,
-        reviewLens: "review-security",
-        step: "inline_review",
-        githubId: 40,
-        detail: { fingerprints: ["fp-legacy"] },
-      }).record();
 
       const result = await pool.query<{ github_id: string; detail: { batches: unknown[] } }>(
         `SELECT github_id, detail
@@ -2920,7 +2910,6 @@ try {
       );
       expect(context.publishState.inlineReviewIds).toEqual([first.reviewId, second.reviewId]);
       expect(context.publishState.threadCallCount).toBe(2);
-      expect(context.storedInlineFingerprints.toSorted()).toEqual(["fp-1", "fp-2", "fp-legacy"]);
       expect(context.resumedPlacements).toEqual([
         {
           kind: "resumed",
@@ -2931,7 +2920,6 @@ try {
             inlinePosted: true,
           },
           findingId: "f_01J00000000000000000000001",
-          canonicalFingerprint: "fp-1",
           reviewId: first.reviewId,
         },
       ]);

@@ -31,6 +31,21 @@ import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.js
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../../src/review/reviewSchema.js";
 import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
+import {
+  buildFindingInventory,
+  type FindingInventory,
+} from "../../src/review/findingIdentity/findingInventory.js";
+
+export function completeFindingInventory(): FindingInventory {
+  return buildFindingInventory({
+    threads: { status: "ok", threads: [] },
+    summary: null,
+    summaryComplete: true,
+    botLogin: "",
+    renames: new Map(),
+    deletedPaths: new Set(),
+  });
+}
 
 export type PublishTestState = {
   inlineReviewIds: number[];
@@ -55,7 +70,6 @@ export async function runTestPublishFlow(
     mode?: AnyReviewLens;
     cfg: Pick<Config, "models" | "features">;
     payload: ReviewPayload;
-    dedupedFindingCount?: number;
     publishState: PublishTestState;
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
@@ -84,11 +98,11 @@ export async function runTestPublishFlow(
   const session = createReviewPublishSession({
     cfg: makeTestConfig({
       agentEvents: { enabled: false },
-      findingHistory: { enabled: false },
       ...params.cfg,
     }),
     ctx: params,
     prSurface: params.prSurface,
+    findingInventory: completeFindingInventory(),
     mode: params.mode,
     cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
     shouldLinkToSummary: params.shouldLinkToSummary,
@@ -135,7 +149,6 @@ export async function runTestPublishFlow(
     payload: params.payload,
     ledger,
     staleReview: params.staleReview,
-    dedupedFindingCount: params.dedupedFindingCount,
   });
   if (summaryResult.kind === "stopped") {
     params.publishState.publishSuperseded = true;
@@ -143,30 +156,24 @@ export async function runTestPublishFlow(
 }
 
 export function publishSummaryForTest(
-  params: ReviewPublishSessionInput &
-    Parameters<typeof publishReviewSummaryOnly>[1] & {
+  params: Omit<ReviewPublishSessionInput, "findingInventory"> & {
+    readonly findingInventory?: FindingInventory;
+  } & Parameters<typeof publishReviewSummaryOnly>[1] & {
       readonly resourceKey?: string;
       readonly leaseEpoch?: number | null;
     },
 ) {
-  const {
-    payload,
-    ledger,
-    coverage,
-    staleReview,
-    dedupedFindingCount,
-    resourceKey,
-    leaseEpoch,
-    ...sessionInput
-  } = params;
+  const { payload, ledger, coverage, staleReview, resourceKey, leaseEpoch, ...sessionInput } =
+    params;
   return publishReviewSummaryOnly(
     createReviewPublishSession({
       ...sessionInput,
+      findingInventory: sessionInput.findingInventory ?? completeFindingInventory(),
       verdictWorkItemId: sessionInput.verdictWorkItemId ?? sessionInput.workItemId,
       verdictResourceKey: sessionInput.verdictResourceKey ?? resourceKey,
       verdictLeaseEpoch: sessionInput.verdictLeaseEpoch ?? leaseEpoch,
     }),
-    { payload, ledger, coverage, staleReview, dedupedFindingCount },
+    { payload, ledger, coverage, staleReview },
   );
 }
 
@@ -192,7 +199,6 @@ export async function publishReviewForTest(
   await runTestPublishFlow({
     ...params,
     payload: prepared.prepared.payload,
-    dedupedFindingCount: prepared.prepared.dedupedCount,
   });
 }
 

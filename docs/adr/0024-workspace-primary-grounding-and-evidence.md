@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Item 5 is superseded by [ADR 0049](0049-retire-code-index.md), which retires the code index.
+Accepted. Item 4 is superseded by [ADR 0054](0054-finding-identity-on-github.md), which drops cross-PR finding history and `repo_finding_history`. Item 5 is superseded by [ADR 0049](0049-retire-code-index.md), which retires the code index.
 
 ## Context
 

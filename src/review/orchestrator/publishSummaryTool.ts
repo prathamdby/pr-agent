@@ -18,11 +18,13 @@ import {
 } from "../reviewSchema.js";
 import { ledgerFindings, type FindingLedger, type ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import type { FindingCheck } from "../findingIdentity/findingLifecycle.js";
 
 const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_SUMMARY_FIELDS);
 
 export type PublishSummaryState = {
   published: boolean;
+  check: FindingCheck | null;
   lastValidationError: string | null;
   stoppedReason: PublishStopReason | null;
 };
@@ -54,9 +56,11 @@ type SummaryInput = v.InferOutput<typeof publishSummarySchema>;
 
 export function createPublishSummaryState(initial?: {
   readonly published?: boolean;
+  readonly check?: FindingCheck | null;
 }): PublishSummaryState {
   return {
     published: initial?.published ?? false,
+    check: initial?.check ?? null,
     lastValidationError: null,
     stoppedReason: null,
   };
@@ -159,6 +163,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     }
 
     state.published = true;
+    state.check = result.check;
     state.stoppedReason = null;
     return { ok: true, summaryCommentId: result.summaryCommentId };
   };

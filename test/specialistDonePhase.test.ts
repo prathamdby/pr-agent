@@ -35,7 +35,6 @@ function placement(
       inlinePosted: kind !== "summary_only",
     },
     findingId: legacyFindingId(`${source}:${title}`),
-    canonicalFingerprint: `${source}:${title}`,
   } as const;
   if (kind === "summary_only") {
     return { kind, ...base, reason: reason ?? "anchor" };

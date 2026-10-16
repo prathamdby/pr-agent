@@ -2,7 +2,6 @@ import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js"
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
 import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
@@ -10,9 +9,9 @@ import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
+  completeFindingInventory,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
-import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
@@ -43,14 +42,7 @@ const payload = publishReviewTestPayload;
 
 function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
   return {
-    inventory: buildFindingInventory({
-      threads: { status: "ok", threads: [] },
-      summary: null,
-      summaryComplete: true,
-      botLogin: "pr-agent[bot]",
-      renames: new Map(),
-      deletedPaths: new Set(),
-    }),
+    inventory: completeFindingInventory(),
     outcomes: new Map([[reconciledFindingKey(finding), outcome]]),
   };
 }
@@ -276,7 +268,7 @@ describe("publishReview core", () => {
   });
 
   it("loads inline comments from every resumed review batch", async () => {
-    const stored = fingerprintFinding(payload.findings[0], "review");
+    const findingId = legacyFindingId("thread-node-41");
     const publishState = testPublishState({
       inlineReviewIds: [41, 42],
     });
@@ -287,7 +279,7 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       reconciled: reconciledAs(payload.findings[0], {
         kind: "reaffirm",
-        id: legacyFindingId(stored),
+        id: findingId,
         severity: payload.findings[0].severity,
       }),
       resumedPlacements: [
@@ -299,8 +291,7 @@ describe("publishReview core", () => {
             inlineLine: 4,
             inlinePosted: true,
           },
-          findingId: legacyFindingId(stored),
-          canonicalFingerprint: stored,
+          findingId,
           reviewId: 41,
         },
       ],

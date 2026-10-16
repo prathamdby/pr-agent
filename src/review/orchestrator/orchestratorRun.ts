@@ -75,13 +75,13 @@ import {
 import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "./declareDuplicateTool.js";
 import { judgmentInventory } from "./judgmentInventory.js";
 import {
-  buildFindingInventory,
-  loadFindingInventory,
+  loadFindingInventoryOrUnavailable,
   type FindingInventory,
 } from "../findingIdentity/findingInventory.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+import { buildFindingView, type FindingCheck } from "../findingIdentity/findingLifecycle.js";
 import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
@@ -218,7 +218,7 @@ function initialLedger(params: OrchestratedReviewRunParams) {
   });
 }
 
-async function loadReviewFindingInventory(
+function loadReviewFindingInventory(
   params: OrchestratedReviewRunParams,
 ): Promise<FindingInventory> {
   const renames = new Map<string, string>();
@@ -227,24 +227,7 @@ async function loadReviewFindingInventory(
     if (file.status === "renamed" && file.oldPath != null) renames.set(file.oldPath, file.path);
     if (file.status === "deleted") deletedPaths.add(file.path);
   }
-  try {
-    return await loadFindingInventory(params.prSurface, { renames, deletedPaths });
-  } catch (error) {
-    logWarn("review_finding_inventory_failed", {
-      owner: params.owner,
-      repo: params.repo,
-      pr: params.prNumber,
-      message: errorMessage(error),
-    });
-    return buildFindingInventory({
-      threads: { status: "unavailable", threads: [] },
-      summary: null,
-      summaryComplete: false,
-      botLogin: "",
-      renames,
-      deletedPaths,
-    });
-  }
+  return loadFindingInventoryOrUnavailable(params.prSurface, { renames, deletedPaths });
 }
 
 function coverage(state: OrchestratedRunState): ReviewCoverage {
@@ -421,6 +404,7 @@ export async function runOrchestratedPrReview(
     cfg: params.cfg,
     ctx: publishCtx,
     prSurface: setup.prSurface,
+    findingInventory,
     mode: reviewMode,
     cachedDiffIndex: setup.cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
@@ -473,6 +457,7 @@ export async function runOrchestratedPrReview(
   });
   const recoveredSources = new Set<SpecialistId>();
   let recoveredSummary = false;
+  let recoveredCheck: FindingCheck | null = null;
   for (const decision of recoveredDecisions) {
     const canonical = decision.prepared.artifact.canonical;
     if (canonical.kind === "threads") {
@@ -488,10 +473,10 @@ export async function runOrchestratedPrReview(
         ledger: createFindingLedger(canonical.ledger),
         coverage: canonical.coverage,
         staleReview: canonical.staleReview,
-        dedupedFindingCount: canonical.dedupedFindingCount,
         recoveryDecision: decision,
       });
       recoveredSummary = result.kind === "published";
+      recoveredCheck = result.kind === "published" ? result.check : null;
       if (canonical.coverage.kind !== "full")
         state.failedSpecialists.push(...canonical.coverage.failed);
     }
@@ -508,15 +493,16 @@ export async function runOrchestratedPrReview(
       ledger: createFindingLedger(inputs.ledger),
       coverage: inputs.coverage,
       staleReview: inputs.staleReview,
-      dedupedFindingCount: inputs.dedupedFindingCount,
     });
     recoveredSummary = result.kind === "published";
+    recoveredCheck = result.kind === "published" ? result.check : null;
     if (inputs.coverage.kind !== "full") state.failedSpecialists.push(...inputs.coverage.failed);
   }
   if (recovery?.getJudgmentDegraded()) state.judgment = "degraded";
   state.briefFallback = recovery?.getBriefFallback() ?? false;
   const summaryState = createPublishSummaryState({
     published: recoveredSummary || params.initialPublishState?.published,
+    check: recoveredCheck,
   });
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
@@ -525,16 +511,19 @@ export async function runOrchestratedPrReview(
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
   });
+  const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession });
   const allTools = [
     ...setup.workspaceTools.piTools,
     briefTool.piTool,
     publishThread.piTool,
+    declareDuplicate.piTool,
     publishSummary.piTool,
   ];
   const allExecutors = {
     ...setup.workspaceTools.executors,
     submit_specialist_brief: briefTool.executor,
     publish_thread: publishThread.executor,
+    declare_duplicate: declareDuplicate.executor,
     publish_summary: publishSummary.executor,
   };
   let session: PiSession | null = null;
@@ -1066,6 +1055,7 @@ export async function runOrchestratedPrReview(
       return;
     }
     summaryState.published = true;
+    summaryState.check = result.check;
     state.summary = { kind: "published" };
   };
 
@@ -1081,6 +1071,7 @@ export async function runOrchestratedPrReview(
       reviewMode,
       publishAttempts,
       ...(lastFailure != null ? { lastFailure } : {}),
+      findingView: buildFindingView(findingInventory, { kind: "not_reviewed" }),
     });
     state.summary = { kind: "failed" };
   };
@@ -1526,7 +1517,7 @@ export async function runOrchestratedPrReview(
     ...(lastFailure != null ? { lastFailure } : {}),
     ...(summaryState.published
       ? {
-          publishedFindings: ledgerFindings(ledger),
+          ...(summaryState.check != null ? { findingCheck: summaryState.check } : {}),
           coverage: runCoverage,
         }
       : {}),

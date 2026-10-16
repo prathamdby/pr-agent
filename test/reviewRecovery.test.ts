@@ -15,6 +15,7 @@ import {
 import type { CanonicalReviewDecision } from "../src/review/recovery/reviewRecoverySchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.js";
 
 const binding = createReviewArtifactBinding(
   {
@@ -36,7 +37,6 @@ const summaryInputs: CanonicalReviewDecision = {
   ledger: snapshotFindingLedger(createFindingLedger()),
   coverage: { kind: "full" },
   staleReview: false,
-  dedupedFindingCount: 0,
   judgmentDegraded: false,
   briefFallback: false,
 };
@@ -61,6 +61,7 @@ function replaySession() {
     cfg: makeTestConfig(),
     ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
     prSurface: fake.surface,
+    findingInventory: completeFindingInventory(),
     recovery,
   });
   return { session, recovery, publishThreadBatch, upsertProgressComment };

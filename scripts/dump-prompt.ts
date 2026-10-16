@@ -72,6 +72,7 @@ import {
 } from "../src/review/orchestrator/briefTool.js";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "../src/review/orchestrator/declareDuplicateTool.js";
 import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import {
@@ -220,13 +221,12 @@ function dumpAll() {
   const publishSession = createReviewPublishSession({
     ctx,
     prSurface,
+    findingInventory: emptyFindingInventory,
     cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
     cfg: makeTestConfig({
       models: { model: "" },
       agentEvents: { enabled: false },
-      findingHistory: { enabled: false },
-
       features: {
         review: "manual",
         describe: "off",
@@ -244,6 +244,7 @@ function dumpAll() {
     session: publishSession,
     inventory: emptyFindingInventory,
   }).piTool;
+  const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession }).piTool;
   const summary = buildPublishSummaryTool({
     phaseRef,
     session: publishSession,
@@ -309,6 +310,7 @@ function dumpAll() {
         ...reviewWorkspace,
         buildSpecialistBriefTool(phaseRef).piTool,
         thread,
+        declareDuplicate,
         summary,
       ],
       ask: [...codeModeLocal, ...context7],
@@ -673,7 +675,6 @@ function dumpContext() {
         totalChanges: 40000,
       }),
       priorInlineFeedback,
-      findingHistoryTrustedBlock: "Sample finding history block.",
       repoPolicyBlock: renderRepoPolicyBlock({
         policy: sampleRepoPolicy,
         changedFiles: files,
@@ -734,7 +735,6 @@ function dumpExtraTurns() {
           source: "correctness",
           placement: { finding: sampleFinding, inlineLine: 12, inlinePosted: true },
           findingId: legacyFindingId("sample-thread-1"),
-          canonicalFingerprint: "fp-1",
           reviewId: 9001,
         },
         {
@@ -742,7 +742,6 @@ function dumpExtraTurns() {
           source: "security",
           placement: { finding: sampleFinding, inlineLine: null, inlinePosted: false },
           findingId: legacyFindingId("sample-thread-2"),
-          canonicalFingerprint: "fp-2",
           reason: "cap",
         },
       ],
