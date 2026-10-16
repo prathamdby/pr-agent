@@ -1,6 +1,10 @@
 import type { ReplyTarget } from "../../agentWork/types.js";
 import type { ReviewThreadSnapshot } from "../../github/reviewThreadResolution.js";
-import type { FindingInventory, InventoryFinding } from "./findingInventory.js";
+import {
+  hasHumanReplies,
+  type FindingInventory,
+  type InventoryFinding,
+} from "./findingInventory.js";
 import { parseOwnedReceipts, renderReceipt, type FindingId } from "./findingMarker.js";
 import { overlaps } from "./findingReconcile.js";
 
@@ -180,6 +184,10 @@ export async function duplicateStepApplied(
     : hasDuplicateReceipt(thread, botLogin, step.duplicateId, step.canonicalId);
 }
 
+function resolvable(thread: ReviewThreadSnapshot, botLogin: string): boolean {
+  return thread.commentsComplete && !hasHumanReplies(thread, botLogin);
+}
+
 function duplicateReplyBody(entry: DuplicateCleanupEntry, plan: DuplicateCleanupPlan): string {
   const action = entry.resolve
     ? "Resolving this copy."
@@ -210,6 +218,7 @@ async function cleanEntry(
     const before = await deps.surface.getReviewThread(threadId);
     if (before == null || before.isResolved) return "skipped";
     const receipted = hasDuplicateReceipt(before, botLogin, entry.finding.id, plan.canonical.id);
+    const resolve = entry.resolve && resolvable(before, botLogin);
     if (!receipted) {
       await deps.publishStep(step("duplicate_reply"), async () => {
         await deps.surface.replyAt(
@@ -218,13 +227,15 @@ async function cleanEntry(
             prNumber: deps.surface.prNumber,
             inReplyToCommentId: rootCommentId,
           },
-          duplicateReplyBody(entry, plan),
+          duplicateReplyBody({ ...entry, resolve }, plan),
         );
       });
     }
-    if (!entry.resolve) return receipted ? "skipped" : "linked";
+    if (!resolve) return receipted ? "skipped" : "linked";
     const current = await deps.surface.getReviewThread(threadId);
-    if (current == null || current.isResolved) return receipted ? "skipped" : "linked";
+    if (current == null || current.isResolved || !resolvable(current, botLogin)) {
+      return receipted ? "skipped" : "linked";
+    }
     await deps.publishStep(step("duplicate_resolve"), () =>
       deps.surface.resolveInlineReviewThread(threadId),
     );

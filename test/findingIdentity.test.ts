@@ -1552,4 +1552,40 @@ describe("duplicate cleanup execution", () => {
     ]);
     expect(harness.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
   });
+
+  it("does not resolve a copy that gained a human reply after planning", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const plan = planned(inventory);
+    const humanReply = {
+      databaseId: 2,
+      authorLogin: "alice",
+      body: "wait, this one differs",
+      createdAt: "2026-01-02T00:00:00Z",
+      url: "",
+    };
+    const repliedBefore = cleanupHarness([
+      { ...duplicate, comments: [...duplicate.comments, humanReply] },
+    ]);
+    expect(await executeDuplicateCleanup(plan, repliedBefore.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedBefore.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+    expect(
+      repliedBefore.threads.get(duplicate.threadNodeId)?.snapshot?.comments.at(-1)?.body,
+    ).toContain("Leaving this copy open");
+    const repliedDuring = cleanupHarness([duplicate]);
+    const reply = repliedDuring.deps.surface.replyAt;
+    repliedDuring.deps.surface.replyAt = async (target, body) => {
+      const result = await reply(target, body);
+      const state = repliedDuring.threads.get(duplicate.threadNodeId);
+      if (state?.snapshot != null) {
+        state.snapshot = { ...state.snapshot, comments: [...state.snapshot.comments, humanReply] };
+      }
+      return result;
+    };
+    expect(await executeDuplicateCleanup(plan, repliedDuring.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedDuring.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+  });
 });
