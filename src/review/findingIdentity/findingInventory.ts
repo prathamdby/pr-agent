@@ -107,12 +107,19 @@ function placePath(
   };
 }
 
+export function hasHumanReplies(
+  thread: Pick<ReviewThreadSnapshot, "comments">,
+  botLogin: string,
+): boolean {
+  return thread.comments.slice(1).some((reply) => !isBotAuthor(reply.authorLogin, botLogin));
+}
+
 function threadFinding(
   thread: ReviewThreadSnapshot,
   botLogin: string,
   context: InventoryPathContext,
 ): InventoryFinding | null {
-  const [root, ...replies] = thread.comments;
+  const [root] = thread.comments;
   if (root == null || thread.path == null || !isBotAuthor(root.authorLogin, botLogin)) return null;
   const marker = parseOwnedFindingMarker(
     { body: root.body, authorLogin: root.authorLogin, isRoot: true },
@@ -157,7 +164,7 @@ function threadFinding(
     severity: marker?.severity ?? heading?.severity ?? "unknown",
     title: heading?.title ?? root.body.split("\n")[0]?.trim() ?? "",
     createdAt: root.createdAt,
-    hasHumanReplies: replies.some((reply) => !isBotAuthor(reply.authorLogin, botLogin)),
+    hasHumanReplies: hasHumanReplies(thread, botLogin),
     commentsComplete: thread.commentsComplete,
   };
 }

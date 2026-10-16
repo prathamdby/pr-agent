@@ -1235,7 +1235,11 @@ export async function runOrchestratedPrReview(
                 renderJudgmentTurn(
                   outcome,
                   slimAcceptedFindings(outcome, ledgerBefore),
-                  judgmentInventory(findingInventory, outcome.report.findings),
+                  judgmentInventory(
+                    findingInventory,
+                    outcome.report.findings,
+                    ledgerBefore.accepted,
+                  ),
                 ),
                 {
                   maxToolRounds: escalatedToolRounds(

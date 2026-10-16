@@ -1048,6 +1048,27 @@ describe("findings section", () => {
     ).toEqual([A]);
     expect(trimmed).toMatch(/\d+ more open findings/);
   });
+
+  it("drops summary rows only when they cannot fit and never exceeds the budget", () => {
+    const view = buildFindingView(
+      inventoryOf([], {
+        summary: summaryWithRows([
+          { id: A, severity: "P2" },
+          { id: id(`f_${"9".repeat(26)}`), severity: "P3" },
+        ]),
+      }),
+      { kind: "not_reviewed" },
+    );
+    const full = renderFindingsSection(view, 60_000);
+    for (const budget of [full.length - 1, 80, 10, 0, -50]) {
+      expect(renderFindingsSection(view, budget).length).toBeLessThanOrEqual(Math.max(0, budget));
+    }
+    const oneRow = renderFindingsSection(view, full.length - 1);
+    expect(
+      parseOwnedFindingRows({ body: oneRow, authorLogin: BOT }, BOT).map((row) => row.id),
+    ).toHaveLength(1);
+    expect(renderFindingsSection(view, -50)).toBe("");
+  });
 });
 
 function openThreadFinding(
@@ -1103,14 +1124,57 @@ describe("duplicate receipts and lifecycle", () => {
       inventoryOf([openThreadFinding(A, { rootCommentId: 61 }), openThreadFinding(B)]),
       reviewed({
         duplicates: [
-          { id: B, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61", resolved: true },
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+            resolved: true,
+          },
         ],
       }),
     );
     expect(view.rows.map((row) => row.id)).toEqual([A]);
     expect(view.duplicates).toEqual([
-      { id: B, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61", resolved: true },
+      {
+        id: B,
+        canonicalId: A,
+        canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+        resolved: true,
+      },
     ]);
+  });
+
+  it("keeps an open blocking copy blocking through its lower-severity canonical", () => {
+    const canonical = thread({ rootBody: markedBody(A, "P3"), rootCommentId: 64 });
+    const thisRun = buildFindingView(
+      inventoryOf([canonical, thread({ rootBody: markedBody(B, "P1") })]),
+      reviewed({
+        duplicates: [
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r64",
+            resolved: false,
+          },
+        ],
+      }),
+    );
+    const laterRun = buildFindingView(
+      inventoryOf([
+        canonical,
+        thread({
+          rootBody: markedBody(B, "P1"),
+          replies: [
+            { body: renderReceipt({ kind: "duplicate", id: B, canonical: A }), authorLogin: BOT },
+          ],
+        }),
+      ]),
+      reviewed(),
+    );
+    for (const view of [thisRun, laterRun]) {
+      expect(view.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+      expect(checkConclusion(view)).toBe("failure");
+    }
   });
 
   it("keeps the canonical row when a same-id copy was cleaned up", () => {
@@ -1121,7 +1185,12 @@ describe("duplicate receipts and lifecycle", () => {
       ]),
       reviewed({
         duplicates: [
-          { id: A, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r62", resolved: true },
+          {
+            id: A,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r62",
+            resolved: true,
+          },
         ],
       }),
     );
@@ -1261,6 +1330,27 @@ describe("duplicate cleanup planning", () => {
       }),
     ]);
     expect(planDuplicateCleanup([A, B], inventory)).toEqual({ refused: "aliased" });
+  });
+
+  it("never makes a member already aliased inside the group canonical", () => {
+    const aliasedTo = (from: FindingId, to: FindingId) => ({
+      body: renderReceipt({ kind: "duplicate", id: from, canonical: to }),
+      authorLogin: BOT,
+    });
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(B, {
+        rootCommentId: 2,
+        replies: [aliasedTo(B, A), { body: "still relevant", authorLogin: "alice" }],
+      }),
+      openThreadFinding(C, { rootCommentId: 3 }),
+    ]);
+    expect(planDuplicateCleanup([B, C, A], inventory)).toMatchObject({ canonical: { id: A } });
+    const cycle = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 4, replies: [aliasedTo(A, B)] }),
+      openThreadFinding(B, { rootCommentId: 5, replies: [aliasedTo(B, A)] }),
+    ]);
+    expect(planDuplicateCleanup([A, B], cycle)).toEqual({ refused: "aliased" });
   });
 
   it("plans same-id copies against the oldest thread without the model", () => {
@@ -1466,7 +1556,7 @@ describe("duplicate cleanup execution", () => {
     expect(harness.threads.get(duplicate.threadNodeId)?.snapshot?.isResolved).toBe(false);
   });
 
-  it("re-checks the thread before resolving", async () => {
+  it("re-checks the thread before resolving and reports its fresh state", async () => {
     const { duplicate, inventory } = twoThreads();
     const harness = cleanupHarness([duplicate]);
     const reply = harness.deps.surface.replyAt;
@@ -1477,8 +1567,44 @@ describe("duplicate cleanup execution", () => {
       return result;
     };
     expect(await executeDuplicateCleanup(planned(inventory), harness.deps)).toMatchObject([
-      { outcome: "linked" },
+      { outcome: "resolved" },
     ]);
     expect(harness.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+  });
+
+  it("does not resolve a copy that gained a human reply after planning", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const plan = planned(inventory);
+    const humanReply = {
+      databaseId: 2,
+      authorLogin: "alice",
+      body: "wait, this one differs",
+      createdAt: "2026-01-02T00:00:00Z",
+      url: "",
+    };
+    const repliedBefore = cleanupHarness([
+      { ...duplicate, comments: [...duplicate.comments, humanReply] },
+    ]);
+    expect(await executeDuplicateCleanup(plan, repliedBefore.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedBefore.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+    expect(
+      repliedBefore.threads.get(duplicate.threadNodeId)?.snapshot?.comments.at(-1)?.body,
+    ).toContain("Leaving this copy open");
+    const repliedDuring = cleanupHarness([duplicate]);
+    const reply = repliedDuring.deps.surface.replyAt;
+    repliedDuring.deps.surface.replyAt = async (target, body) => {
+      const result = await reply(target, body);
+      const state = repliedDuring.threads.get(duplicate.threadNodeId);
+      if (state?.snapshot != null) {
+        state.snapshot = { ...state.snapshot, comments: [...state.snapshot.comments, humanReply] };
+      }
+      return result;
+    };
+    expect(await executeDuplicateCleanup(plan, repliedDuring.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedDuring.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
   });
 });

@@ -54,6 +54,7 @@ import {
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   publishFindingBatch,
+  reconciledFindingKey,
   type FindingBatchInput,
 } from "../src/review/publish/publishFindingBatch.js";
 import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
@@ -80,7 +81,6 @@ import {
   renderFindingMarker,
 } from "../src/review/findingIdentity/findingMarker.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
 import {
@@ -169,7 +169,7 @@ function postedFindingIds(result: Awaited<ReturnType<typeof publishFindingBatch>
 function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
   return {
     inventory: completeFindingInventory(),
-    outcomes: new Map([[reviewFindingPlacementKey(target), outcome]]),
+    outcomes: new Map([[reconciledFindingKey(target), outcome]]),
   };
 }
 

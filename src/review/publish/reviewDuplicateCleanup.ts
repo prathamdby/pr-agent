@@ -109,6 +109,7 @@ async function runCleanup(
           if (outcome.outcome === "skipped") continue;
           cleaned.push({
             id: outcome.duplicateId,
+            canonicalId: outcome.canonicalId,
             canonicalUrl: outcome.canonicalUrl,
             resolved: outcome.outcome === "resolved",
           });

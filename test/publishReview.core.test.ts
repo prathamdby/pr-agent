@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
+import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
@@ -43,7 +43,7 @@ const payload = publishReviewTestPayload;
 function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
   return {
     inventory: completeFindingInventory(),
-    outcomes: new Map([[reviewFindingPlacementKey(finding), outcome]]),
+    outcomes: new Map([[reconciledFindingKey(finding), outcome]]),
   };
 }
 let harness: PublishReviewTestHarness;
