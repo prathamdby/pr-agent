@@ -15,7 +15,7 @@ import {
   type IdentifiedInlinePlacement,
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
-import { mintFindingId } from "../findingIdentity/findingMarker.js";
+import { derivedFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
 import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
@@ -128,13 +128,27 @@ export function prepareFindingsForPublish(params: {
   storedInlineFingerprints?: readonly string[];
   crossPrSuppressionFingerprints?: readonly string[];
   maxInlineComments?: number;
+  findingIdScope?: readonly string[];
 }): PreparedFindingTargets {
   const plannedPlacements =
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
+  const occurrences = new Map<string, number>();
   const planned = fingerprintInlinePlacements(plannedPlacements, "review").map(
-    (placement): IdentifiedInlinePlacement => ({ ...placement, findingId: mintFindingId() }),
+    (placement): IdentifiedInlinePlacement => {
+      if (params.findingIdScope == null) return { ...placement, findingId: mintFindingId() };
+      const occurrence = occurrences.get(placement.inlineFingerprint) ?? 0;
+      occurrences.set(placement.inlineFingerprint, occurrence + 1);
+      return {
+        ...placement,
+        findingId: derivedFindingId([
+          ...params.findingIdScope,
+          placement.inlineFingerprint,
+          String(occurrence),
+        ]),
+      };
+    },
   );
   const suppressionFingerprints = [
     ...(params.storedInlineFingerprints ?? []),
