@@ -19,6 +19,7 @@ import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
 } from "../../review/findingIdentity/resolutionReceipt.js";
+import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
   TriagePayloadSchema,
@@ -791,6 +792,7 @@ async function publishTriageBody(
     }).actedThreads("triage_thread_actions"),
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
+  const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
   for (const verdict of params.payload.verdicts) {
     await assertTriagePublicationActive(params);
     if (!shouldResolveTriageThread(verdict, pushOutcome)) continue;
@@ -806,18 +808,68 @@ async function publishTriageBody(
       missingThreadAction = true;
       continue;
     }
-    if (
-      shouldReplyToTriageThread(verdict) &&
-      !actedThreadIds.has(verdict.threadRootCommentId) &&
-      thread.hasTriageReply !== true
-    ) {
-      const receipt = await unpostedResolutionReceipt(params.prSurface, {
-        threadNodeId: resolution.threadNodeId,
-        findingId,
-        kind: "fixed",
-      });
-      const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
-      const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+    await withThreadLock(async () => {
+      if (
+        shouldReplyToTriageThread(verdict) &&
+        !actedThreadIds.has(verdict.threadRootCommentId) &&
+        thread.hasTriageReply !== true
+      ) {
+        const receipt = await unpostedResolutionReceipt(params.prSurface, {
+          threadNodeId: resolution.threadNodeId,
+          findingId,
+          kind: "fixed",
+        });
+        const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+        await publishOnce<void>({
+          fence: fenceForEpoch(params.leaseEpoch),
+          client: params.pool,
+          workItemId: params.workItemId,
+          leaseEpoch: params.leaseEpoch,
+          signal: params.signal,
+          operationKey,
+          mutationKind: "github.triage_thread_reply",
+          allowsUndefinedResult: true,
+          detail: {
+            step: "triage_thread_actions",
+            resourceKey: params.resourceKey,
+            reviewLens: TRIAGE_PUBLISH_LENS,
+            threadRootCommentId: verdict.threadRootCommentId,
+            operationMarker,
+          },
+          recover: async () => {
+            const existing = await findMarkedComment(
+              params.prSurface,
+              operationMarker,
+              verdict.threadRootCommentId,
+            );
+            return existing == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: undefined };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+          mutate: async () => {
+            await assertTriagePublicationActive(params);
+            if (receipt == null) return;
+            return replyToThread({
+              ...params,
+              thread,
+              verdict,
+              operationMarker,
+              receipt,
+            });
+          },
+        });
+        actedThreadIds.add(verdict.threadRootCommentId);
+        await createPublishContext(params.pool, {
+          workItemId: params.workItemId,
+          resourceKey: params.resourceKey,
+          reviewLens: TRIAGE_PUBLISH_LENS,
+          step: "triage_thread_actions",
+          leaseEpoch: params.leaseEpoch,
+        }).recordActedThreads("triage_thread_actions", [...actedThreadIds]);
+      }
+      const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
       await publishOnce<void>({
         fence: fenceForEpoch(params.leaseEpoch),
         client: params.pool,
@@ -825,81 +877,33 @@ async function publishTriageBody(
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
         operationKey,
-        mutationKind: "github.triage_thread_reply",
+        mutationKind: "github.triage_thread_resolve",
         allowsUndefinedResult: true,
         detail: {
           step: "triage_thread_actions",
           resourceKey: params.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
           threadRootCommentId: verdict.threadRootCommentId,
-          operationMarker,
         },
         recover: async () => {
-          const existing = await findMarkedComment(
-            params.prSurface,
-            operationMarker,
-            verdict.threadRootCommentId,
-          );
-          return existing == null
-            ? { kind: "absent" as const }
-            : { kind: "reconciled" as const, value: undefined };
+          const current = await params.prSurface.listInlineReviewThreads();
+          return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
+            ? { kind: "reconciled" as const, value: undefined }
+            : { kind: "absent" as const };
         },
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
         mutate: async () => {
           await assertTriagePublicationActive(params);
-          if (receipt == null) return;
-          return replyToThread({
-            ...params,
-            thread,
-            verdict,
-            operationMarker,
-            receipt,
-          });
+          if (verdict.verdict === "dismissed") {
+            await appendRootResolutionReceipt(params.prSurface, {
+              threadNodeId: resolution.threadNodeId,
+              findingId,
+              kind: "dismissed",
+            });
+          }
+          await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
         },
       });
-      actedThreadIds.add(verdict.threadRootCommentId);
-      await createPublishContext(params.pool, {
-        workItemId: params.workItemId,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        step: "triage_thread_actions",
-        leaseEpoch: params.leaseEpoch,
-      }).recordActedThreads("triage_thread_actions", [...actedThreadIds]);
-    }
-    const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
-    await publishOnce<void>({
-      fence: fenceForEpoch(params.leaseEpoch),
-      client: params.pool,
-      workItemId: params.workItemId,
-      leaseEpoch: params.leaseEpoch,
-      signal: params.signal,
-      operationKey,
-      mutationKind: "github.triage_thread_resolve",
-      allowsUndefinedResult: true,
-      detail: {
-        step: "triage_thread_actions",
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        threadRootCommentId: verdict.threadRootCommentId,
-      },
-      recover: async () => {
-        const current = await params.prSurface.listInlineReviewThreads();
-        return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
-          ? { kind: "reconciled" as const, value: undefined }
-          : { kind: "absent" as const };
-      },
-      isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-      mutate: async () => {
-        await assertTriagePublicationActive(params);
-        if (verdict.verdict === "dismissed") {
-          await appendRootResolutionReceipt(params.prSurface, {
-            threadNodeId: resolution.threadNodeId,
-            findingId,
-            kind: "dismissed",
-          });
-        }
-        await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
-      },
     });
   }
 

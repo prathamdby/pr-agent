@@ -100,9 +100,11 @@ export async function publishReviewSummaryOnly(
       context: { failedSpecialists: coverage.failed },
     });
   }
+  const duplicates = await session.duplicateCleanup.clean(session);
   const findingView = buildFindingView(session.findingInventory, {
     kind: "reviewed",
     ledger: input.ledger,
+    duplicates,
   });
   const check = findingCheck(findingView);
   const startedAt = Date.now();

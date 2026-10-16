@@ -51,6 +51,7 @@ const ctx = {
     rows: [],
     blockingCount: 0,
     suppressedDismissedCount: 0,
+    duplicates: [],
   },
 };
 

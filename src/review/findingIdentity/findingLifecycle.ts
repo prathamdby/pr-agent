@@ -22,10 +22,17 @@ export type FindingStatus =
   | "outdated_location"
   | "summary_only";
 
+export type CleanedDuplicate = {
+  readonly id: FindingId;
+  readonly canonicalUrl: string;
+  readonly resolved: boolean;
+};
+
 export type FindingRunOutcomes =
   | {
       readonly kind: "reviewed";
       readonly ledger: Pick<FindingLedger, "accepted" | "reaffirmed" | "suppressedDismissedCount">;
+      readonly duplicates: readonly CleanedDuplicate[];
     }
   | { readonly kind: "not_reviewed" };
 
@@ -43,6 +50,7 @@ export type FindingView = {
   readonly rows: readonly FindingViewRow[];
   readonly blockingCount: number;
   readonly suppressedDismissedCount: number;
+  readonly duplicates: readonly CleanedDuplicate[];
 };
 
 export type FindingCheckConclusion = "failure" | "neutral" | "success";
@@ -142,13 +150,23 @@ export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
 ): FindingView {
-  const observed = outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger) : [];
+  const duplicates = outcomes.kind === "reviewed" ? outcomes.duplicates : [];
+  const cleanedIds = new Set(
+    duplicates
+      .filter((duplicate) => inventory.findings.get(duplicate.id)?.url !== duplicate.canonicalUrl)
+      .map((duplicate) => duplicate.id),
+  );
+  const observed = (outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger) : []).filter(
+    (row) => !cleanedIds.has(row.id),
+  );
   const observedIds = new Set(observed.map((row) => row.id));
   const carried = [...inventory.findings.values()]
     .filter(
       (finding) =>
         finding.state === "open" &&
+        finding.aliasOf == null &&
         !observedIds.has(finding.id) &&
+        !cleanedIds.has(finding.id) &&
         (finding.source === "thread" || outcomes.kind === "not_reviewed"),
     )
     .toSorted(compareCarried)
@@ -162,6 +180,7 @@ export function buildFindingView(
     blockingCount: rows.filter((row) => row.blocking).length,
     suppressedDismissedCount:
       outcomes.kind === "reviewed" ? outcomes.ledger.suppressedDismissedCount : 0,
+    duplicates,
   };
 }
 
@@ -227,6 +246,38 @@ export function renderCarriedFindingCell(row: FindingViewRow, finding: Inventory
         })
       : "";
   return `${renderTableLink(shortTitle(finding.title), finding.url)}<br>${renderTableLocationMeta(label, finding.path, locationLabel(finding))}${marker}`;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function threadLinks(duplicates: readonly CleanedDuplicate[]): string {
+  return [...new Set(duplicates.map((duplicate) => duplicate.canonicalUrl))]
+    .map((url) => `[thread](${url})`)
+    .join(", ");
+}
+
+export function renderResolvedThisRun(view: FindingView): string {
+  const resolved = view.duplicates.filter((duplicate) => duplicate.resolved);
+  const linked = view.duplicates.filter((duplicate) => !duplicate.resolved);
+  const parts: string[] = [];
+  if (resolved.length > 0) {
+    parts.push(
+      `Resolved this run: ${plural(resolved.length, "duplicate")} (tracked in ${threadLinks(resolved)}).`,
+    );
+  }
+  if (linked.length > 0) {
+    parts.push(
+      `Linked ${plural(linked.length, "discussed duplicate")} to ${threadLinks(linked)} and left ${linked.length === 1 ? "it" : "them"} open.`,
+    );
+  }
+  if (view.suppressedDismissedCount > 0) {
+    parts.push(
+      `${plural(view.suppressedDismissedCount, "observation")} matched dismissed findings.`,
+    );
+  }
+  return parts.join(" ");
 }
 
 function findingsHeading(view: FindingView): string {

@@ -1797,10 +1797,16 @@ describe("runOrchestratedPrReview", () => {
     await run;
 
     expect(testState.lastSessionToolNames).toEqual(
-      expect.arrayContaining(["submit_specialist_brief", "publish_thread", "publish_summary"]),
+      expect.arrayContaining([
+        "submit_specialist_brief",
+        "publish_thread",
+        "declare_duplicate",
+        "publish_summary",
+      ]),
     );
-    expect(testState.lastSessionToolNames.at(-3)).toBe("submit_specialist_brief");
-    expect(testState.lastSessionToolNames.at(-2)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-4)).toBe("submit_specialist_brief");
+    expect(testState.lastSessionToolNames.at(-3)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-2)).toBe("declare_duplicate");
     expect(testState.lastSessionToolNames.at(-1)).toBe("publish_summary");
   });
 

@@ -35,11 +35,12 @@ export const orchestratorHarness = renderCodeModeHarness({
     "getLibraryDocs",
     "submit_specialist_brief",
     "publish_thread",
+    "declare_duplicate",
     "publish_summary",
   ],
   cellBoundary: "Submitting and publishing happen outside the cell, through the active phase tool.",
   extra: [
-    "Each phase accepts one terminal tool: recon `submit_specialist_brief`, judgment `publish_thread`, synthesis `publish_summary`. The others return a wrong-phase error. `execute` stays available in every phase.",
+    "Each phase accepts one terminal tool: recon `submit_specialist_brief`, judgment `publish_thread`, synthesis `publish_summary`. The others return a wrong-phase error. `execute` stays available in every phase, and judgment also accepts `declare_duplicate`.",
     "Confirm `findFiles` and `resolveSymbol` hints with `await tools.readWorkspaceFile` inside `execute` before naming a path or symbol.",
   ],
 });
@@ -107,6 +108,7 @@ function renderInventoryGuidance(inventory: JudgmentInventory): string[] {
     'Set `relation` to `{ "kind": "continues", "findingId": "…" }` when a candidate reports the same defect as a listed or earlier-accepted finding, even when it is reworded, moved a few lines, reported by another specialist, or sits in a renamed file. The server keeps the existing finding instead of opening a second thread. A `continues` on a fixed finding reopens it as a new thread; on a dismissed finding it stays dismissed.',
     'Use `{ "kind": "distinct_from", "findingIds": […], "reason": "…" }` when a candidate is a different defect near listed findings, such as a second defect on the same line. Use `{ "kind": "uncertain", "findingIds": […] }` when you cannot tell; the server opens a new thread that links to them. Use `{ "kind": "new" }` only when no listed finding sits near the candidate.',
     "When a candidate sits near a finding its relation does not name, `publish_thread` fails once and lists overlap questions. Add the answering `relation` to each listed finding and call `publish_thread` again with the whole batch. A finding still unanswered on that second call lands summary-only.",
+    "When two or more open findings in the inventory describe the same defect, call `declare_duplicate` with their `findingId`s and a one-line reason before `publish_thread`. The server keeps one thread, links each copy to it, and resolves copies nobody has replied to. Findings that only sit near each other are not duplicates. A refusal names the reason; leave those findings as they are.",
     ...(inventory.completeness === "complete"
       ? []
       : [

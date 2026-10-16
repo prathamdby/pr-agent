@@ -209,8 +209,12 @@ a durable record exists.
 `src/db/sessionLock.ts` also owns verdict try-locks, bounded progress waiting,
 client release before backoff, and unlock/release error precedence.
 `withSessionLock(pool, key: SessionLockKey, options, apply)` accepts only the
-typed progress/wait and own-verdict/try pairs. It owns exact key encoding,
-half-pool budget math, and missing-max defaults; callers cannot supply capacity.
+typed progress/wait, thread-mutation/wait, and own-verdict/try pairs. It owns
+exact key encoding, half-pool budget math, and missing-max defaults; callers
+cannot supply capacity.
+`src/review/findingIdentity/threadMutationLock.ts` adapts the thread-mutation
+key for review duplicate cleanup, triage, and verification; without a pool it
+runs the callback directly.
 The adapters keep domain errors and progress unlock logging. Verdict admission contention defers
 without a read; SQL lock contention reads its close record on the attempted
 client. Unleased verdicts retain the one-connection exception.

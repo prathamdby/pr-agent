@@ -146,7 +146,7 @@ describe("buildPublishSummaryTool", () => {
       ok: false,
       code: WRONG_PHASE_TOOL_CODE,
       phase: "judgment",
-      allowed: ["publish_thread"],
+      allowed: ["publish_thread", "declare_duplicate"],
       error: expect.stringContaining("publish_summary"),
     });
     expect(state.published).toBe(false);

@@ -36,6 +36,7 @@ describe("publishReviewRunFailureNotice", () => {
         rows: [],
         blockingCount: 0,
         suppressedDismissedCount: 0,
+        duplicates: [],
       },
     });
     expect(warnSpy).toHaveBeenCalledWith(

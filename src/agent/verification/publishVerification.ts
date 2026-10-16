@@ -13,6 +13,7 @@ import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
 } from "../../review/findingIdentity/resolutionReceipt.js";
+import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
 import {
@@ -474,6 +475,7 @@ export async function publishVerification(
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   const changedFiles = new Set(params.changedFilePaths);
   const changedMembershipComplete = params.changedFilePathsTruncated !== true;
+  const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
 
   for (const verdict of params.payload.verdicts) {
     const thread = threadById.get(verdict.threadRootCommentId);
@@ -494,52 +496,54 @@ export async function publishVerification(
           break;
         }
         const priorStubId = resolveStubCommentId(thread, prior);
-        const receipt =
-          priorStubId == null
-            ? ""
-            : ((await unpostedResolutionReceipt(params.prSurface, {
-                threadNodeId: resolution.threadNodeId,
-                findingId,
-                kind: "fixed",
-                ownCommentId: priorStubId,
-              })) ?? "");
-        const { stubCommentId, completion } = await withVerificationThreadOperation(
-          params,
-          verdict,
-          true,
-          {
-            requiresStub: priorStubId != null,
-            stubCommentId: priorStubId,
-            threadNodeId: resolution.threadNodeId,
-            body: (marker) => `${terminalSuccessStubBody(verdict, marker)}${receipt}`,
-          },
-          async (operationMarker, accepted) => {
-            let nextStubCommentId: number | undefined = priorStubId;
-            if (priorStubId != null) {
-              const updated = await updateStubReply({
-                prSurface: params.prSurface,
-                stubCommentId: priorStubId,
-                body: `${terminalSuccessStubBody(verdict, operationMarker)}${receipt}`,
-              });
-              if (!updated) nextStubCommentId = undefined;
-              else accepted();
-            }
-            if (
-              nextStubCommentId == null &&
-              (await appendRootResolutionReceipt(params.prSurface, {
-                threadNodeId: resolution.threadNodeId,
-                findingId,
-                kind: "fixed",
-              }))
-            ) {
-              accepted();
-            }
-            if (!resolution.isResolved) {
-              await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
-            }
-            return nextStubCommentId;
-          },
-        );
+        const { stubCommentId, completion } = await withThreadLock(async () => {
+          const receipt =
+            priorStubId == null
+              ? ""
+              : ((await unpostedResolutionReceipt(params.prSurface, {
+                  threadNodeId: resolution.threadNodeId,
+                  findingId,
+                  kind: "fixed",
+                  ownCommentId: priorStubId,
+                })) ?? "");
+          return withVerificationThreadOperation(
+            params,
+            verdict,
+            true,
+            {
+              requiresStub: priorStubId != null,
+              stubCommentId: priorStubId,
+              threadNodeId: resolution.threadNodeId,
+              body: (marker) => `${terminalSuccessStubBody(verdict, marker)}${receipt}`,
+            },
+            async (operationMarker, accepted) => {
+              let nextStubCommentId: number | undefined = priorStubId;
+              if (priorStubId != null) {
+                const updated = await updateStubReply({
+                  prSurface: params.prSurface,
+                  stubCommentId: priorStubId,
+                  body: `${terminalSuccessStubBody(verdict, operationMarker)}${receipt}`,
+                });
+                if (!updated) nextStubCommentId = undefined;
+                else accepted();
+              }
+              if (
+                nextStubCommentId == null &&
+                (await appendRootResolutionReceipt(params.prSurface, {
+                  threadNodeId: resolution.threadNodeId,
+                  findingId,
+                  kind: "fixed",
+                }))
+              ) {
+                accepted();
+              }
+              if (!resolution.isResolved) {
+                await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
+              }
+              return nextStubCommentId;
+            },
+          );
+        });
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
@@ -601,44 +605,47 @@ export async function publishVerification(
       }
       case "dismissed": {
         const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
-        if (!resolution || thread.findingId == null) {
+        const findingId = thread.findingId;
+        if (!resolution || findingId == null) {
           degradation.add("verdict_mapping_incomplete");
           break;
         }
         const priorStubId = resolveStubCommentId(thread, prior);
-        const receipt =
-          (await unpostedResolutionReceipt(params.prSurface, {
-            threadNodeId: resolution.threadNodeId,
-            findingId: thread.findingId,
-            kind: "dismissed",
-            ownCommentId: priorStubId,
-          })) ?? "";
-        const { stubCommentId, completion } = await withVerificationThreadOperation(
-          params,
-          verdict,
-          true,
-          {
-            requiresStub: true,
-            stubCommentId: priorStubId,
-            threadNodeId: resolution.threadNodeId,
-            body: (marker) =>
-              `${dismissedReplyBody(verdict, thread, params.policyResult, marker)}${receipt}`,
-          },
-          async (operationMarker, accepted) => {
-            const createdStubCommentId = await upsertStubComment({
-              prSurface: params.prSurface,
-              prNumber: params.prNumber,
-              thread,
+        const { stubCommentId, completion } = await withThreadLock(async () => {
+          const receipt =
+            (await unpostedResolutionReceipt(params.prSurface, {
+              threadNodeId: resolution.threadNodeId,
+              findingId,
+              kind: "dismissed",
+              ownCommentId: priorStubId,
+            })) ?? "";
+          return withVerificationThreadOperation(
+            params,
+            verdict,
+            true,
+            {
+              requiresStub: true,
               stubCommentId: priorStubId,
-              body: `${dismissedReplyBody(verdict, thread, params.policyResult, operationMarker)}${receipt}`,
-            });
-            accepted();
-            if (!resolution.isResolved) {
-              await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
-            }
-            return createdStubCommentId;
-          },
-        );
+              threadNodeId: resolution.threadNodeId,
+              body: (marker) =>
+                `${dismissedReplyBody(verdict, thread, params.policyResult, marker)}${receipt}`,
+            },
+            async (operationMarker, accepted) => {
+              const createdStubCommentId = await upsertStubComment({
+                prSurface: params.prSurface,
+                prNumber: params.prNumber,
+                thread,
+                stubCommentId: priorStubId,
+                body: `${dismissedReplyBody(verdict, thread, params.policyResult, operationMarker)}${receipt}`,
+              });
+              accepted();
+              if (!resolution.isResolved) {
+                await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
+              }
+              return createdStubCommentId;
+            },
+          );
+        });
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,

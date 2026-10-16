@@ -159,7 +159,7 @@ export function parseOwnedReceipts(
       const [, version, kind, rawId, rawCanonical] = match;
       if (version !== MARKER_VERSION || !isFindingId(rawId)) return [];
       if (kind === "duplicate") {
-        if (rawCanonical == null || !isFindingId(rawCanonical) || rawCanonical === rawId) return [];
+        if (rawCanonical == null || !isFindingId(rawCanonical)) return [];
         return [{ kind, id: rawId, canonical: rawCanonical }];
       }
       if (rawCanonical != null) return [];

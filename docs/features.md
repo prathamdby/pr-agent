@@ -128,6 +128,15 @@ Notes:
   does not replace it. The optional status uses that same verdict.
   Crash recovery serializes its failure decision with lease renewals and
   restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
+- Review closes only proven duplicates. When two open bot threads report the
+  same defect in the same file on overlapping lines, the orchestrator declares
+  them with `declare_duplicate` and the server checks the group against the
+  finding inventory. The thread with human replies, else the oldest, stays
+  canonical. Each copy gets one `Tracked in <link>` reply with a hidden receipt
+  and is resolved, unless someone has replied on it; then it is linked and left
+  open. Two threads with the same finding ID are cleaned up the same way
+  without the model. The summary lists the result under `Resolved this run`.
+  Nothing is cleaned up while the finding inventory is incomplete.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

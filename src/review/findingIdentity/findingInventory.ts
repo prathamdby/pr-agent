@@ -149,7 +149,9 @@ function threadFinding(
     positionStale: thread.isOutdated || line == null,
     state: thread.isResolved ? "resolved" : "open",
     ...(resolution != null ? { resolution } : {}),
-    ...(duplicate?.kind === "duplicate" ? { aliasOf: duplicate.canonical } : {}),
+    ...(duplicate?.kind === "duplicate" && duplicate.canonical !== id
+      ? { aliasOf: duplicate.canonical }
+      : {}),
     ...(marker?.reopens != null ? { reopens: marker.reopens } : {}),
     lens: marker?.lens ?? "unknown",
     severity: marker?.severity ?? heading?.severity ?? "unknown",

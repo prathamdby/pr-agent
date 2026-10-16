@@ -75,6 +75,7 @@ import {
 import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "./declareDuplicateTool.js";
 import { judgmentInventory } from "./judgmentInventory.js";
 import {
   loadFindingInventoryOrUnavailable,
@@ -512,16 +513,19 @@ export async function runOrchestratedPrReview(
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
   });
+  const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession });
   const allTools = [
     ...setup.workspaceTools.piTools,
     briefTool.piTool,
     publishThread.piTool,
+    declareDuplicate.piTool,
     publishSummary.piTool,
   ];
   const allExecutors = {
     ...setup.workspaceTools.executors,
     submit_specialist_brief: briefTool.executor,
     publish_thread: publishThread.executor,
+    declare_duplicate: declareDuplicate.executor,
     publish_summary: publishSummary.executor,
   };
   let session: PiSession | null = null;

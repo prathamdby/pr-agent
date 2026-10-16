@@ -44,6 +44,7 @@ import type { InventoryFinding } from "../findingIdentity/findingInventory.js";
 import {
   findingSeverityLabel,
   renderCarriedFindingCell,
+  renderResolvedThisRun,
   type FindingView,
   type FindingViewRow,
 } from "../findingIdentity/findingLifecycle.js";
@@ -587,6 +588,12 @@ function buildReviewSummaryBody(
   }
 
   rows.push(renderKeyValueTable(tableRows));
+
+  const resolvedThisRun = renderResolvedThisRun(ctx.findingView);
+  if (resolvedThisRun.length > 0) {
+    rows.push("");
+    rows.push(resolvedThisRun);
+  }
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

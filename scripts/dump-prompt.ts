@@ -72,6 +72,7 @@ import {
 } from "../src/review/orchestrator/briefTool.js";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "../src/review/orchestrator/declareDuplicateTool.js";
 import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import {
@@ -245,6 +246,7 @@ function dumpAll() {
     session: publishSession,
     inventory: emptyFindingInventory,
   }).piTool;
+  const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession }).piTool;
   const summary = buildPublishSummaryTool({
     phaseRef,
     session: publishSession,
@@ -310,6 +312,7 @@ function dumpAll() {
         ...reviewWorkspace,
         buildSpecialistBriefTool(phaseRef).piTool,
         thread,
+        declareDuplicate,
         summary,
       ],
       ask: [...codeModeLocal, ...context7],
