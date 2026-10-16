@@ -9,7 +9,8 @@ export type SessionLockKey =
       readonly workItemId: string;
       readonly reviewLens: AnyReviewLens;
     }
-  | { readonly kind: "progress"; readonly resourceKey: string; readonly reviewLens: AnyReviewLens };
+  | { readonly kind: "progress"; readonly resourceKey: string; readonly reviewLens: AnyReviewLens }
+  | { readonly kind: "thread_mutation"; readonly resourceKey: string };
 
 type TrySessionLockOptions = {
   readonly mode: "try";
@@ -35,6 +36,12 @@ export function withSessionLock<T>(
 ): Promise<T>;
 export function withSessionLock<T>(
   pool: Pool,
+  key: Extract<SessionLockKey, { kind: "thread_mutation" }>,
+  options: WaitSessionLockOptions,
+  apply: (client: PoolClient) => Promise<T>,
+): Promise<T>;
+export function withSessionLock<T>(
+  pool: Pool,
   key: Extract<SessionLockKey, { kind: "own_verdict" }>,
   options: TrySessionLockOptions,
   apply: (client: PoolClient) => Promise<T>,
@@ -53,7 +60,9 @@ export async function withSessionLock<T>(
   const lockKey =
     key.kind === "own_verdict"
       ? `own-verdict:${key.workItemId}:${key.reviewLens}`
-      : JSON.stringify([key.resourceKey, key.reviewLens]);
+      : key.kind === "thread_mutation"
+        ? `thread-mutation:${key.resourceKey}`
+        : JSON.stringify([key.resourceKey, key.reviewLens]);
   const reservation = reservations.get(pool) ?? { count: 0 };
   reservations.set(pool, reservation);
   const deadline = options.mode === "wait" ? options.deadline : Infinity;

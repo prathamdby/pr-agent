@@ -1031,14 +1031,14 @@ Recorded before the split:
 
 `Config` is now nested slices behind the single settings barrel:
 
-| Slice                                                                                                           | Reader file          |
-| --------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `github`, `webhook`, `associations`                                                                             | `slices/github.ts`   |
-| `ask`                                                                                                           | `slices/ask.ts`      |
-| `queue`, `concurrency`, `retention`                                                                             | `slices/queue.ts`    |
-| `models`, `provider`                                                                                            | `slices/models.ts`   |
-| `features`                                                                                                      | `slices/features.ts` |
-| `runtime`, `agentEvents`, `findingHistory`, `codeIndex`, `codeMode`, `review`, `context7`, `posthog`, `logging` | `slices/service.ts`  |
+| Slice                                                                                         | Reader file          |
+| --------------------------------------------------------------------------------------------- | -------------------- |
+| `github`, `webhook`, `associations`                                                           | `slices/github.ts`   |
+| `ask`                                                                                         | `slices/ask.ts`      |
+| `queue`, `concurrency`, `retention`                                                           | `slices/queue.ts`    |
+| `models`, `provider`                                                                          | `slices/models.ts`   |
+| `features`                                                                                    | `slices/features.ts` |
+| `runtime`, `agentEvents`, `codeIndex`, `codeMode`, `review`, `context7`, `posthog`, `logging` | `slices/service.ts`  |
 
 `envReaders.ts` holds the typed readers (`requireEnv`, `optionalEnv`,
 `readPositive*`, `readNonNegative*`, `readEnum`, `readStrictBoolean`) and

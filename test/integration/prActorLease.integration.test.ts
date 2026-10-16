@@ -2425,7 +2425,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             workItemId,
             specialist: "correctness",
             reviewId: batch.reviewId,
-            fingerprints: [],
             placements: [],
           },
         }).record();

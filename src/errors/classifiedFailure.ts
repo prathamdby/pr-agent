@@ -91,6 +91,7 @@ const INTERNAL_ERROR_KIND: {
     mutation_outcome_unknown: "publish",
   },
   review: {
+    declare_duplicate_validation_failed: "validation",
     deterministic_finding_publish_failed: "publish",
     publish_summary_failed: "publish",
     publish_summary_semantic_validation_failed: "validation",

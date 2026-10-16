@@ -80,7 +80,6 @@ function accepted(
       source: "correctness",
       placement,
       findingId: legacyFindingId(findingId),
-      canonicalFingerprint: findingId,
       reason: "anchor",
     };
   }
@@ -89,7 +88,6 @@ function accepted(
     source: "correctness",
     placement,
     findingId: legacyFindingId(findingId),
-    canonicalFingerprint: findingId,
     reviewId: item.startLine,
   };
 }
@@ -146,7 +144,7 @@ describe("buildPublishSummaryTool", () => {
       ok: false,
       code: WRONG_PHASE_TOOL_CODE,
       phase: "judgment",
-      allowed: ["publish_thread"],
+      allowed: ["publish_thread", "declare_duplicate"],
       error: expect.stringContaining("publish_summary"),
     });
     expect(state.published).toBe(false);

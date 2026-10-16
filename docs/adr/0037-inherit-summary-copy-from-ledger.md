@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended by [ADR 0054](0054-finding-identity-on-github.md): the
+findings section and the check come from the finding inventory plus the
+ledger, so open findings from earlier runs stay listed.
 
 Amends the summary-table and tool-contract description of
 [ADR 0003](0003-structured-review-output.md) (decision 2, row list) and

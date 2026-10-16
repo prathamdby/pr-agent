@@ -2,7 +2,6 @@ export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
 export const LABEL_REVIEW_SIZE_PREFIX = "size:";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
-export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
 

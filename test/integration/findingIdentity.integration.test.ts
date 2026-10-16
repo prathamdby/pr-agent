@@ -6,6 +6,7 @@ import { openReviewArtifactStore } from "../../src/agentWork/reviewArtifactRepos
 import { getOperationIntent } from "../../src/agentWork/operationIntentRepository.js";
 import {
   deterministicInlineBatchId,
+  reviewDuplicateOperationKey,
   reviewInlineBatchOperationKey,
 } from "../../src/agentWork/publishOnce.js";
 import {
@@ -22,12 +23,14 @@ import {
 } from "../../src/review/findingIdentity/findingInventory.js";
 import {
   parseOwnedFindingMarker,
+  parseOwnedReceipts,
   renderReceipt,
   type FindingId,
 } from "../../src/review/findingIdentity/findingMarker.js";
 import { AppError } from "../../src/errors/appError.js";
 import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.js";
+import { buildDeclareDuplicateTool } from "../../src/review/orchestrator/declareDuplicateTool.js";
 import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.js";
 import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.js";
 import {
@@ -40,6 +43,7 @@ import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummar
 import { createReviewArtifactBinding } from "../../src/review/recovery/reviewArtifacts.js";
 import { openReviewRecovery } from "../../src/review/recovery/reviewRecovery.js";
 import { reviewPayloadFromFindings, type ReviewFinding } from "../../src/review/reviewSchema.js";
+import type { ReviewPublishSession } from "../../src/review/publish/reviewPublishSession.js";
 import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../../src/review/statusCopy.js";
 import { makeTestConfig } from "../helpers/config.js";
 import {
@@ -273,6 +277,74 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
   }
 
   const noPathChanges = { renames: new Map<string, string>(), deletedPaths: new Set<string>() };
+
+  const lineTenCopies: readonly ReviewFinding[] = [
+    "Null dereference at line 10",
+    "Payload is dereferenced without a null check",
+    "Unchecked payload read crashes on null",
+  ].map((title) => observed(10, { title }));
+
+  async function publishCopies(
+    seeded: Awaited<ReturnType<typeof seedReviewPublication>>,
+    copies: readonly ReviewFinding[],
+  ): Promise<{ readonly reviewId: number; readonly ids: readonly FindingId[] }> {
+    const first = seeded.attempt(pool, seeded.surface, copies);
+    const published = await publishFindingBatch(copies, first.session, first.input);
+    if (published.kind !== "published") throw new Error("expected the copies to publish");
+    const [reviewId] = published.delta.inlineReviewIds;
+    if (reviewId == null) throw new Error("expected an inline review");
+    const inventory = await loadFindingInventory(seeded.surface, noPathChanges);
+    const ids = [...inventory.findings.values()]
+      .filter((entry) => entry.state === "open" && entry.line === 10)
+      .map((entry) => entry.id);
+    if (ids.length !== copies.length) throw new Error("expected one open thread per copy");
+    return { reviewId, ids };
+  }
+
+  async function addHumanReply(
+    surface: PrSurface,
+    controls: FakePrSurfaceControls,
+    rootCommentId: number,
+  ) {
+    const { comments } = await surface.listReviewComments();
+    controls.setReviewComments([
+      ...comments,
+      {
+        id: 900_000 + rootCommentId,
+        inReplyToId: rootCommentId,
+        pullRequestReviewId: null,
+        userId: 7,
+        authorLogin: "maintainer",
+        authorAssociation: "MEMBER",
+        body: "Is this the same problem as the other thread?",
+        path: null,
+        line: null,
+        originalLine: null,
+        htmlUrl: "",
+      },
+    ]);
+  }
+
+  async function receiptsByThread(surface: PrSurface) {
+    const botLogin = await surface.getBotLogin();
+    const { threads } = await surface.listInlineReviewThreads();
+    return new Map(
+      threads.map((thread) => [
+        thread.rootCommentId,
+        {
+          isResolved: thread.isResolved,
+          receipts: parseOwnedReceipts(thread.comments, botLogin),
+        },
+      ]),
+    );
+  }
+
+  function declareTool(session: ReviewPublishSession) {
+    return buildDeclareDuplicateTool({
+      phaseRef: createOrchestratorPhaseRef("judgment"),
+      session,
+    });
+  }
 
   it("recovers a batch killed after GitHub accepted it by the finding markers GitHub returns", async () => {
     const { workItemId, surface, controls, attempt, cleanup } = await seedReviewPublication();
@@ -792,6 +864,208 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       });
       expect(lastSummaryBody(controls)).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
       expect(checkConclusions(controls)).toEqual(["neutral", "failure"]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("links each duplicate thread to one canonical thread once and resolves only undiscussed copies", async () => {
+    const seeded = await seedReviewPublication();
+    const { surface, controls } = seeded;
+
+    try {
+      const { ids } = await publishCopies(seeded, lineTenCopies);
+      const published = await loadFindingInventory(surface, noPathChanges);
+      const rootOf = (id: FindingId) => {
+        const root = published.findings.get(id)?.rootCommentId;
+        if (root == null) throw new Error("expected a thread root");
+        return root;
+      };
+      const [firstDiscussed, secondDiscussed, undiscussed] = ids;
+      if (firstDiscussed == null || secondDiscussed == null || undiscussed == null) {
+        throw new Error("expected three copies");
+      }
+      await addHumanReply(surface, controls, rootOf(firstDiscussed));
+      await addHumanReply(surface, controls, rootOf(secondDiscussed));
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+
+      const run = await rerun(surface, [], inventory);
+      const declared = await declareTool(run.session).executor({
+        findingIds: [undiscussed, secondDiscussed, firstDiscussed],
+        reason: "All three describe the unchecked payload dereference at line 10.",
+      });
+      expect(declared.kind).toBe("accepted");
+      if (declared.kind !== "accepted") return;
+      expect([firstDiscussed, secondDiscussed]).toContain(declared.canonicalId);
+      expect(declared.resolves).toEqual([undiscussed]);
+      const [linkedOnly] = declared.linksOnly;
+      expect(declared.linksOnly).toHaveLength(1);
+      expect(linkedOnly).not.toBe(declared.canonicalId);
+      if (linkedOnly == null) return;
+      const canonicalUrl = inventory.findings.get(declared.canonicalId)?.url;
+      if (canonicalUrl == null) throw new Error("expected a canonical url");
+
+      const result = await publishSummaryWithVerdict(surface, run, run.input.ledger);
+      expect(result).toMatchObject({ kind: "published", check: { blockingCount: 1 } });
+      const body = lastSummaryBody(controls);
+      expect(body).toContain(
+        `Resolved this run: 1 duplicate (tracked in [thread](${canonicalUrl})).`,
+      );
+      expect(body).toContain(
+        `Linked 1 discussed duplicate to [thread](${canonicalUrl}) and left it open.`,
+      );
+
+      const threads = await receiptsByThread(surface);
+      const duplicateReceipts = (id: FindingId) =>
+        threads
+          .get(rootOf(id))
+          ?.receipts.filter(
+            (receipt) =>
+              receipt.kind === "duplicate" &&
+              receipt.id === id &&
+              receipt.canonical === declared.canonicalId,
+          ) ?? [];
+      expect(duplicateReceipts(undiscussed)).toHaveLength(1);
+      expect(duplicateReceipts(linkedOnly)).toHaveLength(1);
+      expect(threads.get(rootOf(declared.canonicalId))).toEqual({
+        isResolved: false,
+        receipts: [],
+      });
+      expect(threads.get(rootOf(undiscussed))?.isResolved).toBe(true);
+      expect(threads.get(rootOf(linkedOnly))?.isResolved).toBe(false);
+      expect(
+        controls.replies.filter((reply) => reply.body.startsWith(`Tracked in ${canonicalUrl}.`)),
+      ).toHaveLength(2);
+      for (const [kind, duplicateId] of [
+        ["duplicate_reply", undiscussed],
+        ["duplicate_resolve", undiscussed],
+        ["duplicate_reply", linkedOnly],
+      ] as const) {
+        const threadId = published.findings.get(duplicateId)?.threadId;
+        if (threadId == null) throw new Error("expected a thread id");
+        const operationKey = reviewDuplicateOperationKey({
+          kind,
+          duplicateId,
+          canonicalId: declared.canonicalId,
+          threadId,
+        });
+        expect((await getOperationIntent(pool, run.workItemId, operationKey))?.status).toBe(
+          "reconciled",
+        );
+      }
+
+      const mutationsBefore = controls.events.filter(
+        (event) => event.kind === "replyAt" || event.kind === "resolveInlineReviewThread",
+      ).length;
+      const afterInventory = await loadFindingInventory(surface, noPathChanges);
+      expect(afterInventory.findings.get(undiscussed)?.state).toBe("resolved");
+      const again = await rerun(surface, [], afterInventory);
+      const redeclared = await declareTool(again.session).executor({
+        findingIds: [declared.canonicalId, linkedOnly],
+        reason: "Still the same unchecked payload dereference.",
+      });
+      expect(redeclared).toMatchObject({ kind: "accepted", canonicalId: declared.canonicalId });
+      await publishSummaryWithVerdict(surface, again, again.input.ledger);
+      expect(
+        controls.events.filter(
+          (event) => event.kind === "replyAt" || event.kind === "resolveInlineReviewThread",
+        ),
+      ).toHaveLength(mutationsBefore);
+      expect(lastSummaryBody(controls)).not.toContain("Resolved this run");
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("serializes duplicate cleanup and verification on one PR so no thread gets a second receipt of a kind", async () => {
+    const seeded = await seedReviewPublication();
+    const { workItemId, resourceKey, surface, controls } = seeded;
+    const botUserId = 4242;
+
+    try {
+      const { reviewId, ids } = await publishCopies(seeded, lineTenCopies.slice(0, 2));
+      controls.setReviewComments(
+        (await surface.listReviewComments()).comments.map((comment) => ({
+          ...comment,
+          userId: botUserId,
+        })),
+      );
+      controls.setPullRequestReviews(
+        (await surface.listPullRequestReviews()).map((review) => ({
+          ...review,
+          userId: botUserId,
+        })),
+      );
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      const [olderId, newerId] = ids;
+      if (olderId == null || newerId == null) throw new Error("expected two copies");
+
+      const attempts = [0, 1].map(() => seeded.attempt(pool, surface, [], inventory));
+      const declared = await Promise.all(
+        attempts.map((attempt) =>
+          declareTool(attempt.session).executor({
+            findingIds: [olderId, newerId],
+            reason: "Both describe the unchecked payload dereference at line 10.",
+          }),
+        ),
+      );
+      const [plan] = declared;
+      if (plan?.kind !== "accepted") throw new Error("expected the duplicate group to be accepted");
+      const [copyId] = plan.resolves;
+      if (copyId == null) throw new Error("expected one copy to resolve");
+      const copyRoot = inventory.findings.get(copyId)?.rootCommentId;
+      const canonicalRoot = inventory.findings.get(plan.canonicalId)?.rootCommentId;
+      if (copyRoot == null || canonicalRoot == null) throw new Error("expected thread roots");
+
+      const listed = await surface.listInlineReviewThreads();
+      const verificationThreads = await fetchBotFindingThreads(surface, {
+        botUserId,
+        inventory,
+        publishRecordLenses: new Map([[reviewId, "review" as const]]),
+      });
+
+      await Promise.all([
+        ...attempts.map((attempt) =>
+          attempt.session.duplicateCleanup.clean({ ...attempt.session, pool }),
+        ),
+        publishVerification({
+          pool,
+          workItemId,
+          resourceKey,
+          leaseEpoch: LEASE_EPOCH,
+          installationId: 42,
+          owner: "finding-identity-it",
+          repo: surface.repo,
+          prNumber: 1,
+          headSha: HEAD_SHA,
+          prSurface: surface,
+          inventory: verificationThreads,
+          resolutionByRootCommentId: listed.byRootCommentId,
+          payload: {
+            verdicts: [
+              {
+                verdict: "fixed",
+                threadRootCommentId: copyRoot,
+                evidence: "guarded",
+                commitSha: "abcdef1",
+              },
+            ],
+          },
+          changedFilePaths: ["src/a.ts"],
+          policyResult: { kind: "absent" },
+        }),
+      ]);
+
+      const threads = await receiptsByThread(surface);
+      const copy = threads.get(copyRoot);
+      expect(copy?.isResolved).toBe(true);
+      const copyKinds = (copy?.receipts ?? []).map((receipt) => receipt.kind);
+      expect(copyKinds.filter((kind) => kind === "fixed")).toHaveLength(1);
+      expect(copyKinds.filter((kind) => kind === "duplicate").length).toBeLessThanOrEqual(1);
+      expect(threads.get(canonicalRoot)).toEqual({ isResolved: false, receipts: [] });
+      expect(
+        controls.replies.filter((reply) => reply.body.includes("kind=duplicate")).length,
+      ).toBeLessThanOrEqual(1);
     } finally {
       await seeded.cleanup();
     }

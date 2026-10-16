@@ -19,9 +19,17 @@ import {
   type ObservationRelation,
 } from "../src/review/findingIdentity/findingReconcile.js";
 import {
+  executeDuplicateCleanup,
+  planDuplicateCleanup,
+  planSameIdCleanup,
+  selectCanonical,
+  type DuplicateCleanupStep,
+} from "../src/review/findingIdentity/duplicateCleanup.js";
+import {
   buildFindingView,
   checkConclusion,
   renderFindingsSection,
+  renderResolvedThisRun,
   type FindingRunOutcomes,
 } from "../src/review/findingIdentity/findingLifecycle.js";
 import type {
@@ -508,19 +516,18 @@ describe("observation reconciliation", () => {
   const open = () => thread({ rootBody: markedBody(A), line: 10 });
 
   it("overlaps within the window on the same path, ignoring lens", () => {
-    const finding = inventoryOf([open()]).findings.get(A);
-    if (finding == null) throw new Error("missing finding");
+    const finding = heldFinding(inventoryOf([open()]), A);
     expect(overlaps(observation({ startLine: 10 + OVERLAP_WINDOW_LINES }), finding)).toBe(true);
     expect(overlaps(observation({ startLine: 11 + OVERLAP_WINDOW_LINES }), finding)).toBe(false);
     expect(overlaps(observation({ file: "src/b.ts", startLine: 10 }), finding)).toBe(false);
   });
 
   it("overlaps anywhere in the file when the finding position is unknown or stale", () => {
-    const unknown = inventoryOf([thread({ rootBody: markedBody(A), line: null })]).findings.get(A);
-    const stale = inventoryOf([thread({ rootBody: markedBody(A), isOutdated: true })]).findings.get(
+    const unknown = heldFinding(inventoryOf([thread({ rootBody: markedBody(A), line: null })]), A);
+    const stale = heldFinding(
+      inventoryOf([thread({ rootBody: markedBody(A), isOutdated: true })]),
       A,
     );
-    if (unknown == null || stale == null) throw new Error("missing finding");
     expect(overlaps(observation({ startLine: 900 }), unknown)).toBe(true);
     expect(overlaps(observation({ startLine: 900 }), stale)).toBe(true);
   });
@@ -694,7 +701,6 @@ function postedThisRun(
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: 5, inlinePosted: true },
     findingId,
-    canonicalFingerprint: "fp",
     reviewId: 1,
   };
 }
@@ -705,7 +711,6 @@ function heldThisRun(findingId: FindingId, severity: ReviewFinding["severity"]):
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: null, inlinePosted: false },
     findingId,
-    canonicalFingerprint: "fp",
     reason: "cap",
   };
 }
@@ -733,6 +738,7 @@ function reviewed(
     readonly accepted?: readonly AcceptedPlacement[];
     readonly reaffirmed?: readonly ReaffirmedFinding[];
     readonly suppressedDismissedCount?: number;
+    readonly duplicates?: Extract<FindingRunOutcomes, { kind: "reviewed" }>["duplicates"];
   } = {},
 ): FindingRunOutcomes {
   return {
@@ -742,6 +748,7 @@ function reviewed(
       reaffirmed: ledger.reaffirmed ?? [],
       suppressedDismissedCount: ledger.suppressedDismissedCount ?? 0,
     },
+    duplicates: ledger.duplicates ?? [],
   };
 }
 
@@ -810,8 +817,7 @@ describe("finding lifecycle view", () => {
   });
 
   it("never counts an unknown severity as blocking", () => {
-    const known = inventoryOf([thread({ rootBody: markedBody(A) })]).findings.get(A);
-    if (known == null) throw new Error("expected inventory finding");
+    const known = heldFinding(inventoryOf([thread({ rootBody: markedBody(A) })]), A);
     const view = buildFindingView(
       { ...inventoryOf([]), findings: new Map([[A, { ...known, severity: "unknown" }]]) },
       reviewed(),
@@ -1062,5 +1068,543 @@ describe("findings section", () => {
       parseOwnedFindingRows({ body: oneRow, authorLogin: BOT }, BOT).map((row) => row.id),
     ).toHaveLength(1);
     expect(renderFindingsSection(view, -50)).toBe("");
+  });
+});
+
+function openThreadFinding(
+  findingId: FindingId,
+  overrides: Partial<ReviewThreadSnapshot> & {
+    readonly replies?: readonly { readonly body: string; readonly authorLogin: string | null }[];
+  } = {},
+) {
+  return thread({ rootBody: markedBody(findingId), ...overrides });
+}
+
+function heldFinding(inventory: ReturnType<typeof inventoryOf>, findingId: FindingId) {
+  const finding = inventory.findings.get(findingId);
+  if (finding == null) throw new Error(`expected inventory finding ${findingId}`);
+  return finding;
+}
+
+describe("duplicate receipts and lifecycle", () => {
+  it("parses a same-id copy receipt without aliasing the finding to itself", () => {
+    const copyReceipt = renderReceipt({ kind: "duplicate", id: A, canonical: A });
+    expect(parseOwnedReceipts([{ body: copyReceipt, authorLogin: BOT }], BOT)).toEqual([
+      { kind: "duplicate", id: A, canonical: A },
+    ]);
+    const inventory = inventoryOf([
+      openThreadFinding(A, {
+        isResolved: true,
+        replies: [{ body: copyReceipt, authorLogin: BOT }],
+      }),
+    ]);
+    expect(inventory.findings.get(A)).toMatchObject({ resolution: "duplicate" });
+    expect(inventory.findings.get(A)?.aliasOf).toBeUndefined();
+    expect(inventory.canonicalOf(A)).toBe(A);
+  });
+
+  it("does not count an open duplicate that is tracked on its canonical thread", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        openThreadFinding(A),
+        openThreadFinding(B, {
+          replies: [
+            { body: renderReceipt({ kind: "duplicate", id: B, canonical: A }), authorLogin: BOT },
+          ],
+        }),
+      ]),
+      reviewed(),
+    );
+    expect(view.rows.map((row) => row.id)).toEqual([A]);
+    expect(view.blockingCount).toBe(1);
+  });
+
+  it("drops duplicates cleaned up this run from the open rows and reports them", () => {
+    const view = buildFindingView(
+      inventoryOf([openThreadFinding(A, { rootCommentId: 61 }), openThreadFinding(B)]),
+      reviewed({
+        duplicates: [
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+            resolved: true,
+          },
+        ],
+      }),
+    );
+    expect(view.rows.map((row) => row.id)).toEqual([A]);
+    expect(view.duplicates).toEqual([
+      {
+        id: B,
+        canonicalId: A,
+        canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+        resolved: true,
+      },
+    ]);
+  });
+
+  it("keeps an open blocking copy blocking through its lower-severity canonical", () => {
+    const canonical = thread({ rootBody: markedBody(A, "P3"), rootCommentId: 64 });
+    const thisRun = buildFindingView(
+      inventoryOf([canonical, thread({ rootBody: markedBody(B, "P1") })]),
+      reviewed({
+        duplicates: [
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r64",
+            resolved: false,
+          },
+        ],
+      }),
+    );
+    const laterRun = buildFindingView(
+      inventoryOf([
+        canonical,
+        thread({
+          rootBody: markedBody(B, "P1"),
+          replies: [
+            { body: renderReceipt({ kind: "duplicate", id: B, canonical: A }), authorLogin: BOT },
+          ],
+        }),
+      ]),
+      reviewed(),
+    );
+    for (const view of [thisRun, laterRun]) {
+      expect(view.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+      expect(checkConclusion(view)).toBe("failure");
+    }
+  });
+
+  it("keeps the canonical row when a same-id copy was cleaned up", () => {
+    const view = buildFindingView(
+      inventoryOf([
+        openThreadFinding(A, { rootCommentId: 62 }),
+        openThreadFinding(A, { rootCommentId: 63 }),
+      ]),
+      reviewed({
+        duplicates: [
+          {
+            id: A,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r62",
+            resolved: true,
+          },
+        ],
+      }),
+    );
+    expect(view.rows.map((row) => row.id)).toEqual([A]);
+    expect(renderResolvedThisRun(view)).toBe(
+      "Resolved this run: 1 duplicate (tracked in [thread](https://github.com/o/r/pull/1#discussion_r62)).",
+    );
+  });
+});
+
+describe("duplicate cleanup planning", () => {
+  it("prefers human discussion, then the oldest thread, then the lowest id", () => {
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(B, {
+        rootCommentId: 2,
+        replies: [{ body: "I see this too", authorLogin: "alice" }],
+      }),
+      openThreadFinding(C, { rootCommentId: 3 }),
+    ]);
+    const a = heldFinding(inventory, A);
+    const b = heldFinding(inventory, B);
+    const c = heldFinding(inventory, C);
+    expect(selectCanonical([a, b, c]).id).toBe(B);
+    expect(selectCanonical([c, a]).id).toBe(A);
+    const sameTime = { ...c, createdAt: a.createdAt };
+    expect(selectCanonical([sameTime, a]).id).toBe(A);
+  });
+
+  it("ignores the model's preferred direction", () => {
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(B, { rootCommentId: 2 }),
+    ]);
+    const forward = planDuplicateCleanup([A, B], inventory);
+    const backward = planDuplicateCleanup([B, A], inventory);
+    expect(forward).toEqual(backward);
+    expect(forward).toMatchObject({
+      canonical: { id: A },
+      duplicates: [{ finding: { id: B }, resolve: true }],
+    });
+  });
+
+  it("links but does not resolve a duplicate that has human replies", () => {
+    const inventory = inventoryOf([
+      openThreadFinding(A, {
+        rootCommentId: 1,
+        replies: [{ body: "context", authorLogin: "alice" }],
+      }),
+      openThreadFinding(B, {
+        rootCommentId: 2,
+        replies: [{ body: "more context", authorLogin: "bob" }],
+      }),
+    ]);
+    expect(planDuplicateCleanup([A, B], inventory)).toMatchObject({
+      canonical: { id: A },
+      duplicates: [{ finding: { id: B }, resolve: false }],
+    });
+  });
+
+  it("refuses an incomplete inventory", () => {
+    for (const status of ["partial", "unavailable", "permission_denied"] as const) {
+      const inventory = inventoryOf([openThreadFinding(A), openThreadFinding(B)], { status });
+      expect(planDuplicateCleanup([A, B], inventory)).toEqual({
+        refused: "inventory_incomplete",
+      });
+    }
+  });
+
+  it("refuses fewer than two distinct findings and unknown ids", () => {
+    const inventory = inventoryOf([openThreadFinding(A), openThreadFinding(B)]);
+    expect(planDuplicateCleanup([A, A], inventory)).toEqual({ refused: "too_few" });
+    expect(planDuplicateCleanup([A, C], inventory)).toEqual({ refused: "unknown_finding" });
+  });
+
+  it("refuses resolved, summary-only, and over-long threads", () => {
+    const resolved = inventoryOf([
+      openThreadFinding(A),
+      openThreadFinding(B, { isResolved: true }),
+    ]);
+    expect(planDuplicateCleanup([A, B], resolved)).toEqual({ refused: "not_open" });
+    const summaryOnly = inventoryOf([openThreadFinding(A)], {
+      summary: {
+        body: renderFindingRowMarker({
+          id: B,
+          lens: "review",
+          severity: "P1",
+          path: "src/a.ts",
+          line: 10,
+          title: "Held",
+        }),
+        authorLogin: BOT,
+        url: "https://github.com/o/r/pull/1#issuecomment-1",
+      },
+    });
+    expect(planDuplicateCleanup([A, B], summaryOnly)).toEqual({ refused: "not_thread" });
+    const longThread = inventoryOf([
+      openThreadFinding(A),
+      openThreadFinding(B, { commentsComplete: false }),
+    ]);
+    expect(planDuplicateCleanup([A, B], longThread)).toEqual({ refused: "comments_incomplete" });
+  });
+
+  it("refuses findings in different files but accepts a rename", () => {
+    const apart = inventoryOf([openThreadFinding(A), openThreadFinding(B, { path: "src/b.ts" })]);
+    expect(planDuplicateCleanup([A, B], apart)).toEqual({ refused: "different_file" });
+    const renamed = inventoryOf(
+      [
+        openThreadFinding(A, { rootCommentId: 1, path: "src/old.ts" }),
+        openThreadFinding(B, { rootCommentId: 2, path: "src/new.ts" }),
+      ],
+      { renames: new Map([["src/old.ts", "src/new.ts"]]) },
+    );
+    expect(planDuplicateCleanup([A, B], renamed)).toMatchObject({ canonical: { id: A } });
+  });
+
+  it("refuses findings that do not overlap but accepts an outdated position", () => {
+    const far = inventoryOf([
+      openThreadFinding(A, { line: 10 }),
+      openThreadFinding(B, { line: 10 + OVERLAP_WINDOW_LINES + 5 }),
+    ]);
+    expect(planDuplicateCleanup([A, B], far)).toEqual({ refused: "not_overlapping" });
+    const stale = inventoryOf([
+      openThreadFinding(A, { line: 10 }),
+      openThreadFinding(B, { line: 400, isOutdated: true }),
+    ]);
+    expect(planDuplicateCleanup([A, B], stale)).toMatchObject({ canonical: { id: A } });
+  });
+
+  it("refuses a member already aliased to another finding", () => {
+    const inventory = inventoryOf([
+      openThreadFinding(A),
+      openThreadFinding(B, {
+        replies: [
+          { body: renderReceipt({ kind: "duplicate", id: B, canonical: C }), authorLogin: BOT },
+        ],
+      }),
+    ]);
+    expect(planDuplicateCleanup([A, B], inventory)).toEqual({ refused: "aliased" });
+  });
+
+  it("never makes a member already aliased inside the group canonical", () => {
+    const aliasedTo = (from: FindingId, to: FindingId) => ({
+      body: renderReceipt({ kind: "duplicate", id: from, canonical: to }),
+      authorLogin: BOT,
+    });
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(B, {
+        rootCommentId: 2,
+        replies: [aliasedTo(B, A), { body: "still relevant", authorLogin: "alice" }],
+      }),
+      openThreadFinding(C, { rootCommentId: 3 }),
+    ]);
+    expect(planDuplicateCleanup([B, C, A], inventory)).toMatchObject({ canonical: { id: A } });
+    const cycle = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 4, replies: [aliasedTo(A, B)] }),
+      openThreadFinding(B, { rootCommentId: 5, replies: [aliasedTo(B, A)] }),
+    ]);
+    expect(planDuplicateCleanup([A, B], cycle)).toEqual({ refused: "aliased" });
+  });
+
+  it("plans same-id copies against the oldest thread without the model", () => {
+    const inventory = inventoryOf([
+      openThreadFinding(A, { rootCommentId: 1 }),
+      openThreadFinding(A, { rootCommentId: 2 }),
+      openThreadFinding(A, {
+        rootCommentId: 3,
+        replies: [{ body: "same here", authorLogin: "alice" }],
+      }),
+      openThreadFinding(A, { rootCommentId: 4, isResolved: true }),
+    ]);
+    const plans = planSameIdCleanup(inventory);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]?.canonical.rootCommentId).toBe(1);
+    expect(
+      plans[0]?.duplicates.map((entry) => [entry.finding.rootCommentId, entry.resolve]),
+    ).toEqual([
+      [2, true],
+      [3, false],
+    ]);
+    expect(
+      planSameIdCleanup(
+        inventoryOf(
+          [openThreadFinding(A, { rootCommentId: 5 }), openThreadFinding(A, { rootCommentId: 6 })],
+          { status: "partial" },
+        ),
+      ),
+    ).toEqual([]);
+  });
+});
+
+type FakeThreadState = { snapshot: ReviewThreadSnapshot | null };
+
+function cleanupHarness(initial: readonly ReviewThreadSnapshot[]) {
+  const threads = new Map<string, FakeThreadState>(
+    initial.map((snapshot) => [snapshot.threadNodeId, { snapshot }]),
+  );
+  const events: string[] = [];
+  const steps: DuplicateCleanupStep[] = [];
+  let lockDepth = 0;
+  const surface = {
+    prNumber: 1,
+    getBotLogin: async () => BOT,
+    getReviewThread: async (threadNodeId: string) => {
+      events.push(`read:${threadNodeId}`);
+      return threads.get(threadNodeId)?.snapshot ?? null;
+    },
+    replyAt: async (
+      target: { readonly inReplyToCommentId: number },
+      body: string,
+    ): Promise<{ readonly id: number; readonly url: string }> => {
+      if (lockDepth === 0) throw new Error("reply outside the thread lock");
+      const state = [...threads.values()].find(
+        (entry) => entry.snapshot?.rootCommentId === target.inReplyToCommentId,
+      );
+      if (state?.snapshot == null) throw new Error("missing thread");
+      events.push(`reply:${state.snapshot.threadNodeId}`);
+      state.snapshot = {
+        ...state.snapshot,
+        comments: [
+          ...state.snapshot.comments,
+          {
+            databaseId: 9000 + events.length,
+            authorLogin: BOT,
+            body,
+            createdAt: "2026-01-02T00:00:00Z",
+            url: "",
+          },
+        ],
+      };
+      return { id: 9000 + events.length, url: "" };
+    },
+    resolveInlineReviewThread: async (threadNodeId: string) => {
+      if (lockDepth === 0) throw new Error("resolve outside the thread lock");
+      const state = threads.get(threadNodeId);
+      if (state?.snapshot == null) throw new Error("missing thread");
+      events.push(`resolve:${threadNodeId}`);
+      state.snapshot = { ...state.snapshot, isResolved: true };
+    },
+  };
+  return {
+    threads,
+    events,
+    steps,
+    deps: {
+      surface,
+      withThreadLock: async <T>(apply: () => Promise<T>): Promise<T> => {
+        lockDepth += 1;
+        try {
+          return await apply();
+        } finally {
+          lockDepth -= 1;
+        }
+      },
+      publishStep: async <T>(step: DuplicateCleanupStep, mutate: () => Promise<T>) => {
+        steps.push(step);
+        return mutate();
+      },
+    },
+  };
+}
+
+describe("duplicate cleanup execution", () => {
+  function twoThreads(duplicateOverrides: Partial<ReviewThreadSnapshot> = {}) {
+    const canonical = openThreadFinding(A, { rootCommentId: 71 });
+    const duplicate = openThreadFinding(B, { rootCommentId: 72, ...duplicateOverrides });
+    return { canonical, duplicate, inventory: inventoryOf([canonical, duplicate]) };
+  }
+
+  function planned(inventory: ReturnType<typeof inventoryOf>) {
+    const plan = planDuplicateCleanup([A, B], inventory);
+    if ("refused" in plan) throw new Error(`refused: ${plan.refused}`);
+    return plan;
+  }
+
+  it("replies with a receipt and resolves under the lock with fresh reads", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const harness = cleanupHarness([duplicate]);
+    const outcomes = await executeDuplicateCleanup(planned(inventory), harness.deps);
+    expect(outcomes).toEqual([
+      {
+        duplicateId: B,
+        canonicalId: A,
+        canonicalUrl: "https://github.com/o/r/pull/1#discussion_r71",
+        outcome: "resolved",
+      },
+    ]);
+    const id = duplicate.threadNodeId;
+    expect(harness.events).toEqual([`read:${id}`, `reply:${id}`, `read:${id}`, `resolve:${id}`]);
+    expect(harness.steps.map((step) => [step.kind, step.duplicateId, step.canonicalId])).toEqual([
+      ["duplicate_reply", B, A],
+      ["duplicate_resolve", B, A],
+    ]);
+    const reply = harness.threads.get(id)?.snapshot?.comments.at(-1)?.body ?? "";
+    expect(reply).toContain("https://github.com/o/r/pull/1#discussion_r71");
+    expect(parseOwnedReceipts([{ body: reply, authorLogin: BOT }], BOT)).toEqual([
+      { kind: "duplicate", id: B, canonical: A },
+    ]);
+  });
+
+  it("adds no mutation when rerun after it finished", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const harness = cleanupHarness([duplicate]);
+    const plan = planned(inventory);
+    await executeDuplicateCleanup(plan, harness.deps);
+    const mutations = harness.events.filter((event) => !event.startsWith("read:")).length;
+    const again = await executeDuplicateCleanup(plan, harness.deps);
+    expect(harness.events.filter((event) => !event.startsWith("read:"))).toHaveLength(mutations);
+    expect(again).toMatchObject([{ outcome: "skipped" }]);
+  });
+
+  it("does not post a second receipt when one already landed concurrently", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const harness = cleanupHarness([
+      {
+        ...duplicate,
+        comments: [
+          ...duplicate.comments,
+          {
+            databaseId: 1,
+            authorLogin: BOT,
+            body: renderReceipt({ kind: "duplicate", id: B, canonical: A }),
+            createdAt: "2026-01-02T00:00:00Z",
+            url: "",
+          },
+        ],
+      },
+    ]);
+    const outcomes = await executeDuplicateCleanup(planned(inventory), harness.deps);
+    expect(harness.events.filter((event) => event.startsWith("reply:"))).toEqual([]);
+    expect(outcomes).toMatchObject([{ outcome: "resolved" }]);
+  });
+
+  it("leaves a thread alone once another writer resolved or deleted it", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const resolvedElsewhere = cleanupHarness([{ ...duplicate, isResolved: true }]);
+    expect(await executeDuplicateCleanup(planned(inventory), resolvedElsewhere.deps)).toMatchObject(
+      [{ outcome: "skipped" }],
+    );
+    expect(resolvedElsewhere.events.filter((event) => !event.startsWith("read:"))).toEqual([]);
+    const deleted = cleanupHarness([]);
+    expect(await executeDuplicateCleanup(planned(inventory), deleted.deps)).toMatchObject([
+      { outcome: "skipped" },
+    ]);
+  });
+
+  it("links a human-discussed duplicate without resolving it", async () => {
+    const canonical = openThreadFinding(A, {
+      rootCommentId: 81,
+      replies: [{ body: "context", authorLogin: "bob" }],
+    });
+    const duplicate = openThreadFinding(B, {
+      rootCommentId: 82,
+      replies: [{ body: "still seeing this", authorLogin: "alice" }],
+    });
+    const harness = cleanupHarness([duplicate]);
+    const plan = planned(inventoryOf([canonical, duplicate]));
+    expect(await executeDuplicateCleanup(plan, harness.deps)).toMatchObject([
+      { duplicateId: B, outcome: "linked" },
+    ]);
+    expect(harness.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+    expect(harness.threads.get(duplicate.threadNodeId)?.snapshot?.isResolved).toBe(false);
+  });
+
+  it("re-checks the thread before resolving and reports its fresh state", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const harness = cleanupHarness([duplicate]);
+    const reply = harness.deps.surface.replyAt;
+    harness.deps.surface.replyAt = async (target, body) => {
+      const result = await reply(target, body);
+      const state = harness.threads.get(duplicate.threadNodeId);
+      if (state?.snapshot != null) state.snapshot = { ...state.snapshot, isResolved: true };
+      return result;
+    };
+    expect(await executeDuplicateCleanup(planned(inventory), harness.deps)).toMatchObject([
+      { outcome: "resolved" },
+    ]);
+    expect(harness.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+  });
+
+  it("does not resolve a copy that gained a human reply after planning", async () => {
+    const { duplicate, inventory } = twoThreads();
+    const plan = planned(inventory);
+    const humanReply = {
+      databaseId: 2,
+      authorLogin: "alice",
+      body: "wait, this one differs",
+      createdAt: "2026-01-02T00:00:00Z",
+      url: "",
+    };
+    const repliedBefore = cleanupHarness([
+      { ...duplicate, comments: [...duplicate.comments, humanReply] },
+    ]);
+    expect(await executeDuplicateCleanup(plan, repliedBefore.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedBefore.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
+    expect(
+      repliedBefore.threads.get(duplicate.threadNodeId)?.snapshot?.comments.at(-1)?.body,
+    ).toContain("Leaving this copy open");
+    const repliedDuring = cleanupHarness([duplicate]);
+    const reply = repliedDuring.deps.surface.replyAt;
+    repliedDuring.deps.surface.replyAt = async (target, body) => {
+      const result = await reply(target, body);
+      const state = repliedDuring.threads.get(duplicate.threadNodeId);
+      if (state?.snapshot != null) {
+        state.snapshot = { ...state.snapshot, comments: [...state.snapshot.comments, humanReply] };
+      }
+      return result;
+    };
+    expect(await executeDuplicateCleanup(plan, repliedDuring.deps)).toMatchObject([
+      { outcome: "linked" },
+    ]);
+    expect(repliedDuring.events.filter((event) => event.startsWith("resolve:"))).toEqual([]);
   });
 });

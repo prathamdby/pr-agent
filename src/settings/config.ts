@@ -27,7 +27,6 @@ import {
   readAgentEventsSlice,
   readCodeModeSlice,
   readContext7Slice,
-  readFindingHistorySlice,
   readLoggingSlice,
   readPosthogSlice,
   readReviewSlice,
@@ -35,7 +34,6 @@ import {
   type AgentEventsSlice,
   type CodeModeSlice,
   type Context7Slice,
-  type FindingHistorySlice,
   type LoggingSlice,
   type PosthogSlice,
   type ReviewSlice,
@@ -51,7 +49,6 @@ export type Config = {
   readonly models: ModelsSlice;
   readonly provider: ProviderSlice;
   readonly agentEvents: AgentEventsSlice;
-  readonly findingHistory: FindingHistorySlice;
   readonly codeMode: CodeModeSlice;
   readonly review: ReviewSlice;
   readonly concurrency: ConcurrencySlice;
@@ -79,7 +76,6 @@ export async function loadConfig(): Promise<Config> {
     models,
     provider,
     agentEvents: readAgentEventsSlice(),
-    findingHistory: readFindingHistorySlice(),
     codeMode: readCodeModeSlice(),
     review: readReviewSlice(),
     concurrency: readConcurrencySlice(),

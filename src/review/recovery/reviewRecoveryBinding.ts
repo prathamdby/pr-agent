@@ -78,7 +78,6 @@ export function reviewRecoveryInputDigest(input: {
         prTitle: input.prTitle,
         prBody: input.prBody,
         review: input.cfg.review,
-        findingHistory: input.cfg.findingHistory,
         providerBudget: input.cfg.provider,
         publication: {
           commitStatus: input.cfg.features.commitStatus,

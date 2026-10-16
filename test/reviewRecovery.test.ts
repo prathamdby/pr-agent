@@ -37,7 +37,6 @@ const summaryInputs: CanonicalReviewDecision = {
   ledger: snapshotFindingLedger(createFindingLedger()),
   coverage: { kind: "full" },
   staleReview: false,
-  dedupedFindingCount: 0,
   judgmentDegraded: false,
   briefFallback: false,
 };

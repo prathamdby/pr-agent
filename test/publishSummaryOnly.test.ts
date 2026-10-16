@@ -200,7 +200,6 @@ describe("publishReviewSummaryOnly", () => {
             inlinePosted: false,
           },
           findingId: legacyFindingId("fp"),
-          canonicalFingerprint: "fp",
           reason: "budget",
         },
       ],
@@ -254,7 +253,6 @@ describe("publishReviewSummaryOnly", () => {
           source: "correctness",
           placement: { finding: first, inlineLine: 10, inlinePosted: true },
           findingId: legacyFindingId("fp-1"),
-          canonicalFingerprint: "fp-1",
           reviewId: 41,
         },
         {
@@ -262,7 +260,6 @@ describe("publishReviewSummaryOnly", () => {
           source: "security",
           placement: { finding: second, inlineLine: 20, inlinePosted: true },
           findingId: legacyFindingId("fp-2"),
-          canonicalFingerprint: "fp-2",
           reviewId: 42,
         },
       ],
