@@ -4,7 +4,7 @@ import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
+import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
@@ -51,7 +51,7 @@ function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
       renames: new Map(),
       deletedPaths: new Set(),
     }),
-    outcomes: new Map([[reviewFindingPlacementKey(finding), outcome]]),
+    outcomes: new Map([[reconciledFindingKey(finding), outcome]]),
   };
 }
 let harness: PublishReviewTestHarness;

@@ -55,6 +55,7 @@ import {
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   publishFindingBatch,
+  reconciledFindingKey,
   type FindingBatchInput,
 } from "../src/review/publish/publishFindingBatch.js";
 import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
@@ -82,7 +83,6 @@ import {
 } from "../src/review/findingIdentity/findingMarker.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -175,7 +175,7 @@ function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
       renames: new Map(),
       deletedPaths: new Set(),
     }),
-    outcomes: new Map([[reviewFindingPlacementKey(target), outcome]]),
+    outcomes: new Map([[reconciledFindingKey(target), outcome]]),
   };
 }
 

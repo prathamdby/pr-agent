@@ -121,6 +121,10 @@ export type ReconciledFindings = {
   readonly outcomes: ReadonlyMap<string, ReconcileOutcome>;
 };
 
+export function reconciledFindingKey(finding: ReviewFinding): string {
+  return JSON.stringify([reviewFindingPlacementKey(finding), finding.detail]);
+}
+
 type ReconciledBatch = {
   readonly postable: readonly InlinePlacement[];
   readonly identify: (placement: InlinePlacement) => PlacementIdentity | undefined;
@@ -179,7 +183,7 @@ function reconcileBatch(
 ): ReconciledBatch {
   const identities = new Map<string, PlacementIdentity>();
   const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
-    identities.get(reviewFindingPlacementKey(placement.finding));
+    identities.get(reconciledFindingKey(placement.finding));
   if (reconciled == null) {
     return {
       postable: placements,
@@ -194,7 +198,7 @@ function reconcileBatch(
   const reaffirmed: ReaffirmedFinding[] = [];
   let suppressedDismissedCount = 0;
   for (const placement of placements) {
-    const key = reviewFindingPlacementKey(placement.finding);
+    const key = reconciledFindingKey(placement.finding);
     const outcome = reconciled.outcomes.get(key);
     if (outcome == null) {
       postable.push(placement);

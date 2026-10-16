@@ -8,6 +8,7 @@ import {
   type FindingBatchInput,
   type FindingBatchResult,
   publishFindingBatch,
+  reconciledFindingKey,
 } from "../publish/publishFindingBatch.js";
 import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
 import {
@@ -17,7 +18,6 @@ import {
   type ReviewFinding,
 } from "../reviewSchema.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
-import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { FindingInventory } from "../findingIdentity/findingInventory.js";
 import { isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
 import {
@@ -204,7 +204,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     const questions: OverlapQuestionReport[] = [];
     const rejected: RejectedRelationReport[] = [];
     for (const [findingIndex, { finding, relation }] of submitted.entries()) {
-      const key = reviewFindingPlacementKey(redacted[findingIndex] ?? finding);
+      const key = reconciledFindingKey(redacted[findingIndex] ?? finding);
       const step =
         typeof relation === "string"
           ? { rejected: relation }

@@ -137,6 +137,36 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(2);
   });
 
+  it("keeps a separate decision for same-placement findings with different detail", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+    await tool.executor({ findings: [finding(10)] });
+    const [accepted] = tool.getLedger().accepted;
+    if (accepted == null) throw new Error("expected an accepted finding");
+    tool.setSource("security");
+
+    const result = await tool.executor({
+      findings: [
+        { ...finding(10), relation: { kind: "continues", findingId: accepted.findingId } },
+        {
+          ...finding(10),
+          detail: "A second defect on the same line drops the error.",
+          relation: {
+            kind: "distinct_from",
+            findingIds: [accepted.findingId],
+            reason: "Different defect.",
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch.mock.calls[1]?.[0].comments).toHaveLength(1);
+    expect(tool.getLedger().reaffirmed).toEqual([
+      expect.objectContaining({ id: accepted.findingId, source: "security" }),
+    ]);
+  });
+
   it("lands still-unanswered overlaps summary-only once the round is spent", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
