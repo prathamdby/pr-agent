@@ -5,11 +5,7 @@ import {
   type InlinePlacement,
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.js";
-import {
-  mintFindingId,
-  parseOwnedFindingMarker,
-  type FindingId,
-} from "../findingIdentity/findingMarker.js";
+import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.js";
 import type { FindingInventory } from "../findingIdentity/findingInventory.js";
 import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.js";
 import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
@@ -122,7 +118,7 @@ export type ReconciledFindings = {
 
 type ReconciledBatch = {
   readonly postable: readonly InlinePlacement[];
-  readonly identify: (placement: InlinePlacement) => PlacementIdentity;
+  readonly identify: (placement: InlinePlacement) => PlacementIdentity | undefined;
   readonly held: readonly {
     readonly placement: IdentifiedInlinePlacement;
     readonly reason: SummaryOnlyReason;
@@ -177,8 +173,8 @@ function reconcileBatch(
   reconciled: ReconciledFindings | undefined,
 ): ReconciledBatch {
   const identities = new Map<string, PlacementIdentity>();
-  const identify = (placement: InlinePlacement): PlacementIdentity =>
-    identities.get(reviewFindingPlacementKey(placement.finding)) ?? { findingId: mintFindingId() };
+  const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
+    identities.get(reviewFindingPlacementKey(placement.finding));
   if (reconciled == null) {
     return {
       postable: placements,
@@ -328,12 +324,15 @@ export async function publishFindingBatch(
     input.source,
     saved ? undefined : input.reconciled,
   );
+  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const calculatedTargets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: session.cachedDiffIndex,
     inlinePlacements: reconciledBatch.postable,
     identify: reconciledBatch.identify,
     maxInlineComments: remainingInline,
+    findingIdScope:
+      intentWorkItemId == null ? undefined : [intentWorkItemId, session.ctx.headSha, input.source],
   });
   const targets = saved
     ? {
@@ -478,7 +477,6 @@ export async function publishFindingBatch(
     });
   }
 
-  const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const batchId =
     intentWorkItemId != null
       ? deterministicInlineBatchId({

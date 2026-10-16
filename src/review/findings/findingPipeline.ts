@@ -7,10 +7,11 @@ import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
+  reviewFindingPlacementKey,
   type IdentifiedInlinePlacement,
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
-import { mintFindingId } from "../findingIdentity/findingMarker.js";
+import { derivedFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
 import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
@@ -117,26 +118,31 @@ export type PlacementIdentity = Pick<
   "findingId" | "reopens" | "relatedLinks"
 >;
 
-function mintedIdentity(): PlacementIdentity {
-  return { findingId: mintFindingId() };
-}
-
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
-  identify?: (placement: InlinePlacement) => PlacementIdentity;
+  identify?: (placement: InlinePlacement) => PlacementIdentity | undefined;
   maxInlineComments?: number;
+  findingIdScope?: readonly string[];
 }): PreparedFindingTargets {
   const plannedPlacements =
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
-  const identify = params.identify ?? mintedIdentity;
-  const planned = plannedPlacements.map((placement): IdentifiedInlinePlacement => ({
-    ...placement,
-    ...identify(placement),
-  }));
+  const occurrences = new Map<string, number>();
+  const planned = plannedPlacements.map((placement): IdentifiedInlinePlacement => {
+    const placementKey = reviewFindingPlacementKey(placement.finding);
+    const occurrence = occurrences.get(placementKey) ?? 0;
+    occurrences.set(placementKey, occurrence + 1);
+    const identity = params.identify?.(placement);
+    if (identity != null) return { ...placement, ...identity };
+    if (params.findingIdScope == null) return { ...placement, findingId: mintFindingId() };
+    return {
+      ...placement,
+      findingId: derivedFindingId([...params.findingIdScope, placementKey, String(occurrence)]),
+    };
+  });
   const inlineCap = applyInlineCommentCap(
     planned,
     params.maxInlineComments ?? MAX_INLINE_REVIEW_COMMENTS,

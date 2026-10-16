@@ -1129,6 +1129,28 @@ describe("publishFindingBatch", () => {
     ).toBe("reconciled");
   });
 
+  it("reuses finding ids and the operation key when a retry has no journaled decision", async () => {
+    const attempt = () =>
+      publishFindingBatch(
+        [finding],
+        ...batchContext(
+          createFindingLedger(),
+          vi.fn(async () => undefined),
+          {
+            operationIntent: { client: stubPool, workItemId: "wi-1", resourceKey: "o/r#1" },
+          },
+        ),
+      );
+
+    const first = await attempt();
+    expect(first.kind).toBe("published");
+    harness.publishThreadBatch.mockClear();
+    const second = await attempt();
+
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(postedFindingIds(second)).toEqual(postedFindingIds(first));
+  });
+
   it("does not emit a key-only marker without a work-item instance", async () => {
     const result = await publishFindingBatch(
       [finding],
