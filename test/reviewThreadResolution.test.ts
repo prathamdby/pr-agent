@@ -257,6 +257,7 @@ describe("review thread resolution", () => {
     warnReviewThreadResolutionDegraded(
       {
         byRootCommentId: new Map(),
+        threads: [],
         status: "permission_denied",
         warning: "grant permission",
       },

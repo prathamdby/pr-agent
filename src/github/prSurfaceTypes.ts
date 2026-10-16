@@ -13,7 +13,10 @@ import type {
 } from "./listPullRequestFiles.js";
 import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
 import type { DownloadActionsJobLogsResult, ListFailingActionsJobsResult } from "./actionsLogs.js";
-import type { ListReviewThreadResolutionResult } from "./reviewThreadResolution.js";
+import type {
+  ListReviewThreadResolutionResult,
+  ReviewThreadSnapshot,
+} from "./reviewThreadResolution.js";
 import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
 import type { ReviewThreadComment } from "../review/run/reviewPriorFeedback.js";
@@ -164,6 +167,7 @@ export type PrSurfaceReadMethods = PrResource & {
   listReviewComments(): Promise<ListReviewCommentsResult>;
   listPullRequestReviews(): Promise<readonly PrReview[]>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
+  getReviewThread(threadNodeId: string): Promise<ReviewThreadSnapshot | null>;
   listChangedFiles(
     caps: ListPullRequestFilesLimits,
     pullRequest?: PullRequestForFileList,

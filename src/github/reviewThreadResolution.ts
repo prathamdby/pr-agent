@@ -10,10 +10,32 @@ export type ReviewThreadResolution = {
   readonly isResolved: boolean;
 };
 
+export type ReviewThreadSnapshotComment = {
+  readonly databaseId: number;
+  readonly authorLogin: string | null;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly url: string;
+};
+
+export type ReviewThreadSnapshot = ReviewThreadResolution & {
+  readonly rootCommentId: number;
+  readonly path: string | null;
+  readonly line: number | null;
+  readonly startLine: number | null;
+  readonly originalLine: number | null;
+  readonly originalStartLine: number | null;
+  readonly isOutdated: boolean;
+  readonly diffSide: "LEFT" | "RIGHT" | null;
+  readonly comments: readonly ReviewThreadSnapshotComment[];
+  readonly commentsComplete: boolean;
+};
+
 export type ReviewThreadResolutionStatus = "ok" | "permission_denied" | "partial" | "unavailable";
 
 export type ListReviewThreadResolutionResult = {
   readonly byRootCommentId: Map<number, ReviewThreadResolution>;
+  readonly threads: readonly ReviewThreadSnapshot[];
   readonly status: ReviewThreadResolutionStatus;
   readonly truncated?: boolean;
   readonly warning?: string;
@@ -22,9 +44,21 @@ export type ListReviewThreadResolutionResult = {
 type ReviewThreadNode = {
   readonly id?: unknown;
   readonly isResolved?: unknown;
+  readonly isOutdated?: unknown;
+  readonly path?: unknown;
+  readonly line?: unknown;
+  readonly startLine?: unknown;
+  readonly originalLine?: unknown;
+  readonly originalStartLine?: unknown;
+  readonly diffSide?: unknown;
   readonly comments?: {
+    readonly totalCount?: unknown;
     readonly nodes?: readonly {
       readonly fullDatabaseId?: unknown;
+      readonly author?: unknown;
+      readonly body?: unknown;
+      readonly createdAt?: unknown;
+      readonly url?: unknown;
     }[];
   };
 };
@@ -43,19 +77,41 @@ type ReviewThreadsPage = {
   };
 };
 
+const REVIEW_THREAD_COMMENT_PAGE = 100;
+
+const REVIEW_THREAD_FIELDS = `
+  id
+  isResolved
+  isOutdated
+  path
+  line
+  startLine
+  originalLine
+  originalStartLine
+  diffSide
+  comments(first: ${REVIEW_THREAD_COMMENT_PAGE}) {
+    totalCount
+    nodes { fullDatabaseId author { login } body createdAt url }
+  }
+`;
+
 const REVIEW_THREADS_QUERY = `
 query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $pr) {
       reviewThreads(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
-        nodes {
-          id
-          isResolved
-          comments(first: 1) { nodes { fullDatabaseId } }
-        }
+        nodes { ${REVIEW_THREAD_FIELDS} }
       }
     }
+  }
+}
+`;
+
+const REVIEW_THREAD_QUERY = `
+query($threadId: ID!) {
+  node(id: $threadId) {
+    ... on PullRequestReviewThread { ${REVIEW_THREAD_FIELDS} }
   }
 }
 `;
@@ -82,9 +138,61 @@ function isReviewThreadsPage(value: unknown): value is ReviewThreadsPage {
   return isRecord(value);
 }
 
+function isReviewThreadNode(value: unknown): value is ReviewThreadNode {
+  return isRecord(value);
+}
+
+function positiveLine(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function threadSnapshot(thread: ReviewThreadNode): ReviewThreadSnapshot | null {
+  if (typeof thread.id !== "string" || typeof thread.isResolved !== "boolean") return null;
+  const nodes = thread.comments?.nodes;
+  if (!Array.isArray(nodes)) return null;
+  const comments: ReviewThreadSnapshotComment[] = [];
+  let sawMalformedComment = false;
+  for (const [index, node] of nodes.entries()) {
+    const databaseId = isRecord(node) ? fullDatabaseId(node.fullDatabaseId) : null;
+    if (databaseId == null) {
+      if (index === 0) return null;
+      sawMalformedComment = true;
+      continue;
+    }
+    const author = node.author;
+    const login = isRecord(author) ? author.login : undefined;
+    comments.push({
+      databaseId,
+      authorLogin: typeof login === "string" ? login : null,
+      body: typeof node.body === "string" ? node.body : "",
+      createdAt: typeof node.createdAt === "string" ? node.createdAt : "",
+      url: typeof node.url === "string" ? node.url : "",
+    });
+  }
+  const root = comments[0];
+  if (root == null) return null;
+  const totalCount = thread.comments?.totalCount;
+  return {
+    threadNodeId: thread.id,
+    isResolved: thread.isResolved,
+    rootCommentId: root.databaseId,
+    path: typeof thread.path === "string" && thread.path.length > 0 ? thread.path : null,
+    line: positiveLine(thread.line),
+    startLine: positiveLine(thread.startLine),
+    originalLine: positiveLine(thread.originalLine),
+    originalStartLine: positiveLine(thread.originalStartLine),
+    isOutdated: thread.isOutdated === true,
+    diffSide: thread.diffSide === "LEFT" || thread.diffSide === "RIGHT" ? thread.diffSide : null,
+    comments,
+    commentsComplete:
+      !sawMalformedComment && typeof totalCount === "number" && totalCount <= comments.length,
+  };
+}
+
 function ingestThreadsPage(
   page: ReviewThreadsPage,
   byRootCommentId: Map<number, ReviewThreadResolution>,
+  threads: ReviewThreadSnapshot[],
 ): {
   readonly hasNextPage: boolean;
   readonly endCursor: string | null;
@@ -100,25 +208,22 @@ function ingestThreadsPage(
   }
 
   let sawMalformed = false;
-  const threads = connection.nodes;
-  if (threads != null && !Array.isArray(threads)) {
+  const nodes = connection.nodes;
+  if (nodes != null && !Array.isArray(nodes)) {
     return { hasNextPage: false, endCursor: null, sawMalformed: true };
   }
 
-  for (const thread of threads ?? []) {
-    if (typeof thread.id !== "string" || typeof thread.isResolved !== "boolean") {
+  for (const thread of nodes ?? []) {
+    const snapshot = threadSnapshot(thread);
+    if (snapshot == null) {
       sawMalformed = true;
       continue;
     }
-    const rootCommentId = fullDatabaseId(thread.comments?.nodes?.[0]?.fullDatabaseId);
-    if (rootCommentId == null) {
-      sawMalformed = true;
-      continue;
-    }
-    byRootCommentId.set(rootCommentId, {
-      threadNodeId: thread.id,
-      isResolved: thread.isResolved,
+    byRootCommentId.set(snapshot.rootCommentId, {
+      threadNodeId: snapshot.threadNodeId,
+      isResolved: snapshot.isResolved,
     });
+    threads.push(snapshot);
   }
 
   const pageInfo = connection.pageInfo;
@@ -129,9 +234,11 @@ function ingestThreadsPage(
 
 function permissionDeniedResult(
   byRootCommentId: Map<number, ReviewThreadResolution>,
+  threads: readonly ReviewThreadSnapshot[],
 ): ListReviewThreadResolutionResult {
   return {
     byRootCommentId,
+    threads,
     status: "permission_denied",
     warning: PERMISSION_WARNING,
   };
@@ -146,6 +253,7 @@ export async function listReviewThreadResolution(
 ): Promise<ListReviewThreadResolutionResult> {
   const octokit = installationOctokit(token, expiresAtTs);
   const byRootCommentId = new Map<number, ReviewThreadResolution>();
+  const threads: ReviewThreadSnapshot[] = [];
   let cursor: string | null = null;
   let sawMalformed = false;
   let pageCount = 0;
@@ -163,11 +271,12 @@ export async function listReviewThreadResolution(
     } catch (error) {
       const kind = classifyGithubError(error);
       if (kind === "forbidden") {
-        return permissionDeniedResult(byRootCommentId);
+        return permissionDeniedResult(byRootCommentId, threads);
       }
       if (byRootCommentId.size > 0) {
         return {
           byRootCommentId,
+          threads,
           status: "partial",
           truncated,
           warning:
@@ -176,6 +285,7 @@ export async function listReviewThreadResolution(
       }
       return {
         byRootCommentId,
+        threads,
         status: "unavailable",
         warning: "reviewThreads GraphQL failed; continuing without thread-resolution data.",
       };
@@ -184,6 +294,7 @@ export async function listReviewThreadResolution(
     if (!isReviewThreadsPage(page)) {
       return {
         byRootCommentId,
+        threads,
         status: "unavailable",
         warning:
           "reviewThreads GraphQL returned a malformed response; continuing without resolution.",
@@ -191,12 +302,13 @@ export async function listReviewThreadResolution(
     }
 
     pageCount += 1;
-    const ingested = ingestThreadsPage(page, byRootCommentId);
+    const ingested = ingestThreadsPage(page, byRootCommentId, threads);
     sawMalformed = sawMalformed || ingested.sawMalformed;
     if (!ingested.hasNextPage) break;
     if (!ingested.endCursor) {
       return {
         byRootCommentId,
+        threads,
         status: "partial",
         truncated,
         warning:
@@ -213,6 +325,7 @@ export async function listReviewThreadResolution(
   if (truncated) {
     return {
       byRootCommentId,
+      threads,
       status: "partial",
       truncated: true,
       warning: `reviewThreads GraphQL pagination capped at ${MAX_REVIEW_THREAD_PAGES} pages; resolution coverage is partial.`,
@@ -222,6 +335,7 @@ export async function listReviewThreadResolution(
   if (sawMalformed && byRootCommentId.size === 0) {
     return {
       byRootCommentId,
+      threads,
       status: "unavailable",
       warning:
         "reviewThreads GraphQL returned malformed thread nodes; continuing without resolution.",
@@ -231,13 +345,33 @@ export async function listReviewThreadResolution(
   if (sawMalformed) {
     return {
       byRootCommentId,
+      threads,
       status: "partial",
       warning:
         "reviewThreads GraphQL included malformed thread nodes; using partial resolution data.",
     };
   }
 
-  return { byRootCommentId, status: "ok" };
+  return { byRootCommentId, threads, status: "ok" };
+}
+
+export async function getReviewThreadSnapshot(
+  token: string,
+  threadNodeId: string,
+  expiresAtTs?: number,
+): Promise<ReviewThreadSnapshot | null> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const response: unknown = await octokit.graphql(REVIEW_THREAD_QUERY, { threadId: threadNodeId });
+  const node = isRecord(response) ? response.node : undefined;
+  if (node == null) return null;
+  if (!isReviewThreadNode(node)) {
+    throw new Error("reviewThread GraphQL returned a malformed node");
+  }
+  const snapshot = threadSnapshot(node);
+  if (snapshot == null || snapshot.threadNodeId !== threadNodeId) {
+    throw new Error("reviewThread GraphQL returned a malformed thread");
+  }
+  return snapshot;
 }
 
 export async function resolveReviewThread(

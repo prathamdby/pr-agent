@@ -322,6 +322,7 @@ describe("publishVerification", () => {
     );
     vi.spyOn(params.prSurface, "listInlineReviewThreads").mockResolvedValue({
       byRootCommentId: new Map(),
+      threads: [],
       status: "partial",
       truncated: true,
     });

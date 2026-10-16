@@ -25,7 +25,11 @@ import {
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "./reviewPublish.js";
-import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
+import {
+  getReviewThreadSnapshot,
+  listReviewThreadResolution,
+  resolveReviewThread,
+} from "./reviewThreadResolution.js";
 import { stopPaginatedPage } from "./paginateOctokit.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import type { ReplyTarget } from "../agentWork/types.js";
@@ -631,6 +635,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return listReviewThreadResolution(token, owner, repo, prNumber, expiresAtTs);
     },
 
+    async getReviewThread(threadNodeId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return getReviewThreadSnapshot(token, threadNodeId, expiresAtTs);
+    },
+
     async resolveInlineReviewThread(threadId) {
       const { token, expiresAtTs } = await ensureAuth();
       await resolveReviewThread(token, threadId, expiresAtTs);
@@ -872,6 +881,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       "pullRequestsRead",
       surface.listInlineReviewThreads.bind(surface),
     ),
+    getReviewThread: guard("pullRequestsRead", surface.getReviewThread.bind(surface)),
     resolveInlineReviewThread: guard(
       "reviewWrite",
       surface.resolveInlineReviewThread.bind(surface),
