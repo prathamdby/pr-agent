@@ -27,6 +27,7 @@ import * as verificationExecutorModule from "../../src/agentWork/executors/verif
 import * as askExecutorModule from "../../src/agentWork/executors/askExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
+import { legacyFindingId } from "../../src/review/findingIdentity/findingMarker.js";
 import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
@@ -736,6 +737,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         inventory: [
           {
             rootCommentId: 9,
+            findingId: legacyFindingId("PRRT_9"),
             lens: "review" as const,
             path: "src/a.ts",
             line: 1,

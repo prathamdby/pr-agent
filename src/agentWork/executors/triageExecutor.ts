@@ -28,6 +28,7 @@ import {
   resolveReviewThreadRootId,
   type BotFindingThread,
 } from "../../review/run/reviewPriorFeedback.js";
+import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.js";
 import { runFullPrTriage } from "../../agent/triage/triageRun.js";
 import {
   previewApprovalSets,
@@ -237,14 +238,19 @@ async function resolveInventoryAndScope(params: {
     params.pool,
     params.item.resourceKey,
   );
-  const [threads, resolutionResult] = await Promise.all([
-    fetchBotFindingThreads(params.prSurface, {
-      botUserId: botIdentity.userId,
-      publishRecordLenses: eligibleReviews,
-      maintainerDecisionAssociations: params.cfg.associations.maintainerDecision,
-    }),
-    params.prSurface.listInlineReviewThreads(),
-  ]);
+  const resolutionResult = await params.prSurface.listInlineReviewThreads();
+  const findingInventory = await loadFindingInventoryFromThreads(params.prSurface, {
+    threads: resolutionResult,
+    botLogin: botIdentity.login,
+    renames: new Map(),
+    deletedPaths: new Set(),
+  });
+  const threads = await fetchBotFindingThreads(params.prSurface, {
+    botUserId: botIdentity.userId,
+    inventory: findingInventory,
+    publishRecordLenses: eligibleReviews,
+    maintainerDecisionAssociations: params.cfg.associations.maintainerDecision,
+  });
   warnReviewThreadResolutionDegraded(resolutionResult, {
     type: "triage",
     workItemId: params.item.id,

@@ -15,6 +15,10 @@ import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorCont
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
+import {
+  appendRootResolutionReceipt,
+  unpostedResolutionReceipt,
+} from "../../review/findingIdentity/resolutionReceipt.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
   TriagePayloadSchema,
@@ -315,6 +319,7 @@ async function replyToThread(
     readonly thread: BotFindingThread;
     readonly verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>;
     readonly operationMarker: string;
+    readonly receipt: string;
   },
 ): Promise<void> {
   await params.prSurface.replyAt(
@@ -323,7 +328,7 @@ async function replyToThread(
       prNumber: params.prNumber,
       inReplyToCommentId: params.thread.rootCommentId,
     },
-    `${replyBody(params.verdict)}\n${params.operationMarker}`,
+    `${replyBody(params.verdict)}\n${params.operationMarker}${params.receipt}`,
   );
 }
 
@@ -796,11 +801,21 @@ async function publishTriageBody(
       continue;
     }
     if (resolution.isResolved) continue;
+    const findingId = thread.findingId;
+    if (findingId == null) {
+      missingThreadAction = true;
+      continue;
+    }
     if (
       shouldReplyToTriageThread(verdict) &&
       !actedThreadIds.has(verdict.threadRootCommentId) &&
       thread.hasTriageReply !== true
     ) {
+      const receipt = await unpostedResolutionReceipt(params.prSurface, {
+        threadNodeId: resolution.threadNodeId,
+        findingId,
+        kind: "fixed",
+      });
       const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
       const operationMarker = operationIntentMarker(operationKey, params.workItemId);
       await publishOnce<void>({
@@ -832,11 +847,13 @@ async function publishTriageBody(
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
         mutate: async () => {
           await assertTriagePublicationActive(params);
+          if (receipt == null) return;
           return replyToThread({
             ...params,
             thread,
             verdict,
             operationMarker,
+            receipt,
           });
         },
       });
@@ -874,6 +891,13 @@ async function publishTriageBody(
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
       mutate: async () => {
         await assertTriagePublicationActive(params);
+        if (verdict.verdict === "dismissed") {
+          await appendRootResolutionReceipt(params.prSurface, {
+            threadNodeId: resolution.threadNodeId,
+            findingId,
+            kind: "dismissed",
+          });
+        }
         await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
       },
     });

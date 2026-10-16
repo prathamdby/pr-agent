@@ -62,6 +62,7 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
 import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
@@ -125,6 +126,7 @@ describe("verification failure projection transitions", () => {
 
 const thread = {
   rootCommentId: 1,
+  findingId: legacyFindingId("PRRT_1"),
   lens: "review" as const,
   path: "src/app.ts",
   line: 1,
@@ -137,12 +139,14 @@ const thread = {
 const secondThread = {
   ...thread,
   rootCommentId: 2,
+  findingId: legacyFindingId("PRRT_2"),
   titleSnippet: "P2 · Other",
 } satisfies BotFindingThread;
 
 const thirdThread = {
   ...thread,
   rootCommentId: 3,
+  findingId: legacyFindingId("PRRT_3"),
   path: "src/other.ts",
   titleSnippet: "P1 · Unchanged path",
 } satisfies BotFindingThread;

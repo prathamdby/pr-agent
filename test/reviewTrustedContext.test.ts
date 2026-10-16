@@ -143,6 +143,7 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
         inReplyToId: null,
         pullRequestReviewId: 100,
         userId: 99,
+        authorLogin: "pr-agent[bot]",
         body: "**P1** · **Missing await**",
       },
       {
@@ -162,6 +163,7 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
         body: "ordinary commenter text",
       },
     ]);
+    controls.setThreads(new Map([[1, { threadNodeId: "PRRT_1", isResolved: false }]]));
   }
 
   it("reads the raw review listings and formats the block with maintainer authority", async () => {

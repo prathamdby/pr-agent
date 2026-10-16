@@ -10,6 +10,13 @@ import {
   type AnyReviewLens,
 } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurfaceTypes.js";
+import type { FindingId } from "../findingIdentity/findingMarker.js";
+import {
+  buildFindingInventory,
+  loadFindingInventory,
+  type FindingInventory,
+  type InventoryFinding,
+} from "../findingIdentity/findingInventory.js";
 
 export type PriorInlineFeedbackThread = {
   readonly path: string;
@@ -25,6 +32,7 @@ export type PriorInlineFeedbackThread = {
 
 export type BotFindingThread = {
   readonly rootCommentId: number;
+  readonly findingId?: FindingId;
   readonly lens: AnyReviewLens;
   readonly path: string;
   readonly line: number;
@@ -57,6 +65,7 @@ export type ReviewThreadComment = ReviewCommentGraphNode & {
 
 export type AssembledBotReviewThread = {
   readonly rootCommentId: number;
+  readonly findingId?: FindingId;
   readonly lens: AnyReviewLens;
   readonly path: string;
   readonly line: number;
@@ -337,6 +346,7 @@ export function mapAssembledThreadsToBotFindings(
       );
       return {
         rootCommentId: thread.rootCommentId,
+        ...(thread.findingId != null ? { findingId: thread.findingId } : {}),
         lens: thread.lens,
         path: thread.path,
         line: thread.line,
@@ -386,6 +396,37 @@ async function assembleBotThreadsForPullRequest(
   });
 }
 
+function selectInventoryFindingThreads(
+  threads: readonly AssembledBotReviewThread[],
+  inventory: FindingInventory,
+): AssembledBotReviewThread[] {
+  const findingByRootCommentId = new Map<number, InventoryFinding>();
+  for (const finding of [...inventory.findings.values(), ...inventory.sameIdCopies]) {
+    if (finding.rootCommentId != null) findingByRootCommentId.set(finding.rootCommentId, finding);
+  }
+  const inventoryComplete = inventory.completeness === "complete";
+  return threads.flatMap((thread) => {
+    const finding = findingByRootCommentId.get(thread.rootCommentId);
+    if (finding == null) return inventoryComplete ? [] : [thread];
+    return [
+      {
+        ...thread,
+        line: finding.line ?? thread.line,
+        ...(inventoryComplete ? { findingId: finding.id } : {}),
+      },
+    ];
+  });
+}
+
+const UNAVAILABLE_FINDING_INVENTORY = buildFindingInventory({
+  threads: { status: "unavailable", threads: [] },
+  summary: null,
+  summaryComplete: false,
+  botLogin: "",
+  renames: new Map(),
+  deletedPaths: new Set(),
+});
+
 export async function fetchPriorInlineFeedback(
   prSurface: PrSurface,
   params: {
@@ -394,13 +435,19 @@ export async function fetchPriorInlineFeedback(
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
 ): Promise<PriorInlineFeedbackThread[]> {
-  return mapAssembledThreadsToPriorInlineFeedback(
-    await assembleBotThreadsForPullRequest(prSurface, {
+  const [assembled, inventory] = await Promise.all([
+    assembleBotThreadsForPullRequest(prSurface, {
       botUserId: params.botUserId,
       allowedLenses: priorFeedbackLensesForSelection(params.currentLens),
       maintainerDecisionAssociations:
         params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
     }),
+    loadFindingInventory(prSurface, { renames: new Map(), deletedPaths: new Set() }).catch(
+      () => UNAVAILABLE_FINDING_INVENTORY,
+    ),
+  ]);
+  return mapAssembledThreadsToPriorInlineFeedback(
+    selectInventoryFindingThreads(assembled, inventory),
   );
 }
 
@@ -408,18 +455,20 @@ export async function fetchBotFindingThreads(
   prSurface: PrSurface,
   params: {
     readonly botUserId: number;
+    readonly inventory: FindingInventory;
     readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
 ): Promise<BotFindingThread[]> {
+  const assembled = await assembleBotThreadsForPullRequest(prSurface, {
+    botUserId: params.botUserId,
+    allowedLenses: priorFeedbackLensesForSelection("review"),
+    publishRecordLenses: params.publishRecordLenses,
+    maintainerDecisionAssociations:
+      params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+  });
   return mapAssembledThreadsToBotFindings(
-    await assembleBotThreadsForPullRequest(prSurface, {
-      botUserId: params.botUserId,
-      allowedLenses: priorFeedbackLensesForSelection("review"),
-      publishRecordLenses: params.publishRecordLenses,
-      maintainerDecisionAssociations:
-        params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
-    }),
+    selectInventoryFindingThreads(assembled, params.inventory),
     params.botUserId,
   );
 }

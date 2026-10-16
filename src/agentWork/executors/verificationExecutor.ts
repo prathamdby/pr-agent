@@ -4,6 +4,7 @@ import { productionInstallationSurface } from "../installationSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
+import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
@@ -43,14 +44,19 @@ export function createVerificationWorkExecution({
       const botIdentity = await getBotIdentity();
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
-      const [threads, resolutionResult] = await Promise.all([
-        fetchBotFindingThreads(prSurface, {
-          botUserId: botIdentity.userId,
-          publishRecordLenses: eligibleReviews,
-          maintainerDecisionAssociations: cfg.associations.maintainerDecision,
-        }),
-        prSurface.listInlineReviewThreads(),
-      ]);
+      const resolutionResult = await prSurface.listInlineReviewThreads();
+      const findingInventory = await loadFindingInventoryFromThreads(prSurface, {
+        threads: resolutionResult,
+        botLogin: botIdentity.login,
+        renames: new Map(),
+        deletedPaths: new Set(),
+      });
+      const threads = await fetchBotFindingThreads(prSurface, {
+        botUserId: botIdentity.userId,
+        inventory: findingInventory,
+        publishRecordLenses: eligibleReviews,
+        maintainerDecisionAssociations: cfg.associations.maintainerDecision,
+      });
 
       warnReviewThreadResolutionDegraded(resolutionResult, {
         type: "verification",
@@ -61,7 +67,7 @@ export function createVerificationWorkExecution({
         pr: item.prNumber,
       });
       const resolutionByRootCommentId = resolutionResult.byRootCommentId;
-      const resolutionDegraded = resolutionResult.status !== "ok";
+      const resolutionDegraded = findingInventory.completeness !== "complete";
 
       const unresolvedThreads = threads.filter(
         (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
@@ -237,6 +243,7 @@ export function createVerificationWorkExecution({
           repo: item.repo,
           pr: item.prNumber,
           resolutionStatus: resolutionResult.status,
+          inventoryCompleteness: findingInventory.completeness,
           degradation: reasons,
         });
         return {

@@ -9,6 +9,10 @@ import {
   renderPolicySuggestionForDismissed,
   type RepoPolicyResult,
 } from "../../review/repoPolicy.js";
+import {
+  appendRootResolutionReceipt,
+  unpostedResolutionReceipt,
+} from "../../review/findingIdentity/resolutionReceipt.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
 import {
@@ -484,11 +488,21 @@ export async function publishVerification(
       case "fixed":
       case "already-resolved": {
         const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
-        if (!resolution) {
+        const findingId = thread.findingId;
+        if (!resolution || findingId == null) {
           degradation.add("verdict_mapping_incomplete");
           break;
         }
         const priorStubId = resolveStubCommentId(thread, prior);
+        const receipt =
+          priorStubId == null
+            ? ""
+            : ((await unpostedResolutionReceipt(params.prSurface, {
+                threadNodeId: resolution.threadNodeId,
+                findingId,
+                kind: "fixed",
+                ownCommentId: priorStubId,
+              })) ?? "");
         const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,
           verdict,
@@ -497,7 +511,7 @@ export async function publishVerification(
             requiresStub: priorStubId != null,
             stubCommentId: priorStubId,
             threadNodeId: resolution.threadNodeId,
-            body: (marker) => terminalSuccessStubBody(verdict, marker),
+            body: (marker) => `${terminalSuccessStubBody(verdict, marker)}${receipt}`,
           },
           async (operationMarker, accepted) => {
             let nextStubCommentId: number | undefined = priorStubId;
@@ -505,10 +519,20 @@ export async function publishVerification(
               const updated = await updateStubReply({
                 prSurface: params.prSurface,
                 stubCommentId: priorStubId,
-                body: terminalSuccessStubBody(verdict, operationMarker),
+                body: `${terminalSuccessStubBody(verdict, operationMarker)}${receipt}`,
               });
               if (!updated) nextStubCommentId = undefined;
               else accepted();
+            }
+            if (
+              nextStubCommentId == null &&
+              (await appendRootResolutionReceipt(params.prSurface, {
+                threadNodeId: resolution.threadNodeId,
+                findingId,
+                kind: "fixed",
+              }))
+            ) {
+              accepted();
             }
             if (!resolution.isResolved) {
               await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
@@ -577,27 +601,36 @@ export async function publishVerification(
       }
       case "dismissed": {
         const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
-        if (!resolution) {
+        if (!resolution || thread.findingId == null) {
           degradation.add("verdict_mapping_incomplete");
           break;
         }
+        const priorStubId = resolveStubCommentId(thread, prior);
+        const receipt =
+          (await unpostedResolutionReceipt(params.prSurface, {
+            threadNodeId: resolution.threadNodeId,
+            findingId: thread.findingId,
+            kind: "dismissed",
+            ownCommentId: priorStubId,
+          })) ?? "";
         const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,
           verdict,
           true,
           {
             requiresStub: true,
-            stubCommentId: resolveStubCommentId(thread, prior),
+            stubCommentId: priorStubId,
             threadNodeId: resolution.threadNodeId,
-            body: (marker) => dismissedReplyBody(verdict, thread, params.policyResult, marker),
+            body: (marker) =>
+              `${dismissedReplyBody(verdict, thread, params.policyResult, marker)}${receipt}`,
           },
           async (operationMarker, accepted) => {
             const createdStubCommentId = await upsertStubComment({
               prSurface: params.prSurface,
               prNumber: params.prNumber,
               thread,
-              stubCommentId: resolveStubCommentId(thread, prior),
-              body: dismissedReplyBody(verdict, thread, params.policyResult, operationMarker),
+              stubCommentId: priorStubId,
+              body: `${dismissedReplyBody(verdict, thread, params.policyResult, operationMarker)}${receipt}`,
             });
             accepted();
             if (!resolution.isResolved) {
