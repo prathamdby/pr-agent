@@ -60,6 +60,13 @@ export function mintFindingId(): FindingId {
   return findingId("f", crypto.randomBytes(16));
 }
 
+export function derivedFindingId(material: readonly string[]): FindingId {
+  return findingId(
+    "f",
+    crypto.createHash("sha256").update(material.join("\0")).digest().subarray(0, 16),
+  );
+}
+
 export function legacyFindingId(threadNodeId: string): FindingId {
   return findingId("l", crypto.createHash("sha256").update(threadNodeId).digest().subarray(0, 16));
 }
