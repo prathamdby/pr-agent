@@ -2,6 +2,7 @@ import type { AppError } from "../../errors/appError.js";
 import type { ReviewCancelAttribution } from "../../settings/index.js";
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
+import type { FindingId } from "../findingIdentity/findingMarker.js";
 
 export type AcceptedFindingSlimReference = {
   readonly findingId: string;
@@ -102,6 +103,7 @@ export type AcceptedPlacement =
       readonly kind: "posted" | "resumed";
       readonly source: FindingSource;
       readonly placement: InlinePlacement;
+      readonly findingId: FindingId;
       readonly canonicalFingerprint: string;
       readonly reviewId: number;
     }
@@ -109,6 +111,7 @@ export type AcceptedPlacement =
       readonly kind: "summary_only";
       readonly source: FindingSource;
       readonly placement: InlinePlacement;
+      readonly findingId: FindingId;
       readonly canonicalFingerprint: string;
       readonly reason: "historical" | "cap" | "budget" | "anchor";
     };

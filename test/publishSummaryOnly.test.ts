@@ -10,6 +10,7 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
     ) => actual.createPublishContext(client, identity, records),
   };
 });
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
 const publishStoreState = vi.hoisted(() => {
   let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
@@ -195,6 +196,7 @@ describe("publishReviewSummaryOnly", () => {
             inlineLine: 10,
             inlinePosted: false,
           },
+          findingId: legacyFindingId("fp"),
           canonicalFingerprint: "fp",
           reason: "budget",
         },
@@ -243,6 +245,7 @@ describe("publishReviewSummaryOnly", () => {
           kind: "posted",
           source: "correctness",
           placement: { finding: first, inlineLine: 10, inlinePosted: true },
+          findingId: legacyFindingId("fp-1"),
           canonicalFingerprint: "fp-1",
           reviewId: 41,
         },
@@ -250,6 +253,7 @@ describe("publishReviewSummaryOnly", () => {
           kind: "posted",
           source: "security",
           placement: { finding: second, inlineLine: 20, inlinePosted: true },
+          findingId: legacyFindingId("fp-2"),
           canonicalFingerprint: "fp-2",
           reviewId: 42,
         },

@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
@@ -171,6 +172,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
             kind: "posted" as const,
             source: testState.activeSource ?? "correctness",
             placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
+            findingId: legacyFindingId(`${testState.activeSource}-${index}-${item.file}`),
             canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
             reviewId: testState.publishOrder.length,
           }));
@@ -359,6 +361,7 @@ function acceptedPlacement(
       inlineLine: kind === "summary_only" ? null : item.startLine,
       inlinePosted: kind !== "summary_only",
     },
+    findingId: legacyFindingId(`${source}:${item.file}:${item.startLine}`),
     canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
   } as const;
   if (kind === "summary_only") {

@@ -12,9 +12,10 @@ import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
-  type FingerprintedInlinePlacement,
+  type IdentifiedInlinePlacement,
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
+import { mintFindingId } from "../findingIdentity/findingMarker.js";
 import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
@@ -27,10 +28,10 @@ export type PreparedReviewPayload = {
 };
 
 export type PreparedFindingTargets = {
-  readonly planned: readonly FingerprintedInlinePlacement[];
-  readonly placements: readonly FingerprintedInlinePlacement[];
-  readonly inline: readonly FingerprintedInlinePlacement[];
-  readonly summaryOnly: readonly FingerprintedInlinePlacement[];
+  readonly planned: readonly IdentifiedInlinePlacement[];
+  readonly placements: readonly IdentifiedInlinePlacement[];
+  readonly inline: readonly IdentifiedInlinePlacement[];
+  readonly summaryOnly: readonly IdentifiedInlinePlacement[];
   readonly dropped: {
     readonly suppressedInlineCount: number;
     readonly inlineCommentCapExcluded: number;
@@ -132,7 +133,9 @@ export function prepareFindingsForPublish(params: {
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
-  const planned = fingerprintInlinePlacements(plannedPlacements, "review");
+  const planned = fingerprintInlinePlacements(plannedPlacements, "review").map(
+    (placement): IdentifiedInlinePlacement => ({ ...placement, findingId: mintFindingId() }),
+  );
   const suppressionFingerprints = [
     ...(params.storedInlineFingerprints ?? []),
     ...(params.crossPrSuppressionFingerprints ?? []),

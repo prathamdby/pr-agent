@@ -33,6 +33,12 @@ import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../revi
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
+import {
+  renderFindingMarker,
+  renderFindingRowMarker,
+  type FindingId,
+  type FindingRowMarker,
+} from "../findingIdentity/findingMarker.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   normalizeGitHeadSha,
@@ -51,6 +57,10 @@ import {
 } from "../ci/ciSummaryCell.js";
 
 export type RenderContext = ReviewPublishContext;
+
+export type SummaryPlacement = InlinePlacement & { readonly findingRow?: FindingRowMarker };
+
+const DURABLE_ROW_TITLE_MAX_CHARS = 80;
 
 const CODE_FENCE_RE = /```/g;
 const HTML_COMMENT_DASH_RE = /--/g;
@@ -186,6 +196,7 @@ type FindingTableFields = {
 
 type SummaryRenderOptions = {
   compact: boolean;
+  minimalDurableRows?: boolean;
   includeSummaryAccordions: boolean;
   includeAgentFixAccordion: boolean;
   compactionNote?: boolean;
@@ -193,8 +204,26 @@ type SummaryRenderOptions = {
   omittedFindingCount?: number;
 };
 
+function truncatedTitle(title: string): string {
+  return title.length <= DURABLE_ROW_TITLE_MAX_CHARS
+    ? title
+    : `${title.slice(0, DURABLE_ROW_TITLE_MAX_CHARS - 1)}…`;
+}
+
+function renderMinimalDurableRowCellHtml(
+  placement: SummaryPlacement,
+  row: FindingRowMarker,
+  ctx: RenderContext,
+): string {
+  const f = placement.finding;
+  return `${renderTableLink(
+    truncatedTitle(f.title),
+    blobLineUrl(ctx, f.file, f.startLine, f.endLine),
+  )}<br>${renderTableLocationMeta("Summary only", f.file, formatLineRange(f.startLine, f.endLine))}${renderFindingRowMarker(row)}`;
+}
+
 function renderFindingTableCellHtml(
-  placement: InlinePlacement,
+  placement: SummaryPlacement,
   ctx: RenderContext,
   findingFields: FindingTableFields,
   compact: boolean,
@@ -217,7 +246,8 @@ function renderFindingTableCellHtml(
   parts.push(
     renderTableEm(placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : summaryFootnote),
   );
-  return parts.join("<br>");
+  const rowMarker = placement.findingRow ? renderFindingRowMarker(placement.findingRow) : "";
+  return `${parts.join("<br>")}${rowMarker}`;
 }
 
 function renderSeverityLabel(finding: ReviewFinding): string {
@@ -243,6 +273,7 @@ function renderBoundPolicyFooter(boundPaths: readonly string[]): string[] {
 export function renderInlineThreadBody(
   finding: ReviewFinding,
   ctx: RenderContext,
+  identity: { readonly id: FindingId; readonly lens: FindingSource },
   boundPaths: readonly string[] = [],
 ): string {
   const lines = [
@@ -262,6 +293,8 @@ export function renderInlineThreadBody(
     "",
     "</details>",
     ...renderBoundPolicyFooter(boundPaths),
+    "",
+    renderFindingMarker({ id: identity.id, lens: identity.lens, severity: finding.severity }),
   ];
   return lines.join("\n");
 }
@@ -357,7 +390,7 @@ export type ReviewActionLineCoverage = {
 
 type ReviewSummaryRenderCtx = RenderContext & {
   summarySentinel: string;
-  placements: readonly InlinePlacement[];
+  placements: readonly SummaryPlacement[];
   mode: AnyReviewLens;
   runFooter: ReviewRunFooterMeta;
   staleReview?: boolean;
@@ -427,7 +460,12 @@ function buildReviewSummaryBody(
 ): string {
   let visiblePlacements = [...ctx.placements];
   if (options.findingRowLimit != null) {
-    visiblePlacements = visiblePlacements.slice(0, options.findingRowLimit);
+    let droppableRowsLeft = options.findingRowLimit;
+    visiblePlacements = visiblePlacements.filter((placement) => {
+      if (placement.findingRow != null) return true;
+      droppableRowsLeft -= 1;
+      return droppableRowsLeft >= 0;
+    });
   }
   const coverage = ctx.coverage ?? { kind: "full", failed: [] };
   const actionLine = renderReviewActionLine({
@@ -458,16 +496,18 @@ function buildReviewSummaryBody(
       const f = placement.finding;
       tableRows.push([
         renderTableStrong(renderSeverityLabel(f)),
-        renderFindingTableCellHtml(
-          placement,
-          ctx,
-          {
-            title: f.title,
-            detail: f.detail,
-            fixPrompt: f.fixPrompt,
-          },
-          options.compact,
-        ),
+        options.minimalDurableRows && placement.findingRow
+          ? renderMinimalDurableRowCellHtml(placement, placement.findingRow, ctx)
+          : renderFindingTableCellHtml(
+              placement,
+              ctx,
+              {
+                title: f.title,
+                detail: f.detail,
+                fixPrompt: f.fixPrompt,
+              },
+              options.compact,
+            ),
       ]);
       if (
         options.includeSummaryAccordions &&
@@ -563,7 +603,9 @@ export function fitReviewSummaryBody(
     compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
   );
   const sortedCtx = { ...ctx, placements: sortedPlacements };
-  const sortedCount = sortedPlacements.length;
+  const droppableCount = sortedPlacements.filter(
+    (placement) => placement.findingRow == null,
+  ).length;
 
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
@@ -585,11 +627,11 @@ export function fitReviewSummaryBody(
   }
 
   let lo = 0;
-  let hi = sortedCount - 1;
+  let hi = droppableCount - 1;
   let best: string | null = null;
   while (lo <= hi) {
     const limit = Math.floor((lo + hi) / 2);
-    const omitted = sortedCount - limit;
+    const omitted = droppableCount - limit;
     const trimmed = buildReviewSummaryBody(payload, sortedCtx, {
       compact: true,
       includeSummaryAccordions: false,
@@ -609,11 +651,12 @@ export function fitReviewSummaryBody(
 
   return buildReviewSummaryBody(payload, sortedCtx, {
     compact: true,
+    minimalDurableRows: true,
     includeSummaryAccordions: false,
     includeAgentFixAccordion: false,
     compactionNote: true,
     findingRowLimit: 0,
-    omittedFindingCount: sortedCount,
+    omittedFindingCount: droppableCount,
   });
 }
 export function renderReviewSummaryComment(

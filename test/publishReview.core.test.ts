@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
@@ -292,6 +293,7 @@ describe("publishReview core", () => {
             inlineLine: 4,
             inlinePosted: true,
           },
+          findingId: legacyFindingId(stored),
           canonicalFingerprint: stored,
           reviewId: 41,
         },

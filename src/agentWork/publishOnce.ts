@@ -109,14 +109,10 @@ export function reviewInlineBatchOperationKey(batchId: string): string {
 
 export function deterministicInlineBatchId(params: {
   readonly workItemId: string;
-  readonly specialist: string;
-  readonly findingFingerprints: readonly string[];
+  readonly headSha: string;
+  readonly findingIds: readonly string[];
 }): string {
-  const material = [
-    params.workItemId,
-    params.specialist,
-    ...params.findingFingerprints.toSorted(),
-  ].join("\0");
+  const material = [params.workItemId, params.headSha, ...params.findingIds.toSorted()].join("\0");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
 

@@ -114,6 +114,7 @@ import {
   type AgentInstructionFile,
 } from "../src/review/agentInstructionFiles.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import {
   FINDING_ANTI_SUPPRESSION,
   wrapTrustedContext,
@@ -717,6 +718,7 @@ function dumpExtraTurns() {
           kind: "posted",
           source: "correctness",
           placement: { finding: sampleFinding, inlineLine: 12, inlinePosted: true },
+          findingId: legacyFindingId("sample-thread-1"),
           canonicalFingerprint: "fp-1",
           reviewId: 9001,
         },
@@ -724,6 +726,7 @@ function dumpExtraTurns() {
           kind: "summary_only",
           source: "security",
           placement: { finding: sampleFinding, inlineLine: null, inlinePosted: false },
+          findingId: legacyFindingId("sample-thread-2"),
           canonicalFingerprint: "fp-2",
           reason: "cap",
         },

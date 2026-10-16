@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
@@ -464,6 +465,7 @@ describe("orchestrator prompts", () => {
           kind: "posted",
           source: "correctness",
           placement: placementFor(finding),
+          findingId: legacyFindingId(canonical),
           canonicalFingerprint: canonical,
           reviewId: 1,
         },
@@ -537,6 +539,7 @@ describe("orchestrator prompts", () => {
           kind: "resumed",
           source: "correctness",
           placement: placementFor(finding),
+          findingId: legacyFindingId(canonical),
           canonicalFingerprint: canonical,
           reviewId: 2,
         },
@@ -556,6 +559,7 @@ describe("orchestrator prompts", () => {
           kind: "summary_only",
           source: "correctness",
           placement: placementFor(finding),
+          findingId: legacyFindingId(canonical),
           canonicalFingerprint: canonical,
           reason: "cap",
         },

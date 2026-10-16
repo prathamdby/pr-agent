@@ -14,7 +14,11 @@ import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
+import type {
+  AcceptedPlacement,
+  FindingLedger,
+  ReviewCoverage,
+} from "../orchestrator/orchestratorTypes.js";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
@@ -22,13 +26,12 @@ import {
   reviewLabelsFromPayload,
   syncReviewLabels,
 } from "../run/reviewLabels.js";
-import { renderReviewSummaryComment } from "../run/reviewRender.js";
+import { renderReviewSummaryComment, type SummaryPlacement } from "../run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js";
 import { createReviewSummaryComment } from "./reviewSummaryComment.js";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
-import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import { errorMessage } from "../../errors/errorMessage.js";
 import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
@@ -105,7 +108,7 @@ export async function publishReviewSummaryOnly(
   const { owner, repo, prNumber, headSha } = session.ctx;
   const mode = session.mode;
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
-  const summaryPlacements = input.ledger.accepted.map((accepted) => accepted.placement);
+  const summaryPlacements = input.ledger.accepted.map(summaryPlacement);
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
@@ -429,10 +432,27 @@ function reviewCommentAnchorKey(path: string, line: number): string {
   return `${path}:${line}`;
 }
 
+function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
+  if (accepted.kind !== "summary_only" || accepted.reason === "historical")
+    return accepted.placement;
+  const { finding } = accepted.placement;
+  return {
+    ...accepted.placement,
+    findingRow: {
+      id: accepted.findingId,
+      lens: accepted.source,
+      severity: finding.severity,
+      path: finding.file,
+      line: finding.startLine,
+      title: finding.title,
+    },
+  };
+}
+
 function enrichPlacementsWithInlineCommentUrls(
-  placements: readonly InlinePlacement[],
+  placements: readonly SummaryPlacement[],
   comments: readonly PublishedReviewComment[],
-): InlinePlacement[] {
+): SummaryPlacement[] {
   const commentsByAnchor = new Map<string, PublishedReviewComment[]>();
   for (const comment of comments) {
     const key = reviewCommentAnchorKey(comment.path, comment.line);

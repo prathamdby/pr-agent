@@ -6,7 +6,6 @@ import {
   type LineResolutionPublishErrorHint,
 } from "../../github/reviewErrors.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
-import type { ReviewFinding } from "../reviewSchema.js";
 import type { InlineReviewComment } from "../../github/reviewPublish.js";
 
 type InlinePublishParams<TPlacement extends InlinePlacement> = {
@@ -15,7 +14,7 @@ type InlinePublishParams<TPlacement extends InlinePlacement> = {
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   commitId?: string;
   inlinePlacements: readonly TPlacement[];
-  renderCommentBody: (finding: ReviewFinding) => string;
+  renderCommentBody: (placement: TPlacement) => string;
 };
 
 export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlacement> = {
@@ -25,9 +24,9 @@ export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlace
   lineResolutionFallback: boolean;
 };
 
-function inlineCommentsFromPlacements(
-  placements: readonly InlinePlacement[],
-  renderCommentBody: (finding: ReviewFinding) => string,
+function inlineCommentsFromPlacements<TPlacement extends InlinePlacement>(
+  placements: readonly TPlacement[],
+  renderCommentBody: (placement: TPlacement) => string,
   commentByPlacement: Map<InlinePlacement, InlineReviewComment>,
 ): InlineReviewComment[] {
   return placements.flatMap((placement) => {
@@ -38,7 +37,7 @@ function inlineCommentsFromPlacements(
       path: placement.finding.file,
       line: placement.inlineLine,
       side: "RIGHT" as const,
-      body: renderCommentBody(placement.finding),
+      body: renderCommentBody(placement),
     };
     commentByPlacement.set(placement, comment);
     return [comment];

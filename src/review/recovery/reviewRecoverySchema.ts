@@ -1,9 +1,13 @@
 import * as v from "valibot";
 import { evidenceDescriptorSchema } from "../findings/evidenceLedger.js";
 import { reviewFindingSchema } from "../reviewSchema.js";
+import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.js";
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const source = v.picklist(["correctness", "security", "quality", "tests", "review"]);
+export const findingIdSchema = v.custom<FindingId>(
+  (value) => typeof value === "string" && isFindingId(value),
+);
 const placement = v.object({
   finding: reviewFindingSchema,
   inlineLine: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
@@ -16,6 +20,7 @@ const accepted = v.variant("kind", [
     kind: v.picklist(["posted", "resumed"]),
     source,
     placement,
+    findingId: findingIdSchema,
     canonicalFingerprint: v.string(),
     reviewId: count,
   }),
@@ -23,6 +28,7 @@ const accepted = v.variant("kind", [
     kind: v.literal("summary_only"),
     source,
     placement,
+    findingId: findingIdSchema,
     canonicalFingerprint: v.string(),
     reason: v.picklist(["historical", "cap", "budget", "anchor"]),
   }),
@@ -55,7 +61,9 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     source,
     ledgerBefore: findingLedgerSnapshotSchema,
     localDelta: findingLedgerSnapshotSchema,
-    inline: v.array(v.object({ ...placement.entries, inlineFingerprint: v.string() })),
+    inline: v.array(
+      v.object({ ...placement.entries, inlineFingerprint: v.string(), findingId: findingIdSchema }),
+    ),
     footers: v.array(v.tuple([v.string(), v.array(v.string())])),
     counts: v.strictObject({ suppressed: count, capDowngraded: count }),
     resultKind: v.picklist(["empty", "budget_exhausted", "remote"]),

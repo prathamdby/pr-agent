@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it } from "vitest";
 import {
   countAcceptedForSource,
@@ -33,6 +34,7 @@ function placement(
       inlineLine: kind === "summary_only" ? null : 1,
       inlinePosted: kind !== "summary_only",
     },
+    findingId: legacyFindingId(`${source}:${title}`),
     canonicalFingerprint: `${source}:${title}`,
   } as const;
   if (kind === "summary_only") {

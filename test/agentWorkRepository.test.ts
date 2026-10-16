@@ -93,6 +93,7 @@ describe("loadReviewExecutorPublishContext", () => {
           kind: "resumed",
           source: "correctness",
           placement: { finding: postedFinding, inlineLine: 10, inlinePosted: true },
+          findingId: expect.stringMatching(/^f_[0-9A-HJKMNP-TV-Z]{26}$/),
           canonicalFingerprint: "fp-1",
           reviewId: 42,
         },

@@ -13,6 +13,11 @@ import {
   type FindingSource,
 } from "../review/orchestrator/orchestratorTypes.js";
 import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
+import {
+  isFindingId,
+  mintFindingId,
+  type FindingId,
+} from "../review/findingIdentity/findingMarker.js";
 import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import type { OperationIntentRow } from "./operationIntentRepository.js";
@@ -824,6 +829,7 @@ type StoredInlineBatchRef = {
     readonly finding: ReviewFinding;
     readonly resolvedLine: number;
     readonly canonicalFingerprint: string;
+    readonly findingId: FindingId | null;
   }[];
 };
 
@@ -831,11 +837,13 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
   if (!isRecord(value)) return null;
   const finding = v.safeParse(reviewFindingSchema, value.finding);
   const resolvedLine = Number(value.resolvedLine);
+  const findingId = value.findingId;
   if (
     !finding.success ||
     !Number.isInteger(resolvedLine) ||
     resolvedLine <= 0 ||
-    typeof value.canonicalFingerprint !== "string"
+    typeof value.canonicalFingerprint !== "string" ||
+    (findingId !== undefined && (typeof findingId !== "string" || !isFindingId(findingId)))
   ) {
     return null;
   }
@@ -843,6 +851,7 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
     finding: finding.output,
     resolvedLine,
     canonicalFingerprint: value.canonicalFingerprint,
+    findingId: findingId ?? null,
   };
 }
 
@@ -892,6 +901,7 @@ function parseResumedPlacements(
           inlineLine: placement.resolvedLine,
           inlinePosted: true,
         },
+        findingId: placement.findingId ?? mintFindingId(),
         canonicalFingerprint: placement.canonicalFingerprint,
         reviewId: batch.reviewId,
       });

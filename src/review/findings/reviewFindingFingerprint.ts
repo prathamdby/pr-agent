@@ -73,10 +73,12 @@ export function fingerprintInlinePlacements(
   }));
 }
 
-export function suppressInlinePlacementsByFingerprint(
-  placements: readonly FingerprintedInlinePlacement[],
+export function suppressInlinePlacementsByFingerprint<
+  TPlacement extends FingerprintedInlinePlacement,
+>(
+  placements: readonly TPlacement[],
   storedFingerprints: readonly string[],
-): { placements: FingerprintedInlinePlacement[]; suppressedInlineCount: number } {
+): { placements: TPlacement[]; suppressedInlineCount: number } {
   const stored = new Set(storedFingerprints);
   let suppressedInlineCount = 0;
   const next = placements.map((placement) => {

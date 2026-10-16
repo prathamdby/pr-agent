@@ -1,3 +1,4 @@
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFindingLedger,
@@ -76,6 +77,7 @@ function accepted(
       kind,
       source: "correctness",
       placement,
+      findingId: legacyFindingId(findingId),
       canonicalFingerprint: findingId,
       reason: "anchor",
     };
@@ -84,6 +86,7 @@ function accepted(
     kind,
     source: "correctness",
     placement,
+    findingId: legacyFindingId(findingId),
     canonicalFingerprint: findingId,
     reviewId: item.startLine,
   };

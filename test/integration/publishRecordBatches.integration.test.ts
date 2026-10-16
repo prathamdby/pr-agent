@@ -2169,8 +2169,8 @@ try {
     const resourceKey = prResourceKey("golden", "repo", 7);
     const batchId = deterministicInlineBatchId({
       workItemId: "golden-work",
-      specialist: "correctness",
-      findingFingerprints: ["fp-b", "fp-a"],
+      headSha: "abc1234",
+      findingIds: ["f_01J00000000000000000000002", "f_01J00000000000000000000001"],
     });
     const keys = [
       askReplyOperationKey(resourceKey),
@@ -2203,7 +2203,7 @@ try {
       "ask:failure_reply:golden/repo#7",
       "ask:failure_reply:golden/repo#7:70",
       "description:pr_body:golden/repo#7",
-      "review:inline:ac9015646ef60021fd1f416ef9f5c0b4",
+      "review:inline:cc23cc57c4010b1fbf7eb7c487896581",
       "review:summary:review:golden/repo#7",
       "triage:push:golden/repo#7",
       "triage:thread:70",
@@ -2862,6 +2862,7 @@ try {
             },
             resolvedLine: 10,
             canonicalFingerprint: "fp-1",
+            findingId: "f_01J00000000000000000000001",
           },
         ],
       };
@@ -2929,6 +2930,7 @@ try {
             inlineLine: 10,
             inlinePosted: true,
           },
+          findingId: "f_01J00000000000000000000001",
           canonicalFingerprint: "fp-1",
           reviewId: first.reviewId,
         },

@@ -1,3 +1,8 @@
+import {
+  legacyFindingId,
+  parseOwnedFindingMarker,
+  renderFindingMarker,
+} from "../src/review/findingIdentity/findingMarker.js";
 import { describe, expect, it } from "vitest";
 import {
   countReviewFindingsForActionLine,
@@ -912,6 +917,8 @@ const inlineCtx = {
   hasDescriptionReviewMap: false,
 };
 
+const inlineIdentity = { id: legacyFindingId("inline-thread"), lens: "correctness" as const };
+
 describe("renderInlineThreadBody", () => {
   it("P0 with fixPrompt accordion", () => {
     const body = renderInlineThreadBody(
@@ -925,6 +932,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Guard the map with a mutex or use Ref.modify.",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toMatchSnapshot();
     expect(body).toContain("<details>");
@@ -932,6 +940,12 @@ describe("renderInlineThreadBody", () => {
     expect(body).toContain("Repository: acme/widgets");
     expect(body).toContain("[P0] @src/a.ts lines 5-7");
     expect(body).toContain("Guard the map with a mutex");
+    expect(body.split("\n").at(-1)).toBe(
+      renderFindingMarker({ ...inlineIdentity, severity: "P0" }),
+    );
+    expect(
+      parseOwnedFindingMarker({ body, authorLogin: "pr-agent[bot]", isRoot: true }, "pr-agent"),
+    ).toEqual({ ...inlineIdentity, severity: "P0" });
   });
 
   it("P1 with fixPrompt accordion", () => {
@@ -946,6 +960,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Await the promise before returning.",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toMatchSnapshot();
   });
@@ -962,6 +977,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Wrap with ```ts and close with ```",
       },
       inlineCtx,
+      inlineIdentity,
     );
     expect(body).toContain("\\`\\`\\`ts");
     expect(body).not.toContain("Wrap with ```ts");
@@ -980,6 +996,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return await run();",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).toContain("```suggestion\nreturn await run();\n```");
@@ -998,6 +1015,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return await run();",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("```suggestion");
@@ -1016,6 +1034,7 @@ describe("renderInlineThreadBody", () => {
         suggestedCode: "return ```literal```;",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("```suggestion");
@@ -1034,11 +1053,19 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Move the shared helper into a neutral module.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/web-worker-boundary.mdc"],
     );
 
     expect(body).toContain("</details>\n\n<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>");
-    expect(body.endsWith("<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>")).toBe(true);
+    expect(
+      body.endsWith(
+        `<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>\n\n${renderFindingMarker({
+          ...inlineIdentity,
+          severity: "P2",
+        })}`,
+      ),
+    ).toBe(true);
     expect(body).not.toContain("Rule ·");
   });
 
@@ -1054,6 +1081,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Move the shared helper into a neutral module.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"],
     );
 
@@ -1073,6 +1101,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Await the promise before returning.",
       },
       inlineCtx,
+      inlineIdentity,
     );
 
     expect(body).not.toContain("<sub>Bound");
@@ -1091,6 +1120,7 @@ describe("renderInlineThreadBody", () => {
         fixPrompt: "Reformat.",
       },
       inlineCtx,
+      inlineIdentity,
       [".pr-agent/evil<script>.mdc"],
     );
 

@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import * as v from "valibot";
 import {
-  type FingerprintedInlinePlacement,
+  type IdentifiedInlinePlacement,
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.js";
+import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.js";
 import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
 import {
   renderInlineThreadBody,
@@ -41,7 +42,7 @@ import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.j
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.js";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
 import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
-import type { CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.js";
+import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.js";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
 import { fenceForEpoch } from "../../agentWork/writeFence.js";
@@ -52,6 +53,7 @@ const publishedPlacementSchema = v.object({
   inlinePosted: v.boolean(),
   inlineCommentUrl: v.optional(v.string()),
   inlineFingerprint: v.string(),
+  findingId: findingIdSchema,
 });
 const inlineResultSchema = v.object({
   review: v.optional(v.object({ id: v.number(), url: v.string() })),
@@ -61,7 +63,7 @@ const inlineResultSchema = v.object({
 });
 
 type StoredInlineBatch = {
-  readonly version: 2;
+  readonly version: 3;
   readonly batchId: string;
   readonly workItemId: string;
   readonly specialist: FindingSource;
@@ -70,10 +72,12 @@ type StoredInlineBatch = {
   readonly reviewUrl: string;
   readonly event: "COMMENT";
   readonly fingerprints: readonly string[];
+  readonly findingIds: readonly FindingId[];
   readonly placements: readonly {
     readonly finding: ReviewFinding;
     readonly resolvedLine: number;
     readonly canonicalFingerprint: string;
+    readonly findingId: FindingId;
   }[];
   readonly counts: {
     readonly posted: number;
@@ -117,30 +121,35 @@ function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta
 }
 
 function hasAcceptedFingerprint(
-  placement: FingerprintedInlinePlacement,
+  placement: IdentifiedInlinePlacement,
   ledger: FindingLedger,
 ): boolean {
   const candidates = new Set(fingerprintCandidates(placement.finding));
   return ledger.accepted.some((accepted) => candidates.has(accepted.canonicalFingerprint));
 }
 
+function ledgerPlacement({ findingId: _findingId, ...placement }: IdentifiedInlinePlacement) {
+  return placement;
+}
+
 function summaryOnlyPlacement(
-  placement: FingerprintedInlinePlacement,
+  placement: IdentifiedInlinePlacement,
   source: FindingSource,
   reason: Extract<AcceptedPlacement, { kind: "summary_only" }>["reason"],
 ): AcceptedPlacement {
   return {
     kind: "summary_only",
     source,
-    placement: { ...placement, inlinePosted: false },
+    placement: { ...ledgerPlacement(placement), inlinePosted: false },
+    findingId: placement.findingId,
     canonicalFingerprint: placement.inlineFingerprint,
     reason,
   };
 }
 
 function acceptedSummaryPlacements(params: {
-  readonly targets: readonly FingerprintedInlinePlacement[];
-  readonly planned: readonly FingerprintedInlinePlacement[];
+  readonly targets: readonly IdentifiedInlinePlacement[];
+  readonly planned: readonly IdentifiedInlinePlacement[];
   readonly source: FindingSource;
   readonly ledger: FindingLedger;
   readonly budgetExhausted?: boolean;
@@ -169,7 +178,7 @@ function acceptedFingerprints(accepted: readonly AcceptedPlacement[]): string[] 
 }
 
 function storedPlacement(
-  placement: FingerprintedInlinePlacement,
+  placement: IdentifiedInlinePlacement,
 ): StoredInlineBatch["placements"][number] {
   if (placement.inlineLine == null) {
     throw new AppError({
@@ -182,6 +191,7 @@ function storedPlacement(
     finding: placement.finding,
     resolvedLine: placement.inlineLine,
     canonicalFingerprint: placement.inlineFingerprint,
+    findingId: placement.findingId,
   };
 }
 
@@ -357,14 +367,13 @@ export async function publishFindingBatch(
     });
   }
 
-  const findingFingerprints = targets.inline.map((placement) => placement.inlineFingerprint);
   const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const batchId =
     intentWorkItemId != null
       ? deterministicInlineBatchId({
           workItemId: intentWorkItemId,
-          specialist: input.source,
-          findingFingerprints,
+          headSha: session.ctx.headSha,
+          findingIds: targets.inline.map((placement) => placement.findingId),
         })
       : crypto.randomUUID();
   const operationKey =
@@ -416,18 +425,19 @@ export async function publishFindingBatch(
       event: "COMMENT",
       commitId: session.ctx.headSha,
       inlinePlacements: targets.inline,
-      renderCommentBody: (finding) =>
+      renderCommentBody: (placement) =>
         renderInlineThreadBody(
-          finding,
+          placement.finding,
           session.ctx,
-          boundByKey.get(reviewFindingPlacementKey(finding)) ?? [],
+          { id: placement.findingId, lens: input.source },
+          boundByKey.get(reviewFindingPlacementKey(placement.finding)) ?? [],
         ),
     });
   const publishStartedAt = Date.now();
   const inlineResult = await (session.operationIntent == null
     ? publishInline()
     : publishOnce<
-        Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
+        Awaited<ReturnType<typeof publishInlineReviewComments<IdentifiedInlinePlacement>>>
       >({
         decodeResult: (value) => {
           v.assert(inlineResultSchema, value);
@@ -453,60 +463,46 @@ export async function publishFindingBatch(
             operationMarker,
             session.ctx.headSha,
           );
-          if (found && session.recovery) {
-            const comments = await session.prSurface.listReviewComments();
-            if (comments.truncated)
-              throw new AppError({
-                domain: "operation_intent",
-                kind: "recovery_failed",
-                message: "Review recovery needs a complete exact batch comment observation",
-              });
-            const observed = comments.comments.filter(
-              (comment) =>
-                comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
+          if (found == null) return { kind: "absent" as const };
+          const comments = await session.prSurface.listReviewComments();
+          if (comments.truncated)
+            throw new AppError({
+              domain: "operation_intent",
+              kind: "recovery_failed",
+              message: "Review recovery needs a complete exact batch comment observation",
+            });
+          const observed = comments.comments.filter(
+            (comment) =>
+              comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
+          );
+          if (observed.length === 0) return { kind: "absent" as const };
+          const botLogin = await session.prSurface.getBotLogin();
+          const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
+          const postedIds = new Set<FindingId>();
+          for (const comment of observed) {
+            const marker = parseOwnedFindingMarker(
+              { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
+              botLogin,
             );
-            if (observed.length === 0) return { kind: "absent" as const };
-            const postedPlacements = targets.inline.filter((placement) =>
-              observed.some(
-                (comment) =>
-                  comment.path === placement.finding.file &&
-                  comment.line === placement.inlineLine &&
-                  comment.body ===
-                    renderInlineThreadBody(
-                      placement.finding,
-                      session.ctx,
-                      boundByKey.get(reviewFindingPlacementKey(placement.finding)) ?? [],
-                    ),
-              ),
-            );
-            if (postedPlacements.length !== observed.length) return { kind: "absent" as const };
-            const postedKeys = new Set(
-              postedPlacements.map((placement) => placement.inlineFingerprint),
-            );
-            const anchorDroppedPlacements = targets.inline
-              .filter((placement) => !postedKeys.has(placement.inlineFingerprint))
-              .map((placement) => ({ ...placement, inlinePosted: false }));
-            return {
-              kind: "reconciled" as const,
-              value: {
-                review: { id: found.reviewId, url: found.reviewUrl },
-                postedPlacements,
-                anchorDroppedPlacements,
-                lineResolutionFallback: anchorDroppedPlacements.length > 0,
-              },
-            };
+            if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
+              return { kind: "absent" as const };
+            postedIds.add(marker.id);
           }
-          return found == null
-            ? { kind: "absent" as const }
-            : {
-                kind: "reconciled" as const,
-                value: {
-                  review: { id: found.reviewId, url: found.reviewUrl },
-                  postedPlacements: [...targets.inline],
-                  anchorDroppedPlacements: [],
-                  lineResolutionFallback: false,
-                },
-              };
+          const postedPlacements = targets.inline.filter((placement) =>
+            postedIds.has(placement.findingId),
+          );
+          const anchorDroppedPlacements = targets.inline
+            .filter((placement) => !postedIds.has(placement.findingId))
+            .map((placement) => ({ ...placement, inlinePosted: false }));
+          return {
+            kind: "reconciled" as const,
+            value: {
+              review: { id: found.reviewId, url: found.reviewUrl },
+              postedPlacements,
+              anchorDroppedPlacements,
+              lineResolutionFallback: anchorDroppedPlacements.length > 0,
+            },
+          };
         },
         isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
         mutate: input.recoveryWithoutEvidence
@@ -537,14 +533,15 @@ export async function publishFindingBatch(
   const postedAccepted: AcceptedPlacement[] = posted.map((placement) => ({
     kind: "posted",
     source: input.source,
-    placement,
+    placement: ledgerPlacement(placement),
+    findingId: placement.findingId,
     canonicalFingerprint: placement.inlineFingerprint,
     reviewId: review.id,
   }));
   const accepted = [...acceptedWithoutPosted, ...postedAccepted];
   const batchRecord: StoredInlineBatch | undefined = session.workItemId
     ? {
-        version: 2,
+        version: 3,
         batchId,
         workItemId: session.workItemId,
         specialist: input.source,
@@ -553,6 +550,7 @@ export async function publishFindingBatch(
         reviewUrl: review.url,
         event: "COMMENT",
         fingerprints: posted.map((placement) => placement.inlineFingerprint),
+        findingIds: posted.map((placement) => placement.findingId),
         placements: posted.map(storedPlacement),
         counts: {
           posted: posted.length,
