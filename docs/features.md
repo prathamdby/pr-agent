@@ -134,7 +134,7 @@ Notes:
   finding inventory. The thread with human replies, else the oldest, stays
   canonical. Each copy gets one `Tracked in <link>` reply with a hidden receipt
   and is resolved, unless someone has replied on it; then it is linked and left
-  open. Two threads with the same finding ID are cleaned up the same way
+  open, and the canonical row takes its severity if higher. Two threads with the same finding ID are cleaned up the same way
   without the model. The summary lists the result under `Resolved this run`.
   Nothing is cleaned up while the finding inventory is incomplete.
 - Invalid values fail startup with the allowed list; typos never silently

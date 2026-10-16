@@ -1105,14 +1105,57 @@ describe("duplicate receipts and lifecycle", () => {
       inventoryOf([openThreadFinding(A, { rootCommentId: 61 }), openThreadFinding(B)]),
       reviewed({
         duplicates: [
-          { id: B, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61", resolved: true },
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+            resolved: true,
+          },
         ],
       }),
     );
     expect(view.rows.map((row) => row.id)).toEqual([A]);
     expect(view.duplicates).toEqual([
-      { id: B, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61", resolved: true },
+      {
+        id: B,
+        canonicalId: A,
+        canonicalUrl: "https://github.com/o/r/pull/1#discussion_r61",
+        resolved: true,
+      },
     ]);
+  });
+
+  it("keeps an open blocking copy blocking through its lower-severity canonical", () => {
+    const canonical = thread({ rootBody: markedBody(A, "P3"), rootCommentId: 64 });
+    const thisRun = buildFindingView(
+      inventoryOf([canonical, thread({ rootBody: markedBody(B, "P1") })]),
+      reviewed({
+        duplicates: [
+          {
+            id: B,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r64",
+            resolved: false,
+          },
+        ],
+      }),
+    );
+    const laterRun = buildFindingView(
+      inventoryOf([
+        canonical,
+        thread({
+          rootBody: markedBody(B, "P1"),
+          replies: [
+            { body: renderReceipt({ kind: "duplicate", id: B, canonical: A }), authorLogin: BOT },
+          ],
+        }),
+      ]),
+      reviewed(),
+    );
+    for (const view of [thisRun, laterRun]) {
+      expect(view.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+      expect(checkConclusion(view)).toBe("failure");
+    }
   });
 
   it("keeps the canonical row when a same-id copy was cleaned up", () => {
@@ -1123,7 +1166,12 @@ describe("duplicate receipts and lifecycle", () => {
       ]),
       reviewed({
         duplicates: [
-          { id: A, canonicalUrl: "https://github.com/o/r/pull/1#discussion_r62", resolved: true },
+          {
+            id: A,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r62",
+            resolved: true,
+          },
         ],
       }),
     );

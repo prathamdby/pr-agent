@@ -24,6 +24,7 @@ export type FindingStatus =
 
 export type CleanedDuplicate = {
   readonly id: FindingId;
+  readonly canonicalId: FindingId;
   readonly canonicalUrl: string;
   readonly resolved: boolean;
 };
@@ -146,16 +147,54 @@ function compareCarried(left: InventoryFinding, right: InventoryFinding): number
   );
 }
 
+function canonicalAfterCleanup(
+  inventory: FindingInventory,
+  cleanedTo: ReadonlyMap<FindingId, FindingId>,
+  start: FindingId,
+): FindingId | null {
+  const seen = new Set<FindingId>();
+  let current = start;
+  while (!seen.has(current)) {
+    seen.add(current);
+    const next = cleanedTo.get(current) ?? inventory.findings.get(current)?.aliasOf;
+    if (next == null) return current;
+    current = next;
+  }
+  return null;
+}
+
+function openCopySeverities(
+  inventory: FindingInventory,
+  cleaned: readonly CleanedDuplicate[],
+): Map<FindingId, FindingSeverity | "unknown"> {
+  const cleanedTo = new Map(cleaned.map((duplicate) => [duplicate.id, duplicate.canonicalId]));
+  const closedIds = new Set(
+    cleaned.filter((duplicate) => duplicate.resolved).map((duplicate) => duplicate.id),
+  );
+  const severities = new Map<FindingId, FindingSeverity | "unknown">();
+  for (const finding of inventory.findings.values()) {
+    if (finding.state !== "open" || closedIds.has(finding.id)) continue;
+    if (finding.aliasOf == null && !cleanedTo.has(finding.id)) continue;
+    const canonicalId = canonicalAfterCleanup(inventory, cleanedTo, finding.id);
+    if (canonicalId == null) continue;
+    severities.set(
+      canonicalId,
+      higherSeverity(severities.get(canonicalId) ?? "unknown", finding.severity),
+    );
+  }
+  return severities;
+}
+
 export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
 ): FindingView {
   const duplicates = outcomes.kind === "reviewed" ? outcomes.duplicates : [];
-  const cleanedIds = new Set(
-    duplicates
-      .filter((duplicate) => inventory.findings.get(duplicate.id)?.url !== duplicate.canonicalUrl)
-      .map((duplicate) => duplicate.id),
+  const cleaned = duplicates.filter(
+    (duplicate) => inventory.findings.get(duplicate.id)?.url !== duplicate.canonicalUrl,
   );
+  const cleanedIds = new Set(cleaned.map((duplicate) => duplicate.id));
+  const copySeverities = openCopySeverities(inventory, cleaned);
   const observed = (outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger) : []).filter(
     (row) => !cleanedIds.has(row.id),
   );
@@ -173,7 +212,18 @@ export function buildFindingView(
     .map((finding) =>
       viewRow(finding.id, carriedStatus(finding), finding.severity, finding, false),
     );
-  const rows = [...observed, ...carried];
+  const rows = [...observed, ...carried].map((row) => {
+    const copySeverity = copySeverities.get(row.id);
+    return copySeverity == null
+      ? row
+      : viewRow(
+          row.id,
+          row.status,
+          higherSeverity(row.severity, copySeverity),
+          row.held,
+          row.observedThisRun,
+        );
+  });
   return {
     completeness: inventory.completeness,
     rows,
