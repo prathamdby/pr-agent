@@ -659,11 +659,18 @@ describe("observation reconciliation", () => {
     expect(step).toEqual({ outcome: { kind: "reaffirm", id: A, severity: "P1" } });
   });
 
-  it("rejects continues on an unknown, distant, or other-file finding", () => {
+  it("rejects continues on an unknown id, a same-file id outside the retrieved set, or another file", () => {
     expect(reconcile({ kind: "continues", findingId: B }, [open()])).toHaveProperty("rejected");
+    const nearer = [30, 40, 50, 60].map((line, index) =>
+      thread({
+        rootBody: markedBody(id(`f_0000000000000000000000000${index + 1}`)),
+        line,
+      }),
+    );
+    const far = thread({ rootBody: markedBody(A), line: 400 });
     expect(
-      reconcile({ kind: "continues", findingId: A }, [open()], {
-        obs: observation({ startLine: 400 }),
+      reconcile({ kind: "continues", findingId: A }, [far, ...nearer], {
+        obs: observation({ startLine: 12, endLine: 12 }),
       }),
     ).toHaveProperty("rejected");
     expect(
@@ -671,6 +678,52 @@ describe("observation reconciliation", () => {
         obs: observation({ file: "src/z.ts" }),
       }),
     ).toHaveProperty("rejected");
+  });
+
+  it("retrieves a same-file finding outside the 10-line window and accepts continues", () => {
+    const admin = thread({
+      rootBody: markedBody(A),
+      line: 160,
+      startLine: 140,
+    });
+    const step = reconcile({ kind: "new" }, [admin], {
+      obs: observation({ startLine: 224, endLine: 232 }),
+    });
+    expect(step).toMatchObject({ question: { candidates: [{ findingId: A }] } });
+    expect(
+      reconcile({ kind: "continues", findingId: A }, [admin], {
+        obs: observation({ startLine: 224, endLine: 232 }),
+      }),
+    ).toEqual({ outcome: { kind: "reaffirm", id: A, severity: "P1" } });
+  });
+
+  it("includes an accepted-this-run overlap candidate with its detail", () => {
+    const accepted = [
+      {
+        id: B,
+        path: "src/a.ts",
+        startLine: 224,
+        endLine: 247,
+        title: "Prove only CMS mutations evict",
+        detail: "The allowlist omits unlisted admin mutations.",
+        url: "",
+      },
+    ];
+    expect(
+      reconcile({ kind: "new" }, [], {
+        obs: observation({ startLine: 226, endLine: 232 }),
+        accepted,
+      }),
+    ).toMatchObject({
+      question: {
+        candidates: [
+          {
+            findingId: B,
+            detail: "The allowlist omits unlisted admin mutations.",
+          },
+        ],
+      },
+    });
   });
 
   it("posts two defects on one line when the model answers distinct_from", () => {
@@ -1404,6 +1457,11 @@ describe("duplicate cleanup planning", () => {
       openThreadFinding(B, { line: 10 + OVERLAP_WINDOW_LINES + 5 }),
     ]);
     expect(planDuplicateCleanup([A, B], far)).toEqual({ refused: "not_overlapping" });
+    const sixtyFour = inventoryOf([
+      openThreadFinding(A, { line: 160, startLine: 140 }),
+      openThreadFinding(B, { line: 232, startLine: 224 }),
+    ]);
+    expect(planDuplicateCleanup([A, B], sixtyFour)).toEqual({ refused: "not_overlapping" });
     const stale = inventoryOf([
       openThreadFinding(A, { line: 10 }),
       openThreadFinding(B, { line: 400, isOutdated: true }),
