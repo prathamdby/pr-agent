@@ -15,7 +15,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BotIdentity } from "../github/appAuth.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, isAppError } from "../errors/appError.js";
 import {
   SENSITIVE_PATH_PATTERNS,
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
@@ -274,11 +274,11 @@ function changedLineCount(diff: string): number {
 }
 
 function classifyPushError(error: unknown): never {
-  const text =
-    error instanceof Error
-      ? `${error.message}\n${"stderr" in error && typeof error.stderr === "string" ? error.stderr : ""}`
-      : String(error);
-  if (/non-fast-forward|fetch first|stale info|rejected/i.test(text)) {
+  const stderr = isAppError(error) ? error.context.stderr : undefined;
+  if (
+    typeof stderr === "string" &&
+    /non-fast-forward|fetch first|stale info|rejected/i.test(stderr)
+  ) {
     throw new StaleHeadPushError();
   }
   throw error;
@@ -325,6 +325,7 @@ export async function withWritablePrCheckout<T>(
         askpass: credentials.askpass,
         tokenFile: credentials.tokenFile,
         extraEnv,
+        redactSecrets: [installationToken],
       });
 
     await mkdir(dir, { recursive: true });

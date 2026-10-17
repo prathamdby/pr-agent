@@ -36,6 +36,49 @@ Sparse checkout and truncated change sets or searches must be advertised in trus
 context, tool refusals, and metadata-only `coverage` agent events so agents and
 operators cannot mistake partial disk coverage for full-repo certainty.
 
+## Amendment (2026-10-17): fetch failure modes
+
+Workspace Git runs in its own process group with stdin closed, `LC_ALL=C`, and
+a bounded output buffer (`src/prWorkspace/gitProcess.ts`). A deadline or output
+cap sends SIGTERM to the group, waits `LOCAL_WORKSPACE_GIT_KILL_GRACE_MS`, sends
+SIGKILL, and confirms the group is gone within `LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS`.
+A descendant that keeps the pipes open after its leader exits is ended the same
+way. Cleanup that cannot be confirmed reports `cleanup: failed`.
+
+Fetch sets `http.lowSpeedLimit` and `http.lowSpeedTime`, so Git exits on its own
+when a transfer stalls (`timeoutSource: git_low_speed`) before the process
+deadline (`process_timer`).
+
+Failures are closed codes. `pr_workspace.fetch_timeout` means the process timer
+fired on a fetch. Every other Git failure is `pr_workspace.git_failed`. The
+context carries the operation, checkout mode, elapsed time, exit code, signal,
+`killed`, timeout source, failure kind (`timeout`, `auth`, `missing_ref`, or
+`git`), cleanup result, and a stderr tail of at most 1,000 characters. Redaction
+of the installation token, credential URLs, and outbound secret patterns runs on
+the whole stderr before classification and before the cut. The error carries no
+raw cause. Auth and missing-ref failures are terminal. Other Git failures stay
+transient.
+
+A full checkout whose fetch times out, stalls, or fails with a generic Git error
+retries once in the same attempt as a sparse checkout (`--filter=blob:none`),
+after recreating the private and agent directories. Auth, missing ref, spawn
+failures, and unconfirmed cleanup do not fall back. A sparse checkout never
+falls back. When the fallback also fails, the sparse error is primary and
+`context.fallback` holds the full attempt. A fallback checkout reports sparse
+coverage under the coverage honesty amendment. `LocalPrWorkspace.checkoutTelemetry`
+records the mode (`full`, `sparse`, or `sparse_fallback`), the fallback reason,
+and at most two fetch attempts.
+
+Failure modes recorded before implementation: a silent server holds the fetch
+until the deadline; a TERM-ignoring descendant outlives its leader; the deadline
+races process exit; a spawn fails; a secret is split across stderr chunks or the
+diagnostic cut; an output cap cuts a line; auth or missing-ref failures spend
+retries or start a useless fallback; a failed fallback hides the original
+timeout; telemetry is lost for a cached workspace or a failed checkout.
+
+Proof: `PR_AGENT_WORKSPACE_FETCH_PROOF=verify-artifacts/workspace-fetch-proof.json PR_AGENT_GIT_LOW_SPEED_PROBE=1 nub run test test/localPrWorkspace.test.ts`
+writes the attempts, the execution span, and the process-tree result.
+
 ## Alternatives considered
 
 - **Keep changed-file-only materialization** — Rejected; does not meet the full-context goal.

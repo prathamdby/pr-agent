@@ -26,6 +26,7 @@ export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
   readonly preflight: ReviewPreflightMetadata;
   readonly agentCwd: string;
+  readonly reused: boolean;
 };
 
 export type PreparePrRepositoryViewParams = PrResource & {
@@ -39,7 +40,7 @@ export type PreparePrRepositoryViewParams = PrResource & {
   readonly repositorySizeKb?: number;
 };
 
-type CachedPrRepositoryView = PrRepositoryView & {
+type CachedPrRepositoryView = Omit<PrRepositoryView, "reused"> & {
   readonly cleanup: () => Promise<void>;
 };
 
@@ -150,8 +151,15 @@ async function acquirePrRepositoryView(
   }
   cancelReleaseTimer(entry);
   entry.refcount += 1;
+  const reused = entry.view != null || entry.prepare != null;
   try {
-    return await prepareEntry(entry, params);
+    const view = await prepareEntry(entry, params);
+    return {
+      workspace: view.workspace,
+      preflight: view.preflight,
+      agentCwd: view.agentCwd,
+      reused,
+    };
   } catch (e) {
     await releasePrRepositoryView(params);
     throw e;

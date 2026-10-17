@@ -11,7 +11,7 @@ import {
 } from "../github/githubErrors.js";
 import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { isAppError } from "./appError.js";
+import { isAppError, type AppError } from "./appError.js";
 import type { AppErrorDomain, AppErrorKind } from "./appErrorCodes.js";
 
 export type FailureDomain = "provider" | "github" | "internal" | "unknown";
@@ -23,6 +23,7 @@ export type ClassifiedErrorKind =
   | "publish"
   | "cancelled"
   | "superseded"
+  | "git"
   | "unknown";
 
 export type ClassifiedFailure = {
@@ -102,6 +103,25 @@ const INTERNAL_ERROR_KIND: {
   },
 };
 
+const WORKSPACE_GIT_ERROR_KIND: Readonly<Record<string, ClassifiedErrorKind>> = {
+  timeout: "timeout",
+  auth: "auth",
+  missing_ref: "not_found",
+  git: "git",
+};
+
+function workspaceGitErrorKind(error: AppError): ClassifiedErrorKind | null {
+  if (error.code !== "pr_workspace.fetch_timeout" && error.code !== "pr_workspace.git_failed") {
+    return null;
+  }
+  const fallback = error.code === "pr_workspace.fetch_timeout" ? "timeout" : "git";
+  const failureKind = error.context.failureKind;
+  if (typeof failureKind !== "string" || !Object.hasOwn(WORKSPACE_GIT_ERROR_KIND, failureKind)) {
+    return fallback;
+  }
+  return WORKSPACE_GIT_ERROR_KIND[failureKind] ?? fallback;
+}
+
 function classifyFromErrorChain(error: unknown): {
   domain: FailureDomain;
   kind: ClassifiedErrorKind;
@@ -110,6 +130,8 @@ function classifyFromErrorChain(error: unknown): {
   for (const node of nodes) {
     if (isCancelAbortError(node)) return { domain: "internal", kind: "cancelled" };
     if (!isAppError(node)) continue;
+    const workspaceGitKind = workspaceGitErrorKind(node);
+    if (workspaceGitKind != null) return { domain: "internal", kind: workspaceGitKind };
     if (node.domain === "provider") {
       return { domain: "provider", kind: classifyProviderError(node) };
     }

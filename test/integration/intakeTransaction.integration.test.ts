@@ -1268,6 +1268,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
           agentCwd: "/tmp/pr-agent",
           workspace: mockLocalPrWorkspace(),
+          reused: false,
         }),
       );
       let releasePublish!: () => void;
@@ -1383,6 +1384,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
         agentCwd: "/tmp/pr-agent",
         workspace: mockLocalPrWorkspace(),
+        reused: false,
       }),
     );
     for (const job of jobs) {
@@ -1632,6 +1634,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
         agentCwd: "/tmp/pr-agent",
         workspace: mockLocalPrWorkspace(),
+        reused: false,
       }),
     );
     let releasePublish!: () => void;

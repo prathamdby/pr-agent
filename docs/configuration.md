@@ -661,6 +661,13 @@ Writing policy is computed once per description run from workspace size stats (`
 | `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`            | 60000      |
 | `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`               | 60000      |
 | `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`               | 60000      |
+| `LOCAL_WORKSPACE_FETCH_LOW_SPEED_LIMIT_BYTES`    | 1000       |
+| `LOCAL_WORKSPACE_FETCH_LOW_SPEED_TIME_SECONDS`   | 20         |
+| `LOCAL_WORKSPACE_GIT_KILL_GRACE_MS`              | 2000       |
+| `LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS`            | 1000       |
+| `LOCAL_WORKSPACE_GIT_GROUP_POLL_MS`              | 50         |
+| `LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES`           | 20971520   |
+| `LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS`    | 1000       |
 | `LOCAL_WORKSPACE_SEARCH_MAX_FILES`               | 500        |
 | `LOCAL_WORKSPACE_MAX_FILE_BYTES`                 | 1000000    |
 | `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`         | 50000000   |

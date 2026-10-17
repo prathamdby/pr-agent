@@ -2,6 +2,7 @@ import {
   readRepositorySource,
   createPinnedRepositoryReader,
   runWorkspaceGit,
+  workspaceGitFailureKind,
   type ChangedFileStatus,
   type LocalPrChangedFile,
   type LocalPrWorkspaceCheckoutMode,
@@ -21,6 +22,8 @@ import {
 import {
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
   LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+  LOCAL_WORKSPACE_FETCH_LOW_SPEED_LIMIT_BYTES,
+  LOCAL_WORKSPACE_FETCH_LOW_SPEED_TIME_SECONDS,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
   LOCAL_WORKSPACE_MAX_FETCH_BYTES,
@@ -30,7 +33,16 @@ import {
   LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
 } from "../settings/index.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, isAppError } from "../errors/appError.js";
+import { logWarn } from "../evlog.js";
+import {
+  failedFetchAttempt,
+  succeededFetchAttempt,
+  type WorkspaceCheckoutMode,
+  type WorkspaceCheckoutTelemetry,
+  type WorkspaceFallbackReason,
+  type WorkspaceFetchAttempt,
+} from "./checkoutTelemetry.js";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
@@ -48,11 +60,81 @@ const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
 const PR_HEAD_REF = "pr-head";
 
+type CheckoutRecorder = {
+  readonly plannedMode: LocalPrWorkspaceCheckoutMode;
+  mode: WorkspaceCheckoutMode;
+  fallbackReason: WorkspaceFallbackReason | null;
+  readonly fetchAttempts: WorkspaceFetchAttempt[];
+};
+
+const checkoutTelemetryByError = new WeakMap<object, WorkspaceCheckoutTelemetry>();
+
+function checkoutTelemetrySnapshot(recorder: CheckoutRecorder): WorkspaceCheckoutTelemetry {
+  return {
+    mode: recorder.mode,
+    fallbackReason: recorder.fallbackReason,
+    fetchAttempts: [...recorder.fetchAttempts],
+  };
+}
+
+export function workspaceCheckoutTelemetryFromError(
+  error: unknown,
+): WorkspaceCheckoutTelemetry | undefined {
+  return typeof error === "object" && error !== null
+    ? checkoutTelemetryByError.get(error)
+    : undefined;
+}
+
+function sparseFallbackReason(error: unknown): WorkspaceFallbackReason | null {
+  if (!isAppError(error)) return null;
+  if (error.context.spawnErrorCode != null || error.context.cleanup === "failed") return null;
+  if (error.code === "pr_workspace.fetch_timeout") return "fetch_timeout";
+  if (error.code !== "pr_workspace.git_failed") return null;
+  const failureKind = workspaceGitFailureKind(error);
+  if (failureKind === "git") return "git_failed";
+  if (failureKind === "timeout" && error.context.timeoutSource === "git_low_speed") {
+    return "git_low_speed";
+  }
+  return null;
+}
+
+function fetchAttemptContext(attempt: WorkspaceFetchAttempt): Record<string, unknown> {
+  return {
+    checkoutMode: attempt.checkoutMode,
+    errorCode: attempt.errorCode,
+    failureKind: attempt.failureKind,
+    timeoutSource: attempt.timeoutSource,
+    exitCode: attempt.exitCode,
+    signal: attempt.signal,
+    killed: attempt.killed,
+    elapsedMs: attempt.elapsedMs,
+    stderr: attempt.stderr,
+  };
+}
+
+function withFallbackContext(error: unknown, fullAttempt: WorkspaceFetchAttempt): unknown {
+  if (!isAppError(error)) return error;
+  const kind =
+    error.code === "pr_workspace.fetch_timeout"
+      ? "fetch_timeout"
+      : error.code === "pr_workspace.git_failed"
+        ? "git_failed"
+        : null;
+  if (kind == null) return error;
+  return new AppError({
+    domain: "pr_workspace",
+    kind,
+    message: error.message,
+    context: { ...error.context, fallback: fetchAttemptContext(fullAttempt) },
+  });
+}
+
 export type LocalPrWorkspace = {
   readonly rootDir: string;
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly reader: PinnedRepositoryReader;
+  readonly checkoutTelemetry: WorkspaceCheckoutTelemetry;
   readonly cleanup: () => Promise<void>;
 };
 export type PrepareLocalPrWorkspaceParams = {
@@ -65,6 +147,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
   readonly maxFetchBytes?: number;
+  readonly fetchTimeoutMs?: number;
 };
 
 export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
@@ -220,9 +303,19 @@ export async function prepareLocalPrWorkspace(
     prefix: READONLY_WORKSPACE_ROOT_PREFIX,
     installationToken,
   });
+  const plannedMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
+  const recorder: CheckoutRecorder = {
+    plannedMode,
+    mode: plannedMode,
+    fallbackReason: null,
+    fetchAttempts: [],
+  };
   try {
-    return await finishLocalPrWorkspace(params, resource);
+    return await finishLocalPrWorkspace(params, resource, recorder);
   } catch (error) {
+    if (typeof error === "object" && error !== null) {
+      checkoutTelemetryByError.set(error, checkoutTelemetrySnapshot(recorder));
+    }
     await resource.release();
     throw error;
   }
@@ -231,6 +324,7 @@ export async function prepareLocalPrWorkspace(
 async function finishLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
   resource: WorkspaceResource,
+  recorder: CheckoutRecorder,
 ): Promise<LocalPrWorkspace> {
   const { owner, repo, prNumber, headSha, prFiles } = params;
   const rootDir = resource.rootDir;
@@ -240,7 +334,8 @@ async function finishLocalPrWorkspace(
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
-  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
+  let checkoutMode = recorder.plannedMode;
+  const fetchTimeoutMs = params.fetchTimeoutMs ?? LOCAL_WORKSPACE_FETCH_TIMEOUT_MS;
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
   const patchOmittedByCapPaths = new Set<string>();
@@ -273,26 +368,69 @@ async function finishLocalPrWorkspace(
       tokenFile: credentials.tokenFile,
       askpass: credentials.askpass,
       workTree: agentCwd,
+      checkoutMode,
+      redactSecrets: [params.installationToken],
     });
 
   let checkoutPaths = new Set<string>();
   let sortedCheckoutPaths: string[] = [];
   const isPathInCheckout = (path: string) => checkoutPaths.has(path.replace(/\\/g, "/"));
-  await mkdir(privateGitDir, { recursive: true });
-  await mkdir(agentCwd, { recursive: true });
-  await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-  await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+  const initPrivateRepository = async () => {
+    await mkdir(privateGitDir, { recursive: true });
+    await mkdir(agentCwd, { recursive: true });
+    await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+  };
   const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
-  const fetchArgs = [
-    "fetch",
-    "--no-tags",
-    "--depth=1",
-    ...(checkoutMode === "sparse" ? ["--filter=blob:none"] : []),
-    "--no-recurse-submodules",
-    "origin",
-    prRef,
-  ];
-  await git(fetchArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+  const fetchPrHead = async (mode: LocalPrWorkspaceCheckoutMode) => {
+    const fetchArgs = [
+      "-c",
+      `http.lowSpeedLimit=${LOCAL_WORKSPACE_FETCH_LOW_SPEED_LIMIT_BYTES}`,
+      "-c",
+      `http.lowSpeedTime=${LOCAL_WORKSPACE_FETCH_LOW_SPEED_TIME_SECONDS}`,
+      "fetch",
+      "--no-tags",
+      "--depth=1",
+      ...(mode === "sparse" ? ["--filter=blob:none"] : []),
+      "--no-recurse-submodules",
+      "origin",
+      prRef,
+    ];
+    try {
+      const { diagnostics } = await git(fetchArgs, fetchTimeoutMs);
+      recorder.fetchAttempts.push(succeededFetchAttempt(mode, diagnostics));
+    } catch (error) {
+      recorder.fetchAttempts.push(failedFetchAttempt(mode, error));
+      throw error;
+    }
+  };
+  await initPrivateRepository();
+  try {
+    await fetchPrHead(checkoutMode);
+  } catch (error) {
+    const fallbackReason = checkoutMode === "full" ? sparseFallbackReason(error) : null;
+    const fullAttempt = recorder.fetchAttempts[0];
+    if (fallbackReason == null || fullAttempt == null) throw error;
+    logWarn("local_pr_workspace_sparse_fallback", {
+      owner,
+      repo,
+      pr: prNumber,
+      headSha,
+      fallbackReason,
+      ...fetchAttemptContext(fullAttempt),
+    });
+    recorder.mode = "sparse_fallback";
+    recorder.fallbackReason = fallbackReason;
+    checkoutMode = "sparse";
+    await rm(agentCwd, { recursive: true, force: true });
+    await rm(privateGitDir, { recursive: true, force: true });
+    await initPrivateRepository();
+    try {
+      await fetchPrHead(checkoutMode);
+    } catch (sparseError) {
+      throw withFallbackContext(sparseError, fullAttempt);
+    }
+  }
   if (checkoutMode === "sparse") {
     await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
@@ -379,6 +517,7 @@ async function finishLocalPrWorkspace(
     privateGitDir,
     agentCwd,
     reader: readerResource.reader,
+    checkoutTelemetry: checkoutTelemetrySnapshot(recorder),
     cleanup: async () => {
       readerResource.dispose();
       await resource.release();

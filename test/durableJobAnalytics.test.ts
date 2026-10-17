@@ -84,8 +84,21 @@ vi.mock("../src/agent/description/descriptionRun.js", () => ({
 vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
   withPrRepositoryView: vi.fn(async (_params, run) => run({ agentCwd: "/tmp", workspace: {} })),
 }));
+vi.mock("../src/prWorkspace/localPrWorkspace.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/prWorkspace/localPrWorkspace.js")>()),
+  workspaceCheckoutTelemetryFromError: vi.fn(() => undefined),
+}));
 import { makeTestConfig } from "./helpers/config.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
+import { workspaceCheckoutTelemetryFromError } from "../src/prWorkspace/localPrWorkspace.js";
+import type {
+  WorkspaceCheckoutTelemetry,
+  WorkspaceFetchAttempt,
+} from "../src/prWorkspace/checkoutTelemetry.js";
+import { initTraces } from "../src/traces/recorder.js";
+import { isRecord } from "../src/util/typeGuards.js";
 
 type PostHogOptions = {
   readonly host?: string;
@@ -1320,5 +1333,277 @@ describe("durableJob analytics forwarding", () => {
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, item.id, null);
     expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
+  });
+
+  describe("workspace checkout telemetry", () => {
+    const sparseSucceeded: WorkspaceFetchAttempt = {
+      checkoutMode: "sparse",
+      outcome: "succeeded",
+      errorCode: null,
+      failureKind: null,
+      timeoutSource: null,
+      exitCode: 0,
+      signal: null,
+      killed: false,
+      elapsedMs: 40,
+      stderr: null,
+    };
+    const fallbackTelemetry: WorkspaceCheckoutTelemetry = {
+      mode: "sparse_fallback",
+      fallbackReason: "fetch_timeout",
+      fetchAttempts: [
+        {
+          checkoutMode: "full",
+          outcome: "failed",
+          errorCode: "pr_workspace.fetch_timeout",
+          failureKind: "timeout",
+          timeoutSource: "process_timer",
+          exitCode: null,
+          signal: "SIGTERM",
+          killed: true,
+          elapsedMs: 1_500,
+          stderr: "",
+        },
+        sparseSucceeded,
+      ],
+    };
+    const fullTelemetry: WorkspaceCheckoutTelemetry = {
+      mode: "full",
+      fallbackReason: null,
+      fetchAttempts: [{ ...sparseSucceeded, checkoutMode: "full" }],
+    };
+    let spans: Array<Record<string, unknown>>;
+    let drainTraces: () => Promise<void>;
+
+    beforeEach(() => {
+      spans = [];
+      drainTraces = initTraces(
+        makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
+        {
+          capture: (input) => spans.push(input.properties),
+          flush: async () => undefined,
+          shutdown: async () => undefined,
+        },
+      );
+    });
+
+    afterEach(async () => {
+      await drainTraces();
+    });
+
+    function serveView(telemetry: WorkspaceCheckoutTelemetry, reused: boolean): void {
+      vi.mocked(withPrRepositoryView).mockImplementation(async (_params, run) =>
+        run({
+          agentCwd: "/tmp/pr-agent",
+          preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+          workspace: { ...mockLocalPrWorkspace(), checkoutTelemetry: telemetry },
+          reused,
+        }),
+      );
+    }
+
+    function dispatchAsk(
+      item: ReturnType<typeof makeAskWorkItem>,
+      execute: DurableJobSpec<"ask">["execute"],
+    ): Promise<void> {
+      vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      return runDurableWorkItem({
+        type: "ask",
+        cfg,
+        pool,
+        boss,
+        runtime: createDurableRuntime({ installationSurface }),
+        job: reviewJob(item.id, 0, 3),
+        contextPolicy: { commenterId: () => undefined },
+        resolveHeadSha: async () => ({ headSha: item.headSha }),
+        execute,
+      });
+    }
+
+    const askCompletion: WorkCompletion = {
+      kind: "ask",
+      outcome: "published",
+      replyTargetKind: "prConversation",
+    };
+
+    async function executionSpan(): Promise<Record<string, unknown> | undefined> {
+      await drainTraces();
+      return spans.find((span) => span.$ai_span_name === "execution");
+    }
+
+    function capturedEvent(event: string): Record<string, unknown> | undefined {
+      for (const [input] of mockPostHog.instances[0]?.capture.mock.calls ?? []) {
+        if (isRecord(input) && input.event === event && isRecord(input.properties)) {
+          return input.properties;
+        }
+      }
+      return undefined;
+    }
+
+    it("annotates the execution span and work completed with a same-attempt sparse fallback", async () => {
+      serveView(fallbackTelemetry, false);
+      await dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) => {
+        await env.withAdmittedRepositoryView({}, async () => undefined);
+        return { kind: "completed", completion: askCompletion };
+      });
+      const expected = {
+        workspace_checkout_mode: "sparse_fallback",
+        workspace_fallback_reason: "fetch_timeout",
+        workspace_checkout_reused: false,
+        workspace_fetch_attempts: 2,
+        git_operation: "fetch",
+        git_checkout_mode: "sparse",
+        git_exit_code: 0,
+        git_killed: false,
+        fallback_git_error_code: "pr_workspace.fetch_timeout",
+        fallback_git_error_kind: "timeout",
+        fallback_git_signal: "SIGTERM",
+        fallback_git_killed: true,
+        fallback_git_timeout_source: "process_timer",
+      };
+      expect(capturedEvent("work completed")).toMatchObject({ outcome: "published", ...expected });
+      const span = await executionSpan();
+      expect(span).toMatchObject({ status: "ok", ...expected });
+      expect(span).not.toHaveProperty("$ai_error");
+    });
+
+    it("marks a cached workspace view as reused", async () => {
+      serveView(fullTelemetry, true);
+      await dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) => {
+        await env.withAdmittedRepositoryView({}, async () => undefined);
+        return { kind: "completed", completion: askCompletion };
+      });
+      const properties = capturedEvent("work completed");
+      expect(properties).toMatchObject({
+        workspace_checkout_mode: "full",
+        workspace_fallback_reason: null,
+        workspace_checkout_reused: true,
+        git_exit_code: 0,
+      });
+      expect(properties).not.toHaveProperty("fallback_git_error_code");
+      expect(await executionSpan()).toMatchObject({ workspace_checkout_reused: true });
+    });
+
+    it("reports a terminal checkout failure on the span and the failed completion", async () => {
+      const failure = new AppError({
+        domain: "pr_workspace",
+        kind: "git_failed",
+        message: "git fetch failed with exit code 128 (auth)",
+        context: { operation: "fetch", failureKind: "auth", exitCode: 128 },
+      });
+      vi.mocked(workspaceCheckoutTelemetryFromError).mockImplementation((error) =>
+        error === failure
+          ? {
+              mode: "full",
+              fallbackReason: null,
+              fetchAttempts: [
+                {
+                  checkoutMode: "full",
+                  outcome: "failed",
+                  errorCode: "pr_workspace.git_failed",
+                  failureKind: "auth",
+                  timeoutSource: null,
+                  exitCode: 128,
+                  signal: null,
+                  killed: false,
+                  elapsedMs: 30,
+                  stderr: "fatal: Authentication failed",
+                },
+              ],
+            }
+          : undefined,
+      );
+      vi.mocked(withPrRepositoryView).mockRejectedValue(failure);
+      await expect(
+        dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) =>
+          env.withAdmittedRepositoryView({}, async () => ({ kind: "completed" as const })),
+        ),
+      ).resolves.toBeUndefined();
+      expect(repo.markWorkFailed).toHaveBeenCalled();
+      expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+      const properties = capturedEvent("work completed");
+      expect(properties).toMatchObject({
+        outcome: "failed",
+        failure_domain: "internal",
+        error_kind: "auth",
+        workspace_checkout_mode: "full",
+        git_error_code: "pr_workspace.git_failed",
+        git_error_kind: "auth",
+        git_exit_code: 128,
+      });
+      expect(JSON.stringify(properties)).not.toContain("Authentication failed");
+      expect(await executionSpan()).toMatchObject({
+        status: "error",
+        $ai_is_error: true,
+        $ai_error: {
+          code: "pr_workspace.git_failed",
+          message: "git fetch failed with exit code 128 (auth)",
+        },
+        git_error_kind: "auth",
+      });
+    });
+
+    it("carries checkout telemetry on the retry envelope", async () => {
+      const failure = new AppError({
+        domain: "pr_workspace",
+        kind: "git_failed",
+        message: "git fetch failed with exit code 128",
+        context: { operation: "fetch", failureKind: "git", exitCode: 128 },
+      });
+      serveView(fallbackTelemetry, false);
+      await expect(
+        dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) =>
+          env.withAdmittedRepositoryView({}, async () => {
+            throw failure;
+          }),
+        ),
+      ).rejects.toBe(failure);
+      expect(capturedEvent("work item retried")).toMatchObject({
+        retry_disposition: "transient",
+        error_kind: "git",
+        workspace_checkout_mode: "sparse_fallback",
+        fallback_git_error_code: "pr_workspace.fetch_timeout",
+      });
+      expect(capturedEvent("work completed")).toBeUndefined();
+    });
+
+    it("keeps span annotations but skips work completed when the completion mark loses", async () => {
+      vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+      serveView(fallbackTelemetry, false);
+      await dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) => {
+        await env.withAdmittedRepositoryView({}, async () => undefined);
+        return { kind: "completed", completion: askCompletion };
+      });
+      expect(capturedEvent("work completed")).toBeUndefined();
+      expect(await executionSpan()).toMatchObject({ workspace_checkout_mode: "sparse_fallback" });
+    });
+
+    it("finishes the work when analytics and trace sinks throw", async () => {
+      await drainTraces();
+      drainTraces = initTraces(
+        makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
+        {
+          capture: () => {
+            throw new Error("trace sink down");
+          },
+          flush: async () => undefined,
+          shutdown: async () => undefined,
+        },
+      );
+      mockPostHog.instances[0]?.capture.mockImplementation(() => {
+        throw new Error("analytics sink down");
+      });
+      serveView(fallbackTelemetry, false);
+      await expect(
+        dispatchAsk(makeAskWorkItem({ installationId: 99 }), async (_item, env) => {
+          await env.withAdmittedRepositoryView({}, async () => undefined);
+          return { kind: "completed", completion: askCompletion };
+        }),
+      ).resolves.toBeUndefined();
+      expect(repo.markWorkCompleted).toHaveBeenCalled();
+      await drainTraces();
+    });
   });
 });

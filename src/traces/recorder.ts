@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { createPostHogAiCapture, type AiCapture } from "../analytics/posthogSink.js";
+import { isAppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { isPlainObject } from "../util/typeGuards.js";
@@ -83,6 +84,8 @@ type ExecutionState = {
   readonly startedAt: number;
   status: TraceStatus;
   errorCode: string | null;
+  errorDetail: { readonly code: string; readonly message: string } | null;
+  readonly annotations: Record<string, string | number | boolean | null>;
   dropped: number;
   degraded: number;
   truncated: number;
@@ -319,6 +322,14 @@ export function recordExecutionSpan(
   });
 }
 
+export function annotateExecution(input: {
+  readonly extra: Readonly<Record<string, string | number | boolean | null>>;
+}): void {
+  const execution = context.getStore();
+  if (!execution) return;
+  Object.assign(execution.annotations, input.extra);
+}
+
 export async function startWorkTrace<T>(work: TraceWork, run: () => Promise<T>): Promise<T> {
   const active = recorder;
   if (!active) return run();
@@ -339,6 +350,7 @@ export async function startWorkTrace<T>(work: TraceWork, run: () => Promise<T>):
     if (execution.status === "ok") {
       execution.status = "error";
       execution.errorCode = "execution_failed";
+      if (isAppError(error)) execution.errorDetail = { code: error.code, message: error.message };
     }
     throw error;
   } finally {
@@ -398,6 +410,8 @@ function executionState(input: {
     startedAt: Date.now(),
     status: "ok",
     errorCode: null,
+    errorDetail: null,
+    annotations: {},
     dropped: 0,
     degraded: 0,
     truncated: 0,
@@ -415,9 +429,10 @@ function executionDraft(execution: ExecutionState): TraceDraft {
     status: execution.status,
     latencyMs: Date.now() - execution.startedAt,
     ...(execution.status === "error"
-      ? { isError: true, error: execution.errorCode ?? "error" }
+      ? { isError: true, error: execution.errorDetail ?? execution.errorCode ?? "error" }
       : {}),
     extra: {
+      ...execution.annotations,
       trace_events_dropped: execution.dropped,
       trace_events_degraded: execution.degraded,
       trace_events_truncated: execution.truncated,

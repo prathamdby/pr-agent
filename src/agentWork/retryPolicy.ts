@@ -9,6 +9,7 @@ import {
 } from "../settings/index.js";
 import { isAppError } from "../errors/appError.js";
 import type { AppErrorCode } from "../errors/appErrorCodes.js";
+import { workspaceGitFailureKind } from "../prWorkspace/repositoryReader.js";
 import { isStaleHeadReplacementExhausted } from "./reviewReschedule.js";
 
 export type RetryDisposition = "transient" | "deterministic" | "terminal";
@@ -39,6 +40,8 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
   ) {
     return "terminal";
   }
+  const gitFailureKind = workspaceGitFailureKind(error);
+  if (gitFailureKind === "auth" || gitFailureKind === "missing_ref") return "terminal";
   if (isAppError(error) && DETERMINISTIC_FAILURE_CODES.has(error.code)) return "deterministic";
   return "transient";
 }

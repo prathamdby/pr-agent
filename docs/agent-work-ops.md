@@ -802,3 +802,25 @@ line window. The cap is `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` in
 retain `filteredCount` and `reason: sensitive_or_control_path`; blocked paths and
 matching text are never included. Checkout cleanup and stale-root heartbeats
 remain independent of durable queue state. Commit and push guards are unchanged.
+
+## Workspace checkout diagnostics
+
+Each workspace Git command runs in its own process group. A deadline sends
+SIGTERM to the group, then SIGKILL after `LOCAL_WORKSPACE_GIT_KILL_GRACE_MS`.
+A failed command raises `pr_workspace.fetch_timeout` (the fetch deadline fired)
+or `pr_workspace.git_failed` (everything else). Read `failureKind`,
+`timeoutSource`, `exitCode`, `signal`, `killed`, `cleanup`, and the redacted
+`stderr` tail on `agent_work_failed` or `agent_work_retrying`.
+`timeoutSource: git_low_speed` means Git ended a stalled transfer on its own;
+`process_timer` means the worker ended it. `cleanup: failed` means the group
+could not be confirmed gone; check the host for leftover `git` processes.
+
+A full checkout that times out or hits a generic Git error retries once as a
+sparse checkout in the same attempt and logs
+`local_pr_workspace_sparse_fallback`. The run then has sparse coverage. Auth
+(`failureKind: auth`) and missing ref (`missing_ref`) failures are terminal and
+do not fall back: check the installation's repository access, or whether the
+pull request ref still exists. If the fallback also fails, `context.fallback` on
+the error holds the first attempt. In PostHog, filter `"work completed"` or the
+`execution` span on `workspace_checkout_mode = 'sparse_fallback'` to find
+fallback runs; `fallback_git_timeout_source` says which deadline fired.

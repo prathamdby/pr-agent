@@ -187,3 +187,14 @@ or throws; run-health counters stay zero after real work.
 Upgrade both processes together. Query `posthog.ai_events`. Dashboards that used the
 work item as `$ai_trace_id`, or the Pi session id as `$ai_session_id`, need to
 use the execution id and the work item id.
+
+## Amendment (2026-10-17): workspace checkout fields
+
+The `execution` span carries the workspace checkout fields from
+`src/prWorkspace/checkoutTelemetry.ts`: `workspace_checkout_mode`,
+`workspace_fallback_reason`, `workspace_checkout_reused`,
+`workspace_fetch_attempts`, and `git_*` for the last fetch attempt. A sparse
+fallback adds `fallback_git_*` for the failed full attempt. Git stderr is not
+sent. `annotateExecution` merges these fields and never throws. A failed
+execution whose error is an `AppError` sets `$ai_error` to `{ code, message }`.
+`"work completed"` and `"work item retried"` carry the same fields.

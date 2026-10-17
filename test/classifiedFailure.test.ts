@@ -223,24 +223,27 @@ describe("classifyFailure", () => {
         const classified = classifyFailure(error);
         const expected = abortCodes.has(error.code)
           ? { failureDomain: "internal", errorKind: "cancelled" }
-          : error.code === "review.specialist_timeout"
+          : error.code === "review.specialist_timeout" ||
+              error.code === "pr_workspace.fetch_timeout"
             ? { failureDomain: "internal", errorKind: "timeout" }
-            : domain === "provider" || domain === "github"
-              ? {
-                  failureDomain: domain,
-                  errorKind:
-                    error.code === "github.review_thread_resolution_denied" ||
-                    error.code === "github.essential_access_denied"
-                      ? "forbidden"
-                      : "unknown",
-                }
-              : {
-                  failureDomain: "internal",
-                  errorKind:
-                    error.code === "operation_intent.mutation_outcome_unknown"
-                      ? "publish"
-                      : legacyKind(error.code),
-                };
+            : error.code === "pr_workspace.git_failed"
+              ? { failureDomain: "internal", errorKind: "git" }
+              : domain === "provider" || domain === "github"
+                ? {
+                    failureDomain: domain,
+                    errorKind:
+                      error.code === "github.review_thread_resolution_denied" ||
+                      error.code === "github.essential_access_denied"
+                        ? "forbidden"
+                        : "unknown",
+                  }
+                : {
+                    failureDomain: "internal",
+                    errorKind:
+                      error.code === "operation_intent.mutation_outcome_unknown"
+                        ? "publish"
+                        : legacyKind(error.code),
+                  };
         expect([error.code, classified.failureDomain, classified.errorKind]).toEqual([
           error.code,
           expected.failureDomain,

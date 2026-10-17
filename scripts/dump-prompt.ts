@@ -153,6 +153,7 @@ function dumpAll() {
     rootDir: "",
     privateGitDir: "",
     agentCwd: "",
+    checkoutTelemetry: { mode: "full", fallbackReason: null, fetchAttempts: [] },
     reader: {
       readSource: unavailable,
       readFile: unavailable,

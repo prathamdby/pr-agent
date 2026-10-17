@@ -11,6 +11,7 @@ const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/review-run-setup",
   privateGitDir: "/tmp/review-run-setup/.git",
   agentCwd: "/tmp/review-run-setup/agent",
+  checkoutTelemetry: { mode: "full", fallbackReason: null, fetchAttempts: [] },
   reader: {
     ...createWritableRepositoryReader("/tmp/unused"),
     agentCwd: "/tmp/review-run-setup/agent",

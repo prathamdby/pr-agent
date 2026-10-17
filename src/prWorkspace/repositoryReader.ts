@@ -2,11 +2,11 @@ import {
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
 } from "../agent/tools/readWorkspaceTextFile.js";
-import { execFile } from "node:child_process";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
-import { promisify } from "node:util";
-import { AppError } from "../errors/appError.js";
+import { AppError, isAppError } from "../errors/appError.js";
+import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
+import { runGitProcess, type GitProcessResult } from "./gitProcess.js";
 import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.js";
 import {
   createFffWorkspaceSearch,
@@ -16,6 +16,8 @@ import {
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
+  LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS,
   LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
 } from "../settings/index.js";
@@ -36,7 +38,6 @@ import {
   normalizeRepoRelativePath,
   isTriageControlPath,
 } from "../agent/triage/triageWritePolicy.js";
-const exec = promisify(execFile);
 export type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 export type LocalPrWorkspaceCheckoutMode = "full" | "sparse";
 
@@ -172,46 +173,251 @@ export async function assertContainedWorkspacePath(
   return fullPath;
 }
 
-export async function runWorkspaceGit(
-  args: readonly string[],
-  opts: {
-    cwd: string;
-    gitDir?: string;
-    extraEnv?: Record<string, string>;
-    timeoutMs: number;
-    tokenFile?: string;
-    askpass?: string;
-    workTree?: string;
-    processCwd?: string;
-    maxBufferBytes?: number;
-  },
-): Promise<{ stdout: string; stderr: string }> {
-  const env = {
+export type WorkspaceGitOperation = (typeof WORKSPACE_GIT_OPERATIONS)[number] | "other";
+
+export type WorkspaceGitFailureKind = "timeout" | "auth" | "missing_ref" | "git";
+
+export type WorkspaceGitTimeoutSource = "process_timer" | "git_low_speed";
+
+export type WorkspaceGitOptions = {
+  cwd: string;
+  gitDir?: string;
+  extraEnv?: Record<string, string>;
+  timeoutMs: number;
+  tokenFile?: string;
+  askpass?: string;
+  workTree?: string;
+  processCwd?: string;
+  maxBufferBytes?: number;
+  checkoutMode?: LocalPrWorkspaceCheckoutMode;
+  redactSecrets?: readonly string[];
+};
+
+export type WorkspaceGitDiagnostics = {
+  readonly operation: WorkspaceGitOperation;
+  readonly checkoutMode: LocalPrWorkspaceCheckoutMode | null;
+  readonly elapsedMs: number;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly killed: boolean;
+  readonly timeoutSource: WorkspaceGitTimeoutSource | null;
+};
+
+const WORKSPACE_GIT_OPERATIONS = [
+  "add",
+  "blame",
+  "checkout",
+  "commit",
+  "config",
+  "count-objects",
+  "diff",
+  "fetch",
+  "grep",
+  "init",
+  "push",
+  "remote",
+  "reset",
+  "rev-parse",
+  "status",
+] as const;
+
+const GIT_LOW_SPEED_PATTERN = /Operation too slow|Operation timed out|curl 28\b/i;
+const GIT_AUTH_PATTERN =
+  /Authentication failed|could not read (?:Username|Password)|terminal prompts disabled|Invalid username or password|returned error: 40[13]\b|Permission denied \(publickey|Write access to repository not granted|repository '[^']*' not found/i;
+const GIT_MISSING_REF_PATTERN =
+  /couldn't find remote ref|no such remote ref|fatal: invalid refspec|not our ref|unadvertised object/i;
+const CREDENTIAL_URL_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi;
+const MIN_REDACTED_SECRET_LENGTH = 4;
+
+function workspaceGitOperation(args: readonly string[]): WorkspaceGitOperation {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    if (arg === "-c" || arg === "-C") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    return WORKSPACE_GIT_OPERATIONS.find((operation) => operation === arg) ?? "other";
+  }
+  return "other";
+}
+
+function redactGitText(text: string, secrets: readonly string[]): string {
+  let out = text.split("\0").join("");
+  for (const secret of [...secrets].toSorted((a, b) => b.length - a.length)) {
+    if (secret.length < MIN_REDACTED_SECRET_LENGTH) continue;
+    out = out.split(secret).join("[redacted]");
+  }
+  return redactOutboundSecrets(out.replace(CREDENTIAL_URL_PATTERN, "$1[redacted]@"));
+}
+
+function completeLines(text: string): string {
+  const end = text.lastIndexOf("\n");
+  return end < 0 ? "" : text.slice(0, end + 1);
+}
+
+function stderrDiagnostic(stderr: string): string {
+  if (stderr.length <= LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS) return stderr.trimEnd();
+  const window = stderr.slice(-LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS);
+  const lineStart = window.indexOf("\n");
+  return (lineStart < 0 ? "" : window.slice(lineStart + 1)).trimEnd();
+}
+
+function gitFailureKind(result: GitProcessResult, stderr: string): WorkspaceGitFailureKind {
+  if (result.timedOut) return "timeout";
+  if (result.spawnErrorCode != null || result.outputLimited) return "git";
+  if (GIT_LOW_SPEED_PATTERN.test(stderr)) return "timeout";
+  if (GIT_AUTH_PATTERN.test(stderr)) return "auth";
+  if (GIT_MISSING_REF_PATTERN.test(stderr)) return "missing_ref";
+  return "git";
+}
+
+function gitTimeoutSource(
+  result: GitProcessResult,
+  failureKind: WorkspaceGitFailureKind,
+): WorkspaceGitTimeoutSource | null {
+  if (failureKind !== "timeout") return null;
+  return result.timedOut ? "process_timer" : "git_low_speed";
+}
+
+function gitDiagnostics(
+  result: GitProcessResult,
+  operation: WorkspaceGitOperation,
+  opts: Pick<WorkspaceGitOptions, "checkoutMode">,
+  timeoutSource: WorkspaceGitTimeoutSource | null,
+): WorkspaceGitDiagnostics {
+  return {
+    operation,
+    checkoutMode: opts.checkoutMode ?? null,
+    elapsedMs: result.elapsedMs,
+    exitCode: result.exitCode,
+    signal: result.signal,
+    killed: result.killed,
+    timeoutSource,
+  };
+}
+
+function workspaceGitFailure(
+  result: GitProcessResult,
+  operation: WorkspaceGitOperation,
+  opts: Pick<WorkspaceGitOptions, "checkoutMode" | "timeoutMs" | "redactSecrets">,
+): AppError {
+  const rawStderr = result.stderr.toString("utf8");
+  const redacted = redactGitText(
+    result.stderrLimited ? completeLines(rawStderr) : rawStderr,
+    opts.redactSecrets ?? [],
+  );
+  const failureKind = gitFailureKind(result, redacted);
+  const timeoutSource = gitTimeoutSource(result, failureKind);
+  const diagnostics = gitDiagnostics(result, operation, opts, timeoutSource);
+  const context = {
+    ...diagnostics,
+    failureKind,
+    ...(result.spawnErrorCode != null ? { spawnErrorCode: result.spawnErrorCode } : {}),
+    ...(result.outputLimited ? { outputLimited: true } : {}),
+    cleanup: result.cleanup,
+    ...(result.cleanupErrorCode != null ? { cleanupErrorCode: result.cleanupErrorCode } : {}),
+    stderr: stderrDiagnostic(redacted),
+  };
+  if (result.timedOut && operation === "fetch") {
+    return new AppError({
+      domain: "pr_workspace",
+      kind: "fetch_timeout",
+      message: `git fetch timed out after ${opts.timeoutMs} ms`,
+      context,
+    });
+  }
+  return new AppError({
+    domain: "pr_workspace",
+    kind: "git_failed",
+    message: workspaceGitFailureMessage(operation, result, failureKind, opts.timeoutMs),
+    context,
+  });
+}
+
+function workspaceGitFailureMessage(
+  operation: WorkspaceGitOperation,
+  result: GitProcessResult,
+  failureKind: WorkspaceGitFailureKind,
+  timeoutMs: number,
+): string {
+  if (result.spawnErrorCode != null) {
+    return `git ${operation} could not start (${result.spawnErrorCode})`;
+  }
+  if (result.timedOut) return `git ${operation} timed out after ${timeoutMs} ms`;
+  if (result.outputLimited) return `git ${operation} exceeded its output limit`;
+  const status =
+    result.exitCode != null
+      ? `exit code ${result.exitCode}`
+      : `signal ${result.signal ?? "unknown"}`;
+  return failureKind === "git"
+    ? `git ${operation} failed with ${status}`
+    : `git ${operation} failed with ${status} (${failureKind})`;
+}
+
+function workspaceGitEnv(opts: WorkspaceGitOptions): NodeJS.ProcessEnv {
+  return {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_LFS_SKIP_SMUDGE: "1",
+    LC_ALL: "C",
     ...(opts.gitDir ? { GIT_DIR: opts.gitDir } : {}),
     ...(opts.workTree ? { GIT_WORK_TREE: opts.workTree } : {}),
     ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
     ...opts.extraEnv,
   };
-  return exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+}
+
+function startWorkspaceGit(
+  args: readonly string[],
+  opts: WorkspaceGitOptions,
+): Promise<GitProcessResult> {
+  return runGitProcess(["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: opts.processCwd ?? opts.cwd,
-    env,
-    timeout: opts.timeoutMs,
-    maxBuffer: opts.maxBufferBytes ?? 20 * 1024 * 1024,
+    env: workspaceGitEnv(opts),
+    timeoutMs: opts.timeoutMs,
+    maxBufferBytes: opts.maxBufferBytes ?? LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
   });
 }
 
-function errorCode(error: unknown): unknown {
-  if (typeof error !== "object" || error === null || !("code" in error)) return null;
-  return error.code;
+function isCleanExit(result: GitProcessResult): boolean {
+  return (
+    result.exitCode === 0 &&
+    !result.timedOut &&
+    !result.outputLimited &&
+    result.spawnErrorCode == null &&
+    result.cleanup !== "failed"
+  );
 }
 
-function errorStdout(error: unknown): string {
-  if (typeof error !== "object" || error === null || !("stdout" in error)) return "";
-  return typeof error.stdout === "string" ? error.stdout : "";
+export async function runWorkspaceGit(
+  args: readonly string[],
+  opts: WorkspaceGitOptions,
+): Promise<{
+  stdout: string;
+  stderr: string;
+  diagnostics: WorkspaceGitDiagnostics;
+}> {
+  const operation = workspaceGitOperation(args);
+  const result = await startWorkspaceGit(args, opts);
+  if (!isCleanExit(result)) throw workspaceGitFailure(result, operation, opts);
+  return {
+    stdout: result.stdout.toString("utf8"),
+    stderr: result.stderr.toString("utf8"),
+    diagnostics: gitDiagnostics(result, operation, opts, null),
+  };
+}
+
+export function workspaceGitFailureKind(error: unknown): WorkspaceGitFailureKind | null {
+  if (!isAppError(error)) return null;
+  if (error.code !== "pr_workspace.fetch_timeout" && error.code !== "pr_workspace.git_failed") {
+    return null;
+  }
+  const kind = error.context.failureKind;
+  return kind === "timeout" || kind === "auth" || kind === "missing_ref" || kind === "git"
+    ? kind
+    : "git";
 }
 
 function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
@@ -255,35 +461,46 @@ async function gitGrepWorkspaceChunk(
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
   pathspecs: readonly string[],
 ): Promise<GitGrepChunkResult> {
-  try {
-    const { stdout } = await runWorkspaceGit(
-      ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs],
-      {
-        cwd: workspace.privateGitDir,
-        gitDir: workspace.privateGitDir,
-        timeoutMs: params.timeoutMs,
-        workTree: workspace.agentCwd,
-        processCwd: workspace.agentCwd,
-        maxBufferBytes: params.maxOutputBytes,
-      },
-    );
+  const args = ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs];
+  const opts: WorkspaceGitOptions = {
+    cwd: workspace.privateGitDir,
+    gitDir: workspace.privateGitDir,
+    timeoutMs: params.timeoutMs,
+    workTree: workspace.agentCwd,
+    processCwd: workspace.agentCwd,
+    maxBufferBytes: params.maxOutputBytes,
+  };
+  const result = await startWorkspaceGit(args, opts);
+  if (isCleanExit(result)) {
+    const stdout = result.stdout.toString("utf8");
     return {
       matches: parseGitGrepOutput(stdout),
       truncated: false,
-      stdoutBytes: Buffer.byteLength(stdout),
+      stdoutBytes: result.stdout.length,
     };
-  } catch (error) {
-    if (errorCode(error) === 1) return { matches: [], truncated: false, stdoutBytes: 0 };
-    if (errorCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-      const stdout = errorStdout(error);
-      return {
-        matches: parseGitGrepOutput(stdout),
-        truncated: true,
-        stdoutBytes: Buffer.byteLength(stdout),
-      };
-    }
-    throw error;
   }
+  if (
+    result.exitCode === 1 &&
+    !result.timedOut &&
+    !result.outputLimited &&
+    result.spawnErrorCode == null &&
+    result.stderr.length === 0
+  ) {
+    return { matches: [], truncated: false, stdoutBytes: 0 };
+  }
+  if (
+    result.outputLimited &&
+    !result.timedOut &&
+    result.cleanup !== "failed" &&
+    !result.stderrLimited
+  ) {
+    return {
+      matches: parseGitGrepOutput(result.stdout.toString("utf8")),
+      truncated: true,
+      stdoutBytes: result.stdout.length,
+    };
+  }
+  throw workspaceGitFailure(result, "grep", opts);
 }
 
 export async function gitGrepWorkspace(
