@@ -139,18 +139,16 @@ describe("loadAgentInstructionFiles", () => {
 });
 
 describe("pr-agent AGENTS.md trusted-context load", () => {
-  it("points at Cursor Cloud docs and omits VM ops prose from AGENTS.md", async () => {
+  it("binds AGENTS.md whose repo pointers exist and includes no cloud-agent setup", async () => {
     const agents = await readFile(join(REPO_ROOT, "AGENTS.md"), "utf8");
-    expect(agents).toContain("docs/cursor-cloud.md");
-    expect(agents).not.toContain("## Cursor Cloud specific instructions");
-    expect(agents).not.toContain("fuse-overlayfs");
-    expect(agents).not.toContain("sudo dockerd");
-
     const loaded = await loadAgentInstructionFiles(REPO_ROOT);
     expect(loaded.kind).toBe("ok");
     if (loaded.kind !== "ok") return;
     expect(loaded.drops).toEqual([]);
     const agentsBody = loaded.files.find((file) => file.filename === "AGENTS.md")?.body ?? "";
+    expect(agentsBody.toLowerCase()).not.toContain("cursor");
+    expect(agentsBody.toLowerCase()).not.toContain("cloud agent");
+
     const prose = agents.replace(/```[\s\S]*?```/g, "");
     const tokens = new Set([...prose.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]));
     for (const token of tokens) {
@@ -159,9 +157,6 @@ describe("pr-agent AGENTS.md trusted-context load", () => {
       if (token.includes("*") || token.includes("<")) continue;
       expect([token, existsSync(join(REPO_ROOT, token.replace(/\/$/, "")))]).toEqual([token, true]);
     }
-    expect(agentsBody).toContain("docs/cursor-cloud.md");
-    expect(agentsBody).not.toContain("fuse-overlayfs");
-    expect(agentsBody).not.toContain("sudo dockerd");
   });
 });
 

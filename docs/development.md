@@ -1,6 +1,6 @@
 # Development guide
 
-Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Cursor Cloud VM setup: [cursor-cloud.md](cursor-cloud.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel).
+Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel).
 
 Keep root `AGENTS.md` below the binding loader's 32 KiB file limit. Use pointers
 to this guide and the runbooks instead of duplicating their detail.
