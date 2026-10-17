@@ -18,6 +18,7 @@ export function mockLocalPrWorkspace(
     rootDir: agentCwd,
     privateGitDir: `${agentCwd}/.git`,
     agentCwd,
+    checkoutTelemetry: { mode: checkoutMode, fallbackReason: null, fetchAttempts: [] },
     reader: {
       ...createWritableRepositoryReader(agentCwd),
       agentCwd,

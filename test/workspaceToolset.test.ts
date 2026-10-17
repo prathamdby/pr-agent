@@ -100,6 +100,7 @@ function mockWorkspace(
     rootDir: agentCwd,
     privateGitDir,
     agentCwd,
+    checkoutTelemetry: { mode: checkoutMode, fallbackReason: null, fetchAttempts: [] },
     reader: {
       ...createWritableRepositoryReader(agentCwd),
       agentCwd,

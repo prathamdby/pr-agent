@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { startWorkTrace } from "../traces/recorder.js";
+import { annotateExecution, startWorkTrace } from "../traces/recorder.js";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import {
@@ -65,6 +65,11 @@ import {
   type PreparePrRepositoryViewParams,
   type PrRepositoryView,
 } from "../prWorkspace/prRepositoryView.js";
+import { workspaceCheckoutTelemetryFromError } from "../prWorkspace/localPrWorkspace.js";
+import {
+  workspaceCheckoutProperties,
+  type WorkspaceCheckoutProperties,
+} from "../prWorkspace/checkoutTelemetry.js";
 import { errorMessage } from "../errors/errorMessage.js";
 import {
   assertEssentialInstallationCapabilities,
@@ -109,6 +114,21 @@ export type DurableExecutionContext = {
   readonly escalation?: EscalationPlan;
 };
 
+function noteWorkspaceCheckout(
+  record: ((properties: WorkspaceCheckoutProperties) => void) | undefined,
+  observe: () => Parameters<typeof workspaceCheckoutProperties>[0] | undefined,
+): void {
+  if (!record) return;
+  try {
+    const observed = observe();
+    if (observed) record(workspaceCheckoutProperties(observed));
+  } catch (error) {
+    logWarn("agent_work_checkout_telemetry_failed", {
+      message: sanitizeLogMessage(errorMessage(error)),
+    });
+  }
+}
+
 export function createDurableExecutionContext(
   params: Omit<
     DurableExecutionContext,
@@ -119,9 +139,19 @@ export function createDurableExecutionContext(
     readonly getClaim: () => WorkClaim | undefined;
     readonly getEscalation: () => EscalationPlan | undefined;
     readonly executionId?: string;
+    readonly recordWorkspaceCheckout?: (properties: WorkspaceCheckoutProperties) => void;
   },
 ): DurableExecutionContext {
-  const { pool, item, getClaim, getEscalation, beginAttempt, executionId, ...context } = params;
+  const {
+    pool,
+    item,
+    getClaim,
+    getEscalation,
+    beginAttempt,
+    executionId,
+    recordWorkspaceCheckout,
+    ...context
+  } = params;
   const runtimeExecutionId = executionId ?? randomUUID();
   let admission: Promise<WorkClaim> | undefined;
   const admit = () => (admission ??= beginAttempt());
@@ -130,18 +160,32 @@ export function createDurableExecutionContext(
     beginAttempt: admit,
     withAdmittedRepositoryView: async (options, run) => {
       await admit();
-      return withPrRepositoryView(
-        {
-          ...options,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha: context.headSha,
-          pullRequest: context.pullRequest,
-          gitCredentialAuth: () => context.prSurface.gitCredentialAuth(),
-        },
-        run,
-      );
+      try {
+        return await withPrRepositoryView(
+          {
+            ...options,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha: context.headSha,
+            pullRequest: context.pullRequest,
+            gitCredentialAuth: () => context.prSurface.gitCredentialAuth(),
+          },
+          (view) => {
+            noteWorkspaceCheckout(recordWorkspaceCheckout, () => ({
+              telemetry: view.workspace.checkoutTelemetry,
+              reused: view.reused,
+            }));
+            return run(view);
+          },
+        );
+      } catch (error) {
+        noteWorkspaceCheckout(recordWorkspaceCheckout, () => {
+          const telemetry = workspaceCheckoutTelemetryFromError(error);
+          return telemetry ? { telemetry, reused: false } : undefined;
+        });
+        throw error;
+      }
     },
     durability: {
       pool,
@@ -335,7 +379,12 @@ export async function runDurableWorkItem<T extends WorkType>(
   let reviewCapabilities: ReviewCapabilityPolicy | undefined;
   let boundHeadSha: string | undefined;
   let workClaim: WorkClaim | undefined;
+  let workspaceCheckout: WorkspaceCheckoutProperties | undefined;
   const executionId = randomUUID();
+  const recordWorkspaceCheckout = (properties: WorkspaceCheckoutProperties) => {
+    workspaceCheckout = properties;
+    annotateExecution({ extra: properties });
+  };
 
   async function prSurfaceForHooks(
     workItemCore: TypedCore,
@@ -646,6 +695,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           ensureReviewAccess: spec.type === "review" ? async () => ensureReviewAccess() : undefined,
           getClaim: () => workClaim,
           executionId,
+          recordWorkspaceCheckout,
           getEscalation: () =>
             workAdmissionAcknowledged && workClaim
               ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
@@ -697,6 +747,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           ci,
           durationMs: durationMsFromClaim(workClaim),
           attemptCount: workClaim?.attemptCount ?? item.attemptCount,
+          ...(workspaceCheckout != null ? { workspaceCheckout } : {}),
         });
       } catch (error) {
         logWarn("agent_work_completion_telemetry_failed", {
@@ -767,6 +818,7 @@ export async function runDurableWorkItem<T extends WorkType>(
             retryDisposition: disposition,
             escalationKinds: nextEscalation?.kinds ?? [],
             failure: workFailureReasonFromClassified(failure),
+            ...(workspaceCheckout != null ? { workspaceCheckout } : {}),
           });
         }
         throw error;

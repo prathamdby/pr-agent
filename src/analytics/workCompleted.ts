@@ -38,6 +38,8 @@ export type WorkFailureReason = {
   readonly requestPath?: string;
 };
 
+export type WorkspaceCheckoutAnalytics = Readonly<Record<string, string | number | boolean | null>>;
+
 export type WorkIdentity = {
   readonly workItemId: string;
   readonly installationId: number;
@@ -124,6 +126,7 @@ export type RecordWorkCompletedInput = {
   readonly durationMs: number;
   readonly attemptCount: number;
   readonly ci?: CiWorkTelemetry;
+  readonly workspaceCheckout?: WorkspaceCheckoutAnalytics;
 };
 
 export function workFailureReasonFromClassified(failure: ClassifiedFailure): WorkFailureReason {
@@ -294,6 +297,7 @@ export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
         ? { durable_degradation: completion.durableDegradation }
         : {}),
       ...(failure != null ? failureEnvelopeProperties(failure) : {}),
+      ...input.workspaceCheckout,
     },
   });
 }
@@ -329,6 +333,7 @@ export type WorkItemRetried = WorkIdentity & {
   readonly retryDisposition: string;
   readonly escalationKinds: readonly string[];
   readonly failure: WorkFailureReason;
+  readonly workspaceCheckout?: WorkspaceCheckoutAnalytics;
 };
 
 export function captureWorkRetried(input: WorkItemRetried): void {
@@ -348,6 +353,7 @@ export function captureWorkRetried(input: WorkItemRetried): void {
         retry_disposition: input.retryDisposition,
         escalation_kinds: [...input.escalationKinds],
         ...failureEnvelopeProperties(input.failure),
+        ...input.workspaceCheckout,
       },
     });
   } catch {}

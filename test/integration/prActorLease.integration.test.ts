@@ -450,6 +450,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           agentCwd: "/tmp/pr-agent",
           workspace: mockLocalPrWorkspace(),
           preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+          reused: false,
         }),
       );
       const run = vi
@@ -1513,6 +1514,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           agentCwd: "/tmp/pr-agent",
           workspace: mockLocalPrWorkspace(),
           preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+          reused: false,
         }),
       );
       const failure =
@@ -1826,6 +1828,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
                   agentCwd: "/tmp/pr-agent",
                   workspace: mockLocalPrWorkspace(),
                   preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+                  reused: false,
                 }),
             );
             await expect(
