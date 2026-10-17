@@ -1,7 +1,6 @@
 import { vi } from "vitest";
 
 vi.mock("../../src/github/ciStatus.js", () => ({
-  listCheckRunsForHead: vi.fn(async () => ({ checkRuns: [], truncated: false })),
   listLegacyCommitStatusesForHeadDetailed: vi.fn(async () => ({
     legacyStatuses: [],
     truncated: false,
@@ -16,5 +15,4 @@ vi.mock("../../src/github/ciStatus.js", () => ({
       statuses: { access: "available", complete: true },
     },
   })),
-  isMissingChecksPermissionError: vi.fn(() => false),
 }));

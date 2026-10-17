@@ -7,7 +7,6 @@ import {
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
 import {
-  parseProgressRevision,
   parseProgressRevisionState,
   parseReviewMetaFromCommentBody,
 } from "../src/review/run/commentMarkers.js";
@@ -65,7 +64,7 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain("<table>");
     expect(body).not.toContain("<strong>CI</strong>");
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
-    expect(parseProgressRevision(body)).toBe(0);
+    expect(parseProgressRevisionState(body)?.revision).toBe(0);
   });
 
   it("renders queue position on the queued stub between Source and CI", () => {
@@ -135,7 +134,7 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain("<table>");
     expect(body).not.toContain("<strong>CI</strong>");
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
-    expect(parseProgressRevision(body)).toBe(0);
+    expect(parseProgressRevisionState(body)?.revision).toBe(0);
   });
 
   it("capitalizes slash source labels", () => {
@@ -194,7 +193,7 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain(STATUS_RUNNING);
     expect(body).not.toContain("0 threads");
     expect(body).not.toContain("no findings");
-    expect(parseProgressRevision(body)).toBe(3);
+    expect(parseProgressRevisionState(body)?.revision).toBe(3);
   });
 
   it("renders failed specialist coverage explicitly", () => {
@@ -275,7 +274,7 @@ describe("progressComment fallback wording", () => {
     expect(userBody).not.toContain("<strong>Recon</strong>");
     expect(userBody).not.toContain("<strong>Head</strong>");
     expect(userBody).not.toContain(REVIEW_PROGRESS_NOTE);
-    expect(parseProgressRevision(userBody)).toBe(1);
+    expect(parseProgressRevisionState(userBody)?.revision).toBe(1);
 
     const mergeBody = renderReviewCancelledNotice({
       attribution: { kind: "merged" },
@@ -373,7 +372,7 @@ describe("progressComment fallback wording", () => {
       expect(body).toContain(
         `<!-- pr-agent:review-meta headSha=invalid lens=review stale=${String(stale)} -->`,
       );
-      expect(parseProgressRevision(body)).toBe(6);
+      expect(parseProgressRevisionState(body)?.revision).toBe(6);
     },
   );
 

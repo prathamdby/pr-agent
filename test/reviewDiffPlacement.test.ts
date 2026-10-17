@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   applyInlineCommentCap,
-  downgradePlacementsAfterInlineFailure,
   planInlinePlacements,
 } from "../src/review/placement/reviewDiffPlacement.js";
 import { isLineResolutionPublishError } from "../src/github/reviewErrors.js";
@@ -112,37 +111,6 @@ describe("reviewDiffPlacement", () => {
     expect(placements[1]?.inlineLine).toBeNull();
   });
 
-  it("downgrades inline placements after GitHub inline publish failure", () => {
-    const index = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(index, {
-      files: [
-        {
-          filename: "src/x.ts",
-          patch: ["@@ -4,1 +4,2 @@", " context", "+added"].join("\n"),
-        },
-      ],
-    });
-    const placements = planInlinePlacements(
-      [
-        {
-          severity: "P1",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Valid",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ],
-      index,
-    );
-
-    expect(placements[0]?.inlinePosted).toBe(true);
-    const downgraded = downgradePlacementsAfterInlineFailure(placements);
-    expect(downgraded[0]?.inlinePosted).toBe(false);
-    expect(downgraded[0]?.inlineLine).toBe(4);
-  });
-
   it("detects line-resolution publish errors without matching unrelated 422s", () => {
     expect(isLineResolutionPublishError(new Error("Line could not be resolved"))).toBe(true);
     expect(isLineResolutionPublishError(new Error("Validation Failed: 422"))).toBe(false);
@@ -192,25 +160,5 @@ describe("reviewDiffPlacement", () => {
     expect(
       capped.placements.filter((p) => p.finding.severity === "P0" && p.inlinePosted),
     ).toHaveLength(3);
-  });
-});
-
-describe("mergeDroppedIntoSummaryPlacements", () => {
-  it("matches dropped placements by stable finding key, not object identity", async () => {
-    const { mergeDroppedIntoSummaryPlacements } =
-      await import("../src/review/placement/reviewDiffPlacement.js");
-    const finding = {
-      severity: "P1" as const,
-      file: "src/a.ts",
-      startLine: 1,
-      endLine: 1,
-      title: "Bug",
-      detail: "detail",
-      fixPrompt: "fix",
-    };
-    const placements = [{ finding, inlineLine: 1, inlinePosted: true }];
-    const dropped = [{ finding: { ...finding }, inlineLine: 1, inlinePosted: false }];
-    const merged = mergeDroppedIntoSummaryPlacements(placements, dropped);
-    expect(merged[0]?.inlinePosted).toBe(false);
   });
 });

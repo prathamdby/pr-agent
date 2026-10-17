@@ -910,7 +910,7 @@ export function ownVerdictFromSummaryDetail(
   return { kind: "published", conclusion: "success", blockingCount: 0 };
 }
 
-export async function resolveOwnVerdictForTerminalReview(params: {
+async function resolveOwnVerdictForTerminalReview(params: {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly resourceKey: string;

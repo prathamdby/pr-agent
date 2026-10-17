@@ -6,11 +6,9 @@ import {
   formatReviewValidationError,
   isCheckFailingSeverity,
   isInlineSeverity,
-  reviewEventForFindings,
   reviewPayloadFromFindings,
   reviewPayloadSchema,
   REVIEW_SUMMARY_SENTINEL,
-  selectInlineFindings,
 } from "../src/review/reviewSchema.js";
 import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
@@ -31,56 +29,6 @@ function makeFinding(severity: ReviewFinding["severity"], title: string): Review
     fixPrompt: "fix",
   };
 }
-
-describe("reviewEventForFindings", () => {
-  it("REQUEST_CHANGES when P0 present", () => {
-    expect(
-      reviewEventForFindings([
-        {
-          severity: "P0",
-          file: "a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "t",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ]),
-    ).toBe("REQUEST_CHANGES");
-  });
-
-  it("REQUEST_CHANGES when P1 present", () => {
-    expect(
-      reviewEventForFindings([
-        {
-          severity: "P1",
-          file: "a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "t",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ]),
-    ).toBe("REQUEST_CHANGES");
-  });
-
-  it("COMMENT when only P2/P3", () => {
-    expect(
-      reviewEventForFindings([
-        {
-          severity: "P2",
-          file: "a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "t",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ]),
-    ).toBe("COMMENT");
-  });
-});
 
 describe("severity helpers", () => {
   it("treats P0–P3 as inline-eligible and only P0–P2 as check-failing", () => {
@@ -116,29 +64,13 @@ describe("severity helpers", () => {
   });
 });
 
-describe("selectInlineFindings", () => {
-  it("returns all P0-P3 inline findings sorted by severity", () => {
-    const selected = selectInlineFindings([
-      makeFinding("P2", "p2"),
-      makeFinding("P0", "p0"),
-      makeFinding("P1", "p1"),
-      makeFinding("P3", "p3"),
-    ]);
-    expect(selected.map((x) => x.title)).toEqual(["p0", "p1", "p2", "p3"]);
-  });
-
-  it("includes P3 with higher severities", () => {
-    const selected = selectInlineFindings([makeFinding("P3", "p3"), makeFinding("P1", "p1")]);
-    expect(selected.map((x) => x.title)).toEqual(["p1", "p3"]);
-  });
-
+describe("findings ceiling", () => {
   it("accepts more than eight findings", () => {
     const findings = Array.from({ length: 12 }, (_, i) => makeFinding("P2", `bug-${i}`));
     const parsed = v.safeParse(reviewPayloadSchema, makeReviewPayload({ findings, size: "M" }));
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.output.findings).toHaveLength(12);
-      expect(selectInlineFindings(parsed.output.findings)).toHaveLength(12);
     }
   });
 

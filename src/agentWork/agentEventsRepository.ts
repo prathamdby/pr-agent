@@ -21,66 +21,6 @@ export type AgentEventInsertRow = {
   readonly detail?: Readonly<Record<string, unknown>>;
 };
 
-export type AgentEventRow = {
-  readonly id: string;
-  readonly workItemId: string | null;
-  readonly installationId: number | null;
-  readonly owner: string | null;
-  readonly repo: string | null;
-  readonly prNumber: number | null;
-  readonly sessionRole: string | null;
-  readonly eventKind: string;
-  readonly phase: string | null;
-  readonly checkpointId: string | null;
-  readonly toolName: string | null;
-  readonly provider: string | null;
-  readonly model: string | null;
-  readonly ok: boolean | null;
-  readonly failureCode: string | null;
-  readonly detail: Readonly<Record<string, unknown>>;
-  readonly recordedAt: Date;
-};
-
-function mapAgentEventRow(row: {
-  id: string;
-  work_item_id: string | null;
-  installation_id: string | null;
-  owner: string | null;
-  repo: string | null;
-  pr_number: number | null;
-  session_role: string | null;
-  event_kind: string;
-  phase: string | null;
-  checkpoint_id: string | null;
-  tool_name: string | null;
-  provider: string | null;
-  model: string | null;
-  ok: boolean | null;
-  failure_code: string | null;
-  detail: Readonly<Record<string, unknown>>;
-  recorded_at: Date;
-}): AgentEventRow {
-  return {
-    id: row.id,
-    workItemId: row.work_item_id,
-    installationId: row.installation_id == null ? null : Number(row.installation_id),
-    owner: row.owner,
-    repo: row.repo,
-    prNumber: row.pr_number,
-    sessionRole: row.session_role,
-    eventKind: row.event_kind,
-    phase: row.phase,
-    checkpointId: row.checkpoint_id,
-    toolName: row.tool_name,
-    provider: row.provider,
-    model: row.model,
-    ok: row.ok,
-    failureCode: row.failure_code,
-    detail: row.detail ?? {},
-    recordedAt: new Date(row.recorded_at),
-  };
-}
-
 export async function appendAgentEvents(
   client: Pool | PoolClient,
   rows: readonly AgentEventInsertRow[],
@@ -133,38 +73,4 @@ export function safeAppendAgentEvents(
       message: errorMessage(error),
     });
   });
-}
-
-export async function listAgentEventsByWorkItem(
-  client: Pool | PoolClient,
-  workItemId: string,
-): Promise<readonly AgentEventRow[]> {
-  const result = await client.query<{
-    id: string;
-    work_item_id: string | null;
-    installation_id: string | null;
-    owner: string | null;
-    repo: string | null;
-    pr_number: number | null;
-    session_role: string | null;
-    event_kind: string;
-    phase: string | null;
-    checkpoint_id: string | null;
-    tool_name: string | null;
-    provider: string | null;
-    model: string | null;
-    ok: boolean | null;
-    failure_code: string | null;
-    detail: Readonly<Record<string, unknown>>;
-    recorded_at: Date;
-  }>(
-    `SELECT id, work_item_id, installation_id, owner, repo, pr_number,
-            session_role, event_kind, phase, checkpoint_id, tool_name,
-            provider, model, ok, failure_code, detail, recorded_at
-       FROM agent_events
-      WHERE work_item_id = $1
-      ORDER BY recorded_at ASC`,
-    [workItemId],
-  );
-  return result.rows.map(mapAgentEventRow);
 }

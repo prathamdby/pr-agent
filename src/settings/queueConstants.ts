@@ -26,7 +26,6 @@ export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
 
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
-export const REVIEW_AWAITING_APPROVAL = "review_awaiting_approval";
 export const REVIEW_APPROVED = "review_approved";
 export const IGNORED_REVIEW_APPROVAL_NOT_AWAITING = "ignored_review_approval_not_awaiting";
 export const IGNORED_REVIEW_APPROVAL_NOT_ENABLED = "ignored_review_approval_not_enabled";

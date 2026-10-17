@@ -6,7 +6,6 @@ export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
-export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
 export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
@@ -122,8 +121,6 @@ export const REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS = 2000;
 export const REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000] as const;
 export const MAX_PRIOR_INLINE_FEEDBACK_THREADS = 20;
 export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
-export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
-export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
 export const REVIEW_GATE_PROSE_MAX_CHARS = 280;
 export const REVIEW_GATE_PROSE_UNASSESSED = "Not assessed.";
@@ -145,7 +142,6 @@ export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;
 export const REVIEW_CI_SUMMARY_LOG_MAX_BYTES = 24_000;
 export const REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS = 12_000;
 export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
-export const REVIEW_CI_SUMMARY_FETCH_CONCURRENCY = 4;
 export const REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE = 4;
 export const REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS = 240;
 export const REVIEW_CI_SUMMARY_REASON_MAX_CHARS = 400;
@@ -176,8 +172,6 @@ export const REVIEW_SEVERITY_RANK = {
 export const VALIDATION_REPAIR_ROUNDS = 3;
 export const PUBLISH_RECOVERY_ROUNDS = 2;
 
-export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
-
 export type ReviewValidationFailureKind =
   | "missing_field"
   | "wrong_type"
@@ -199,5 +193,4 @@ export const MAX_TOOL_ROUNDS = 2_000;
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 export const MAX_PR_FILES_LISTED = 300;
 export const MAX_PR_FILES_PATCH_BYTES = 500_000;
-export const REVIEW_ANCHOR_MENU_MAX_FILES = 40;
 export const REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20;

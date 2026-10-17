@@ -31,18 +31,6 @@ export function promptMetadataFromText(text: string): AgentRunnerPromptMetadata 
   };
 }
 
-export function estimatedUsageFromTokenCounts(
-  inputTokens: number,
-  outputTokens: number,
-): AgentRunnerUsageMetadata {
-  return {
-    estimated: true,
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
-  };
-}
-
 export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetadata | undefined {
   const hasTokenData = usage.totalTokens > 0 || usage.input > 0 || usage.output > 0;
   if (!hasTokenData) return undefined;

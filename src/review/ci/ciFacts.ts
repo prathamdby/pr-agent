@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import {
   OWN_COMMIT_STATUS_CONTEXT,
+  REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
 } from "../../settings/index.js";
@@ -62,8 +63,6 @@ export type CiLegacyStatus = {
   readonly updatedAt?: string | null;
   readonly createdAt?: string | null;
 };
-
-export type CiFactSource = "check_run" | "status";
 
 export type CiRollup = "pending" | "passing" | "failing" | "none" | "unknown";
 
@@ -390,9 +389,15 @@ export function summarizeCiSnapshot(params: {
             params.sourceAvailability?.[source].access !== "available" ||
             params.sourceAvailability?.[source].listingRequired,
         );
+  const notes = [
+    ...(params.sourceAvailability?.checks.access === "denied"
+      ? [REVIEW_CI_SUMMARY_GRANT_CHECKS]
+      : []),
+    ...(params.permissionNote == null ? [] : [params.permissionNote]),
+  ];
   const permissionNote =
     unavailableSources.length > 0
-      ? `Partial CI view: ${unavailableSources.join(" and ")} unavailable.${params.permissionNote == null ? "" : ` ${params.permissionNote}`}`
+      ? [`Partial CI view: ${unavailableSources.join(" and ")} unavailable.`, ...notes].join(" ")
       : params.permissionNote;
   const incomplete =
     params.checkRunsComplete === false ||
@@ -494,10 +499,6 @@ export function summarizeCiFacts(
     checkRunsComplete: options?.checkRunsComplete,
     sourceAvailability: options?.sourceAvailability,
   });
-}
-
-export function isOwnCommitStatusContext(context: string): boolean {
-  return context === OWN_COMMIT_STATUS_CONTEXT;
 }
 
 export type CiAuthoredCache = {

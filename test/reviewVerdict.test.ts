@@ -102,7 +102,6 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
     getOwnVerdictCloseRecord: vi.fn(
       async (_client, params) => records.get(params.workItemId) ?? null,
     ),
-    hasLegacyOwnVerdictCompletion: vi.fn(async () => false),
     getDelegatedOwnVerdictFinish: vi.fn(async (_client, params) => {
       const key = vi
         .mocked(persistOperationIntent)

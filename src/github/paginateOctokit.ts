@@ -40,11 +40,3 @@ export async function paginateOctokitPagesWithMeta<T>(options: {
 
   return { items: results, truncated: false };
 }
-
-export async function paginateOctokitPages<T>(options: {
-  perPage: number;
-  maxPages?: number;
-  fetchPage: (page: number, perPage: number) => Promise<readonly T[]>;
-}): Promise<T[]> {
-  return (await paginateOctokitPagesWithMeta(options)).items;
-}

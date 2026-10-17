@@ -46,7 +46,6 @@ export const descriptionPayloadSchema = v.object({
   ),
 });
 
-export type DescriptionVisualKind = v.InferOutput<typeof descriptionVisualKindSchema>;
 export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;

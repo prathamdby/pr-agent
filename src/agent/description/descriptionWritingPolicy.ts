@@ -82,12 +82,8 @@ export function resolveDescriptionBodyScale(input: DescriptionSizeInput): Descri
   return "L";
 }
 
-export function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
+function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
   return bodyScale === "S" ? "omit" : "read_first";
-}
-
-export function resolveDescriptionMapMode(input: DescriptionSizeInput): DescriptionMapMode {
-  return mapModeForBodyScale(resolveDescriptionBodyScale(input));
 }
 
 export function resolveDescriptionWritingPolicy(

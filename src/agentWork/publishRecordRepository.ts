@@ -350,7 +350,7 @@ export async function getDelegatedOwnVerdictFinish(
   );
 }
 
-export async function hasLegacyOwnVerdictCompletion(
+async function hasLegacyOwnVerdictCompletion(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
 ): Promise<boolean> {

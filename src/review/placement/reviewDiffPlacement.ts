@@ -72,27 +72,6 @@ export function applyInlineCommentCap<TPlacement extends InlinePlacement>(
   return { placements: capped, inlineCommentCapExcluded };
 }
 
-export function downgradePlacementsAfterInlineFailure(
-  placements: readonly InlinePlacement[],
-): InlinePlacement[] {
-  return placements.map((placement) =>
-    placement.inlinePosted ? { ...placement, inlinePosted: false } : placement,
-  );
-}
-
 export function reviewFindingPlacementKey(finding: ReviewFinding): string {
   return `${finding.file}:${finding.startLine}:${finding.endLine}:${finding.severity}:${finding.title}`;
-}
-
-export function mergeDroppedIntoSummaryPlacements(
-  placements: readonly InlinePlacement[],
-  dropped: readonly InlinePlacement[],
-): InlinePlacement[] {
-  if (dropped.length === 0) return [...placements];
-  const droppedByKey = new Map(
-    dropped.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
-  );
-  return placements.map(
-    (placement) => droppedByKey.get(reviewFindingPlacementKey(placement.finding)) ?? placement,
-  );
 }
