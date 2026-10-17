@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import * as evlog from "../../src/evlog.js";
+import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
@@ -1918,7 +1920,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         ],
       );
       const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      await reviewVerdict({
+      const warn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      const verdict = {
         ...params,
         pool,
         prSurface: surface,
@@ -1927,10 +1930,26 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         prNumber: 1,
         headSha: "h",
         commitStatusEnabled: false,
-      }).close({ kind: "cancelled" });
-      expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
-        intentStatus === "pending" ? 1 : 0,
-      );
+      };
+      try {
+        await reviewVerdict(verdict).close({ kind: "cancelled" });
+        if (intentStatus === "outcome_unknown")
+          await reviewVerdict(verdict).close({ kind: "cancelled" });
+        expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
+          intentStatus === "pending" ? 1 : 0,
+        );
+        if (intentStatus === "outcome_unknown") {
+          expect(warn).not.toHaveBeenCalledWith(
+            "review_check_run_complete_failed",
+            expect.anything(),
+          );
+          expect(
+            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+          ).not.toContain(id);
+        }
+      } finally {
+        warn.mockRestore();
+      }
     },
   );
 });

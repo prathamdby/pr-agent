@@ -408,9 +408,10 @@ Concurrent closes keep the first selected verdict on the existing per-work-item
 `check_run` row. `detail.selectedOwnVerdict` records the output, not proof that
 GitHub accepted it. `detail.ownCheckApplied` and `detail.ownStatusApplied` are
 separate acceptance receipts. A selected row stays open until its check and
-applicable status are accepted. Status is applicable only when enabled with a
-nonempty, nondeferred saved head. Check-only completion can attach status later,
-without changing the check output.
+applicable status are accepted, unless that check's close intent is already
+`outcome_unknown` with `unknownResolution: terminal`. Status is applicable only
+when enabled with a nonempty, nondeferred saved head. Check-only completion can
+attach status later, without changing the check output.
 
 Inspect one run with bound parameters:
 
@@ -433,8 +434,10 @@ or `outcome_unknown` before the boundary's terminal resolution) or a saved void
 result but no reconstructible verdict log
 `review_own_verdict_legacy_unresolved`. An intent the boundary already resolved
 `outcome_unknown` with `unknownResolution: terminal` is inert and does not block
-the terminal close. Inspect the remote check and saved evidence; do not delete
-an intent or selection to force another close.
+the terminal close. The diagnostics repair lane does not select that check, and
+a later close does not call GitHub or repeat `review_check_run_complete_failed`.
+The remote check can stay unfinished. Inspect the remote check and saved
+evidence; do not delete an intent or selection to force another close.
 
 A per-work-item session mutex excludes competing application attempts. SQL
 statements commit before HTTP; no transaction stays open. `src/db/sessionLock.ts`
