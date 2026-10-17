@@ -375,7 +375,6 @@ export function summarizeCiSnapshot(params: {
   readonly checks: readonly CiCheckRunSnapshot[];
   readonly statuses: readonly CiLegacyStatus[];
   readonly failures?: CiSummary["failures"];
-  readonly permissionNote?: string;
   readonly checkRunsComplete?: boolean;
   readonly legacyStatusesComplete?: boolean;
   readonly sourceAvailability?: CiSourceAvailability;
@@ -389,16 +388,15 @@ export function summarizeCiSnapshot(params: {
             params.sourceAvailability?.[source].access !== "available" ||
             params.sourceAvailability?.[source].listingRequired,
         );
-  const notes = [
-    ...(params.sourceAvailability?.checks.access === "denied"
-      ? [REVIEW_CI_SUMMARY_GRANT_CHECKS]
-      : []),
-    ...(params.permissionNote == null ? [] : [params.permissionNote]),
-  ];
   const permissionNote =
     unavailableSources.length > 0
-      ? [`Partial CI view: ${unavailableSources.join(" and ")} unavailable.`, ...notes].join(" ")
-      : params.permissionNote;
+      ? [
+          `Partial CI view: ${unavailableSources.join(" and ")} unavailable.`,
+          ...(params.sourceAvailability?.checks.access === "denied"
+            ? [REVIEW_CI_SUMMARY_GRANT_CHECKS]
+            : []),
+        ].join(" ")
+      : undefined;
   const incomplete =
     params.checkRunsComplete === false ||
     params.legacyStatusesComplete === false ||

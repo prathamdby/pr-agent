@@ -71,11 +71,14 @@ describe("summarizeCiSnapshot", () => {
           statuses: { access: statuses, listingRequired: statuses !== "available" },
         },
       }).permissionNote;
-    expect(note("denied", "available")).toContain(REVIEW_CI_SUMMARY_GRANT_CHECKS);
-    expect(note("denied", "available")).toContain("Partial CI view");
-    expect(note("denied", "denied")).toContain(REVIEW_CI_SUMMARY_GRANT_CHECKS);
-    expect(note("unknown", "available")).not.toContain(REVIEW_CI_SUMMARY_GRANT_CHECKS);
-    expect(note("available", "denied")).not.toContain(REVIEW_CI_SUMMARY_GRANT_CHECKS);
+    expect(note("denied", "available")).toBe(
+      `Partial CI view: checks unavailable. ${REVIEW_CI_SUMMARY_GRANT_CHECKS}`,
+    );
+    expect(note("denied", "denied")).toBe(
+      `Partial CI view: checks and statuses unavailable. ${REVIEW_CI_SUMMARY_GRANT_CHECKS}`,
+    );
+    expect(note("unknown", "available")).toBe("Partial CI view: checks unavailable.");
+    expect(note("available", "denied")).toBe("Partial CI view: statuses unavailable.");
   });
   it("identifies the own check by App id or work-item external id", () => {
     const identity = { githubAppId: "99", workItemId: "wi-1" };
