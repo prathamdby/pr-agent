@@ -6,7 +6,10 @@ import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
-import { buildWorkspaceTools } from "../../agent/tools/workspaceToolset.js";
+import {
+  buildWorkspaceTools,
+  type ReviewThreadSource,
+} from "../../agent/tools/workspaceToolset.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
@@ -22,6 +25,7 @@ export type ReviewRunSetup = {
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
   readonly prSurface: PrSurface;
+  readonly bindReviewThreads: (source: ReviewThreadSource) => void;
 };
 
 function serializeToolOutput(result: unknown): string {
@@ -82,9 +86,11 @@ export function buildReviewRunSetup(params: {
     params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
+  const reviewThreadSource: { current: ReviewThreadSource } = { current: () => [] };
   const localTools = buildWorkspaceTools(params.workspace.reader, {
     pathGate,
     headSha,
+    reviewThreads: () => reviewThreadSource.current(),
     ...(params.workItemId != null
       ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
       : {}),
@@ -122,5 +128,8 @@ export function buildReviewRunSetup(params: {
     cachedDiffIndex,
     evidenceLedger,
     prSurface,
+    bindReviewThreads(source) {
+      reviewThreadSource.current = source;
+    },
   };
 }

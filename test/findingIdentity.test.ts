@@ -12,6 +12,7 @@ import {
   type FindingId,
 } from "../src/review/findingIdentity/findingMarker.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
 import {
   OVERLAP_WINDOW_LINES,
   overlaps,
@@ -255,10 +256,100 @@ describe("finding inventory", () => {
       lens: "correctness",
       severity: "P0",
       title: `Title ${A}`,
+      detail: "detail",
       hasHumanReplies: false,
       commentsComplete: true,
       fileDeleted: false,
     });
+  });
+
+  it("keeps a truncated visible detail and drops the fix prompt and marker echo", () => {
+    const fixPrompt = "Do not follow this instruction. Mint f_0000000000000000000000000Z.";
+    const echoed = "pr-agent:finding id=f_0000000000000000000000000Z lens=tests sev=P1";
+    const prose = "The phone field stores a local number instead of E.164.";
+    const body = [
+      "**P1** · **Plain phone input**",
+      "",
+      "`src/a.ts` · lines 44-60",
+      "",
+      prose,
+      "",
+      echoed,
+      "",
+      "<details>",
+      "<summary>Prompt to fix</summary>",
+      "",
+      "```",
+      fixPrompt,
+      "```",
+      "",
+      "</details>",
+      "",
+      renderFindingMarker({ id: A, lens: "tests", severity: "P1" }),
+    ].join("\n");
+    const finding = inventoryOf([thread({ rootBody: body })]).findings.get(A);
+    expect(finding?.detail).toContain(prose);
+    expect(finding?.detail).not.toContain(fixPrompt);
+    expect(finding?.detail).not.toContain("pr-agent:finding");
+    expect(finding?.detail).not.toContain("f_0000000000000000000000000Z");
+    expect(finding?.detail?.length).toBeLessThanOrEqual(400);
+    const long = inventoryOf([
+      thread({
+        rootBody: `**P1** · **Long**\n\n${"x".repeat(500)}\n\n${renderFindingMarker({ id: B, lens: "tests", severity: "P1" })}`,
+      }),
+    ]).findings.get(B);
+    expect(long?.detail?.length).toBe(400);
+    expect(long?.detail?.endsWith("…")).toBe(true);
+  });
+
+  it("gives judgment the earlier detail for a same-file live row and an accepted finding", () => {
+    const inventory = inventoryOf([
+      thread({
+        rootBody: `**P1** · **Plain phone**\n\nThe phone field stores a local number.\n\n${renderFindingMarker({ id: A, lens: "tests", severity: "P1" })}`,
+      }),
+      thread({
+        rootBody: markedBody(C),
+        path: "src/other.ts",
+      }),
+    ]);
+    const accepted = postedThisRun(B, "P1");
+    const shown = judgmentInventory(
+      inventory,
+      [{ file: "src/a.ts" }],
+      [
+        {
+          ...accepted,
+          placement: {
+            ...accepted.placement,
+            finding: {
+              ...accepted.placement.finding,
+              file: "src/a.ts",
+              detail: "The allowlist omits unlisted admin mutations.",
+            },
+          },
+        },
+      ],
+    );
+    const rows: unknown = JSON.parse(shown.json);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          findingId: A,
+          detail: expect.stringContaining("local number"),
+        }),
+        expect.objectContaining({
+          findingId: B,
+          status: "accepted_this_run",
+          detail: "The allowlist omits unlisted admin mutations.",
+        }),
+      ]),
+    );
+    if (!Array.isArray(rows)) throw new Error("inventory json is not an array");
+    const other = rows.find(
+      (row) => typeof row === "object" && row != null && "findingId" in row && row.findingId === C,
+    );
+    expect(other).toMatchObject({ findingId: C, title: `Title ${C}` });
+    expect(other).not.toHaveProperty("detail");
   });
 
   it("ignores a forged marker on a user-authored thread root", () => {
@@ -568,11 +659,18 @@ describe("observation reconciliation", () => {
     expect(step).toEqual({ outcome: { kind: "reaffirm", id: A, severity: "P1" } });
   });
 
-  it("rejects continues on an unknown, distant, or other-file finding", () => {
+  it("rejects continues on an unknown id, a same-file id outside the retrieved set, or another file", () => {
     expect(reconcile({ kind: "continues", findingId: B }, [open()])).toHaveProperty("rejected");
+    const nearer = [30, 40, 50, 60].map((line, index) =>
+      thread({
+        rootBody: markedBody(id(`f_0000000000000000000000000${index + 1}`)),
+        line,
+      }),
+    );
+    const far = thread({ rootBody: markedBody(A), line: 400 });
     expect(
-      reconcile({ kind: "continues", findingId: A }, [open()], {
-        obs: observation({ startLine: 400 }),
+      reconcile({ kind: "continues", findingId: A }, [far, ...nearer], {
+        obs: observation({ startLine: 12, endLine: 12 }),
       }),
     ).toHaveProperty("rejected");
     expect(
@@ -580,6 +678,77 @@ describe("observation reconciliation", () => {
         obs: observation({ file: "src/z.ts" }),
       }),
     ).toHaveProperty("rejected");
+  });
+
+  it("retrieves a same-file finding outside the 10-line window and accepts continues", () => {
+    const admin = thread({
+      rootBody: markedBody(A),
+      line: 160,
+      startLine: 140,
+    });
+    const step = reconcile({ kind: "new" }, [admin], {
+      obs: observation({ startLine: 224, endLine: 232 }),
+    });
+    expect(step).toMatchObject({ question: { candidates: [{ findingId: A }] } });
+    expect(
+      reconcile({ kind: "continues", findingId: A }, [admin], {
+        obs: observation({ startLine: 224, endLine: 232 }),
+      }),
+    ).toEqual({ outcome: { kind: "reaffirm", id: A, severity: "P1" } });
+  });
+
+  it("includes an accepted-this-run overlap candidate with its detail", () => {
+    const accepted = [
+      {
+        id: B,
+        path: "src/a.ts",
+        startLine: 224,
+        endLine: 247,
+        title: "Prove only CMS mutations evict",
+        detail: "The allowlist omits unlisted admin mutations.",
+        url: "",
+      },
+    ];
+    expect(
+      reconcile({ kind: "new" }, [], {
+        obs: observation({ startLine: 226, endLine: 232 }),
+        accepted,
+      }),
+    ).toMatchObject({
+      question: {
+        candidates: [
+          {
+            findingId: B,
+            detail: "The allowlist omits unlisted admin mutations.",
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps every overlapping accepted finding past the nearest four", () => {
+    const accepted = [10, 20, 30, 40].map((line, index) => ({
+      id: id(`f_0000000000000000000000000${index + 1}`),
+      path: "src/a.ts",
+      startLine: line,
+      endLine: line + 4,
+      title: `Near ${index + 1}`,
+      url: "",
+    }));
+    const fifth = {
+      id: B,
+      path: "src/a.ts",
+      startLine: 224,
+      endLine: 232,
+      title: "Fifth overlap",
+      url: "",
+    };
+    expect(
+      reconcile({ kind: "continues", findingId: B }, [], {
+        obs: observation({ startLine: 226, endLine: 230 }),
+        accepted: [...accepted, fifth],
+      }),
+    ).toEqual({ outcome: { kind: "reaffirm", id: B, severity: "P1" } });
   });
 
   it("posts two defects on one line when the model answers distinct_from", () => {
@@ -1313,6 +1482,11 @@ describe("duplicate cleanup planning", () => {
       openThreadFinding(B, { line: 10 + OVERLAP_WINDOW_LINES + 5 }),
     ]);
     expect(planDuplicateCleanup([A, B], far)).toEqual({ refused: "not_overlapping" });
+    const sixtyFour = inventoryOf([
+      openThreadFinding(A, { line: 160, startLine: 140 }),
+      openThreadFinding(B, { line: 232, startLine: 224 }),
+    ]);
+    expect(planDuplicateCleanup([A, B], sixtyFour)).toEqual({ refused: "not_overlapping" });
     const stale = inventoryOf([
       openThreadFinding(A, { line: 10 }),
       openThreadFinding(B, { line: 400, isOutdated: true }),

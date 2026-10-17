@@ -10,6 +10,7 @@ import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import {
   isBotAuthor,
   legacyFindingId,
+  neutralizeMarkerEcho,
   parseOwnedFindingMarker,
   parseOwnedFindingRows,
   parseOwnedReceipts,
@@ -40,6 +41,7 @@ export type InventoryFinding = {
   readonly lens: FindingSource | "unknown";
   readonly severity: FindingSeverity | "unknown";
   readonly title: string;
+  readonly detail?: string;
   readonly createdAt: string;
   readonly hasHumanReplies: boolean;
   readonly commentsComplete: boolean;
@@ -51,6 +53,29 @@ export type FindingInventory = {
   readonly findings: ReadonlyMap<FindingId, InventoryFinding>;
   readonly sameIdCopies: readonly InventoryFinding[];
   readonly canonicalOf: (id: FindingId) => FindingId | null;
+};
+
+export type OpenReviewThread = {
+  readonly findingId: string;
+  readonly severity: string;
+  readonly lens: string;
+  readonly path: string;
+  readonly previousPath?: string;
+  readonly startLine: number | null;
+  readonly endLine: number | null;
+  readonly title: string;
+  readonly detail?: string;
+};
+
+export type AcceptedOpenThread = {
+  readonly id: FindingId;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly title: string;
+  readonly detail?: string;
+  readonly severity: InventoryFinding["severity"];
+  readonly lens: InventoryFinding["lens"];
 };
 
 export type InventoryPathContext = {
@@ -65,6 +90,27 @@ export type InventorySummaryComment = {
 };
 
 const FINDING_HEADING_RE = /^\*\*(P[0-3])\*\* · \*\*(.+?)\*\*\s*$/m;
+const FINDING_DETAIL_CAP = 400;
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const PROMPT_TO_FIX_BLOCK_RE =
+  /<details>\s*<summary>\s*Prompt to fix[\s\S]*?<\/summary>[\s\S]*?<\/details>/gi;
+
+export function capFindingDetail(text: string): string | undefined {
+  const compact = neutralizeMarkerEcho(text).replace(/\s+/g, " ").trim();
+  if (compact.length === 0) return undefined;
+  if (compact.length <= FINDING_DETAIL_CAP) return compact;
+  return `${compact.slice(0, FINDING_DETAIL_CAP - 1)}…`;
+}
+
+function visibleThreadDetail(body: string): string | undefined {
+  const heading = /^\*\*P[0-3]\*\* · \*\*.+?\*\*\s*$/m.exec(body);
+  const afterTitle =
+    heading?.index != null
+      ? body.slice(heading.index + heading[0].length)
+      : body.slice(body.indexOf("\n") + 1);
+  const stripped = afterTitle.replace(HTML_COMMENT_RE, "").replace(PROMPT_TO_FIX_BLOCK_RE, "");
+  return capFindingDetail(stripped);
+}
 
 function parseHeading(
   body: string,
@@ -92,6 +138,47 @@ function completenessOf(
       return exhaustive;
     }
   }
+}
+
+function openThreadFromInventory(finding: InventoryFinding): OpenReviewThread {
+  return {
+    findingId: finding.id,
+    severity: finding.severity,
+    lens: finding.lens,
+    path: finding.path,
+    ...(finding.previousPath != null ? { previousPath: finding.previousPath } : {}),
+    startLine: finding.startLine,
+    endLine: finding.line,
+    title: neutralizeMarkerEcho(finding.title),
+    ...(finding.detail != null ? { detail: finding.detail } : {}),
+  };
+}
+
+export function openReviewThreads(
+  inventory: FindingInventory,
+  accepted: readonly AcceptedOpenThread[],
+): readonly OpenReviewThread[] {
+  const fromInventory = [...inventory.findings.values()]
+    .filter((finding) => finding.state === "open")
+    .map(openThreadFromInventory);
+  const known = new Set(fromInventory.map((thread) => thread.findingId));
+  const fromRun = accepted.flatMap((entry): OpenReviewThread[] => {
+    if (known.has(entry.id)) return [];
+    const detail = entry.detail == null ? undefined : capFindingDetail(entry.detail);
+    return [
+      {
+        findingId: entry.id,
+        severity: entry.severity,
+        lens: entry.lens,
+        path: entry.path,
+        startLine: entry.startLine,
+        endLine: entry.endLine,
+        title: neutralizeMarkerEcho(entry.title),
+        ...(detail != null ? { detail } : {}),
+      },
+    ];
+  });
+  return [...fromInventory, ...fromRun];
 }
 
 function placePath(
@@ -143,6 +230,7 @@ function threadFinding(
         ? "fixed"
         : "dismissed";
   const line = thread.line;
+  const detail = visibleThreadDetail(root.body);
   return {
     id,
     source: "thread",
@@ -163,6 +251,7 @@ function threadFinding(
     lens: marker?.lens ?? "unknown",
     severity: marker?.severity ?? heading?.severity ?? "unknown",
     title: heading?.title ?? root.body.split("\n")[0]?.trim() ?? "",
+    ...(detail != null ? { detail } : {}),
     createdAt: root.createdAt,
     hasHumanReplies: hasHumanReplies(thread, botLogin),
     commentsComplete: thread.commentsComplete,

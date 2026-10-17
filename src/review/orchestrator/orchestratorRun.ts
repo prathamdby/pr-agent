@@ -64,6 +64,7 @@ import {
   ledgerFindings,
   SPECIALIST_IDS,
   specialistDonePhase,
+  type FindingLedger,
   type OrchestratedRunState,
   type ReviewCoverage,
   type ReviewRunGate,
@@ -79,6 +80,8 @@ import { buildDeclareDuplicateTool } from "./declareDuplicateTool.js";
 import { judgmentInventory } from "./judgmentInventory.js";
 import {
   loadFindingInventoryOrUnavailable,
+  openReviewThreads,
+  type AcceptedOpenThread,
   type FindingInventory,
 } from "../findingIdentity/findingInventory.js";
 import { buildFindingView, type FindingCheck } from "../findingIdentity/findingLifecycle.js";
@@ -262,6 +265,25 @@ function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]
       return exhaustive;
     }
   }
+}
+
+function acceptedOpenThreads(ledger: FindingLedger): AcceptedOpenThread[] {
+  return ledger.accepted.flatMap((accepted) =>
+    accepted.kind === "summary_only"
+      ? []
+      : [
+          {
+            id: accepted.findingId,
+            path: accepted.placement.finding.file,
+            startLine: accepted.placement.finding.startLine,
+            endLine: accepted.placement.finding.endLine,
+            title: accepted.placement.finding.title,
+            detail: accepted.placement.finding.detail,
+            severity: accepted.placement.finding.severity,
+            lens: accepted.source,
+          },
+        ],
+  );
 }
 
 export async function runOrchestratedPrReview(
@@ -455,6 +477,9 @@ export async function runOrchestratedPrReview(
         ? createFindingLedger(recoveredDecisions[0].prepared.artifact.canonical.ledgerBefore)
         : initialLedger(params),
   });
+  setup.bindReviewThreads?.(() =>
+    openReviewThreads(findingInventory, acceptedOpenThreads(publishThread.getLedger())),
+  );
   const recoveredSources = new Set<SpecialistId>();
   let recoveredSummary = false;
   let recoveredCheck: FindingCheck | null = null;

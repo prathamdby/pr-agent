@@ -1,8 +1,9 @@
 import type { FindingInventory, InventoryFinding } from "./findingInventory.js";
-import type { FindingId, FindingSeverity } from "./findingMarker.js";
+import { neutralizeMarkerEcho, type FindingId, type FindingSeverity } from "./findingMarker.js";
 
 export const OVERLAP_WINDOW_LINES = 10;
 export const MAX_OVERLAP_ROUNDS = 1;
+const NEAREST_SAME_FILE_CANDIDATES = 4;
 
 export type ObservationRelation =
   | { readonly kind: "new" }
@@ -28,6 +29,7 @@ export type AcceptedThisRun = {
   readonly startLine: number;
   readonly endLine: number;
   readonly title: string;
+  readonly detail?: string;
   readonly url: string;
 };
 
@@ -36,6 +38,7 @@ export type OverlapCandidate = {
   readonly path: string;
   readonly line: number | null;
   readonly title: string;
+  readonly detail?: string;
   readonly state: "open" | "resolved" | "accepted_this_run";
   readonly url: string;
 };
@@ -77,6 +80,12 @@ function rangesNear(observation: Span, start: number, end: number): boolean {
   );
 }
 
+function rangeGap(observation: Span, start: number, end: number): number {
+  if (observation.endLine < start) return start - observation.endLine;
+  if (end < observation.startLine) return observation.startLine - end;
+  return 0;
+}
+
 export function overlaps(observation: Span, finding: Positioned): boolean {
   if (finding.path !== observation.file && finding.previousPath !== observation.file) return false;
   if (finding.positionStale || finding.line == null) return true;
@@ -84,38 +93,82 @@ export function overlaps(observation: Span, finding: Positioned): boolean {
   return rangesNear(observation, start, Math.max(finding.startLine ?? finding.line, finding.line));
 }
 
-function overlapCandidates(
+function inventoryCandidate(finding: InventoryFinding): OverlapCandidate {
+  return {
+    findingId: finding.id,
+    path: finding.path,
+    line: finding.line,
+    title: neutralizeMarkerEcho(finding.title),
+    ...(finding.detail != null ? { detail: finding.detail } : {}),
+    state: finding.state,
+    url: finding.url,
+  };
+}
+
+function acceptedCandidate(accepted: AcceptedThisRun): OverlapCandidate {
+  return {
+    findingId: accepted.id,
+    path: accepted.path,
+    line: accepted.startLine,
+    title: neutralizeMarkerEcho(accepted.title),
+    ...(accepted.detail != null ? { detail: accepted.detail } : {}),
+    state: "accepted_this_run",
+    url: accepted.url,
+  };
+}
+
+function acceptedOverlaps(observation: Span, accepted: AcceptedThisRun): boolean {
+  return (
+    accepted.path === observation.file &&
+    rangesNear(observation, accepted.startLine, accepted.endLine)
+  );
+}
+
+function retrievalCandidates(
   observation: Span,
   inventory: FindingInventory,
   acceptedThisRun: readonly AcceptedThisRun[],
 ): OverlapCandidate[] {
-  const fromInventory = [...inventory.findings.values()]
+  const overlapped = [...inventory.findings.values()]
     .filter((finding) => overlaps(observation, finding))
-    .map((finding): OverlapCandidate => ({
-      findingId: finding.id,
-      path: finding.path,
-      line: finding.line,
-      title: finding.title,
-      state: finding.state,
-      url: finding.url,
-    }));
-  const known = new Set(fromInventory.map((candidate) => candidate.findingId));
-  const fromRun = acceptedThisRun
-    .filter(
-      (accepted) =>
-        !known.has(accepted.id) &&
-        accepted.path === observation.file &&
-        rangesNear(observation, accepted.startLine, accepted.endLine),
-    )
-    .map((accepted): OverlapCandidate => ({
-      findingId: accepted.id,
-      path: accepted.path,
+    .map(inventoryCandidate);
+  const known = new Set(overlapped.map((candidate) => candidate.findingId));
+  const ranked: { candidate: OverlapCandidate; gap: number; line: number }[] = [];
+  for (const finding of inventory.findings.values()) {
+    if (known.has(finding.id) || finding.state !== "open") continue;
+    if (finding.path !== observation.file && finding.previousPath !== observation.file) continue;
+    if (finding.positionStale || finding.line == null) continue;
+    const start = Math.min(finding.startLine ?? finding.line, finding.line);
+    const end = Math.max(finding.startLine ?? finding.line, finding.line);
+    ranked.push({
+      candidate: inventoryCandidate(finding),
+      gap: rangeGap(observation, start, end),
+      line: start,
+    });
+  }
+  const overlappedAccepted = acceptedThisRun.filter(
+    (accepted) => !known.has(accepted.id) && acceptedOverlaps(observation, accepted),
+  );
+  for (const accepted of overlappedAccepted) known.add(accepted.id);
+  for (const accepted of acceptedThisRun) {
+    if (known.has(accepted.id) || accepted.path !== observation.file) continue;
+    ranked.push({
+      candidate: acceptedCandidate(accepted),
+      gap: rangeGap(observation, accepted.startLine, accepted.endLine),
       line: accepted.startLine,
-      title: accepted.title,
-      state: "accepted_this_run",
-      url: accepted.url,
-    }));
-  return [...fromInventory, ...fromRun];
+    });
+  }
+  ranked.sort(
+    (left, right) =>
+      left.gap - right.gap ||
+      left.line - right.line ||
+      left.candidate.findingId.localeCompare(right.candidate.findingId),
+  );
+  return [
+    ...overlapped,
+    ...overlappedAccepted.map(acceptedCandidate),
+    ...ranked.slice(0, NEAREST_SAME_FILE_CANDIDATES).map((row) => row.candidate),
+  ];
 }
 
 function answeredIds(relation: ObservationRelation): ReadonlySet<FindingId> {
@@ -139,24 +192,19 @@ function continueFinding(params: {
   readonly observation: ReconcileObservation;
   readonly inventory: FindingInventory;
   readonly acceptedThisRun: readonly AcceptedThisRun[];
+  readonly retrieved: ReadonlySet<FindingId>;
   readonly complete: boolean;
   readonly mint: () => FindingId;
 }): ReconcileStep {
   const { target, observation, inventory } = params;
   const accepted = params.acceptedThisRun.find((entry) => entry.id === target);
   const finding = inventory.findings.get(target);
-  if (finding == null) {
-    if (accepted == null) return { rejected: `Unknown finding id ${target}.` };
-    if (
-      accepted.path !== observation.file ||
-      !rangesNear(observation, accepted.startLine, accepted.endLine)
-    ) {
-      return { rejected: `Finding ${target} does not overlap this observation.` };
-    }
-    return { outcome: { kind: "reaffirm", id: target, severity: observation.severity } };
-  }
-  if (!overlaps(observation, finding)) {
+  if (finding == null && accepted == null) return { rejected: `Unknown finding id ${target}.` };
+  if (!params.retrieved.has(target)) {
     return { rejected: `Finding ${target} does not overlap this observation.` };
+  }
+  if (finding == null) {
+    return { outcome: { kind: "reaffirm", id: target, severity: observation.severity } };
   }
   const canonicalId = inventory.canonicalOf(target);
   const canonical = canonicalId == null ? undefined : inventory.findings.get(canonicalId);
@@ -187,17 +235,18 @@ export function reconcileObservation(params: {
 }): ReconcileStep {
   const { observation, relation, inventory, acceptedThisRun } = params;
   const complete = inventory.completeness === "complete";
+  const candidates = retrievalCandidates(observation, inventory, acceptedThisRun);
   if (relation.kind === "continues") {
     return continueFinding({
       target: relation.findingId,
       observation,
       inventory,
       acceptedThisRun,
+      retrieved: new Set(candidates.map((candidate) => candidate.findingId)),
       complete,
       mint: params.mint,
     });
   }
-  const candidates = overlapCandidates(observation, inventory, acceptedThisRun);
   const known = new Set([
     ...inventory.findings.keys(),
     ...acceptedThisRun.map((accepted) => accepted.id),

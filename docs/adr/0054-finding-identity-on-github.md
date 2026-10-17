@@ -42,13 +42,23 @@ the database lost identity.
    closed. A human resolve without a receipt counts as dismissed.
 3. **Overlap retrieves candidates; the model decides equivalence.** Each
    observation carries a `relation` (`new`, `continues`, `distinct_from`,
-   `uncertain`). A `new` observation within `OVERLAP_WINDOW_LINES` of an open,
-   resolved, or same-run finding in the same file (after renames) returns an
-   overlap question instead of a match. `uncertain` keeps both and links them.
-   An incomplete inventory turns every `new` into summary-only.
-   Within one `publish_thread` batch, a finding that repeats a higher-priority
-   batch-mate (same placement, or same file, overlapping lines, and the same
-   normalized title and detail) is dropped before reconciliation.
+   `uncertain`). Retrieval is not only the 10-line window. For each observation,
+   candidates are every finding `overlaps()` already returns (same file after
+   renames, including a stale or missing line) and the 4 nearest other live
+   findings in that file that `overlaps()` did not return. Live means open, or
+   accepted earlier in the same run. Rank is the gap between the ranges. A
+   stale line stays in the `overlaps()` set and does not consume a nearest
+   slot. A `new` observation, or a relation that does not name one of those
+   candidates, returns one overlap question instead of a match. A still-unanswered
+   finding on the retry lands summary-only. `continues` is accepted only for an
+   id in that retrieved set, including when the ranges are more than 10 lines
+   apart. A same-file id outside the set, and any cross-file id, is rejected.
+   `uncertain` keeps both and links them. An incomplete inventory turns every
+   `new` into summary-only. `declare_duplicate` still requires overlapping
+   lines. Two files that report one bug stay unlinked unless the model chooses
+   `uncertain`. Within one `publish_thread` batch, a finding that repeats a
+   higher-priority batch-mate (same placement, or same file, overlapping lines,
+   and the same normalized title and detail) is dropped before reconciliation.
 4. **The summary and the check cover every open finding.** The lifecycle view
    (`findingLifecycle.ts`) lists this run's findings and carries open threads
    from earlier runs. The check fails while any open P0–P2 finding exists and
@@ -84,6 +94,8 @@ the database lost identity.
   longer bind, so that run recomputes instead of reusing them.
 - Workers must upgrade together. Mixed versions disagree on identity.
 - Reaffirming a finding posts no reply; it shows only as a summary status.
+- A defect split across two files is not retrieved. `uncertain` is the only
+  link, and only when the model chooses it. There is no cross-file matcher.
 
 ## Alternatives considered
 

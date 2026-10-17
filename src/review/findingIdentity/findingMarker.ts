@@ -86,6 +86,12 @@ export function isBotAuthor(authorLogin: string | null, botLogin: string): boole
   return authorLogin != null && normalizedLogin(authorLogin) === normalizedLogin(botLogin);
 }
 
+const MARKER_ECHO = /pr-agent:(?:finding(?:-row)?|receipt)\b[^\n]*/gi;
+
+export function neutralizeMarkerEcho(text: string): string {
+  return text.replace(MARKER_ECHO, "[neutralized marker]");
+}
+
 export function renderFindingMarker(marker: FindingMarker): string {
   const reopens = marker.reopens == null ? "" : ` reopens=${marker.reopens}`;
   return `<!-- pr-agent:finding v=${MARKER_VERSION} id=${marker.id} lens=${marker.lens} sev=${marker.severity}${reopens} -->`;
