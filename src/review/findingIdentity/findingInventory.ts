@@ -55,6 +55,29 @@ export type FindingInventory = {
   readonly canonicalOf: (id: FindingId) => FindingId | null;
 };
 
+export type OpenReviewThread = {
+  readonly findingId: string;
+  readonly severity: string;
+  readonly lens: string;
+  readonly path: string;
+  readonly previousPath?: string;
+  readonly startLine: number | null;
+  readonly endLine: number | null;
+  readonly title: string;
+  readonly detail?: string;
+};
+
+export type AcceptedOpenThread = {
+  readonly id: FindingId;
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly title: string;
+  readonly detail?: string;
+  readonly severity: InventoryFinding["severity"];
+  readonly lens: InventoryFinding["lens"];
+};
+
 export type InventoryPathContext = {
   readonly renames: RenameMap;
   readonly deletedPaths: ReadonlySet<string>;
@@ -115,6 +138,47 @@ function completenessOf(
       return exhaustive;
     }
   }
+}
+
+function openThreadFromInventory(finding: InventoryFinding): OpenReviewThread {
+  return {
+    findingId: finding.id,
+    severity: finding.severity,
+    lens: finding.lens,
+    path: finding.path,
+    ...(finding.previousPath != null ? { previousPath: finding.previousPath } : {}),
+    startLine: finding.startLine,
+    endLine: finding.line,
+    title: neutralizeMarkerEcho(finding.title),
+    ...(finding.detail != null ? { detail: finding.detail } : {}),
+  };
+}
+
+export function openReviewThreads(
+  inventory: FindingInventory,
+  accepted: readonly AcceptedOpenThread[],
+): readonly OpenReviewThread[] {
+  const fromInventory = [...inventory.findings.values()]
+    .filter((finding) => finding.state === "open")
+    .map(openThreadFromInventory);
+  const known = new Set(fromInventory.map((thread) => thread.findingId));
+  const fromRun = accepted.flatMap((entry): OpenReviewThread[] => {
+    if (known.has(entry.id)) return [];
+    const detail = entry.detail == null ? undefined : capFindingDetail(entry.detail);
+    return [
+      {
+        findingId: entry.id,
+        severity: entry.severity,
+        lens: entry.lens,
+        path: entry.path,
+        startLine: entry.startLine,
+        endLine: entry.endLine,
+        title: neutralizeMarkerEcho(entry.title),
+        ...(detail != null ? { detail } : {}),
+      },
+    ];
+  });
+  return [...fromInventory, ...fromRun];
 }
 
 function placePath(
