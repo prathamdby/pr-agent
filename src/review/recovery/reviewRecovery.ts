@@ -102,7 +102,15 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
     },
     getBriefFallback: () => briefFallback,
     setCoverage: (value: ReviewCoverage) => {
-      currentCoverage = value.kind === "full" ? value : { ...value, failed: [...value.failed] };
+      if (value.kind === "full") {
+        currentCoverage = value;
+        return;
+      }
+      if (value.kind === "partial" && value.reason === "unread") {
+        currentCoverage = { ...value, paths: [...value.paths] };
+        return;
+      }
+      currentCoverage = { ...value, failed: [...value.failed] };
     },
     getCoverage: () => currentCoverage,
     setJudgmentDegraded: (value: boolean) => {

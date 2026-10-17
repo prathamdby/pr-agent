@@ -113,6 +113,9 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
     evidenceLedger: {
       headSha: "a".repeat(40),
       record: () => undefined,
+      noteOpened: () => undefined,
+      hasOpened: () => false,
+      openedPaths: () => [],
       covers: () => true,
       snapshot: () => [],
     },
@@ -285,6 +288,7 @@ import {
   type ReviewStepKind,
 } from "../src/review/orchestrator/runStep.js";
 import {
+  reviewRunCoverage,
   runOrchestratedPrReview,
   type OrchestratedReviewRunParams,
 } from "../src/review/orchestrator/orchestratorRun.js";
@@ -454,6 +458,34 @@ function hardDeadlineParams(): OrchestratedReviewRunParams {
     },
   };
 }
+
+describe("reviewRunCoverage", () => {
+  it("keeps specialist failure ahead of unread files and caps stored paths", () => {
+    const unread = ["src/a.ts", "src/b.ts"];
+    expect(reviewRunCoverage(["tests"], unread)).toEqual({
+      kind: "partial",
+      reason: "specialists",
+      failed: ["tests"],
+      note: "Coverage partial: tests specialist failed. Unread changed files: src/a.ts, src/b.ts.",
+    });
+    expect(reviewRunCoverage(["correctness", "security", "quality", "tests"], unread)).toEqual({
+      kind: "none",
+      failed: ["correctness", "security", "quality", "tests"],
+    });
+    const many = Array.from({ length: 501 }, (_, index) => `src/f${index}.ts`);
+    const capped = reviewRunCoverage([], many);
+    expect(capped).toMatchObject({
+      kind: "partial",
+      reason: "unread",
+      note: "Unread changed files: src/f0.ts, src/f1.ts, src/f2.ts (+498 more).",
+    });
+    if (capped.kind !== "partial" || capped.reason !== "unread") {
+      throw new Error("expected unread coverage");
+    }
+    expect(capped.paths).toHaveLength(500);
+    expect(capped.paths[0]).toBe("src/f0.ts");
+  });
+});
 
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {

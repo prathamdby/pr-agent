@@ -140,6 +140,7 @@ import { AppError } from "../src/errors/appError.js";
 import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 import * as closeRepository from "../src/agentWork/publishRecordRepository.js";
 import {
+  closeOutcomeForCoverage,
   closeReviewVerdictsForWorkItems,
   ownVerdictSurfaces,
   isOwnCheckOpen,
@@ -466,6 +467,14 @@ describe("review check run lifecycle", () => {
       conclusion: "failure",
       blockingCount: 1,
     });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownPartialReason: "unread",
+        ownCheckFailing: true,
+        ownVerdictNote: "Unread changed files: src/a.ts.",
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 1 });
     expect(ownVerdictFromSummaryDetail({ ownVerdictKind: "published" })).toEqual({
       kind: "published",
       conclusion: "success",
@@ -484,6 +493,44 @@ describe("review check run lifecycle", () => {
       ownVerdictKind: "published",
       ownCheckFailing: false,
       ownCheckIncomplete: true,
+    });
+  });
+
+  it("publishes failure when unread files coincide with a failing check", () => {
+    const unread = {
+      kind: "partial" as const,
+      reason: "unread" as const,
+      paths: ["src/a.ts"],
+      note: "Unread changed files: src/a.ts.",
+    };
+    expect(closeOutcomeForCoverage(unread, { conclusion: "failure", blockingCount: 4 })).toEqual({
+      kind: "published",
+      conclusion: "failure",
+      blockingCount: 4,
+    });
+    expect(closeOutcomeForCoverage(unread, { conclusion: "success", blockingCount: 0 })).toEqual({
+      kind: "partial",
+      note: unread.note,
+    });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownPartialReason: "unread",
+        ownCheckFailing: true,
+        ownBlockingCount: 4,
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 4 });
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: "failure",
+        partialReason: "unread",
+        blockingCount: 4,
+      }),
+    ).toEqual({
+      ownVerdictKind: "published",
+      ownPartialReason: "unread",
+      ownCheckFailing: true,
+      ownBlockingCount: 4,
     });
   });
 

@@ -952,6 +952,25 @@ describe("review action line helpers", () => {
         failed: ["correctness", "security", "quality", "tests"],
       }),
     ).toBe("with no coverage (correctness, security, quality, and tests failed)");
+    expect(formatReviewCoverageStatus({ kind: "partial", failed: [], unread: true })).toBe(
+      "with unread files",
+    );
+    expect(formatReviewCoverageStatus({ kind: "partial", failed: ["quality"], unread: true })).toBe(
+      "except quality, with unread files",
+    );
+  });
+
+  it("does not say ready to merge when changed files were not opened", () => {
+    expect(
+      renderReviewActionLine({
+        openCount: 0,
+        blockingCount: 0,
+        followUpCount: 0,
+        ciStatusText: "CI is passing",
+        coverageStatusText: "with unread files",
+        suppressReadyToMerge: true,
+      }),
+    ).toBe("No findings. CI is passing. All specialists ran with unread files.");
   });
 
   it("joins the three action-line facts", () => {

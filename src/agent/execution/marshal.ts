@@ -177,9 +177,11 @@ export function recordMarshalledEvidence(
   if (!isRecord(delivered)) return;
   const row = delivered;
   if (typeof row.path === "string" && typeof row.content === "string") {
+    params.ledger.noteOpened(row.path);
+    if (row.content.length === 0) return;
     if (row.clampedLines != null && !Array.isArray(row.clampedLines)) return;
     const startLine = typeof row.startLine === "number" ? row.startLine : 1;
-    const lineCount = row.content.length === 0 ? 0 : row.content.split("\n").length;
+    const lineCount = row.content.split("\n").length;
     const computedEnd = startLine + Math.max(lineCount, 1) - 1;
     const endLine =
       typeof row.endLine === "number" ? Math.min(row.endLine, computedEnd) : computedEnd;
@@ -206,6 +208,7 @@ export function recordMarshalledEvidence(
     return;
   }
   if (typeof row.path === "string" && typeof row.diff === "string" && row.diff.length > 0) {
+    params.ledger.noteOpened(row.path);
     const contentHash = hashNormalizedLineText(row.diff);
     for (const [startLine, endLine] of parseCommentableRightLineRanges(row.diff)) {
       params.ledger.record({

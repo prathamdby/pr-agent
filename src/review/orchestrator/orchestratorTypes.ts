@@ -153,7 +153,18 @@ export type FindingLedgerDelta = {
 
 export type ReviewCoverage =
   | { readonly kind: "full" }
-  | { readonly kind: "partial"; readonly failed: readonly SpecialistId[]; readonly note: string }
+  | {
+      readonly kind: "partial";
+      readonly reason: "specialists";
+      readonly failed: readonly SpecialistId[];
+      readonly note: string;
+    }
+  | {
+      readonly kind: "partial";
+      readonly reason: "unread";
+      readonly paths: readonly string[];
+      readonly note: string;
+    }
   | { readonly kind: "none"; readonly failed: readonly SpecialistId[] };
 
 export function createFindingLedger(initial?: {
