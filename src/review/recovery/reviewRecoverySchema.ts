@@ -49,16 +49,25 @@ export const findingLedgerSnapshotSchema = v.strictObject({
   threadCallCount: count,
   threadBudgetExhausted: v.boolean(),
 });
-export const reviewCoverageSchema = v.variant("kind", [
+const coverageSpecialistId = v.picklist(["correctness", "security", "quality", "tests"]);
+const openedPath = v.pipe(v.string(), v.minLength(1), v.maxLength(4096));
+export const reviewCoverageSchema = v.union([
   v.strictObject({ kind: v.literal("full") }),
   v.strictObject({
     kind: v.literal("partial"),
-    failed: v.array(v.picklist(["correctness", "security", "quality", "tests"])),
+    reason: v.literal("specialists"),
+    failed: v.array(coverageSpecialistId),
+    note: v.string(),
+  }),
+  v.strictObject({
+    kind: v.literal("partial"),
+    reason: v.literal("unread"),
+    paths: v.pipe(v.array(openedPath), v.minLength(1), v.maxLength(500)),
     note: v.string(),
   }),
   v.strictObject({
     kind: v.literal("none"),
-    failed: v.array(v.picklist(["correctness", "security", "quality", "tests"])),
+    failed: v.array(coverageSpecialistId),
   }),
 ]);
 
@@ -83,6 +92,7 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
     judgmentDegraded: v.boolean(),
     briefFallback: v.optional(v.boolean(), false),
     coverage: v.optional(reviewCoverageSchema, { kind: "full" }),
+    openedPaths: v.optional(v.pipe(v.array(openedPath), v.maxLength(5000))),
   }),
   v.strictObject({
     kind: v.literal("summary"),

@@ -149,21 +149,36 @@ function lineRangeCovers(
 export type EvidenceLedger = {
   readonly headSha: string;
   record: (read: Omit<EvidenceRead, "recordedAt">) => void;
+  noteOpened: (path: string) => void;
+  hasOpened: (path: string) => boolean;
+  openedPaths: () => readonly string[];
   covers: (path: string, startLine: number, endLine: number) => boolean;
   snapshot: () => readonly EvidenceRead[];
 };
 
 export function createEvidenceLedger(headSha: string): EvidenceLedger {
   const reads: EvidenceRead[] = [];
+  const opened = new Set<string>();
 
   return {
     headSha,
     record(read) {
+      const path = normalizeEvidencePath(read.path);
+      opened.add(path);
       reads.push({
         ...read,
-        path: normalizeEvidencePath(read.path),
+        path,
         recordedAt: new Date().toISOString(),
       });
+    },
+    noteOpened(path) {
+      opened.add(normalizeEvidencePath(path));
+    },
+    hasOpened(path) {
+      return opened.has(normalizeEvidencePath(path));
+    },
+    openedPaths() {
+      return [...opened].toSorted();
     },
     covers(path, startLine, endLine) {
       const normalized = normalizeEvidencePath(path);
@@ -179,4 +194,27 @@ export function createEvidenceLedger(headSha: string): EvidenceLedger {
       return [...reads];
     },
   };
+}
+
+export function unreadChangedPaths(params: {
+  readonly ledger: EvidenceLedger;
+  readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
+  readonly isPathInCheckout: (path: string) => boolean;
+}): readonly string[] {
+  const unread: string[] = [];
+  for (const file of params.changedFiles) {
+    if (file.status === "deleted") continue;
+    const path = normalizeEvidencePath(file.path);
+    if (!params.isPathInCheckout(path)) continue;
+    if (params.ledger.hasOpened(path)) continue;
+    unread.push(path);
+  }
+  return unread;
+}
+
+export function unreadChangedFilesNote(paths: readonly string[]): string {
+  const shown = paths.slice(0, 3);
+  const rest = paths.length - shown.length;
+  const more = rest > 0 ? ` (+${rest} more)` : "";
+  return `Unread changed files: ${shown.join(", ")}${more}.`;
 }

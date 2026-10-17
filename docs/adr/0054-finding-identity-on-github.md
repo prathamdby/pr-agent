@@ -91,7 +91,9 @@ the database lost identity.
   `createReview`; recovery finds published threads by marker. v1 records end as
   `outcome_unknown`.
 - Validated review artifacts move to schema version 4. Older artifacts no
-  longer bind, so that run recomputes instead of reusing them.
+  longer bind, so that run recomputes instead of reusing them. Schema version 5
+  keeps that rule and stores opened paths so a resumed review does not treat a
+  file opened before the crash as unread.
 - Workers must upgrade together. Mixed versions disagree on identity.
 - Reaffirming a finding posts no reply; it shows only as a summary status.
 - A defect split across two files is not retrieved. `uncertain` is the only

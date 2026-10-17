@@ -70,6 +70,7 @@ import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../agent/description/descriptionRender.js";
 import { tryLightweightAutoReviewCompletion } from "../agentWork/reviewLightweightCompletion.js";
 import {
+  closeOutcomeForCoverage,
   reviewVerdict,
   type OwnVerdictOutcome,
   ownVerdictFromSummaryDetail,
@@ -581,6 +582,7 @@ async function handleReviewPublishResult(args: {
       publishAttempts: result.publishAttempts,
       publishStepCount: result.publishStepCount,
     });
+    const composed = closeOutcomeForCoverage(result.coverage, result.findingCheck);
     await closeStoredReviewVerdict({
       pool,
       item,
@@ -589,9 +591,8 @@ async function handleReviewPublishResult(args: {
       leaseEpoch,
       commitStatusEnabled,
       outcome:
-        result.coverage?.kind === "partial"
-          ? { kind: "partial", note: result.coverage.note }
-          : result.findingCheck != null
+        composed.kind === "not_published"
+          ? result.findingCheck != null
             ? { kind: "published", ...result.findingCheck }
             : ownVerdictFromSummaryDetail(
                 await createPublishContext(pool, {
@@ -599,7 +600,8 @@ async function handleReviewPublishResult(args: {
                   resourceKey: item.resourceKey,
                   reviewLens,
                 }).completed("summary_comment"),
-              ),
+              )
+          : composed,
     });
   }
   if (result.published || result.publishSuperseded) {

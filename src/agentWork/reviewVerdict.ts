@@ -15,6 +15,7 @@ import type {
   FindingCheck,
   FindingCheckConclusion,
 } from "../review/findingIdentity/findingLifecycle.js";
+import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.js";
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
@@ -872,9 +873,11 @@ export function summaryCommentVerdictMeta(params: {
   readonly kind: "published" | "partial";
   readonly note?: string;
   readonly conclusion: FindingCheckConclusion;
+  readonly partialReason?: "specialists" | "unread";
 }): {
   readonly ownVerdictKind: "published" | "partial";
   readonly ownVerdictNote?: string;
+  readonly ownPartialReason?: "specialists" | "unread";
   readonly ownCheckFailing: boolean;
   readonly ownCheckIncomplete?: true;
 } {
@@ -886,16 +889,45 @@ export function summaryCommentVerdictMeta(params: {
     return {
       ownVerdictKind: "partial",
       ...(params.note != null && params.note.length > 0 ? { ownVerdictNote: params.note } : {}),
+      ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
       ...check,
     };
   }
-  return { ownVerdictKind: "published", ...check };
+  return {
+    ownVerdictKind: "published",
+    ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
+    ...check,
+  };
+}
+
+export function closeOutcomeForCoverage(
+  coverage: ReviewCoverage | undefined,
+  check: FindingCheck | undefined,
+): OwnVerdictOutcome {
+  if (coverage?.kind === "partial" && coverage.reason === "unread") {
+    if (check?.conclusion === "failure") {
+      return {
+        kind: "published",
+        conclusion: "failure",
+        blockingCount: check.blockingCount,
+      };
+    }
+    return { kind: "partial", note: coverage.note };
+  }
+  if (coverage?.kind === "partial") {
+    return { kind: "partial", note: coverage.note };
+  }
+  if (check != null) return { kind: "published", ...check };
+  return { kind: "not_published" };
 }
 
 export function ownVerdictFromSummaryDetail(
   detail: Record<string, unknown> | null,
 ): OwnVerdictOutcome {
   if (detail == null) return { kind: "not_published" };
+  if (detail.ownPartialReason === "unread" && detail.ownCheckFailing === true) {
+    return { kind: "published", conclusion: "failure", blockingCount: 1 };
+  }
   if (detail.ownVerdictKind === "partial") {
     const note =
       typeof detail.ownVerdictNote === "string" && detail.ownVerdictNote.length > 0

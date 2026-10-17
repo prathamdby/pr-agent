@@ -217,7 +217,7 @@ describe("publishReviewSummaryOnly", () => {
       publishReviewSummaryOnly(session, {
         payload: makeReviewPayload({ findings: [item] }),
         ledger,
-        coverage: { kind: "partial", failed: ["tests"], note: "Partial coverage" },
+        coverage: { kind: "partial", reason: "specialists", failed: ["tests"], note: "Partial coverage" },
       }),
     ).resolves.toEqual({
       kind: "published",
@@ -292,6 +292,7 @@ describe("publishReviewSummaryOnly", () => {
       ledger,
       coverage: {
         kind: "partial",
+        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },
@@ -407,6 +408,7 @@ describe("publishReviewSummaryOnly", () => {
       recordPublishStep,
       coverage: {
         kind: "partial",
+        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },
@@ -429,6 +431,63 @@ describe("publishReviewSummaryOnly", () => {
       expect.objectContaining({ state: "error" }),
     );
     expect(upsertProgressComment).toHaveBeenCalled();
+  });
+
+  it("closes failure when unread files remain and a finding already fails the check", async () => {
+    const client = {
+      query: vi.fn(async () => ({ rows: [{ locked: true }] })),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const pool = {
+      options: { max: 4 },
+      connect: vi.fn(async () => client),
+    } as unknown as Pool;
+    const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    const { surface } = configuredSummarySurface();
+    const close = vi.fn(async () => undefined);
+    const actualVerdict = verdictOwner.reviewVerdict;
+    vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      return { ...verdict, close };
+    });
+    await publishSummaryForTest({
+      cfg: makeTestConfig(),
+      recordPublishStep,
+
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [finding(10)] }),
+      ledger: createFindingLedger({
+        accepted: [
+          {
+            kind: "posted",
+            source: "correctness",
+            placement: { finding: finding(10), inlineLine: 10, inlinePosted: true },
+            findingId: legacyFindingId("unread-fail"),
+            reviewId: 41,
+          },
+        ],
+      }),
+      coverage: {
+        kind: "partial",
+        reason: "unread",
+        paths: ["src/a.ts"],
+        note: "Unread changed files: src/a.ts.",
+      },
+    });
+    expect(close).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "published", conclusion: "failure" }),
+    );
   });
 
   it("closes the own verdict from pool identity when summary coordination is absent", async () => {

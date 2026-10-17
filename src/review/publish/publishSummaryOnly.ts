@@ -9,7 +9,7 @@ import {
   publishOnce,
 } from "../../agentWork/publishOnce.js";
 import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
-import { reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
+import { closeOutcomeForCoverage, reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
@@ -106,6 +106,15 @@ export async function publishReviewSummaryOnly(
   });
   const check = findingCheck(findingView);
   const startedAt = Date.now();
+  const closeOutcome = closeOutcomeForCoverage(coverage, check);
+  if (coverage.kind === "partial" && coverage.reason === "unread") {
+    logWarn("review_unread_changed_files", {
+      count: coverage.paths.length,
+      owner: session.ctx.owner,
+      repo: session.ctx.repo,
+      pr: session.ctx.prNumber,
+    });
+  }
   const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
     if (session.agentEvents) {
       emitWorkSpan(
@@ -183,9 +192,11 @@ export async function publishReviewSummaryOnly(
     ciSummary,
     ciVersion: renderedCi.version,
     coverage:
-      coverage.kind === "full"
-        ? { kind: "full", failed: [] }
-        : { kind: coverage.kind, failed: coverage.failed },
+      coverage.kind === "partial" && coverage.reason === "unread"
+        ? { kind: "partial", failed: [], unread: true }
+        : coverage.kind === "full"
+          ? { kind: "full", failed: [] }
+          : { kind: coverage.kind, failed: coverage.failed },
     runFooter: {
       durationMs,
       model: session.cfg.models.model,
@@ -225,7 +236,17 @@ export async function publishReviewSummaryOnly(
   const inputs = saved?.inputs ?? {
     kind: "summary" as const,
     ledger: snapshotFindingLedger(input.ledger),
-    coverage: coverage.kind === "full" ? coverage : { ...coverage, failed: [...coverage.failed] },
+    coverage:
+      coverage.kind === "full"
+        ? coverage
+        : coverage.reason === "unread"
+          ? { kind: "partial" as const, reason: "unread" as const, paths: [...coverage.paths], note: coverage.note }
+          : {
+              kind: "partial" as const,
+              reason: "specialists" as const,
+              failed: [...coverage.failed],
+              note: coverage.note,
+            },
     staleReview: input.staleReview ?? false,
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
     briefFallback: session.recovery?.getBriefFallback() ?? false,
@@ -305,9 +326,10 @@ export async function publishReviewSummaryOnly(
       diffCacheEmpty: session.cachedDiffIndex == null || session.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
       ...summaryCommentVerdictMeta({
-        kind: coverage.kind === "partial" ? "partial" : "published",
-        note: coverage.kind === "partial" ? coverage.note : undefined,
+        kind: closeOutcome.kind === "partial" ? "partial" : "published",
+        note: closeOutcome.kind === "partial" ? closeOutcome.note : undefined,
         conclusion: check.conclusion,
+        partialReason: coverage.kind === "partial" ? coverage.reason : undefined,
       }),
     },
   });
@@ -335,11 +357,7 @@ export async function publishReviewSummaryOnly(
       leaseEpoch: session.verdict.leaseEpoch,
       commitStatusEnabled: session.cfg.features.commitStatus,
       summaryCommentId: summary.id,
-    }).close(
-      coverage.kind === "partial"
-        ? { kind: "partial", note: coverage.note }
-        : { kind: "published", ...check },
-    );
+    }).close(closeOutcome.kind === "not_published" ? { kind: "published", ...check } : closeOutcome);
   }
 
   if (!labelsAvailable) return finishPublished(summary.id);

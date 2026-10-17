@@ -9,7 +9,7 @@ import { reviewPayloadSchema } from "../reviewSchema.js";
 import { canonicalReviewDecisionSchema } from "./reviewRecoverySchema.js";
 
 export const REVIEW_CONTRACT_VERSION = "review-1";
-export const REVIEW_ARTIFACT_SCHEMA_VERSION = 4;
+export const REVIEW_ARTIFACT_SCHEMA_VERSION = 5;
 
 const hashSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/));
 const identityText = (max: number) =>
@@ -55,12 +55,18 @@ const artifactSchema = v.variant("kind", [
   v.strictObject({
     kind: v.literal("brief"),
     brief: specialistBriefSchema,
+    openedPaths: v.optional(v.pipe(v.array(v.string()), v.maxLength(5000))),
   }),
   v.strictObject({
     kind: v.literal("report"),
     specialist: v.picklist(["correctness", "security", "quality", "tests"]),
     report: specialistReportSchema,
     evidence: v.pipe(v.array(evidenceDescriptorSchema), v.maxLength(2048)),
+    openedPaths: v.optional(v.pipe(v.array(v.string()), v.maxLength(5000))),
+  }),
+  v.strictObject({
+    kind: v.literal("opened_paths"),
+    paths: v.pipe(v.array(v.string()), v.maxLength(5000)),
   }),
   v.strictObject({
     kind: v.literal("publication_prepared"),
@@ -175,6 +181,8 @@ function logicalIdentity(artifact: ReviewArtifactEnvelope["artifact"]) {
   switch (artifact.kind) {
     case "brief":
       return { logicalKey: "brief", order: 0 };
+    case "opened_paths":
+      return { logicalKey: "opened-paths", order: 5 };
     case "report":
       return {
         logicalKey: `report/${artifact.specialist}`,
@@ -218,6 +226,9 @@ export function createReviewArtifactEnvelope(
   switch (artifactValue.kind) {
     case "brief":
       output = { ...artifactValue, brief: redactStructuredOutput(artifactValue.brief) };
+      break;
+    case "opened_paths":
+      output = { ...artifactValue, paths: redactStructuredOutput(artifactValue.paths) };
       break;
     case "report":
       output = { ...artifactValue, report: redactStructuredOutput(artifactValue.report) };

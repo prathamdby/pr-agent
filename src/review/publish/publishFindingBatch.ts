@@ -399,6 +399,7 @@ export async function publishFindingBatch(
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
     briefFallback: session.recovery?.getBriefFallback() ?? false,
     coverage: session.recovery?.getCoverage() ?? { kind: "full" },
+    ...(input.evidenceLedger ? { openedPaths: [...input.evidenceLedger.openedPaths()] } : {}),
     counts: {
       suppressed: suppressedCount,
       capDowngraded: targets.dropped.inlineCommentCapExcluded,

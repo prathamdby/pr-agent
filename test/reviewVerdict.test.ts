@@ -466,6 +466,14 @@ describe("review check run lifecycle", () => {
       conclusion: "failure",
       blockingCount: 1,
     });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownPartialReason: "unread",
+        ownCheckFailing: true,
+        ownVerdictNote: "Unread changed files: src/a.ts.",
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 1 });
     expect(ownVerdictFromSummaryDetail({ ownVerdictKind: "published" })).toEqual({
       kind: "published",
       conclusion: "success",

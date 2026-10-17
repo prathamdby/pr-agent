@@ -411,6 +411,7 @@ export function renderSpecialistReviewBody(params: {
 export type ReviewActionLineCoverage = {
   readonly kind: "full" | "partial" | "none";
   readonly failed: readonly string[];
+  readonly unread?: boolean;
 };
 
 type ReviewSummaryRenderCtx = RenderContext & {
@@ -439,6 +440,7 @@ function isDurableCarriedRow([, held]: CarriedSummaryRow): boolean {
 }
 
 export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
+  if (coverage.unread) return "with unread files";
   if (coverage.kind === "full" || coverage.failed.length === 0) {
     return "with full coverage";
   }
@@ -457,12 +459,17 @@ export function renderReviewActionLine(input: {
   followUpCount: number;
   ciStatusText: string;
   coverageStatusText: string;
+  suppressReadyToMerge?: boolean;
 }): string {
   const followUpSegment =
     input.openCount > 0 && input.followUpCount > 0
       ? ` ${formatFollowUpCountClause(input.followUpCount)}.`
       : "";
-  return `${formatFindingCountClause(input.openCount, input.blockingCount)}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
+  const findingClause =
+    input.suppressReadyToMerge && input.openCount === 0
+      ? "No findings"
+      : formatFindingCountClause(input.openCount, input.blockingCount);
+  return `${findingClause}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
 }
 
 function formatFindingCountClause(openCount: number, blockingCount: number): string {
@@ -525,6 +532,7 @@ function buildReviewSummaryBody(
     ciStatusText: renderReviewActionLineCiStatus(ctx.ciSummary),
     coverageStatusText: formatReviewCoverageStatus(coverage),
     followUpCount: payload.followUps.length,
+    suppressReadyToMerge: coverage.unread === true,
   });
 
   const rows: string[] = [];

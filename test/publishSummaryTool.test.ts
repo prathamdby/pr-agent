@@ -326,6 +326,7 @@ describe("buildPublishSummaryTool", () => {
     });
     coverage = {
       kind: "partial",
+      reason: "specialists",
       failed: ["security"],
       note: "Coverage partial: security specialist failed.",
     };
