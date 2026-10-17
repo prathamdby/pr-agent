@@ -202,6 +202,7 @@ See [ADR 0020](adr/0020-orchestrated-review.md).
 `src/agentWork/reviewVerdict.ts::reviewVerdict` returns `{pending, close, repairIfOpen}`.
 It resolves summary details links and applies only the first selected verdict.
 Check and commit-status acceptance retain separate receipts and fail-closed repair.
+A terminal unknown check close is not selected or sent again.
 Explicit null comment IDs retain no-link output on acknowledgement, stale-head,
 projector, and sweeper paths; just-written comments can supply their IDs before
 a durable record exists.

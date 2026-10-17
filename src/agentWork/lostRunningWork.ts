@@ -61,7 +61,21 @@ export async function listTerminalReviewsWithOpenOwnChecks(
           (p.detail ? 'selectedOwnVerdict' AND (
             (writable.checks
               AND COALESCE(p.detail->>'ownCheckApplied', '') <> 'true'
-              AND COALESCE(p.detail->>'ownCheckState', '') <> 'skipped-for-this-run')
+              AND COALESCE(p.detail->>'ownCheckState', '') <> 'skipped-for-this-run'
+              AND NOT EXISTS (
+                SELECT 1 FROM operation_intents i
+                WHERE i.work_item_id = w.id
+                  AND i.status = 'outcome_unknown'
+                  AND i.detail->>'unknownResolution' = 'terminal'
+                  AND (
+                    i.operation_key = 'review:check_run_close:' || w.id::text || ':' || w.review_lens
+                    OR (
+                      i.mutation_kind = 'github.pr_surface.finishReviewCheck'
+                      AND i.detail->>'parentOperationKey' =
+                        'review:check_run_close:' || w.id::text || ':' || w.review_lens
+                    )
+                  )
+              ))
             OR (writable.statuses
               AND p.detail->'selectedOwnVerdict'->'status'->>'enabled' = 'true'
               AND COALESCE(p.detail->'selectedOwnVerdict'->'status'->>'headSha', '')

@@ -467,6 +467,11 @@ async function completeSelectedCheck(
     await recordOwnVerdictSurfaceApplied(client, { ...params, selected }, "check");
     return true;
   }
+  if (
+    (parent?.status === "outcome_unknown" && parent.detail.unknownResolution === "terminal") ||
+    (child?.status === "outcome_unknown" && child.detail.unknownResolution === "terminal")
+  )
+    return false;
   let id =
     record.githubId ??
     (await getReviewCheckRunGithubId(client, params.workItemId, params.reviewLens));
