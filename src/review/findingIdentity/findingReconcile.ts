@@ -117,6 +117,13 @@ function acceptedCandidate(accepted: AcceptedThisRun): OverlapCandidate {
   };
 }
 
+function acceptedOverlaps(observation: Span, accepted: AcceptedThisRun): boolean {
+  return (
+    accepted.path === observation.file &&
+    rangesNear(observation, accepted.startLine, accepted.endLine)
+  );
+}
+
 function retrievalCandidates(
   observation: Span,
   inventory: FindingInventory,
@@ -139,6 +146,10 @@ function retrievalCandidates(
       line: start,
     });
   }
+  const overlappedAccepted = acceptedThisRun.filter(
+    (accepted) => !known.has(accepted.id) && acceptedOverlaps(observation, accepted),
+  );
+  for (const accepted of overlappedAccepted) known.add(accepted.id);
   for (const accepted of acceptedThisRun) {
     if (known.has(accepted.id) || accepted.path !== observation.file) continue;
     ranked.push({
@@ -155,6 +166,7 @@ function retrievalCandidates(
   );
   return [
     ...overlapped,
+    ...overlappedAccepted.map(acceptedCandidate),
     ...ranked.slice(0, NEAREST_SAME_FILE_CANDIDATES).map((row) => row.candidate),
   ];
 }

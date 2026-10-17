@@ -20,7 +20,7 @@ const serverOwnedEvidenceLabels = [
   "specialist_outcomes",
 ] as const;
 
-function neutralizeEvidenceDelimiters(text: string): string {
+export function neutralizeEvidenceDelimiters(text: string): string {
   return serverOwnedEvidenceLabels.reduce(
     (current, label) => neutralizeUntrustedBlockTags(label, current),
     text,
@@ -36,7 +36,7 @@ function headerWordPattern(word: string): string {
   return word.split("").join(headerLetterGap);
 }
 
-function neutralizeForgedTrustHeaders(text: string): string {
+export function neutralizeForgedTrustHeaders(text: string): string {
   const contextTagsNeutralized = neutralizeUntrustedBlockTags("context", text);
   const trustedContextPattern = new RegExp(
     `^${headerLetterGap}(?:#{1,6}${headerLetterGap})?${headerWordPattern("trusted")}${headerWordGap}${headerWordPattern("context")}\\b[^\\r\\n\\u2028\\u2029]*$`,

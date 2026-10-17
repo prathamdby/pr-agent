@@ -726,6 +726,31 @@ describe("observation reconciliation", () => {
     });
   });
 
+  it("keeps every overlapping accepted finding past the nearest four", () => {
+    const accepted = [10, 20, 30, 40].map((line, index) => ({
+      id: id(`f_0000000000000000000000000${index + 1}`),
+      path: "src/a.ts",
+      startLine: line,
+      endLine: line + 4,
+      title: `Near ${index + 1}`,
+      url: "",
+    }));
+    const fifth = {
+      id: B,
+      path: "src/a.ts",
+      startLine: 224,
+      endLine: 232,
+      title: "Fifth overlap",
+      url: "",
+    };
+    expect(
+      reconcile({ kind: "continues", findingId: B }, [], {
+        obs: observation({ startLine: 226, endLine: 230 }),
+        accepted: [...accepted, fifth],
+      }),
+    ).toEqual({ outcome: { kind: "reaffirm", id: B, severity: "P1" } });
+  });
+
   it("posts two defects on one line when the model answers distinct_from", () => {
     expect(
       reconcile({ kind: "distinct_from", findingIds: [A], reason: "different variable" }, [open()]),
