@@ -32,4 +32,4 @@ export const alreadyResolvedVerdictGuidance =
   "- already-resolved: the current code no longer has the issue";
 
 export const dismissedVerdictGuidance =
-  "- dismissed: an authorized maintainer decision clearly says false positive, intentional, or will-not-fix for this finding thread.";
+  "- dismissed: an authorized maintainer decision clearly says false positive, intentional, will-not-fix, or rejected for this finding thread.";
