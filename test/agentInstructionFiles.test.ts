@@ -27,21 +27,16 @@ describe("loadAgentInstructionFiles", () => {
     await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent", drops: [] });
   });
 
-  it("loads AGENTS.md, CLAUDE.md, and GEMINI.md in fixed order", async () => {
+  it("loads AGENTS.md and CLAUDE.md in fixed order", async () => {
     const root = await checkoutWith({
-      "GEMINI.md": "Gemini rules.",
-      "AGENTS.md": "Agents rules.\n\nUse nub.",
       "CLAUDE.md": "@AGENTS.md",
+      "AGENTS.md": "Agents rules.\n\nUse nub.",
       "README.md": "ignored",
     });
     const result = await loadAgentInstructionFiles(root);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
-    expect(result.files.map((file) => file.filename)).toEqual([
-      "AGENTS.md",
-      "CLAUDE.md",
-      "GEMINI.md",
-    ]);
+    expect(result.files.map((file) => file.filename)).toEqual(["AGENTS.md", "CLAUDE.md"]);
     expect(result.files[0].body).toContain("Use nub.");
     expect(result.files[1].body).toBe("@AGENTS.md");
   });
@@ -80,17 +75,17 @@ describe("loadAgentInstructionFiles", () => {
     expect(result.files[0].filename).toBe("AGENTS.md");
   });
 
-  it("break on aggregate cap stops all later files even if they would fit", async () => {
+  it("stops later files when an earlier file breaks the aggregate cap", async () => {
     const root = await checkoutWith({
-      "AGENTS.md": "a".repeat(30),
-      "CLAUDE.md": "b".repeat(30),
-      "GEMINI.md": "tiny",
+      "AGENTS.md": "a".repeat(60),
+      "CLAUDE.md": "tiny",
     });
     const result = await loadAgentInstructionFiles(root, 50);
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    expect(result.files).toHaveLength(1);
-    expect(result.files[0].filename).toBe("AGENTS.md");
+    expect(result.kind).toBe("absent");
+    if (result.kind !== "absent") return;
+    expect(result.drops).toEqual([
+      { filename: "AGENTS.md", reason: "aggregate size cap exceeded" },
+    ]);
   });
 
   it("skips a directory named AGENTS.md and loads remaining files", async () => {

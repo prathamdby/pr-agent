@@ -96,10 +96,10 @@ Judged-yes paths become a muted `Bound ·` footer. The specialist does
 not author a path (`src/review/repoPolicy.ts`,
 `src/review/publish/boundPolicyJudge.ts`).
 
-**Agent instruction files.** Root `AGENTS.md`, `CLAUDE.md`, and
-`GEMINI.md` load in parallel with repo policy on orchestrated review
-only. Separate budgets. No `@include`. Ask, describe, triage, and
-verification do not load them (ADR 0019).
+**Agent instruction files.** Root `AGENTS.md` and `CLAUDE.md` load in
+parallel with repo policy on orchestrated review only, and only when
+present. An absent file is not cited. Separate budgets. No `@include`.
+Ask, describe, triage, and verification do not load them (ADR 0019).
 
 **Evidence.** The local PR workspace at `headSha` is the only
 publishable code authority (ADR 0024). Findings that cite a path or line
