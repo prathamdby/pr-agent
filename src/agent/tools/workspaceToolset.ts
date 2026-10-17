@@ -70,6 +70,7 @@ export type LocalWorkspaceToolLimits = {
 
 const REVIEW_THREAD_LIMIT = 5;
 const REVIEW_THREAD_FIELD_MAX_BYTES = 8_000;
+const REVIEW_THREAD_TITLE_CAP = 200;
 
 export type ReviewThreadSource = () => readonly OpenReviewThread[];
 
@@ -135,14 +136,36 @@ function diffAnnotationWindow(diff: string): { start: number; end: number } {
   };
 }
 
+function boundedThreadTitle(title: string): string {
+  const text = neutralizeMarkerEcho(title).replace(/\s+/g, " ").trim();
+  if (text.length <= REVIEW_THREAD_TITLE_CAP) return text;
+  return `${text.slice(0, REVIEW_THREAD_TITLE_CAP - 1)}…`;
+}
+
+function withoutDetail(entry: ReviewThreadFieldEntry): ReviewThreadFieldEntry {
+  const { detail: _detail, ...rest } = entry;
+  return rest;
+}
+
+function withoutText(entry: ReviewThreadFieldEntry): ReviewThreadFieldEntry {
+  const { detail: _detail, title: _title, ...rest } = entry;
+  return rest;
+}
+
+function reviewThreadFieldBytes(entries: readonly ReviewThreadFieldEntry[]): number {
+  return Buffer.byteLength(JSON.stringify(entries), "utf8");
+}
+
 function fitReviewThreadField(entries: ReviewThreadFieldEntry[]): ReviewThreadFieldEntry[] {
   const fitted = [...entries];
-  while (
-    fitted.length > 0 &&
-    Buffer.byteLength(JSON.stringify(fitted), "utf8") > REVIEW_THREAD_FIELD_MAX_BYTES
-  ) {
-    fitted.pop();
+  const over = () => reviewThreadFieldBytes(fitted) > REVIEW_THREAD_FIELD_MAX_BYTES;
+  for (let index = fitted.length - 1; index >= 0 && over(); index -= 1) {
+    const entry = fitted[index];
+    if (entry?.detail != null) fitted[index] = withoutDetail(entry);
   }
+  while (fitted.length > 1 && over()) fitted.pop();
+  const last = fitted[0];
+  if (last != null && over()) fitted[0] = withoutText(last);
   return fitted;
 }
 
@@ -171,7 +194,7 @@ function reviewThreadField(
       endLine: thread.endLine,
       ...(includeDetail
         ? {
-            title: neutralizeMarkerEcho(thread.title),
+            title: boundedThreadTitle(thread.title),
             ...(detail != null && detail.length > 0 ? { detail } : {}),
           }
         : {}),

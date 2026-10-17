@@ -1,5 +1,5 @@
 import type { FindingInventory, InventoryFinding } from "./findingInventory.js";
-import type { FindingId, FindingSeverity } from "./findingMarker.js";
+import { neutralizeMarkerEcho, type FindingId, type FindingSeverity } from "./findingMarker.js";
 
 export const OVERLAP_WINDOW_LINES = 10;
 export const MAX_OVERLAP_ROUNDS = 1;
@@ -98,7 +98,7 @@ function inventoryCandidate(finding: InventoryFinding): OverlapCandidate {
     findingId: finding.id,
     path: finding.path,
     line: finding.line,
-    title: finding.title,
+    title: neutralizeMarkerEcho(finding.title),
     ...(finding.detail != null ? { detail: finding.detail } : {}),
     state: finding.state,
     url: finding.url,
@@ -110,7 +110,7 @@ function acceptedCandidate(accepted: AcceptedThisRun): OverlapCandidate {
     findingId: accepted.id,
     path: accepted.path,
     line: accepted.startLine,
-    title: accepted.title,
+    title: neutralizeMarkerEcho(accepted.title),
     ...(accepted.detail != null ? { detail: accepted.detail } : {}),
     state: "accepted_this_run",
     url: accepted.url,

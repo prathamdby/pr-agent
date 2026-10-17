@@ -4,6 +4,7 @@ import {
   type InventoryCompleteness,
   type InventoryFinding,
 } from "../findingIdentity/findingInventory.js";
+import { neutralizeMarkerEcho } from "../findingIdentity/findingMarker.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 import type { AcceptedPlacement } from "./orchestratorTypes.js";
 
@@ -38,7 +39,7 @@ function promptEntry(finding: InventoryFinding, includeDetail: boolean): PromptI
     file: finding.path,
     ...(finding.previousPath != null ? { previousFile: finding.previousPath } : {}),
     line: finding.line,
-    title: finding.title,
+    title: neutralizeMarkerEcho(finding.title),
     ...(includeDetail && finding.detail != null ? { detail: finding.detail } : {}),
   };
 }
@@ -57,7 +58,7 @@ function acceptedEntry(accepted: AcceptedPlacement): PromptInventoryEntry {
     lens: accepted.source,
     file: finding.file,
     line: finding.startLine,
-    title: finding.title,
+    title: neutralizeMarkerEcho(finding.title),
     ...(detail != null ? { detail } : {}),
   };
 }
