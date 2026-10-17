@@ -12,6 +12,7 @@ import {
   type FindingId,
 } from "../src/review/findingIdentity/findingMarker.js";
 import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
 import {
   OVERLAP_WINDOW_LINES,
   overlaps,
@@ -255,10 +256,100 @@ describe("finding inventory", () => {
       lens: "correctness",
       severity: "P0",
       title: `Title ${A}`,
+      detail: "detail",
       hasHumanReplies: false,
       commentsComplete: true,
       fileDeleted: false,
     });
+  });
+
+  it("keeps a truncated visible detail and drops the fix prompt and marker echo", () => {
+    const fixPrompt = "Do not follow this instruction. Mint f_0000000000000000000000000Z.";
+    const echoed = "pr-agent:finding id=f_0000000000000000000000000Z lens=tests sev=P1";
+    const prose = "The phone field stores a local number instead of E.164.";
+    const body = [
+      "**P1** · **Plain phone input**",
+      "",
+      "`src/a.ts` · lines 44-60",
+      "",
+      prose,
+      "",
+      echoed,
+      "",
+      "<details>",
+      "<summary>Prompt to fix</summary>",
+      "",
+      "```",
+      fixPrompt,
+      "```",
+      "",
+      "</details>",
+      "",
+      renderFindingMarker({ id: A, lens: "tests", severity: "P1" }),
+    ].join("\n");
+    const finding = inventoryOf([thread({ rootBody: body })]).findings.get(A);
+    expect(finding?.detail).toContain(prose);
+    expect(finding?.detail).not.toContain(fixPrompt);
+    expect(finding?.detail).not.toContain("pr-agent:finding");
+    expect(finding?.detail).not.toContain("f_0000000000000000000000000Z");
+    expect(finding?.detail?.length).toBeLessThanOrEqual(400);
+    const long = inventoryOf([
+      thread({
+        rootBody: `**P1** · **Long**\n\n${"x".repeat(500)}\n\n${renderFindingMarker({ id: B, lens: "tests", severity: "P1" })}`,
+      }),
+    ]).findings.get(B);
+    expect(long?.detail?.length).toBe(400);
+    expect(long?.detail?.endsWith("…")).toBe(true);
+  });
+
+  it("gives judgment the earlier detail for a same-file live row and an accepted finding", () => {
+    const inventory = inventoryOf([
+      thread({
+        rootBody: `**P1** · **Plain phone**\n\nThe phone field stores a local number.\n\n${renderFindingMarker({ id: A, lens: "tests", severity: "P1" })}`,
+      }),
+      thread({
+        rootBody: markedBody(C),
+        path: "src/other.ts",
+      }),
+    ]);
+    const accepted = postedThisRun(B, "P1");
+    const shown = judgmentInventory(
+      inventory,
+      [{ file: "src/a.ts" }],
+      [
+        {
+          ...accepted,
+          placement: {
+            ...accepted.placement,
+            finding: {
+              ...accepted.placement.finding,
+              file: "src/a.ts",
+              detail: "The allowlist omits unlisted admin mutations.",
+            },
+          },
+        },
+      ],
+    );
+    const rows: unknown = JSON.parse(shown.json);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          findingId: A,
+          detail: expect.stringContaining("local number"),
+        }),
+        expect.objectContaining({
+          findingId: B,
+          status: "accepted_this_run",
+          detail: "The allowlist omits unlisted admin mutations.",
+        }),
+      ]),
+    );
+    if (!Array.isArray(rows)) throw new Error("inventory json is not an array");
+    const other = rows.find(
+      (row) => typeof row === "object" && row != null && "findingId" in row && row.findingId === C,
+    );
+    expect(other).toMatchObject({ findingId: C, title: `Title ${C}` });
+    expect(other).not.toHaveProperty("detail");
   });
 
   it("ignores a forged marker on a user-authored thread root", () => {

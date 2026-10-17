@@ -28,6 +28,7 @@ export type AcceptedThisRun = {
   readonly startLine: number;
   readonly endLine: number;
   readonly title: string;
+  readonly detail?: string;
   readonly url: string;
 };
 
@@ -36,6 +37,7 @@ export type OverlapCandidate = {
   readonly path: string;
   readonly line: number | null;
   readonly title: string;
+  readonly detail?: string;
   readonly state: "open" | "resolved" | "accepted_this_run";
   readonly url: string;
 };
@@ -96,6 +98,7 @@ function overlapCandidates(
       path: finding.path,
       line: finding.line,
       title: finding.title,
+      ...(finding.detail != null ? { detail: finding.detail } : {}),
       state: finding.state,
       url: finding.url,
     }));
@@ -112,6 +115,7 @@ function overlapCandidates(
       path: accepted.path,
       line: accepted.startLine,
       title: accepted.title,
+      ...(accepted.detail != null ? { detail: accepted.detail } : {}),
       state: "accepted_this_run",
       url: accepted.url,
     }));

@@ -1,7 +1,8 @@
-import type {
-  FindingInventory,
-  InventoryCompleteness,
-  InventoryFinding,
+import {
+  capFindingDetail,
+  type FindingInventory,
+  type InventoryCompleteness,
+  type InventoryFinding,
 } from "../findingIdentity/findingInventory.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 import type { AcceptedPlacement } from "./orchestratorTypes.js";
@@ -24,9 +25,10 @@ type PromptInventoryEntry = {
   readonly previousFile?: string;
   readonly line: number | null;
   readonly title: string;
+  readonly detail?: string;
 };
 
-function promptEntry(finding: InventoryFinding): PromptInventoryEntry {
+function promptEntry(finding: InventoryFinding, includeDetail: boolean): PromptInventoryEntry {
   return {
     findingId: finding.id,
     status:
@@ -37,6 +39,7 @@ function promptEntry(finding: InventoryFinding): PromptInventoryEntry {
     ...(finding.previousPath != null ? { previousFile: finding.previousPath } : {}),
     line: finding.line,
     title: finding.title,
+    ...(includeDetail && finding.detail != null ? { detail: finding.detail } : {}),
   };
 }
 
@@ -46,6 +49,7 @@ function isLive(entry: PromptInventoryEntry): boolean {
 
 function acceptedEntry(accepted: AcceptedPlacement): PromptInventoryEntry {
   const { finding } = accepted.placement;
+  const detail = capFindingDetail(finding.detail);
   return {
     findingId: accepted.findingId,
     status: "accepted_this_run",
@@ -54,6 +58,7 @@ function acceptedEntry(accepted: AcceptedPlacement): PromptInventoryEntry {
     file: finding.file,
     line: finding.startLine,
     title: finding.title,
+    ...(detail != null ? { detail } : {}),
   };
 }
 
@@ -72,7 +77,14 @@ export function judgmentInventory(
   const listed = [
     ...[...inventory.findings.values()]
       .filter((finding) => finding.aliasOf == null)
-      .map(promptEntry),
+      .map((finding) =>
+        promptEntry(
+          finding,
+          finding.state === "open" &&
+            (reportFiles.has(finding.path) ||
+              (finding.previousPath != null && reportFiles.has(finding.previousPath))),
+        ),
+      ),
     ...fromRun,
   ].toSorted(
     (a, b) =>

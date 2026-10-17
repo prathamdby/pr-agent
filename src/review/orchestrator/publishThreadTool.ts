@@ -21,7 +21,7 @@ import {
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
-import type { FindingInventory } from "../findingIdentity/findingInventory.js";
+import { capFindingDetail, type FindingInventory } from "../findingIdentity/findingInventory.js";
 import { derivedFindingId, isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
 import {
   MAX_OVERLAP_ROUNDS,
@@ -138,14 +138,18 @@ function observationRelation(
 }
 
 function acceptedThisRun(ledger: FindingLedger): AcceptedThisRun[] {
-  return ledger.accepted.map((accepted) => ({
-    id: accepted.findingId,
-    path: accepted.placement.finding.file,
-    startLine: accepted.placement.finding.startLine,
-    endLine: accepted.placement.finding.endLine,
-    title: accepted.placement.finding.title,
-    url: accepted.placement.inlineCommentUrl ?? "",
-  }));
+  return ledger.accepted.map((accepted) => {
+    const detail = capFindingDetail(accepted.placement.finding.detail);
+    return {
+      id: accepted.findingId,
+      path: accepted.placement.finding.file,
+      startLine: accepted.placement.finding.startLine,
+      endLine: accepted.placement.finding.endLine,
+      title: accepted.placement.finding.title,
+      ...(detail != null ? { detail } : {}),
+      url: accepted.placement.inlineCommentUrl ?? "",
+    };
+  });
 }
 
 function normalizedSubstance(text: string): string {

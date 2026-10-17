@@ -10,6 +10,7 @@ import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import {
   isBotAuthor,
   legacyFindingId,
+  neutralizeMarkerEcho,
   parseOwnedFindingMarker,
   parseOwnedFindingRows,
   parseOwnedReceipts,
@@ -40,6 +41,7 @@ export type InventoryFinding = {
   readonly lens: FindingSource | "unknown";
   readonly severity: FindingSeverity | "unknown";
   readonly title: string;
+  readonly detail?: string;
   readonly createdAt: string;
   readonly hasHumanReplies: boolean;
   readonly commentsComplete: boolean;
@@ -65,6 +67,27 @@ export type InventorySummaryComment = {
 };
 
 const FINDING_HEADING_RE = /^\*\*(P[0-3])\*\* · \*\*(.+?)\*\*\s*$/m;
+const FINDING_DETAIL_CAP = 400;
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const PROMPT_TO_FIX_BLOCK_RE =
+  /<details>\s*<summary>\s*Prompt to fix[\s\S]*?<\/summary>[\s\S]*?<\/details>/gi;
+
+export function capFindingDetail(text: string): string | undefined {
+  const compact = neutralizeMarkerEcho(text).replace(/\s+/g, " ").trim();
+  if (compact.length === 0) return undefined;
+  if (compact.length <= FINDING_DETAIL_CAP) return compact;
+  return `${compact.slice(0, FINDING_DETAIL_CAP - 1)}…`;
+}
+
+function visibleThreadDetail(body: string): string | undefined {
+  const heading = /^\*\*P[0-3]\*\* · \*\*.+?\*\*\s*$/m.exec(body);
+  const afterTitle =
+    heading?.index != null
+      ? body.slice(heading.index + heading[0].length)
+      : body.slice(body.indexOf("\n") + 1);
+  const stripped = afterTitle.replace(HTML_COMMENT_RE, "").replace(PROMPT_TO_FIX_BLOCK_RE, "");
+  return capFindingDetail(stripped);
+}
 
 function parseHeading(
   body: string,
@@ -143,6 +166,7 @@ function threadFinding(
         ? "fixed"
         : "dismissed";
   const line = thread.line;
+  const detail = visibleThreadDetail(root.body);
   return {
     id,
     source: "thread",
@@ -163,6 +187,7 @@ function threadFinding(
     lens: marker?.lens ?? "unknown",
     severity: marker?.severity ?? heading?.severity ?? "unknown",
     title: heading?.title ?? root.body.split("\n")[0]?.trim() ?? "",
+    ...(detail != null ? { detail } : {}),
     createdAt: root.createdAt,
     hasHumanReplies: hasHumanReplies(thread, botLogin),
     commentsComplete: thread.commentsComplete,
