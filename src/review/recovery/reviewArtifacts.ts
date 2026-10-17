@@ -2,11 +2,18 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { AppError } from "../../errors/appError.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
-import { evidenceDescriptorSchema } from "../findings/evidenceLedger.js";
+import {
+  evidenceDescriptorSchema,
+  OPENED_PATH_MAX_CHARS,
+  persistedOpenedPaths,
+} from "../findings/evidenceLedger.js";
 import { specialistBriefSchema } from "../orchestrator/briefTool.js";
 import { specialistReportSchema } from "../orchestrator/specialistReport.js";
 import { reviewPayloadSchema } from "../reviewSchema.js";
-import { canonicalReviewDecisionSchema } from "./reviewRecoverySchema.js";
+import {
+  canonicalReviewDecisionSchema,
+  UNREAD_COVERAGE_PATH_LIMIT,
+} from "./reviewRecoverySchema.js";
 
 export const REVIEW_CONTRACT_VERSION = "review-1";
 export const REVIEW_ARTIFACT_SCHEMA_VERSION = 5;
@@ -51,22 +58,24 @@ const dependencySchema = v.strictObject({
   payloadHash: hashSchema,
 });
 const dependencies = v.pipe(v.array(dependencySchema), v.maxLength(64));
+const persistedPath = v.pipe(v.string(), v.minLength(1), v.maxLength(OPENED_PATH_MAX_CHARS));
+const persistedPathList = v.pipe(v.array(persistedPath), v.maxLength(5000));
 const artifactSchema = v.variant("kind", [
   v.strictObject({
     kind: v.literal("brief"),
     brief: specialistBriefSchema,
-    openedPaths: v.optional(v.pipe(v.array(v.string()), v.maxLength(5000))),
+    openedPaths: v.optional(persistedPathList),
   }),
   v.strictObject({
     kind: v.literal("report"),
     specialist: v.picklist(["correctness", "security", "quality", "tests"]),
     report: specialistReportSchema,
     evidence: v.pipe(v.array(evidenceDescriptorSchema), v.maxLength(2048)),
-    openedPaths: v.optional(v.pipe(v.array(v.string()), v.maxLength(5000))),
+    openedPaths: v.optional(persistedPathList),
   }),
   v.strictObject({
     kind: v.literal("opened_paths"),
-    paths: v.pipe(v.array(v.string()), v.maxLength(5000)),
+    paths: persistedPathList,
   }),
   v.strictObject({
     kind: v.literal("publication_prepared"),
@@ -215,11 +224,67 @@ function redactStructuredOutput(value: unknown): unknown {
   );
 }
 
+function boundUnreadPaths(paths: readonly string[]): string[] {
+  return persistedOpenedPaths(paths).slice(0, UNREAD_COVERAGE_PATH_LIMIT);
+}
+
+type ArtifactCanonical = NonNullable<
+  Extract<ReviewArtifact, { kind: "publication_prepared" }>["canonical"]
+>;
+
+function sanitizeCanonical(canonical: ArtifactCanonical): ArtifactCanonical {
+  if (canonical.kind === "summary") {
+    if (canonical.coverage.kind !== "partial" || canonical.coverage.reason !== "unread") {
+      return canonical;
+    }
+    return {
+      ...canonical,
+      coverage: { ...canonical.coverage, paths: boundUnreadPaths(canonical.coverage.paths) },
+    };
+  }
+  const coverage = canonical.coverage;
+  const openedPaths =
+    canonical.openedPaths == null
+      ? canonical.openedPaths
+      : persistedOpenedPaths(canonical.openedPaths);
+  if (coverage == null || coverage.kind !== "partial" || coverage.reason !== "unread") {
+    if (openedPaths === canonical.openedPaths) return canonical;
+    return { ...canonical, openedPaths };
+  }
+  return {
+    ...canonical,
+    coverage: { ...coverage, paths: boundUnreadPaths(coverage.paths) },
+    ...(openedPaths == null ? {} : { openedPaths }),
+  };
+}
+
+function sanitizeArtifact(artifact: ReviewArtifact): ReviewArtifact {
+  switch (artifact.kind) {
+    case "brief":
+    case "report":
+      return artifact.openedPaths == null
+        ? artifact
+        : { ...artifact, openedPaths: persistedOpenedPaths(artifact.openedPaths) };
+    case "opened_paths":
+      return { ...artifact, paths: persistedOpenedPaths(artifact.paths) };
+    case "publication_prepared":
+      return artifact.canonical == null
+        ? artifact
+        : { ...artifact, canonical: sanitizeCanonical(artifact.canonical) };
+    case "final_summary":
+      return artifact.inputs == null
+        ? artifact
+        : { ...artifact, inputs: sanitizeCanonical(artifact.inputs) };
+    default:
+      return artifact;
+  }
+}
+
 export function createReviewArtifactEnvelope(
   binding: ReviewArtifactBinding,
   artifact: ReviewArtifact,
 ): ReviewArtifactEnvelope {
-  const parsed = v.safeParse(artifactSchema, artifact);
+  const parsed = v.safeParse(artifactSchema, sanitizeArtifact(artifact));
   if (!parsed.success || !v.is(bindingSchema, binding)) reviewArtifactInvalid("artifact_schema");
   const artifactValue = parsed.output;
   let output: unknown = artifactValue;

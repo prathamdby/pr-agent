@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
+import { redactReviewText } from "./reviewPublicOutput.js";
 
 export const evidenceDescriptorSchema = v.pipe(
   v.strictObject({
@@ -38,8 +39,24 @@ export type EvidenceRead = {
   readonly descriptor?: EvidenceDescriptor;
 };
 
+export const OPENED_PATH_MAX_CHARS = 4096;
+
 export function normalizeEvidencePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+export function persistedOpenedPath(path: string): string | undefined {
+  const persisted = redactReviewText(normalizeEvidencePath(path)).slice(0, OPENED_PATH_MAX_CHARS);
+  return persisted.length === 0 ? undefined : persisted;
+}
+
+export function persistedOpenedPaths(paths: readonly string[]): string[] {
+  const next: string[] = [];
+  for (const path of paths) {
+    const persisted = persistedOpenedPath(path);
+    if (persisted != null) next.push(persisted);
+  }
+  return next;
 }
 
 export function hashNormalizedLineText(text: string): string {
@@ -212,9 +229,15 @@ export function unreadChangedPaths(params: {
   return unread;
 }
 
+const UNREAD_CHANGED_FILES_LABEL = "Unread changed files:";
+
 export function unreadChangedFilesNote(paths: readonly string[]): string {
-  const shown = paths.slice(0, 3);
+  const shown = paths.slice(0, 3).map((path) => redactReviewText(path));
   const rest = paths.length - shown.length;
   const more = rest > 0 ? ` (+${rest} more)` : "";
-  return `Unread changed files: ${shown.join(", ")}${more}.`;
+  return `${UNREAD_CHANGED_FILES_LABEL} ${shown.join(", ")}${more}.`;
+}
+
+export function noteListsUnreadFiles(note: string): boolean {
+  return note.includes(UNREAD_CHANGED_FILES_LABEL);
 }

@@ -955,6 +955,9 @@ describe("review action line helpers", () => {
     expect(formatReviewCoverageStatus({ kind: "partial", failed: [], unread: true })).toBe(
       "with unread files",
     );
+    expect(formatReviewCoverageStatus({ kind: "partial", failed: ["quality"], unread: true })).toBe(
+      "except quality, with unread files",
+    );
   });
 
   it("does not say ready to merge when changed files were not opened", () => {

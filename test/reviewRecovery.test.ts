@@ -6,13 +6,18 @@ import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOn
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import {
   createReviewArtifactBinding,
+  createReviewArtifactEnvelope,
   parseReviewArtifactEnvelope,
 } from "../src/review/recovery/reviewArtifacts.js";
 import {
   openReviewRecovery,
   snapshotFindingLedger,
 } from "../src/review/recovery/reviewRecovery.js";
-import type { CanonicalReviewDecision } from "../src/review/recovery/reviewRecoverySchema.js";
+import {
+  reviewCoverageSchema,
+  type CanonicalReviewDecision,
+} from "../src/review/recovery/reviewRecoverySchema.js";
+import * as v from "valibot";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.js";
@@ -113,5 +118,59 @@ describe("review recovery replay", () => {
       context: { reason: "saved_summary_validation" },
     });
     expect(upsertProgressComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("review coverage persistence", () => {
+  it("rejects a reasonless partial and an empty unread path list", () => {
+    expect(
+      v.safeParse(reviewCoverageSchema, {
+        kind: "partial",
+        failed: ["tests"],
+        note: "old",
+      }).success,
+    ).toBe(false);
+    expect(
+      v.safeParse(reviewCoverageSchema, {
+        kind: "partial",
+        reason: "unread",
+        paths: [],
+        note: "none",
+      }).success,
+    ).toBe(false);
+    expect(
+      v.safeParse(reviewCoverageSchema, {
+        kind: "partial",
+        reason: "unread",
+        paths: ["src/a.ts"],
+        note: "Unread changed files: src/a.ts.",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("normalizes, redacts, and caps persisted opened paths", () => {
+    const envelope = createReviewArtifactEnvelope(binding, {
+      kind: "brief",
+      brief: {
+        prIntent: "Change coverage",
+        architectureNotes: "",
+        riskAreas: [],
+        fileMap: "src/a.ts",
+        specialistFocus: {
+          correctness: "check close",
+          security: "paths",
+          quality: "note",
+          tests: "schema",
+        },
+      },
+      openedPaths: ["./src/a.ts", "OPENAI_API_KEY=sk-secret-value", "y".repeat(5000)],
+    });
+    expect(envelope.artifact.kind).toBe("brief");
+    if (envelope.artifact.kind !== "brief") return;
+    expect(envelope.artifact.openedPaths).toEqual([
+      "src/a.ts",
+      "OPENAI_[redacted]",
+      "y".repeat(4096),
+    ]);
   });
 });

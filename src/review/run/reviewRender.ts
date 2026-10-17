@@ -440,14 +440,14 @@ function isDurableCarriedRow([, held]: CarriedSummaryRow): boolean {
 }
 
 export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
+  const failed = coverage.failed.length > 0;
+  const names = failed ? formatFailedSpecialistNames(coverage.failed) : "";
+  if (coverage.unread && failed && coverage.kind === "partial") {
+    return `except ${names}, with unread files`;
+  }
   if (coverage.unread) return "with unread files";
-  if (coverage.kind === "full" || coverage.failed.length === 0) {
-    return "with full coverage";
-  }
-  const names = formatFailedSpecialistNames(coverage.failed);
-  if (coverage.kind === "none") {
-    return `with no coverage (${names} failed)`;
-  }
+  if (coverage.kind === "full" || !failed) return "with full coverage";
+  if (coverage.kind === "none") return `with no coverage (${names} failed)`;
   return `except ${names}`;
 }
 

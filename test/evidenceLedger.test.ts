@@ -4,6 +4,7 @@ import {
   createEvidenceLedger,
   hashNormalizedLineText,
   normalizeEvidencePath,
+  unreadChangedFilesNote,
   unreadChangedPaths,
 } from "../src/review/findings/evidenceLedger.js";
 
@@ -87,6 +88,25 @@ describe("evidenceLedger", () => {
     expect(unreadChangedPaths({ ledger, changedFiles, isPathInCheckout })).toEqual(["src/a.ts"]);
     ledger.noteOpened("src/a.ts");
     expect(unreadChangedPaths({ ledger, changedFiles, isPathInCheckout })).toEqual([]);
+  });
+
+  it("treats a dot-slash open as the normalized changed path", () => {
+    const ledger = createEvidenceLedger(headSha);
+    ledger.noteOpened("./src/a.ts");
+    expect(
+      unreadChangedPaths({
+        ledger,
+        changedFiles: [{ path: "src/a.ts", status: "modified" }],
+        isPathInCheckout: () => true,
+      }),
+    ).toEqual([]);
+    expect(normalizeEvidencePath("./src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("names the first three unread files and counts the rest", () => {
+    expect(unreadChangedFilesNote(["a.ts", "b.ts", "c.ts", "d.ts"])).toBe(
+      "Unread changed files: a.ts, b.ts, c.ts (+1 more).",
+    );
   });
 
   it("counts a deletion-only diff and an emptied file as opened", () => {

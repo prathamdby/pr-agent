@@ -18,6 +18,7 @@ import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
+import { noteListsUnreadFiles } from "../findings/evidenceLedger.js";
 import {
   carriedReaffirmedFindings,
   type AcceptedPlacement,
@@ -200,7 +201,13 @@ export async function publishReviewSummaryOnly(
         ? { kind: "partial", failed: [], unread: true }
         : coverage.kind === "full"
           ? { kind: "full", failed: [] }
-          : { kind: coverage.kind, failed: coverage.failed },
+          : {
+              kind: coverage.kind,
+              failed: coverage.failed,
+              ...(coverage.kind === "partial" && noteListsUnreadFiles(coverage.note)
+                ? { unread: true as const }
+                : {}),
+            },
     runFooter: {
       durationMs,
       model: session.cfg.models.model,
@@ -339,6 +346,7 @@ export async function publishReviewSummaryOnly(
         note: closeOutcome.kind === "partial" ? closeOutcome.note : undefined,
         conclusion: check.conclusion,
         partialReason: coverage.kind === "partial" ? coverage.reason : undefined,
+        blockingCount: check.blockingCount,
       }),
     },
   });

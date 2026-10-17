@@ -90,10 +90,12 @@ import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
 import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.js";
 import {
+  OPENED_PATH_MAX_CHARS,
   revalidateEvidenceDescriptors,
   unreadChangedFilesNote,
   unreadChangedPaths,
 } from "../findings/evidenceLedger.js";
+import { UNREAD_COVERAGE_PATH_LIMIT } from "../recovery/reviewRecoverySchema.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
 
@@ -237,23 +239,34 @@ function loadReviewFindingInventory(
   return loadFindingInventoryOrUnavailable(params.prSurface, { renames, deletedPaths });
 }
 
-function coverage(state: OrchestratedRunState, unreadPaths: readonly string[]): ReviewCoverage {
-  const failed = [...state.failedSpecialists];
+export function reviewRunCoverage(
+  failedSpecialists: readonly SpecialistId[],
+  unreadPaths: readonly string[],
+): ReviewCoverage {
+  const failed = [...failedSpecialists];
   if (failed.length === SPECIALIST_IDS.length) return { kind: "none", failed };
   if (failed.length > 0) {
     const names = failed.join(", ");
+    const unread = unreadPaths.length > 0 ? ` ${unreadChangedFilesNote(unreadPaths)}` : "";
     return {
       kind: "partial",
       reason: "specialists",
       failed,
-      note: `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
+      note: `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.${unread}`,
     };
   }
   if (unreadPaths.length > 0) {
+    const paths: string[] = [];
+    for (const path of unreadPaths) {
+      const bounded = path.slice(0, OPENED_PATH_MAX_CHARS);
+      if (bounded.length === 0) continue;
+      paths.push(bounded);
+      if (paths.length === UNREAD_COVERAGE_PATH_LIMIT) break;
+    }
     return {
       kind: "partial",
       reason: "unread",
-      paths: unreadPaths,
+      paths,
       note: unreadChangedFilesNote(unreadPaths),
     };
   }
@@ -586,7 +599,7 @@ export async function runOrchestratedPrReview(
     session: publishSession,
     state: summaryState,
     getLedger: publishThread.getLedger,
-    getCoverage: () => coverage(state, unreadPathsNow()),
+    getCoverage: () => reviewRunCoverage(state.failedSpecialists, unreadPathsNow()),
   });
   const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession });
   const allTools = [
@@ -1029,7 +1042,7 @@ export async function runOrchestratedPrReview(
       });
       await writeTick();
     }
-    recovery?.setCoverage(coverage(state, unreadPathsNow()));
+    recovery?.setCoverage(reviewRunCoverage(state.failedSpecialists, unreadPathsNow()));
   };
 
   const publishReportDeterministically = async (
@@ -1121,7 +1134,7 @@ export async function runOrchestratedPrReview(
       result = await publishReviewSummaryOnly(publishSession, {
         payload,
         ledger,
-        coverage: coverage(state, unreadPathsNow()),
+        coverage: reviewRunCoverage(state.failedSpecialists, unreadPathsNow()),
       });
     } catch (error) {
       publishAttempts += 1;
@@ -1590,7 +1603,7 @@ export async function runOrchestratedPrReview(
     params.cfg.models.provider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-  const runCoverage = coverage(state, unreadPathsNow());
+  const runCoverage = reviewRunCoverage(state.failedSpecialists, unreadPathsNow());
   return {
     lastAssistant,
     published: summaryState.published,

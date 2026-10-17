@@ -869,21 +869,33 @@ export function asTerminalOwnCheckStatus(status: string): TerminalOwnCheckStatus
   }
 }
 
+function storedBlockingCount(detail: Record<string, unknown>): number {
+  const count = detail.ownBlockingCount;
+  return typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : 1;
+}
+
 export function summaryCommentVerdictMeta(params: {
   readonly kind: "published" | "partial";
   readonly note?: string;
   readonly conclusion: FindingCheckConclusion;
   readonly partialReason?: "specialists" | "unread";
+  readonly blockingCount?: number;
 }): {
   readonly ownVerdictKind: "published" | "partial";
   readonly ownVerdictNote?: string;
   readonly ownPartialReason?: "specialists" | "unread";
   readonly ownCheckFailing: boolean;
   readonly ownCheckIncomplete?: true;
+  readonly ownBlockingCount?: number;
 } {
   const check = {
     ownCheckFailing: params.conclusion === "failure",
     ...(params.conclusion === "neutral" ? { ownCheckIncomplete: true as const } : {}),
+    ...(params.blockingCount != null &&
+    Number.isSafeInteger(params.blockingCount) &&
+    params.blockingCount >= 0
+      ? { ownBlockingCount: params.blockingCount }
+      : {}),
   };
   if (params.kind === "partial") {
     return {
@@ -926,7 +938,11 @@ export function ownVerdictFromSummaryDetail(
 ): OwnVerdictOutcome {
   if (detail == null) return { kind: "not_published" };
   if (detail.ownPartialReason === "unread" && detail.ownCheckFailing === true) {
-    return { kind: "published", conclusion: "failure", blockingCount: 1 };
+    return {
+      kind: "published",
+      conclusion: "failure",
+      blockingCount: storedBlockingCount(detail),
+    };
   }
   if (detail.ownVerdictKind === "partial") {
     const note =
@@ -936,7 +952,7 @@ export function ownVerdictFromSummaryDetail(
     return { kind: "partial", note };
   }
   if (detail.ownCheckFailing === true)
-    return { kind: "published", conclusion: "failure", blockingCount: 1 };
+    return { kind: "published", conclusion: "failure", blockingCount: storedBlockingCount(detail) };
   if (detail.ownCheckIncomplete === true)
     return { kind: "published", conclusion: "neutral", blockingCount: 0 };
   return { kind: "published", conclusion: "success", blockingCount: 0 };

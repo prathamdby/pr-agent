@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { evidenceDescriptorSchema } from "../findings/evidenceLedger.js";
+import { evidenceDescriptorSchema, OPENED_PATH_MAX_CHARS } from "../findings/evidenceLedger.js";
 import { reviewFindingEntries, reviewFindingSchema } from "../reviewSchema.js";
 import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.js";
 
@@ -50,7 +50,8 @@ export const findingLedgerSnapshotSchema = v.strictObject({
   threadBudgetExhausted: v.boolean(),
 });
 const coverageSpecialistId = v.picklist(["correctness", "security", "quality", "tests"]);
-const openedPath = v.pipe(v.string(), v.minLength(1), v.maxLength(4096));
+const openedPath = v.pipe(v.string(), v.minLength(1), v.maxLength(OPENED_PATH_MAX_CHARS));
+export const UNREAD_COVERAGE_PATH_LIMIT = 500;
 export const reviewCoverageSchema = v.union([
   v.strictObject({ kind: v.literal("full") }),
   v.strictObject({
@@ -62,7 +63,7 @@ export const reviewCoverageSchema = v.union([
   v.strictObject({
     kind: v.literal("partial"),
     reason: v.literal("unread"),
-    paths: v.pipe(v.array(openedPath), v.minLength(1), v.maxLength(500)),
+    paths: v.pipe(v.array(openedPath), v.minLength(1), v.maxLength(UNREAD_COVERAGE_PATH_LIMIT)),
     note: v.string(),
   }),
   v.strictObject({
