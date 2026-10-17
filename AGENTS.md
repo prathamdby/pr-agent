@@ -8,7 +8,6 @@
 **Behaviour** — [docs/operations.md](docs/operations.md). Deploy, scripts, or runtime behaviour.
 **Queue** — [docs/agent-work-ops.md](docs/agent-work-ops.md). Durable-work health or recovery.
 **ADR** — [docs/adr/](docs/adr/). A significant architecture decision.
-**Cursor Cloud** — [docs/cursor-cloud.md](docs/cursor-cloud.md). Cloud VM services or setup.
 **Public docs** — [README.md](README.md). Operator voice. Same-PR pointer updates.
 
 Same PR: update every pointer whose branch matched the change.
@@ -106,7 +105,7 @@ Before calling a behavior change complete, check the surfaces that can carry it:
 - **Boundaries.** Changes crossing Postgres, pg-boss, GitHub, the Pi runtime, or the local PR workspace need an explicit contract and focused coverage.
 - **Reverse states.** If a command starts, cancels, supersedes, or retries work, verify the terminal and recovery paths too.
 - **Repository policy.** Reviews load `.pr-agent/*.mdc` as trusted repository policy. They load `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` from same-repo heads as trusted, binding context. Fork-head copies are untrusted context only, and the loader neutralizes forged trusted headers. Do not weaken either boundary casually.
-- **Documentation.** Update the matching vocabulary, topology, feature, configuration, operations, queue, ADR, or Cursor Cloud pointer in the same PR.
+- **Documentation.** Update the matching vocabulary, topology, feature, configuration, operations, queue, or ADR pointer in the same PR.
 
 ## Local development
 

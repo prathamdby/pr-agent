@@ -411,7 +411,7 @@ Host Nub is optional on this path. Pin it to `0.7.2` when you install it (`packa
 
 If you previously installed with pnpm or npm at the repo root, delete `node_modules` before the first `nub install` so the virtual store is not mixed (`.pnpm/` vs Nub’s store).
 
-More scripts and edge cases: [docs/operations.md](docs/operations.md#development), [docs/cursor-cloud.md](docs/cursor-cloud.md).
+More scripts and edge cases: [docs/operations.md](docs/operations.md#development).
 
 The marketing site under `site/` is a separate workspace package (`pr-agent-landing`). It is not required to run the bot. Agents should read `/llms.txt` or `/agents.md`, query `GET /llms?query=` / `GET /llms/json?query=`, and can fetch the page as markdown from `/index.md` or by sending `Accept: text/markdown` to `/`. Every endpoint is described in `/openapi.json`.
 
@@ -482,6 +482,5 @@ Env catalog: [docs/configuration.md](docs/configuration.md). See [ADR 0050](docs
 | [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |
 | [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work              |
 | [Development](docs/development.md)                   | Module layout and import rules                |
-| [Cursor Cloud](docs/cursor-cloud.md)                 | Cloud VM services                             |
 | [Domain terms](CONTEXT.md)                           | Product vocabulary                            |
 | [ADRs](docs/adr/)                                    | Architecture decisions                        |
