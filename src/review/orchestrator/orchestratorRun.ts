@@ -89,7 +89,11 @@ import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
 import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.js";
-import { revalidateEvidenceDescriptors } from "../findings/evidenceLedger.js";
+import {
+  revalidateEvidenceDescriptors,
+  unreadChangedFilesNote,
+  unreadChangedPaths,
+} from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
 
@@ -233,16 +237,27 @@ function loadReviewFindingInventory(
   return loadFindingInventoryOrUnavailable(params.prSurface, { renames, deletedPaths });
 }
 
-function coverage(state: OrchestratedRunState): ReviewCoverage {
+function coverage(state: OrchestratedRunState, unreadPaths: readonly string[]): ReviewCoverage {
   const failed = [...state.failedSpecialists];
-  if (failed.length === 0) return { kind: "full" };
   if (failed.length === SPECIALIST_IDS.length) return { kind: "none", failed };
-  const names = failed.join(", ");
-  return {
-    kind: "partial",
-    failed,
-    note: `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
-  };
+  if (failed.length > 0) {
+    const names = failed.join(", ");
+    return {
+      kind: "partial",
+      reason: "specialists",
+      failed,
+      note: `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
+    };
+  }
+  if (unreadPaths.length > 0) {
+    return {
+      kind: "partial",
+      reason: "unread",
+      paths: unreadPaths,
+      note: unreadChangedFilesNote(unreadPaths),
+    };
+  }
+  return { kind: "full" };
 }
 
 function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
@@ -311,6 +326,12 @@ export async function runOrchestratedPrReview(
         }
       : {}),
   });
+  const unreadPathsNow = () =>
+    unreadChangedPaths({
+      ledger: setup.evidenceLedger,
+      changedFiles: params.workspace.reader.changedFiles,
+      isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
+    });
   const publishCtx = {
     owner: params.owner,
     repo: params.repo,
@@ -322,15 +343,31 @@ export async function runOrchestratedPrReview(
   const phaseRef = createOrchestratorPhaseRef("recon");
   const recovery = params.cfg.review.recoveryEnabled ? params.recovery : undefined;
   const readEvidence = createGovernedReviewEvidenceReader(params.workspace.reader, params.headSha);
+  const mustRestoreOpens = params.workspace.reader.changedFiles.some(
+    (file) => file.status !== "deleted" && params.workspace.reader.isPathInCheckout(file.path),
+  );
   const cachedBriefEnvelope = await recovery?.load("brief");
-  const cachedBrief =
+  let cachedBrief =
     cachedBriefEnvelope?.artifact.kind === "brief" ? cachedBriefEnvelope.artifact.brief : undefined;
+  if (cachedBriefEnvelope?.artifact.kind === "brief" && cachedBriefEnvelope.artifact.openedPaths) {
+    for (const path of cachedBriefEnvelope.artifact.openedPaths) {
+      setup.evidenceLedger.noteOpened(path);
+    }
+  } else if (mustRestoreOpens && cachedBrief != null) {
+    cachedBrief = undefined;
+  }
   const cachedReports = new Map<SpecialistId, SpecialistOutcome>();
   if (recovery) {
     for (const specialist of SPECIALIST_IDS) {
       const envelope = await recovery.load(`report/${specialist}`);
       if (envelope?.artifact.kind !== "report") continue;
       const artifact = envelope.artifact;
+      if (artifact.openedPaths) {
+        for (const path of artifact.openedPaths) setup.evidenceLedger.noteOpened(path);
+      } else if (mustRestoreOpens) {
+        recovery.discardEvidenceCache();
+        continue;
+      }
       if (
         !(await revalidateEvidenceDescriptors(
           setup.evidenceLedger,
@@ -371,11 +408,21 @@ export async function runOrchestratedPrReview(
   const evidenceMisses = new Set<number>();
   for (const decision of recoveredDecisions) {
     const canonical = decision.prepared.artifact.canonical;
-    if (
-      canonical.kind === "threads" &&
-      !(await revalidateEvidenceDescriptors(setup.evidenceLedger, canonical.evidence, readEvidence))
-    ) {
+    if (canonical.kind !== "threads") continue;
+    if (canonical.openedPaths) {
+      for (const path of canonical.openedPaths) setup.evidenceLedger.noteOpened(path);
+    }
+    const evidenceOk = await revalidateEvidenceDescriptors(
+      setup.evidenceLedger,
+      canonical.evidence,
+      readEvidence,
+    );
+    if (!evidenceOk) {
       recovery?.discardEvidenceCache();
+      evidenceMisses.add(decision.prepared.artifact.sequence);
+      continue;
+    }
+    if (mustRestoreOpens && canonical.openedPaths == null) {
       evidenceMisses.add(decision.prepared.artifact.sequence);
     }
   }
@@ -383,7 +430,11 @@ export async function runOrchestratedPrReview(
     initialBrief: cachedBrief,
     onAccepted: recovery
       ? async (brief) => {
-          await recovery.save({ kind: "brief", brief });
+          await recovery.save({
+            kind: "brief",
+            brief,
+            openedPaths: [...setup.evidenceLedger.openedPaths()],
+          });
         }
       : undefined,
   });
@@ -502,7 +553,7 @@ export async function runOrchestratedPrReview(
       });
       recoveredSummary = result.kind === "published";
       recoveredCheck = result.kind === "published" ? result.check : null;
-      if (canonical.coverage.kind !== "full")
+      if (canonical.coverage.kind === "partial" && canonical.coverage.reason === "specialists")
         state.failedSpecialists.push(...canonical.coverage.failed);
     }
   }
@@ -521,7 +572,8 @@ export async function runOrchestratedPrReview(
     });
     recoveredSummary = result.kind === "published";
     recoveredCheck = result.kind === "published" ? result.check : null;
-    if (inputs.coverage.kind !== "full") state.failedSpecialists.push(...inputs.coverage.failed);
+    if (inputs.coverage.kind === "partial" && inputs.coverage.reason === "specialists")
+      state.failedSpecialists.push(...inputs.coverage.failed);
   }
   if (recovery?.getJudgmentDegraded()) state.judgment = "degraded";
   state.briefFallback = recovery?.getBriefFallback() ?? false;
@@ -534,7 +586,7 @@ export async function runOrchestratedPrReview(
     session: publishSession,
     state: summaryState,
     getLedger: publishThread.getLedger,
-    getCoverage: () => coverage(state),
+    getCoverage: () => coverage(state, unreadPathsNow()),
   });
   const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession });
   const allTools = [
@@ -977,7 +1029,7 @@ export async function runOrchestratedPrReview(
       });
       await writeTick();
     }
-    recovery?.setCoverage(coverage(state));
+    recovery?.setCoverage(coverage(state, unreadPathsNow()));
   };
 
   const publishReportDeterministically = async (
@@ -1069,7 +1121,7 @@ export async function runOrchestratedPrReview(
       result = await publishReviewSummaryOnly(publishSession, {
         payload,
         ledger,
-        coverage: coverage(state),
+        coverage: coverage(state, unreadPathsNow()),
       });
     } catch (error) {
       publishAttempts += 1;
@@ -1220,7 +1272,13 @@ export async function runOrchestratedPrReview(
                       recovery.discardEvidenceCache();
                       return;
                     }
-                    await recovery.save({ kind: "report", specialist, report, evidence });
+                    await recovery.save({
+                      kind: "report",
+                      specialist,
+                      report,
+                      evidence,
+                      openedPaths: [...setup.evidenceLedger.openedPaths()],
+                    });
                   }
                 : undefined,
             }),
@@ -1532,7 +1590,7 @@ export async function runOrchestratedPrReview(
     params.cfg.models.provider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-  const runCoverage = coverage(state);
+  const runCoverage = coverage(state, unreadPathsNow());
   return {
     lastAssistant,
     published: summaryState.published,

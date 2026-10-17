@@ -113,6 +113,9 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
     evidenceLedger: {
       headSha: "a".repeat(40),
       record: () => undefined,
+      noteOpened: () => undefined,
+      hasOpened: () => false,
+      openedPaths: () => [],
       covers: () => true,
       snapshot: () => [],
     },

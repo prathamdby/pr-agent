@@ -217,7 +217,12 @@ describe("publishReviewSummaryOnly", () => {
       publishReviewSummaryOnly(session, {
         payload: makeReviewPayload({ findings: [item] }),
         ledger,
-        coverage: { kind: "partial", failed: ["tests"], note: "Partial coverage" },
+        coverage: {
+          kind: "partial",
+          reason: "specialists",
+          failed: ["tests"],
+          note: "Partial coverage",
+        },
       }),
     ).resolves.toEqual({
       kind: "published",
@@ -292,6 +297,7 @@ describe("publishReviewSummaryOnly", () => {
       ledger,
       coverage: {
         kind: "partial",
+        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },
@@ -407,6 +413,7 @@ describe("publishReviewSummaryOnly", () => {
       recordPublishStep,
       coverage: {
         kind: "partial",
+        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },
