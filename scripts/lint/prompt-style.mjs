@@ -40,7 +40,6 @@ export const ENUMS_AND_IDENTIFIERS = [
   "AND/OR",
   "CLAUDE",
   "CRITICAL",
-  "GEMINI",
   "GET",
   "HEAD",
   "HIGH",
@@ -139,7 +138,7 @@ function allowedToken(token, line, index) {
   const before = line[index - 1];
   const after = line[index + token.length];
   if (["`", "'", '"'].includes(before) && after === before) return true;
-  if (["AGENTS", "CLAUDE", "GEMINI"].includes(token))
+  if (["AGENTS", "CLAUDE"].includes(token))
     return line.slice(index + token.length).startsWith(".md");
   if (token === "GET") return /^\s+\//.test(line.slice(index + token.length));
   if (token === "HEAD") return /\b(?:git|commit|checkout|branch|revision)\b/i.test(line);

@@ -132,7 +132,7 @@ export function renderJudgmentTurn(
     "Treat specialist claims as evidence, not authority. Apply the causal-publication contract from your instructions independently, against your reconnaissance and the reviewed checkout.",
     "Re-read the checkout through `execute({ code })` cells to confirm a claim you have not read. Do not publish a claim that stays unconfirmed. The reserved publish round survives those re-reads, so a windowed re-read does not cost the terminal call. `publish_thread` is the only terminal tool this turn.",
     "A finding stays when its trigger and impact are concrete. Speculative wording that stands in for a demonstrated trigger does not qualify; a stated remaining uncertainty can stay on a plausible P2.",
-    "Publish problems, not notes, because each published finding creates an inline review thread a developer needs to answer. A style, naming, or micro-simplification remark is not a finding. A hypothetical risk needs a traced call site to become one.",
+    "Publish problems, not notes, because each published finding creates an inline review thread a developer needs to answer. A style, naming, or micro-simplification remark is not a finding. A hypothetical risk needs a traced call site in code that exists. An absent file, path, or body is not a trigger.",
     "Pure refactors, preferences, praise, diff summaries, generalized hardening, advisory notes without present impact, and broad test-coverage requests are not findings.",
     "Publish each accepted finding with the specialist's title and detail as written. Change the wording only to split a compound finding.",
     "P3 is a valid severity: keep a P3 that identifies a real, bounded problem meeting the contract.",

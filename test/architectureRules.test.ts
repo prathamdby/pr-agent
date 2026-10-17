@@ -479,7 +479,7 @@ const PROMPT_STYLE_PROBE: Record<string, string> = {
     'export const flags = new RegExp(runtime, "GI");',
     'export const modal = "You must read the file. Never invent evidence. Always cite the path.";',
     'export const enums = "Use severity values P0, P1, P2, or P3, never CRITICAL, HIGH, or MEDIUM.";',
-    'export const identifiers = "Read AGENTS.md, CLAUDE.md, GEMINI.md and `HEAD`. Use `SEARCH_TRUNCATED` and `TODO`.";',
+    'export const identifiers = "Read AGENTS.md, CLAUDE.md and `HEAD`. Use `SEARCH_TRUNCATED` and `TODO`.";',
     'export const sizes = "Use size values XS, XL, or XXL.";',
     'export const method = "Use GET /health and flowchart LR or TB.";',
     'export const comparison = "Use != and !==. Keep !value and https://example.com/!x.";',

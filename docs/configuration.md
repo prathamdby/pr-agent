@@ -473,7 +473,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_REPO_POLICY_FILES`                                                                                                                            | 20                                                                                                 |
 | `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                                               | 200                                                                                                |
 | `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                                                | 1000                                                                                               |
-| `AGENT_INSTRUCTION_FILENAMES`                                                                                                                      | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` (repo-root load order)                                       |
+| `AGENT_INSTRUCTION_FILENAMES`                                                                                                                      | `AGENTS.md`, `CLAUDE.md` (repo-root load order)                                                    |
 | `MAX_AGENT_INSTRUCTION_BYTES`                                                                                                                      | 65536 (aggregate content across accepted root files)                                               |
 | `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                                                 | 32768                                                                                              |
 
@@ -507,9 +507,9 @@ Flat directory of `.mdc` rule files, read from the PR head checkout at review pr
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas. No policy body may suppress, omit, or downgrade findings.
 
-#### Root agent instruction files (`AGENTS.md` / `CLAUDE.md` / `GEMINI.md`)
+#### Root agent instruction files (`AGENTS.md` / `CLAUDE.md`)
 
-On each review run, the worker statically checks the PR head checkout root for these three filenames (in that order). Present regular files from a same-repository head are loaded into a sibling trusted-context block (`Trusted context (agent instruction files):`); fork, missing, or malformed repository identity uses an untrusted wrapper instead. Separate caps apply from repo policy. Missing files are skipped; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, triage, and verification do not load these files.
+On each review run, the worker statically checks the PR head checkout root for `AGENTS.md` and `CLAUDE.md` (in that order). Present regular files from a same-repository head are loaded into a sibling trusted-context block (`Trusted context (agent instruction files):`); fork, missing, or malformed repository identity uses an untrusted wrapper instead. Separate caps apply from repo policy. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, triage, and verification do not load these files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
 
 Example:
 
