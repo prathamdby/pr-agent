@@ -45,10 +45,6 @@ export function isLineResolutionPublishError(error: unknown): boolean {
   );
 }
 
-export function isTransientGitHubReviewError(error: unknown): boolean {
-  return isKnownNoAcceptanceMutationError(error) && !isLineResolutionPublishError(error);
-}
-
 export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {
   return isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error);
 }

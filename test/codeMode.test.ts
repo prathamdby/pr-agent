@@ -9,7 +9,7 @@ import {
 } from "../src/agent/execution/hostHalt.js";
 import type { CodeModeResult } from "../src/agent/codemode/result.js";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
-import { serializeCodeModeValue } from "../src/agent/execution/marshal.js";
+import { boundJsonValue } from "../src/agent/execution/marshal.js";
 import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.js";
 import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.js";
 import { AppError } from "../src/errors/appError.js";
@@ -415,7 +415,7 @@ describe("Code Mode", () => {
   });
 
   it("marks serializer truncation with omittedCount", () => {
-    const serialized = serializeCodeModeValue(["a", "b", "c"], { maxArrayLength: 2 });
+    const serialized = boundJsonValue(["a", "b", "c"], { maxArrayLength: 2 }).value;
     expect(serialized).toEqual({
       truncated: true,
       omittedCount: 1,

@@ -152,22 +152,3 @@ export function validateSanitizedMermaidFence(sanitizedFence: string): MermaidVa
   }
   return validateMermaidDiagramBody(extractMermaidDiagramBody(trimmed));
 }
-
-export function validateMermaidDiagram(diagramRaw: string): MermaidValidationIssue[] {
-  const trimmed = diagramRaw.trim();
-  if (!trimmed) return [];
-  if (!trimmed.startsWith("```mermaid")) {
-    return [{ line: 1, message: "Mermaid visual content must be a ```mermaid fenced block." }];
-  }
-  return validateSanitizedMermaidFence(sanitizeMermaidDiagram(trimmed));
-}
-
-export function formatMermaidValidationError(issues: readonly MermaidValidationIssue[]): string {
-  const lines = issues.map((issue) => `- line ${issue.line}: ${issue.message}`);
-  return [
-    "Mermaid visual validation failed:",
-    ...lines,
-    "",
-    "Fix the diagram (quoted labels, no /subroutine/ shapes, one connected flowchart LR) or omit the mermaid visual.",
-  ].join("\n");
-}

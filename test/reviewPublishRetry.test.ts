@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDefinitelyNoAcceptanceReviewError,
   isLineResolutionPublishError,
-  isTransientGitHubReviewError,
 } from "../src/github/reviewErrors.js";
 
-describe("isTransientGitHubReviewError", () => {
-  it("does not retry an ambiguous non-line-resolution 422", () => {
+describe("isDefinitelyNoAcceptanceReviewError", () => {
+  it("does not treat an ambiguous non-line-resolution 422 as unaccepted", () => {
     expect(
-      isTransientGitHubReviewError({
+      isDefinitelyNoAcceptanceReviewError({
         status: 422,
         message: "Server busy; please try again",
       }),
     ).toBe(false);
   });
 
-  it("retries when the provider proves rejection before acceptance", () => {
+  it("treats a provider-proven rejection before acceptance as unaccepted", () => {
     expect(
-      isTransientGitHubReviewError({
+      isDefinitelyNoAcceptanceReviewError({
         status: 422,
         accepted: false,
         message: "Validation rejected before acceptance",
@@ -24,33 +24,24 @@ describe("isTransientGitHubReviewError", () => {
     ).toBe(true);
   });
 
-  it("does not treat line resolution 422 as transient", () => {
-    expect(
-      isLineResolutionPublishError({
-        status: 422,
-        message: "Line could not be resolved",
-      }),
-    ).toBe(true);
-    expect(
-      isTransientGitHubReviewError({
-        status: 422,
-        message: "Line could not be resolved",
-      }),
-    ).toBe(false);
+  it("treats a line resolution 422 as unaccepted", () => {
+    const error = { status: 422, message: "Line could not be resolved" };
+    expect(isLineResolutionPublishError(error)).toBe(true);
+    expect(isDefinitelyNoAcceptanceReviewError(error)).toBe(true);
   });
 
-  it("does not retry validation-failed 422", () => {
+  it("does not treat validation-failed 422 as unaccepted", () => {
     expect(
-      isTransientGitHubReviewError({
+      isDefinitelyNoAcceptanceReviewError({
         status: 422,
         message: "Validation Failed: 422",
       }),
     ).toBe(false);
   });
 
-  it("does not retry review-already-submitted 422", () => {
+  it("does not treat review-already-submitted 422 as unaccepted", () => {
     expect(
-      isTransientGitHubReviewError({
+      isDefinitelyNoAcceptanceReviewError({
         status: 422,
         message: "Review has already been submitted on this pull request",
       }),

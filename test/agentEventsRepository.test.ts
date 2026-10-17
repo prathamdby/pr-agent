@@ -3,7 +3,6 @@ import { makeTestConfig } from "./helpers/config.js";
 import type { Pool } from "pg";
 import {
   appendAgentEvents,
-  listAgentEventsByWorkItem,
   safeAppendAgentEvents,
   type AgentEventInsertRow,
 } from "../src/agentWork/agentEventsRepository.js";
@@ -70,58 +69,5 @@ describe("safeAppendAgentEvents", () => {
     safeAppendAgentEvents(pool, makeTestConfig({ agentEvents: { enabled: true } }), [sampleRow()]);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(query).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("listAgentEventsByWorkItem", () => {
-  it("maps rows for a work item", async () => {
-    const recordedAt = new Date("2026-07-26T00:00:00.000Z");
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          id: "evt-1",
-          work_item_id: "wi-1",
-          installation_id: "42",
-          owner: "acme",
-          repo: "app",
-          pr_number: 7,
-          session_role: "orchestrator",
-          event_kind: "decision",
-          phase: "judgment",
-          checkpoint_id: null,
-          tool_name: null,
-          provider: null,
-          model: null,
-          ok: null,
-          failure_code: null,
-          detail: { acceptedCount: 2 },
-          recorded_at: recordedAt,
-        },
-      ],
-    }));
-    const pool = { query } as unknown as Pool;
-
-    const rows = await listAgentEventsByWorkItem(pool, "wi-1");
-    expect(rows).toEqual([
-      {
-        id: "evt-1",
-        workItemId: "wi-1",
-        installationId: 42,
-        owner: "acme",
-        repo: "app",
-        prNumber: 7,
-        sessionRole: "orchestrator",
-        eventKind: "decision",
-        phase: "judgment",
-        checkpointId: null,
-        toolName: null,
-        provider: null,
-        model: null,
-        ok: null,
-        failureCode: null,
-        detail: { acceptedCount: 2 },
-        recordedAt,
-      },
-    ]);
   });
 });

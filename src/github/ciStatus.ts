@@ -1,4 +1,3 @@
-import { isMissingActionsPermissionError } from "./actionsLogs.js";
 import {
   isConfirmedCapabilityDenial,
   type ReviewCapabilityPolicy,
@@ -9,14 +8,12 @@ import { paginateOctokitPagesWithMeta, stopPaginatedPage } from "./paginateOctok
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.js";
 
-export const isMissingChecksPermissionError = isMissingActionsPermissionError;
-
 export type CheckRunsForHeadResult = {
   readonly checkRuns: CiCheckRunSnapshot[];
   readonly truncated: boolean;
 };
 
-export async function listCheckRunsForHead(
+async function listCheckRunsForHead(
   token: string,
   owner: string,
   repo: string,

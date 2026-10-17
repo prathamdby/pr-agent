@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  estimatedUsageFromTokenCounts,
   exactUsageFromProviderUsage,
   mergeExactUsage,
   promptMetadataFromText,
@@ -11,15 +10,6 @@ describe("usageMetadata", () => {
     const meta = promptMetadataFromText("hello 🌍");
     expect(meta.inputCharacters).toBe(8);
     expect(meta.inputBytes).toBeGreaterThan(meta.inputCharacters);
-  });
-
-  it("marks estimated usage explicitly", () => {
-    expect(estimatedUsageFromTokenCounts(10, 5)).toEqual({
-      estimated: true,
-      inputTokens: 10,
-      outputTokens: 5,
-      totalTokens: 15,
-    });
   });
 
   it("returns exact provider usage only when token data exists", () => {

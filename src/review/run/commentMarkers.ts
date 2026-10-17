@@ -7,10 +7,6 @@ export function renderProgressRevisionComment(revision: number, workItemId?: str
     : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`;
 }
 
-export function parseProgressRevision(body: string): number | null {
-  return parseProgressRevisionState(body)?.revision ?? null;
-}
-
 export function withProgressRevisionComment(
   body: string,
   revision: number,

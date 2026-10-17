@@ -7,7 +7,6 @@ import type {
 import { RETENTION_DELETE_BATCH_SIZE } from "../settings/index.js";
 import { fencedWrite } from "./fencedWrite.js";
 
-export type GithubCapabilityAccess = CiSourceAccess;
 export type GithubCapabilities = Partial<InstallationCapabilities["availability"]>;
 
 export type GithubCapabilityObservation = {

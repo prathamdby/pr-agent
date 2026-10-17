@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   isOwnCiCheck,
-  isOwnCommitStatusContext,
   summarizeCiFacts,
   summarizeCiSnapshot,
   applyCiCheckFact,
@@ -13,7 +12,10 @@ import {
   type CiCheckFact,
   type CiCheckRunSnapshot,
 } from "../src/review/ci/ciFacts.js";
-import { REVIEW_CI_SUMMARY_INCOMPLETE } from "../src/settings/index.js";
+import {
+  REVIEW_CI_SUMMARY_GRANT_CHECKS,
+  REVIEW_CI_SUMMARY_INCOMPLETE,
+} from "../src/settings/index.js";
 
 function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
   return {
@@ -58,17 +60,32 @@ describe("summarizeCiSnapshot", () => {
     expect(summary.headline).toContain("partial CI view");
     expect(summary.permissionNote).toContain("statuses");
   });
+
+  it("tells the operator to grant Checks only when check runs are denied", () => {
+    const note = (checks: "denied" | "unknown" | "available", statuses: "denied" | "available") =>
+      summarizeCiSnapshot({
+        checks: [],
+        statuses: [],
+        sourceAvailability: {
+          checks: { access: checks, listingRequired: checks !== "available" },
+          statuses: { access: statuses, listingRequired: statuses !== "available" },
+        },
+      }).permissionNote;
+    expect(note("denied", "available")).toBe(
+      `Partial CI view: checks unavailable. ${REVIEW_CI_SUMMARY_GRANT_CHECKS}`,
+    );
+    expect(note("denied", "denied")).toBe(
+      `Partial CI view: checks and statuses unavailable. ${REVIEW_CI_SUMMARY_GRANT_CHECKS}`,
+    );
+    expect(note("unknown", "available")).toBe("Partial CI view: checks unavailable.");
+    expect(note("available", "denied")).toBe("Partial CI view: statuses unavailable.");
+  });
   it("identifies the own check by App id or work-item external id", () => {
     const identity = { githubAppId: "99", workItemId: "wi-1" };
     expect(isOwnCiCheck(identity, { app_id: 99, external_id: null })).toBe(true);
     expect(isOwnCiCheck(identity, { app_id: 7, external_id: "wi-1" })).toBe(true);
     expect(isOwnCiCheck(identity, { app_id: 7, external_id: "other" })).toBe(false);
     expect(isOwnCiCheck({ githubAppId: "99" }, { app_id: 7, external_id: "wi-1" })).toBe(false);
-  });
-
-  it("recognizes the own commit status context", () => {
-    expect(isOwnCommitStatusContext("pr-agent/review")).toBe(true);
-    expect(isOwnCommitStatusContext("Vercel")).toBe(false);
   });
 
   it("summarizes all-passing checks", () => {

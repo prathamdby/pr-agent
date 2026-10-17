@@ -4,7 +4,6 @@ import {
   reviewWorkOutcome,
   workFailureReasonFromClassified,
 } from "../src/analytics/workCompleted.js";
-import { classifiedFailurePostHogProperties } from "../src/errors/classifiedFailure.js";
 import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.js";
 
 function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunMetricsSnapshot {
@@ -129,7 +128,7 @@ describe("workFailureReasonFromClassified", () => {
     expect(failure).not.toHaveProperty("requestPath");
   });
 
-  it("omits unsafe phase text from PostHog projections", () => {
+  it("omits unsafe phase text from the work failure reason", () => {
     const classified = {
       failureDomain: "github" as const,
       errorKind: "rate_limit" as const,
@@ -140,11 +139,6 @@ describe("workFailureReasonFromClassified", () => {
       failureDomain: "github",
       errorKind: "rate_limit",
       errorMessage: "API rate limit exceeded",
-    });
-    expect(classifiedFailurePostHogProperties(classified)).toEqual({
-      failure_domain: "github",
-      error_kind: "rate_limit",
-      error_message: "API rate limit exceeded",
     });
   });
 });

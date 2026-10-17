@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  assertSameModelAssignment,
-  modelAssignmentForRole,
-  resolveModelPolicy,
-} from "../src/agent/runtime/modelPolicy.js";
+import { modelAssignmentForRole, resolveModelPolicy } from "../src/agent/runtime/modelPolicy.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 describe("resolveModelPolicy", () => {
@@ -42,15 +38,5 @@ describe("resolveModelPolicy", () => {
   it("disables fallback when unset", () => {
     const policy = resolveModelPolicy(makeTestConfig());
     expect(policy.fallback).toBeUndefined();
-  });
-
-  it("forbids mid-session model switches on a healthy session", () => {
-    expect(() =>
-      assertSameModelAssignment(
-        { provider: "openai", model: "gpt-4o-mini" },
-        { provider: "openai", model: "gpt-4o" },
-        { role: "ask", reason: "steer" },
-      ),
-    ).toThrow(/one model/);
   });
 });

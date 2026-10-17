@@ -144,13 +144,6 @@ export function boundJsonValue(value: unknown, options?: MarshalOptions): Bounde
   };
 }
 
-export function serializeCodeModeValue(
-  value: unknown,
-  options?: Pick<MarshalOptions, "maxDepth" | "maxArrayLength" | "maxStringBytes">,
-): unknown {
-  return boundJsonValue(value, options).value;
-}
-
 export type CapabilityGuestResult = Record<string, unknown> | { value: unknown };
 
 export function toGuestCapabilityResult(

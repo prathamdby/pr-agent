@@ -14,15 +14,10 @@ import {
 import {
   type Config,
   ACK_QUEUE,
-  ASK_QUEUE,
   CI_PROJECTION_QUEUE,
-  DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
-  REVIEW_QUEUE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
-  TRIAGE_QUEUE,
-  VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import { errorLogFields } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -44,33 +39,6 @@ import {
 import { reconcileLostRunningWork } from "./lostRunningWork.js";
 import { scanProjectionRepairPending } from "./projectionRepair.js";
 import { errorMessage, toError } from "../errors/errorMessage.js";
-
-const AGENT_QUEUE_STATS_QUEUES = [
-  ACK_QUEUE,
-  REVIEW_QUEUE,
-  ASK_QUEUE,
-  DESCRIPTION_QUEUE,
-  TRIAGE_QUEUE,
-  VERIFICATION_QUEUE,
-  CI_PROJECTION_QUEUE,
-] as const;
-
-export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
-  const results = await Promise.all(
-    AGENT_QUEUE_STATS_QUEUES.map(async (queue) => {
-      const [stats] = await boss.getQueueStats(queue);
-      return { queue, stats };
-    }),
-  );
-  for (const { queue, stats } of results) {
-    logDebug("agent_queue_stats", {
-      queue,
-      queued: stats?.queuedCount,
-      active: stats?.activeCount,
-      total: stats?.totalCount,
-    });
-  }
-}
 
 type JobCorrelation = { workItemId?: string; webhookEventId?: string; delivery?: string };
 

@@ -10,7 +10,6 @@ import {
   renderAgentFixPrompt,
   renderInlineThreadBody,
   renderLightweightReviewCompletion,
-  renderRepeatNoBugsReviewBody,
   renderReviewActionLine,
   renderFollowUpsCell,
   renderReviewPointerLensMarker,
@@ -21,7 +20,6 @@ import {
 } from "../src/review/run/reviewRender.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  REPEAT_NO_BUGS_PREFIX,
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
@@ -1683,50 +1681,6 @@ describe("renderSpecialistReviewBody", () => {
       lensMarker: renderReviewPointerLensMarker("review"),
     });
     expect(body.endsWith(renderReviewPointerLensMarker("review"))).toBe(true);
-  });
-});
-
-describe("renderRepeatNoBugsReviewBody", () => {
-  const url = "https://github.com/acme/widgets/pull/42#issuecomment-123";
-
-  it("links to summary when URL is verified (general)", () => {
-    const body = renderRepeatNoBugsReviewBody("review", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
-  });
-
-  it("links to summary when URL is verified (security)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-security", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
-  });
-
-  it("falls back to plain pointer when URL is missing (general)", () => {
-    const body = renderRepeatNoBugsReviewBody("review");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
-  });
-
-  it("falls back to plain pointer when URL is missing (security)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-security");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
-  });
-
-  it("links to summary when URL is verified (quality)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-quality", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
-  });
-
-  it("falls back to plain pointer when URL is missing (quality)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-quality");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
-  });
-
-  it("links to summary when URL is verified (tests)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-tests", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
-  });
-
-  it("falls back to plain pointer when URL is missing (tests)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-tests");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
   });
 });
 

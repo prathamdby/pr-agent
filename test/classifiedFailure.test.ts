@@ -14,7 +14,6 @@ import {
 import {
   classifyFailure,
   classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
   type ClassifiedFailure,
 } from "../src/errors/classifiedFailure.js";
 import { ESCALATED_TOOL_ROUNDS_CAP } from "../src/settings/index.js";
@@ -252,7 +251,7 @@ describe("classifyFailure", () => {
     }
   });
 
-  it("maps log fields camelCase and PostHog snake_case", () => {
+  it("maps log fields camelCase", () => {
     const f = classifyFailure(new Error("Insufficient credits"), {
       phase: "synthesis",
       toolName: "publish_summary",
@@ -265,28 +264,10 @@ describe("classifyFailure", () => {
       phase: "synthesis",
       toolName: "publish_summary",
     });
-    expect(classifiedFailurePostHogProperties(f)).toMatchObject({
-      failure_domain: "provider",
-      error_kind: "quota",
-      error_message: "Insufficient credits",
-      phase: "synthesis",
-      tool_name: "publish_summary",
-      provider: "pi",
-      model: "m",
-    });
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("http_status");
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("request_path");
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("cause_chain");
-  });
-
-  it("omits unsafe phase text from PostHog while keeping it on logs", () => {
-    const f = classifyFailure(new Error("boom"), { phase: "/tmp/secret.ts" });
-    expect(classifiedFailureLogFields(f).phase).toBe("/tmp/secret.ts");
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("phase");
   });
 });
 
-describe("classified-failure projections", () => {
+describe("classifiedFailureLogFields", () => {
   const requiredOnly = classifyFailure(new Error("plain boom"));
 
   const everyOptional = classifyFailure(
@@ -311,14 +292,9 @@ describe("classified-failure projections", () => {
       errorKind: "unknown",
       errorMessage: "plain boom",
     });
-    expect(classifiedFailurePostHogProperties(requiredOnly)).toEqual({
-      failure_domain: "unknown",
-      error_kind: "unknown",
-      error_message: "plain boom",
-    });
   });
 
-  it("projects every optional field under log and PostHog key conventions", () => {
+  it("projects every optional field", () => {
     expect(classifiedFailureLogFields(everyOptional)).toEqual({
       failureDomain: "provider",
       errorKind: "quota",
@@ -331,34 +307,6 @@ describe("classified-failure projections", () => {
       causeChain: ["Insufficient credits", "ledger miss"],
       errorCount: 3,
     });
-    expect(classifiedFailurePostHogProperties(everyOptional)).toEqual({
-      failure_domain: "provider",
-      error_kind: "quota",
-      error_message: "Insufficient credits for model",
-      error_code: "review.orchestrator_send_failed",
-      phase: "synthesis",
-      tool_name: "publish_summary",
-      provider: "pi",
-      model: "m",
-      error_count: 3,
-    });
-  });
-
-  it("projects equivalent facts under log and PostHog key conventions", () => {
-    const log = classifiedFailureLogFields(everyOptional);
-    const posthog = classifiedFailurePostHogProperties(everyOptional);
-    expect(posthog.error_message).toBe(log.errorMessage);
-    expect(posthog).not.toHaveProperty("cause_chain");
-    expect(posthog).not.toHaveProperty("http_status");
-    expect(posthog).not.toHaveProperty("request_path");
-    expect(log.failureDomain).toBe(posthog.failure_domain);
-    expect(log.errorKind).toBe(posthog.error_kind);
-    expect(log.errorCode).toBe(posthog.error_code);
-    expect(log.phase).toBe(posthog.phase);
-    expect(log.toolName).toBe(posthog.tool_name);
-    expect(log.provider).toBe(posthog.provider);
-    expect(log.model).toBe(posthog.model);
-    expect(log.errorCount).toBe(posthog.error_count);
   });
 
   it("projects lifecycle-hint classifications without inventing optional keys", () => {
@@ -370,20 +318,10 @@ describe("classified-failure projections", () => {
       errorKind: "superseded",
       errorMessage: "whatever",
     });
-    expect(classifiedFailurePostHogProperties(superseded)).toEqual({
-      failure_domain: "internal",
-      error_kind: "superseded",
-      error_message: "whatever",
-    });
     expect(classifiedFailureLogFields(cancelled)).toEqual({
       failureDomain: "internal",
       errorKind: "cancelled",
       errorMessage: "head moved",
-    });
-    expect(classifiedFailurePostHogProperties(cancelled)).toEqual({
-      failure_domain: "internal",
-      error_kind: "cancelled",
-      error_message: "head moved",
     });
   });
 
@@ -394,12 +332,6 @@ describe("classified-failure projections", () => {
       errorKind: "unknown",
       errorMessage: "plain boom",
       errorCount: 0,
-    });
-    expect(classifiedFailurePostHogProperties(zeroCount)).toEqual({
-      failure_domain: "unknown",
-      error_kind: "unknown",
-      error_message: "plain boom",
-      error_count: 0,
     });
 
     const nullish: ClassifiedFailure = {
@@ -420,14 +352,9 @@ describe("classified-failure projections", () => {
       errorMessage: "plain boom",
       phase: "",
     });
-    expect(classifiedFailurePostHogProperties(nullish)).toEqual({
-      failure_domain: "unknown",
-      error_kind: "unknown",
-      error_message: "plain boom",
-    });
   });
 
-  it("projects GitHub 403 status, path, and sanitized message on PostHog", () => {
+  it("projects GitHub 403 status, path, and sanitized message", () => {
     const token = ["ghp", "1234567890123456789012345678901234"].join("_");
     const f = classifyFailure(
       Object.assign(new Error(`Resource not accessible by integration Bearer ${token}`), {
@@ -437,23 +364,16 @@ describe("classified-failure projections", () => {
         },
       }),
     );
-    expect(classifiedFailureLogFields(f)).toMatchObject({
+    expect(classifiedFailureLogFields(f)).toEqual({
       failureDomain: "github",
       errorKind: "forbidden",
+      errorMessage: expect.stringContaining("Resource not accessible by integration"),
       httpStatus: 403,
       requestPath: "/repos/acme/widgets/check-runs",
     });
-    expect(classifiedFailurePostHogProperties(f)).toEqual({
-      failure_domain: "github",
-      error_kind: "forbidden",
-      error_message: expect.stringContaining("Resource not accessible by integration"),
-      http_status: 403,
-      request_path: "/repos/acme/widgets/check-runs",
-    });
-    const json = JSON.stringify(classifiedFailurePostHogProperties(f));
+    const json = JSON.stringify(classifiedFailureLogFields(f));
     expect(json).not.toContain(token);
     expect(json).not.toContain("access_token");
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("cause_chain");
   });
 
   it("extracts GitHub status and path from a wrapped cause", () => {
@@ -469,29 +389,22 @@ describe("classified-failure projections", () => {
     expect(f.errorKind).toBe("forbidden");
     expect(f.httpStatus).toBe(403);
     expect(f.requestPath).toBe("/repos/acme/widgets/check-runs");
-    expect(classifiedFailurePostHogProperties(f)).toMatchObject({
-      failure_domain: "github",
-      error_kind: "forbidden",
-      http_status: 403,
-      request_path: "/repos/acme/widgets/check-runs",
-    });
   });
 
-  it("omits request_path when a GitHub error has status but no request URL", () => {
+  it("omits requestPath when a GitHub error has status but no request URL", () => {
     const f = classifyFailure(
       Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
     );
     expect(f.httpStatus).toBe(403);
     expect(f.requestPath).toBeUndefined();
-    expect(classifiedFailurePostHogProperties(f)).toEqual({
-      failure_domain: "github",
-      error_kind: "forbidden",
-      error_message: "Resource not accessible by integration",
-      http_status: 403,
+    expect(classifiedFailureLogFields(f)).toEqual({
+      failureDomain: "github",
+      errorKind: "forbidden",
+      errorMessage: "Resource not accessible by integration",
+      httpStatus: 403,
     });
   });
 });
-
 describe("retryDispositionFor", () => {
   it("terminates only typed permanent resolution denial, leaving generic auth transient", () => {
     const denied = new AppError({

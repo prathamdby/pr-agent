@@ -1,5 +1,4 @@
 import type { Config } from "../../settings/index.js";
-import { AppError } from "../../errors/appError.js";
 import type { AgentSessionRole, ModelAssignment } from "./types.js";
 
 export type ResolvedModelPolicy = {
@@ -46,25 +45,4 @@ export function modelAssignmentForRole(
       return _exhaustive;
     }
   }
-}
-
-export function assertSameModelAssignment(
-  current: ModelAssignment,
-  next: ModelAssignment,
-  context: { readonly role: AgentSessionRole; readonly reason: string },
-): void {
-  if (current.provider === next.provider && current.model === next.model) return;
-  throw new AppError({
-    domain: "runtime",
-    kind: "mid_session_model_switch",
-    message: "Healthy Pi sessions keep one model; mid-session model switches are forbidden",
-    context: {
-      role: context.role,
-      reason: context.reason,
-      currentProvider: current.provider,
-      currentModel: current.model,
-      nextProvider: next.provider,
-      nextModel: next.model,
-    },
-  });
 }

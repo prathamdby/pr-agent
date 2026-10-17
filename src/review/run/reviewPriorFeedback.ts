@@ -117,7 +117,7 @@ export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens |
   return null;
 }
 
-export function resolveReviewLensFromPointerOrRecords(
+function resolveReviewLensFromPointerOrRecords(
   body: string,
   reviewId: number,
   publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,

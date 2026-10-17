@@ -110,7 +110,7 @@ class TraceRecorder {
   private readonly timer;
 
   constructor(
-    private readonly cfg: Config,
+    cfg: Config,
     private readonly capture: AiCapture,
   ) {
     this.redactor = createTraceRedactor(cfg);

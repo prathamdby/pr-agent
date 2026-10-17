@@ -77,7 +77,6 @@ import {
   renderCiRollupMarker,
   renderCiActionPhrase,
   renderCiSummaryCell,
-  renderClearedVerificationFailureStub,
 } from "../../src/review/ci/ciSummaryCell.js";
 import { wrapDescriptionAgentBlock } from "../../src/agent/description/descriptionBodyMerge.js";
 import { makeTestConfig } from "../helpers/config.js";
@@ -96,7 +95,6 @@ import {
   triageReportOperationKey,
   triagePreviewOperationKey,
   verificationThreadOperationKey,
-  verificationFailureOperationKey,
   reviewCheckOperationKey,
   reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
@@ -2184,7 +2182,6 @@ try {
       triageReportOperationKey(resourceKey),
       triagePreviewOperationKey(resourceKey),
       verificationThreadOperationKey(70),
-      verificationFailureOperationKey("abc1234"),
       reviewCheckOperationKey("golden-work"),
       ownVerdictCloseOperationKey({
         workItemId: "golden-work",
@@ -2209,7 +2206,6 @@ try {
       "triage:report:golden/repo#7",
       "triage:preview:golden/repo#7",
       "verification:thread:70",
-      "verification:failure:abc1234",
       "review:check_run:golden-work",
       "review:check_run_close:golden-work:review",
       "review:commit_status:golden/repo#7:abc1234:pending",
@@ -2232,7 +2228,6 @@ try {
         3,
       ),
       wrapDescriptionAgentBlock("Golden description"),
-      renderClearedVerificationFailureStub(),
     ]).toEqual([
       "<!-- pr-agent:operation-intent dccbbf3d94b8df60ea6d339e -->",
       "Golden progress\n<!-- pr-agent:progress-revision workItemId=golden%2Fwork value=7 -->",
@@ -2243,7 +2238,6 @@ try {
       "<!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->",
       "<!-- pr-agent:ci-summary head=abc1234 v=3 fmt=1 -->CI is passing<!-- /pr-agent:ci-summary -->",
       "<!-- PR_AGENT_DESCRIPTION_BEGIN -->\nGolden description\n<!-- PR_AGENT_DESCRIPTION_END -->",
-      "<!-- pr-agent:verification-failure --><!-- /pr-agent:verification-failure -->",
     ]);
     expect([...WORKER_CONSUMER_QUEUES].toSorted()).toEqual([
       "agent-work-ack",

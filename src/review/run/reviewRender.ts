@@ -15,13 +15,11 @@ import {
   LIGHTWEIGHT_REVIEW_COMPLETION_HINT,
   LIGHTWEIGHT_REVIEW_COMPLETION_LEAD,
   LIGHTWEIGHT_REVIEW_COMPLETION_REASON,
-  REPEAT_NO_BUGS_PREFIX,
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
   REVIEW_OVERVIEW_ALERT,
-  REVIEW_POINTER_BODY,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
@@ -88,16 +86,6 @@ function neutralizeControlMarkers(text: string): string {
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
   const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
   return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
-}
-
-export function renderRepeatNoBugsReviewBody(
-  mode: AnyReviewLens,
-  summaryCommentUrl?: string,
-): string {
-  if (summaryCommentUrl) {
-    return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
-  }
-  return `${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`;
 }
 
 export function renderLightweightReviewCompletion(

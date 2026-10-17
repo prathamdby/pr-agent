@@ -144,7 +144,7 @@ export const APP_ERROR_KINDS = {
     "tool_wrong_phase",
     "work_item_id_required",
   ],
-  runtime: ["mid_session_model_switch", "session_disposed", "session_send_failed"],
+  runtime: ["session_disposed", "session_send_failed"],
   settings: [
     "models_json_load_error",
     "models_json_model_not_found",

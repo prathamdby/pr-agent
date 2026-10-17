@@ -74,17 +74,9 @@ export function parseCiSummaryMarker(body: string): CiSummaryMarker | null {
   };
 }
 
-export function parseCiSummaryMarkerHead(body: string): string | null {
-  return parseCiSummaryMarker(body)?.head ?? null;
-}
-
 export function parseCiSummaryMarkerVersion(body: string): number | null {
   const marker = parseCiSummaryMarker(body);
   return marker == null ? null : marker.version;
-}
-
-export function commentBodyHasCiSummaryCell(body: string): boolean {
-  return CI_SUMMARY_CELL_RE.test(body);
 }
 
 export function renderCiActionPhrase(phrase: string, format = CI_PROJECTION_FORMAT): string {
@@ -181,18 +173,6 @@ export function applyCiProjectionBodyUpdate(
     next = replaceActionPhrase(next, options.actionPhrase);
   }
   return next === body ? { body, kind: "current" } : { body: next, kind: "updated" };
-}
-
-export function replaceCiSummaryCellIfNewer(
-  body: string,
-  nextCell: string,
-  headSha: string,
-  version: number,
-  options?: { readonly actionPhrase?: string | null },
-): string | null {
-  const result = applyCiProjectionBodyUpdate(body, nextCell, headSha, version, options);
-  if (result == null || result.kind === "current") return null;
-  return result.body;
 }
 
 export function formatReviewActionLineCiStatus(summary: CiSummary | null | undefined): string {
@@ -356,10 +336,6 @@ export type VerificationFailureSurface = "ci_cell" | "stub_line";
 
 export function renderVerificationFailureBlock(): string {
   return `${VERIFICATION_FAILURE_START}${VERIFICATION_FAILURE_TEXT}${VERIFICATION_FAILURE_END}`;
-}
-
-export function renderClearedVerificationFailureStub(): string {
-  return `${VERIFICATION_FAILURE_START}${VERIFICATION_FAILURE_END}`;
 }
 
 export function injectVerificationFailureIntoCiCell(body: string, block: string): string {

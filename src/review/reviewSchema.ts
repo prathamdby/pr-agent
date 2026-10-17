@@ -12,7 +12,6 @@ import {
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
-import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
 
 export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
@@ -193,18 +192,6 @@ export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
 
 export function isCheckFailingSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2";
-}
-
-export function selectInlineFindings(findings: ReviewFinding[]): ReviewFinding[] {
-  const inline = findings.filter((f) => isInlineSeverity(f.severity));
-  inline.sort(compareReviewFindingsBySeverityFileLine);
-  return inline;
-}
-
-export function reviewEventForFindings(findings: ReviewFinding[]): "REQUEST_CHANGES" | "COMMENT" {
-  return findings.some((f) => f.severity === "P0" || f.severity === "P1")
-    ? "REQUEST_CHANGES"
-    : "COMMENT";
 }
 
 export function reviewPayloadFromFindings(

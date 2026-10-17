@@ -11,7 +11,6 @@ import {
 } from "../github/githubErrors.js";
 import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
 import { isAppError } from "./appError.js";
 import type { AppErrorDomain, AppErrorKind } from "./appErrorCodes.js";
 
@@ -244,78 +243,32 @@ export function posthogSafePhase(phase: string | undefined): string | undefined 
   return POSTHOG_SAFE_PHASES.has(phase) ? phase : undefined;
 }
 
-type ClassifiedFailureFieldDescriptor = {
-  readonly logKey: string;
-  readonly posthogKey: string;
-  readonly required: boolean;
-  readonly omitFromPostHog?: boolean;
-};
+const CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED = {
+  failureDomain: true,
+  errorKind: true,
+  errorMessage: true,
+  errorCode: false,
+  phase: false,
+  toolName: false,
+  provider: false,
+  model: false,
+  causeChain: false,
+  errorCount: false,
+  httpStatus: false,
+  requestPath: false,
+} as const satisfies { readonly [K in keyof ClassifiedFailure]-?: boolean };
 
-const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
-  failureDomain: { logKey: "failureDomain", posthogKey: "failure_domain", required: true },
-  errorKind: { logKey: "errorKind", posthogKey: "error_kind", required: true },
-  errorMessage: {
-    logKey: "errorMessage",
-    posthogKey: "error_message",
-    required: true,
-  },
-  errorCode: { logKey: "errorCode", posthogKey: "error_code", required: false },
-  phase: { logKey: "phase", posthogKey: "phase", required: false },
-  toolName: { logKey: "toolName", posthogKey: "tool_name", required: false },
-  provider: { logKey: "provider", posthogKey: "provider", required: false },
-  model: { logKey: "model", posthogKey: "model", required: false },
-  causeChain: {
-    logKey: "causeChain",
-    posthogKey: "cause_chain",
-    required: false,
-    omitFromPostHog: true,
-  },
-  errorCount: { logKey: "errorCount", posthogKey: "error_count", required: false },
-  httpStatus: { logKey: "httpStatus", posthogKey: "http_status", required: false },
-  requestPath: { logKey: "requestPath", posthogKey: "request_path", required: false },
-} as const satisfies {
-  readonly [K in keyof ClassifiedFailure]: ClassifiedFailureFieldDescriptor;
-};
-
-function projectClassifiedFailure(
-  failure: ClassifiedFailure,
-  naming: "logKey" | "posthogKey",
-): Record<string, unknown> {
+export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const sources = Object.keys(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS).filter(
-    (source): source is keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS =>
-      Object.hasOwn(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS, source),
+  const fields = Object.keys(CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED).filter(
+    (field): field is keyof typeof CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED =>
+      Object.hasOwn(CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED, field),
   );
-  for (const source of sources) {
-    const descriptor: ClassifiedFailureFieldDescriptor =
-      CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
-    if (naming === "posthogKey" && descriptor.omitFromPostHog === true) {
-      continue;
-    }
-    const value = failure[source];
-    if (naming === "posthogKey" && source === "phase") {
-      const phase = posthogSafePhase(typeof value === "string" ? value : undefined);
-      if (phase == null) continue;
-      out[descriptor.posthogKey] = phase;
-      continue;
-    }
-    if (naming === "posthogKey" && source === "errorMessage") {
-      const message = typeof value === "string" ? value.slice(0, MAX_LOG_MESSAGE_LEN) : "";
-      if (message.length === 0) continue;
-      out[descriptor.posthogKey] = message;
-      continue;
-    }
-    if (descriptor.required || value != null) {
-      out[descriptor[naming]] = value;
+  for (const field of fields) {
+    const value = f[field];
+    if (CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED[field] || value != null) {
+      out[field] = value;
     }
   }
   return out;
-}
-
-export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string, unknown> {
-  return projectClassifiedFailure(f, "logKey");
-}
-
-export function classifiedFailurePostHogProperties(f: ClassifiedFailure): Record<string, unknown> {
-  return projectClassifiedFailure(f, "posthogKey");
 }

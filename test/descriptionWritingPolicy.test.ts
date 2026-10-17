@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   enforceDescriptionMapPayload,
   resolveDescriptionBodyScale,
-  resolveDescriptionMapMode,
   resolveDescriptionWritingPolicy,
 } from "../src/agent/description/descriptionWritingPolicy.js";
 import type { DescriptionPayload } from "../src/agent/description/descriptionSchema.js";
@@ -30,74 +29,6 @@ const basePayload = (prFiles?: DescriptionPayload["prFiles"]): DescriptionPayloa
 const mapEntry = (filename: string) => ({
   filename,
   changesTitle: `Open ${filename} first`,
-});
-
-describe("resolveDescriptionMapMode", () => {
-  it("omits when file count and line changes are under thresholds and not truncated", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES,
-        totalChanges: DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES - 1,
-        truncated: false,
-      }),
-    ).toBe("omit");
-  });
-
-  it("omits for zero files", () => {
-    expect(resolveDescriptionMapMode({ fileCount: 0, totalChanges: 0, truncated: false })).toBe(
-      "omit",
-    );
-  });
-
-  it("uses read_first when file count exceeds omit max", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES + 1,
-        totalChanges: 10,
-        truncated: false,
-      }),
-    ).toBe("read_first");
-  });
-
-  it("uses read_first when totalChanges is at or above omit max", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: 1,
-        totalChanges: DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
-        truncated: false,
-      }),
-    ).toBe("read_first");
-  });
-
-  it("uses read_first when truncated even if small", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: 1,
-        totalChanges: 1,
-        truncated: true,
-      }),
-    ).toBe("read_first");
-  });
-
-  it("uses read_first for many files with tiny line changes", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: 20,
-        totalChanges: 5,
-        truncated: false,
-      }),
-    ).toBe("read_first");
-  });
-
-  it("uses read_first for few files with huge line changes", () => {
-    expect(
-      resolveDescriptionMapMode({
-        fileCount: 1,
-        totalChanges: 5000,
-        truncated: false,
-      }),
-    ).toBe("read_first");
-  });
 });
 
 describe("resolveDescriptionBodyScale", () => {

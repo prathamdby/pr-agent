@@ -11,12 +11,6 @@ export type WorkSpanContext = {
   readonly attemptCount?: number;
 };
 
-export type WorkSpanKind =
-  | "llm_generation"
-  | "publish_span"
-  | "phase_checkpoint"
-  | "specialist_span";
-
 type WorkSpanBase = {
   readonly traceSpanId?: string;
   readonly workItemId: string;

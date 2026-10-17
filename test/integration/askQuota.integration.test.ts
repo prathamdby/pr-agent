@@ -172,7 +172,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     );
     expect(rows[0]?.outstanding_count).toBe(2);
 
-    const admittedId = workItemIds.find((id, index) => admissions[index]?.kind === "admitted");
+    const admittedId = workItemIds.find((_id, index) => admissions[index]?.kind === "admitted");
     expect(admittedId).toBeDefined();
     await pool.query(
       `UPDATE agent_work_items
