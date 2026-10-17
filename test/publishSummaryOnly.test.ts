@@ -217,7 +217,12 @@ describe("publishReviewSummaryOnly", () => {
       publishReviewSummaryOnly(session, {
         payload: makeReviewPayload({ findings: [item] }),
         ledger,
-        coverage: { kind: "partial", reason: "specialists", failed: ["tests"], note: "Partial coverage" },
+        coverage: {
+          kind: "partial",
+          reason: "specialists",
+          failed: ["tests"],
+          note: "Partial coverage",
+        },
       }),
     ).resolves.toEqual({
       kind: "published",

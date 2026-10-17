@@ -9,7 +9,11 @@ import {
   publishOnce,
 } from "../../agentWork/publishOnce.js";
 import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
-import { closeOutcomeForCoverage, reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
+import {
+  closeOutcomeForCoverage,
+  reviewVerdict,
+  summaryCommentVerdictMeta,
+} from "../../agentWork/reviewVerdict.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
@@ -240,7 +244,12 @@ export async function publishReviewSummaryOnly(
       coverage.kind === "full"
         ? coverage
         : coverage.reason === "unread"
-          ? { kind: "partial" as const, reason: "unread" as const, paths: [...coverage.paths], note: coverage.note }
+          ? {
+              kind: "partial" as const,
+              reason: "unread" as const,
+              paths: [...coverage.paths],
+              note: coverage.note,
+            }
           : {
               kind: "partial" as const,
               reason: "specialists" as const,
@@ -357,7 +366,9 @@ export async function publishReviewSummaryOnly(
       leaseEpoch: session.verdict.leaseEpoch,
       commitStatusEnabled: session.cfg.features.commitStatus,
       summaryCommentId: summary.id,
-    }).close(closeOutcome.kind === "not_published" ? { kind: "published", ...check } : closeOutcome);
+    }).close(
+      closeOutcome.kind === "not_published" ? { kind: "published", ...check } : closeOutcome,
+    );
   }
 
   if (!labelsAvailable) return finishPublished(summary.id);
