@@ -2,10 +2,18 @@
 
 ## Decision
 
-Use Node 24.22.0 LTS with npm `>=11.19.1 <12`. The official
+Pin contributor tooling, CI, and Docker to Node 24.22.0 LTS with npm
+`>=11.19.1 <12`. The official
 `node:24.22.0-bookworm-slim` image supplies npm 11.19.1. Root `engines`
 and `devEngines` reject unsupported versions. The supported Node range is
-`^24.22.0`, not an unbounded minimum.
+`^24.21.0`, not an unbounded minimum. This admits Vercel's managed Node 24.21.0
+runtime without changing the preferred version or npm requirement.
+
+Node 24.21.0 lacks the 24.22.0 fix for calling `digest()` after finalizing an HMAC
+stream. Webhook verification and the inspected authentication dependencies use
+one-shot HMAC updates and digests. Do not re-digest finalized HMAC streams.
+Recheck the supported range when Node's announced October 21, 2026 security
+release becomes available.
 
 One root `package-lock.json` owns the backend and `site` workspace.
 Shared overrides stay at the root. `.npmrc` owns `min-release-age=7`,

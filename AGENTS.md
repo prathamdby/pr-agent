@@ -119,7 +119,7 @@ That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), 
 
 `docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once.
 
-Use Node 24.22.0 LTS with npm 11.19.1 or a newer npm 11 release. Run `npm ci` before checks. `npm run dev` uses native Node TypeScript and watches imported source; restart after environment or configuration changes.
+Use Node 24.22.0 LTS with npm 11.19.1 or a newer npm 11 release. The supported Node range is `^24.21.0`; CI and Docker stay pinned to 24.22.0. Run `npm ci` before checks. `npm run dev` uses native Node TypeScript and watches imported source; restart after environment or configuration changes.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 

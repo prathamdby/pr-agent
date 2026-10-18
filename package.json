@@ -85,11 +85,11 @@
     },
     "runtime": {
       "name": "node",
-      "version": "^24.22.0",
+      "version": "^24.21.0",
       "onFail": "error"
     }
   },
   "engines": {
-    "node": "^24.22.0"
+    "node": "^24.21.0"
   }
 }
