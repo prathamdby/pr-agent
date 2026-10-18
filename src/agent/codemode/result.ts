@@ -1,4 +1,4 @@
-import type { CodeModeErrorCode } from "../execution/hostHalt.js";
+import type { CodeModeErrorCode } from "../execution/hostHalt.ts";
 
 export type CodeModeToolCallStatus = "completed" | "error";
 

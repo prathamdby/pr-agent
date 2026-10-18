@@ -11,33 +11,33 @@ import {
   type AssistantMessage,
   type Message,
 } from "@earendil-works/pi-ai";
-import { AppError, toAppError } from "../../errors/appError.js";
-import type { AppErrorCode } from "../../errors/appErrorCodes.js";
+import { AppError, toAppError } from "../../errors/appError.ts";
+import type { AppErrorCode } from "../../errors/appErrorCodes.ts";
 import {
   assertPhaseToolAllowed,
   ORCHESTRATOR_PHASE_TOOLS,
   type OrchestratorPhaseTool,
-} from "../../review/orchestrator/phaseToolPolicy.js";
-import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
-import { combineAbortSignals } from "../providers/interface.js";
+} from "../../review/orchestrator/phaseToolPolicy.ts";
+import { recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
+import { combineAbortSignals } from "../providers/interface.ts";
 import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
   promptMetadataFromText,
   type TurnEnd,
-} from "../providers/usageMetadata.js";
-import { toCoreTools } from "./coreTools.js";
-import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
-import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
-import { createSessionModels } from "./sessionModels.js";
-import { createSessionStreamFn } from "./sessionStream.js";
-import { createSessionTrace } from "./sessionTrace.js";
-import { ORCHESTRATOR_SESSION_PHASES, resolveThinkingLevel } from "./thinkingPolicy.js";
-import { createSendActivity } from "./sendActivity.js";
-import { createTurnToolBudget } from "./turnToolBudget.js";
-import { createSessionCompaction } from "./sessionCompaction.js";
-import { isProviderRefusal, lastAssistant, runSessionTurn } from "./sessionTurnLoop.js";
-import type { PiSession, PiSessionCreateParams } from "./types.js";
+} from "../providers/usageMetadata.ts";
+import { toCoreTools } from "./coreTools.ts";
+import { createSanitizedEventSink } from "./lifecycleSanitizer.ts";
+import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.ts";
+import { createSessionModels } from "./sessionModels.ts";
+import { createSessionStreamFn } from "./sessionStream.ts";
+import { createSessionTrace } from "./sessionTrace.ts";
+import { ORCHESTRATOR_SESSION_PHASES, resolveThinkingLevel } from "./thinkingPolicy.ts";
+import { createSendActivity } from "./sendActivity.ts";
+import { createTurnToolBudget } from "./turnToolBudget.ts";
+import { createSessionCompaction } from "./sessionCompaction.ts";
+import { isProviderRefusal, lastAssistant, runSessionTurn } from "./sessionTurnLoop.ts";
+import type { PiSession, PiSessionCreateParams } from "./types.ts";
 
 function isOrchestratorPhaseTool(name: string): name is OrchestratorPhaseTool {
   return (ORCHESTRATOR_PHASE_TOOLS as readonly string[]).includes(name);

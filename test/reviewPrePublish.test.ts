@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { prepareReviewPayloadForPublish } from "../src/review/findings/findingPipeline.js";
-import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+import { prepareReviewPayloadForPublish } from "../src/review/findings/findingPipeline.ts";
+import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.ts";
+import type { ReviewPayload } from "../src/review/reviewSchema.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
 type ReviewFinding = ReviewPayload["findings"][number];
 

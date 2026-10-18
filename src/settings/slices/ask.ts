@@ -1,4 +1,4 @@
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   DEFAULT_ASK_ACTOR_BURST,
   DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
@@ -12,9 +12,9 @@ import {
   DEFAULT_ASK_REPOSITORY_BURST,
   DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
   DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
-} from "../askQuotaConstants.js";
-import { ENV } from "../envKeys.js";
-import { readNonNegativeInteger, readPositiveInteger, readPositiveNumber } from "../envReaders.js";
+} from "../askQuotaConstants.ts";
+import { ENV } from "../envKeys.ts";
+import { readNonNegativeInteger, readPositiveInteger, readPositiveNumber } from "../envReaders.ts";
 
 export type AskSlice = {
   readonly actorMaxOutstanding: number;

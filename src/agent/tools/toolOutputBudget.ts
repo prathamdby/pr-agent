@@ -1,4 +1,4 @@
-import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../../settings/index.js";
+import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../../settings/index.ts";
 
 export type CappedTextOutput = {
   readonly content: string;

@@ -1,6 +1,6 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -10,7 +10,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -35,7 +35,7 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
@@ -46,20 +46,20 @@ import {
   parseVerificationThreadLedger,
   saveVerificationThreadLedger,
   upsertVerificationThreadState,
-} from "../src/agentWork/verificationThreadLedger.js";
-import { VERIFICATION_PUBLISH_LENS } from "../src/settings/index.js";
+} from "../src/agentWork/verificationThreadLedger.ts";
+import { VERIFICATION_PUBLISH_LENS } from "../src/settings/index.ts";
 
 const mocks = vi.hoisted(() => ({
   write: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,

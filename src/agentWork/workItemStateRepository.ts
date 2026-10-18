@@ -1,19 +1,19 @@
-import { fencedWrite } from "./fencedWrite.js";
-import { unleasedFence } from "./writeFence.js";
+import { fencedWrite } from "./fencedWrite.ts";
+import { unleasedFence } from "./writeFence.ts";
 import type { Pool, PoolClient } from "pg";
-import { inTransaction, queryOne } from "../db/postgres.js";
-import { logWarn } from "../evlog.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { isAnyReviewLens, normalizeReviewLens, type AnyReviewLens } from "../settings/index.js";
-import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
-import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
-import { leaseFenceSql, lostRunningWorkLivenessSql, transition } from "./workItemTransitions.js";
+import { inTransaction, queryOne } from "../db/postgres.ts";
+import { logWarn } from "../evlog.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { isAnyReviewLens, normalizeReviewLens, type AnyReviewLens } from "../settings/index.ts";
+import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.ts";
+import { lockPrActorLeaseForUpdate } from "./prActorLease.ts";
+import { leaseFenceSql, lostRunningWorkLivenessSql, transition } from "./workItemTransitions.ts";
 import {
   attachWorkItemPayload,
   STALE_HEAD_REPLACEMENT_ID_SQL,
   WorkItemPayloadValidationError,
-} from "./workItemPayloadSchema.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "./workItemPayloadSchema.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 type AgentWorkRow = {
   id: string;

@@ -2,15 +2,15 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../src/settings/index.js";
+import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../src/settings/index.ts";
 import {
   readTextWithOutputBudget,
   shouldSpillToFile,
-} from "../src/agent/tools/toolOutputBudget.js";
+} from "../src/agent/tools/toolOutputBudget.ts";
 import {
   readBudgetedWorkspaceTextFile,
   spillTextToSessionFile,
-} from "../src/agent/tools/readWorkspaceTextFile.js";
+} from "../src/agent/tools/readWorkspaceTextFile.ts";
 
 const OVER_LIMIT = LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 1;
 

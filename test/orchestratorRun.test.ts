@@ -1,41 +1,41 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
-import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
-import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
-import { AppError } from "../src/errors/appError.js";
-import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
-import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
+import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.ts";
+import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.ts";
+import { AppError } from "../src/errors/appError.ts";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
+import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.ts";
 import type {
   AcceptedPlacement,
   FindingLedger,
   ReviewCoverage,
   SpecialistId,
   SpecialistOutcome,
-} from "../src/review/orchestrator/orchestratorTypes.js";
-import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.ts";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import type { Pool } from "pg";
-import { reviewPayloadFromFindings, type ReviewFinding } from "../src/review/reviewSchema.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { reviewPayloadFromFindings, type ReviewFinding } from "../src/review/reviewSchema.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 import {
   MAX_TOOL_ROUNDS,
   REVIEW_GATE_PROSE_UNASSESSED,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
-} from "../src/settings/index.js";
-import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/prompts/orchestrator/prompt.js";
-import * as evlog from "../src/evlog.js";
-import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
+} from "../src/settings/index.ts";
+import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/prompts/orchestrator/prompt.ts";
+import * as evlog from "../src/evlog.ts";
+import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.ts";
 import {
   openReviewRecovery,
   snapshotFindingLedger,
-} from "../src/review/recovery/reviewRecovery.js";
+} from "../src/review/recovery/reviewRecovery.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   reviewArtifactHash,
-} from "../src/review/recovery/reviewArtifacts.js";
+} from "../src/review/recovery/reviewArtifacts.ts";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -96,9 +96,9 @@ const publishRecordMocks = vi.hoisted(() => ({
   getSummaryCommentGithubId: vi.fn<() => Promise<number | null>>(async () => 99),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", () => publishRecordMocks);
+vi.mock("../src/agentWork/publishRecordRepository.ts", () => publishRecordMocks);
 
-vi.mock("../src/review/run/reviewRunSetup.js", () => ({
+vi.mock("../src/review/run/reviewRunSetup.ts", () => ({
   buildReviewRunSetup: vi.fn((params: { trustedContext?: string }) => ({
     orchestratorUserContent: params.trustedContext ?? "",
     systemPrompt: "legacy prompt must not be used",
@@ -123,7 +123,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
+vi.mock("../src/review/orchestrator/specialistRun.ts", () => ({
   runSpecialist: vi.fn(
     (params: {
       readonly specialist: SpecialistId;
@@ -156,7 +156,7 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
   ),
 }));
 
-vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
+vi.mock("../src/review/orchestrator/publishThreadTool.ts", () => ({
   buildPublishThreadTool: vi.fn(
     (params: {
       session: { resolveProgressCommentUrl: () => Promise<string | undefined> };
@@ -211,7 +211,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
   ),
 }));
 
-vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
+vi.mock("../src/review/orchestrator/publishSummaryTool.ts", () => ({
   createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
   buildPublishSummaryTool: vi.fn(
     (params: { state: { published: boolean }; getCoverage: () => ReviewCoverage }) => {
@@ -229,7 +229,7 @@ vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
   ),
 }));
 
-vi.mock("../src/review/orchestrator/stubTick.js", () => ({
+vi.mock("../src/review/orchestrator/stubTick.ts", () => ({
   tickProgressComment: vi.fn(
     async (params: {
       progressRevision: number;
@@ -249,13 +249,13 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
   ),
 }));
 
-vi.mock("../src/review/run/reviewRunFallback.js", () => ({
+vi.mock("../src/review/run/reviewRunFallback.ts", () => ({
   publishReviewRunFailureNotice: vi.fn(async () => {
     testState.failureNotices += 1;
   }),
 }));
 
-vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
+vi.mock("../src/review/publish/publishSummaryOnly.ts", () => ({
   publishReviewSummaryOnly: vi.fn(
     async (_session: unknown, input: { readonly payload: Record<string, unknown> }) => {
       testState.publishOrder.push("summary");
@@ -269,8 +269,8 @@ const runner = vi.hoisted(() => ({
   createSession: vi.fn(),
 }));
 
-vi.mock("../src/agent/runtime/agentEventSink.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/runtime/agentEventSink.js")>();
+vi.mock("../src/agent/runtime/agentEventSink.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/runtime/agentEventSink.ts")>();
   return {
     ...actual,
     emitWorkSpan: vi.fn(),
@@ -286,12 +286,12 @@ import {
   nextStep,
   type ReviewStepFacts,
   type ReviewStepKind,
-} from "../src/review/orchestrator/runStep.js";
+} from "../src/review/orchestrator/runStep.ts";
 import {
   reviewRunCoverage,
   runOrchestratedPrReview,
   type OrchestratedReviewRunParams,
-} from "../src/review/orchestrator/orchestratorRun.js";
+} from "../src/review/orchestrator/orchestratorRun.ts";
 
 const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/orchestrator-test",

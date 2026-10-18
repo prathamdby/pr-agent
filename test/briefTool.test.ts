@@ -1,27 +1,27 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
-import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
-import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.ts";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.ts";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   buildSpecialistBriefTool,
   specialistBriefSchema,
-} from "../src/review/orchestrator/briefTool.js";
+} from "../src/review/orchestrator/briefTool.ts";
 import {
   renderBriefMessage,
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
   renderJudgmentTurn,
   renderSynthesisTurn,
-} from "../src/prompts/orchestrator/prompt.js";
-import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
-import { causalPublicationContract } from "../src/prompts/shared/behavior.js";
+} from "../src/prompts/orchestrator/prompt.ts";
+import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.ts";
+import { causalPublicationContract } from "../src/prompts/shared/behavior.ts";
 import {
   createFindingLedger,
   SPECIALIST_IDS,
   type SpecialistOutcome,
-} from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
 
 const emptyInventory = buildFindingInventory({
   threads: { status: "ok", threads: [] },

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as evlog from "../src/evlog.js";
+import * as evlog from "../src/evlog.ts";
 import type {
   SpecialistId,
   SpecialistOutcome,
-} from "../src/review/orchestrator/orchestratorTypes.js";
-import { pumpSpecialistCompletions } from "../src/review/orchestrator/completionPump.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
+import { pumpSpecialistCompletions } from "../src/review/orchestrator/completionPump.ts";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;

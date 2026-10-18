@@ -1,28 +1,28 @@
-import * as postgresPublishStore from "./operationIntentRepository.js";
+import * as postgresPublishStore from "./operationIntentRepository.ts";
 export { postgresPublishStore };
 import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { queryOne } from "../db/postgres.js";
-import { logWarn } from "../evlog.js";
-import { fencedWrite } from "./fencedWrite.js";
-import { fenceForEpoch, type WriteFence } from "./writeFence.js";
+import { queryOne } from "../db/postgres.ts";
+import { logWarn } from "../evlog.ts";
+import { fencedWrite } from "./fencedWrite.ts";
+import { fenceForEpoch, type WriteFence } from "./writeFence.ts";
 import {
   ASK_PUBLISH_LENS,
   DESCRIPTION_PUBLISH_LENS,
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
   type AnyReviewLens,
-} from "../settings/index.js";
-import { AppError, errorLogFields, isAppError, toAppError } from "../errors/appError.js";
-import type { AppErrorCode } from "../errors/appErrorCodes.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { type OperationIntentRow } from "./operationIntentRepository.js";
-import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
-import { assertPrActorLeaseHeld } from "./prActorLease.js";
-import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
-import { httpStatus } from "../github/httpStatus.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { AppError, errorLogFields, isAppError, toAppError } from "../errors/appError.ts";
+import type { AppErrorCode } from "../errors/appErrorCodes.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { type OperationIntentRow } from "./operationIntentRepository.ts";
+import { findCompletedPublishRecordId } from "./reconcilePendingIntents.ts";
+import { assertPrActorLeaseHeld } from "./prActorLease.ts";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.ts";
+import { httpStatus } from "../github/httpStatus.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;

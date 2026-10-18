@@ -1,4 +1,4 @@
-import type { AgentSessionPhase } from "../../agent/runtime/types.js";
+import type { AgentSessionPhase } from "../../agent/runtime/types.ts";
 
 export const ORCHESTRATOR_PHASE_TOOLS = [
   "submit_specialist_brief",

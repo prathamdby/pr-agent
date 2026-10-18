@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { publishInlineReviewComments } from "../src/review/placement/reviewInlinePublish.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import type { PrSurface } from "../src/github/prSurface.js";
+import { publishInlineReviewComments } from "../src/review/placement/reviewInlinePublish.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import type { PrSurface } from "../src/github/prSurface.ts";
 
 function finding(severity: ReviewFinding["severity"], file: string, line: number): ReviewFinding {
   return {

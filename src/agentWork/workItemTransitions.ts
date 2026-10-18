@@ -1,13 +1,13 @@
 import type { Pool, PoolClient } from "pg";
-import type { WorkSource } from "../review/reviewSchema.js";
+import type { WorkSource } from "../review/reviewSchema.ts";
 import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../settings/index.js";
-import type { WorkStatus, WorkType } from "./types.js";
-import type { WriteFence } from "./writeFence.js";
+} from "../settings/index.ts";
+import type { WorkStatus, WorkType } from "./types.ts";
+import type { WriteFence } from "./writeFence.ts";
 
 export function lostRunningWorkLivenessSql(
   clock: "$1::timestamptz" | "statement_timestamp()",

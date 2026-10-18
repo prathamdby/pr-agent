@@ -1,7 +1,7 @@
-import { createWritableRepositoryReader } from "../../src/prWorkspace/repositoryReader.js";
-import { createCachedPrDiffIndex } from "../../src/review/placement/reviewDiffIndex.js";
-import { type LocalPrWorkspace } from "../../src/prWorkspace/localPrWorkspace.js";
-import { buildCheckoutCoverage } from "../../src/prWorkspace/repositoryReader.js";
+import { createWritableRepositoryReader } from "../../src/prWorkspace/repositoryReader.ts";
+import { createCachedPrDiffIndex } from "../../src/review/placement/reviewDiffIndex.ts";
+import { type LocalPrWorkspace } from "../../src/prWorkspace/localPrWorkspace.ts";
+import { buildCheckoutCoverage } from "../../src/prWorkspace/repositoryReader.ts";
 
 export function mockLocalPrWorkspace(
   agentCwd = "/tmp/pr-agent",

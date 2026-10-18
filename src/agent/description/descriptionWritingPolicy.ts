@@ -13,8 +13,8 @@ import {
   DESCRIPTION_MAP_MAX_ENTRIES,
   DESCRIPTION_MAP_OMIT_MAX_FILES,
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
-} from "../../settings/index.js";
-import type { DescriptionPayload } from "./descriptionSchema.js";
+} from "../../settings/index.ts";
+import type { DescriptionPayload } from "./descriptionSchema.ts";
 
 export type DescriptionMapMode = "omit" | "read_first";
 

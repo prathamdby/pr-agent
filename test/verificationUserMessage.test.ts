@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildVerificationUserContent } from "../src/prompts/verification/prompt.js";
+import { buildVerificationUserContent } from "../src/prompts/verification/prompt.ts";
 
 describe("verification user message", () => {
   it("keeps unauthorized replies untrusted in the inline finding context", () => {

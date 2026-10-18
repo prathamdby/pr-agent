@@ -3,7 +3,7 @@ import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
   promptMetadataFromText,
-} from "../src/agent/providers/usageMetadata.js";
+} from "../src/agent/providers/usageMetadata.ts";
 
 describe("usageMetadata", () => {
   it("builds prompt metadata from text without logging content", () => {

@@ -8,15 +8,15 @@ import {
   LEGACY_REVIEW_POINTER_BODIES,
   isAnyReviewLens,
   type AnyReviewLens,
-} from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurfaceTypes.js";
-import type { FindingId } from "../findingIdentity/findingMarker.js";
+} from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurfaceTypes.ts";
+import type { FindingId } from "../findingIdentity/findingMarker.ts";
 import {
   loadFindingInventory,
   unavailableFindingInventory,
   type FindingInventory,
   type InventoryFinding,
-} from "../findingIdentity/findingInventory.js";
+} from "../findingIdentity/findingInventory.ts";
 
 export type PriorInlineFeedbackThread = {
   readonly path: string;

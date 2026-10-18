@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AgentRunnerToolExecutor } from "../agent/providers/interface.js";
-import { logWarn } from "../evlog.js";
-import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
+import type { AgentRunnerToolExecutor } from "../agent/providers/interface.ts";
+import { logWarn } from "../evlog.ts";
+import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.ts";
 
 export const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
 

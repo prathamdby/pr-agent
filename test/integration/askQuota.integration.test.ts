@@ -7,12 +7,12 @@ import {
   defaultAskQuotaConfig,
   recordAskProviderUsage,
   type AskQuotaConfig,
-} from "../../src/agentWork/askQuota.js";
-import { AppError } from "../../src/errors/appError.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/agentWork/askQuota.ts";
+import { AppError } from "../../src/errors/appError.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "ask-quota-it";
 const INSTALLATION_ID = 9481;

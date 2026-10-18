@@ -1,19 +1,19 @@
 import crypto from "node:crypto";
-import { currentOperationIntentKey } from "../agentWork/publishOnce.js";
-import { AppError, isAppError, toAppError } from "../errors/appError.js";
+import { currentOperationIntentKey } from "../agentWork/publishOnce.ts";
+import { AppError, isAppError, toAppError } from "../errors/appError.ts";
 import {
   extractPrSurfaceRecoverDetail,
   isPrSurfaceMutationMethod,
   prSurfaceWireName,
   recoverPrSurfaceMutation,
-} from "./recoverPrSurfaceMutation.js";
+} from "./recoverPrSurfaceMutation.ts";
 import type {
   PrSurface,
   PrSurfaceMutationMethods,
   PrSurfaceMutation,
   PrSurfaceMutationBoundary,
-} from "./prSurfaceTypes.js";
-import { decodePrSurfaceMutationResult } from "./prSurfaceResults.js";
+} from "./prSurfaceTypes.ts";
+import { decodePrSurfaceMutationResult } from "./prSurfaceResults.ts";
 
 type WrappedSurface = {
   readonly boundary: PrSurfaceMutationBoundary;

@@ -4,13 +4,13 @@ import {
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
   specialistFindingsReportContract,
-} from "../shared/output.js";
+} from "../shared/output.ts";
 import {
   causalPublicationContract,
   highStakesTrivialTrapGuidance,
   readOnlyReviewGuidance,
   outOfScopeFilesGuidance,
-} from "../shared/behavior.js";
+} from "../shared/behavior.ts";
 import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
@@ -18,9 +18,9 @@ import {
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
   context7OutboundDataGuidance,
-} from "../shared/safety.js";
-import { specialistInvestigationHarness } from "../shared/tools.js";
-import { communicationGuidance } from "../shared/communication.js";
+} from "../shared/safety.ts";
+import { specialistInvestigationHarness } from "../shared/tools.ts";
+import { communicationGuidance } from "../shared/communication.ts";
 
 export const automatedReviewTestsSystemPrompt = [
   "You are the tests specialist investigator for this pull request. Think in failure modes: for each changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it. The testing posture below decides whether this project wants test suggestions at all.",

@@ -3,8 +3,8 @@ import {
   renderFanOutExampleShort,
   renderGuestCatalogue,
   type GuestCapabilitySpec,
-} from "../../agent/codemode/guestCatalogue.js";
-import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
+} from "../../agent/codemode/guestCatalogue.ts";
+import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.ts";
 
 export const nativeToolCallingGuidance = "Call native tools directly. There is no `execute` cell.";
 

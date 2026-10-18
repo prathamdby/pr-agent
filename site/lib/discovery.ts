@@ -1,5 +1,5 @@
-import { AGENT_RESOURCES, AI_CATALOG, resourceUrl } from "./agentResources.js";
-import { SITE_ORIGIN } from "./site.js";
+import { AGENT_RESOURCES, AI_CATALOG, resourceUrl } from "./agentResources.ts";
+import { SITE_ORIGIN } from "./site.ts";
 
 export const CONTENT_SIGNAL = "ai-train=no, search=yes, ai-input=yes";
 

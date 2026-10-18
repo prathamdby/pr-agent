@@ -1,7 +1,7 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
-import type { ThreadBatchReview } from "../src/github/prSurface.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
+import type { ThreadBatchReview } from "../src/github/prSurface.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -11,7 +11,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -36,7 +36,7 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
@@ -46,55 +46,55 @@ import type { Pool } from "pg";
 import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
-} from "../src/agentWork/publishOnce.js";
+} from "../src/agentWork/publishOnce.ts";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
   type FindingLedger,
-} from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   publishFindingBatch,
   reconciledFindingKey,
   type FindingBatchInput,
-} from "../src/review/publish/publishFindingBatch.js";
-import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
+} from "../src/review/publish/publishFindingBatch.ts";
+import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.ts";
 import {
   createReviewPublishSession,
   type ReviewPublishSession,
   type ReviewPublishSessionInput,
-} from "../src/review/publish/reviewPublishSession.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/review/publish/reviewPublishSession.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   reviewFindingSchema,
   reviewPayloadFromFindings,
   type ReviewFinding,
-} from "../src/review/reviewSchema.js";
-import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+} from "../src/review/reviewSchema.ts";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   parseReviewArtifactEnvelope,
-} from "../src/review/recovery/reviewArtifacts.js";
-import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
+} from "../src/review/recovery/reviewArtifacts.ts";
+import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.ts";
 import {
   legacyFindingId,
   renderFindingMarker,
-} from "../src/review/findingIdentity/findingMarker.js";
-import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
-import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
+} from "../src/review/findingIdentity/findingMarker.ts";
+import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.ts";
+import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.ts";
+import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.ts";
 import {
   cachedDiffForLines,
   completeFindingInventory,
-} from "./helpers/reviewPublishTestHelpers.js";
+} from "./helpers/reviewPublishTestHelpers.ts";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
-} from "./helpers/evidenceTestHelpers.js";
+} from "./helpers/evidenceTestHelpers.ts";
 import {
   createPublishReviewTestHarness,
   type PublishReviewTestHarness,
-} from "./helpers/publishReviewTestSetup.js";
+} from "./helpers/publishReviewTestSetup.ts";
 
 const finding: ReviewFinding = {
   severity: "P1",

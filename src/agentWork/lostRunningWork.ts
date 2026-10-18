@@ -1,6 +1,6 @@
-import { productionInstallationSurface } from "./installationSurface.js";
-import { unfencedSurface } from "./writeFence.js";
-import { createPublishContext } from "./publishOnce.js";
+import { productionInstallationSurface } from "./installationSurface.ts";
+import { unfencedSurface } from "./writeFence.ts";
+import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import {
   type Config,
@@ -8,26 +8,26 @@ import {
   STALE_QUEUED_WORK_BATCH_SIZE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
   isAnyReviewLens,
-} from "../settings/index.js";
-import { logWarn } from "../evlog.js";
-import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.js";
-import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
-import type { LostRunningWorkItem } from "./workerHealth.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { logWarn } from "../evlog.ts";
+import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.ts";
+import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.ts";
+import type { LostRunningWorkItem } from "./workerHealth.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 import {
   loadGithubCapabilityObservation,
   recordGithubCapabilityDenial,
-} from "./githubCapabilityRepository.js";
+} from "./githubCapabilityRepository.ts";
 import {
   getOwnVerdictCloseRecord,
   ownVerdictStatusApplicable,
   hasOwnVerdictSurfaceAcceptance,
-} from "./publishRecordRepository.js";
+} from "./publishRecordRepository.ts";
 import {
   availableInstallationCapabilities,
   unknownInstallationCapabilities,
   createReviewCapabilityPolicy,
-} from "../github/installationCapabilities.js";
+} from "../github/installationCapabilities.ts";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
   pool: Pool,

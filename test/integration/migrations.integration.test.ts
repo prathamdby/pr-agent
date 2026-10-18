@@ -1,13 +1,13 @@
-import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
-import { claimSummaryCommentCreation } from "../../src/agentWork/publishRecordRepository.js";
-import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { claimSummaryCommentCreation } from "../../src/agentWork/publishRecordRepository.ts";
+import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const MIGRATIONS_DIR = join(import.meta.dirname, "../../migrations");
 

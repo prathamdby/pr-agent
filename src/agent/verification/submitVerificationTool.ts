@@ -1,18 +1,18 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toToolParameters } from "../tools/toolParams.js";
-import { AppError } from "../../errors/appError.js";
-import { logDebug } from "../../evlog.js";
-import { parseToolInput } from "../tools/parseToolInput.js";
+import { toToolParameters } from "../tools/toolParams.ts";
+import { AppError } from "../../errors/appError.ts";
+import { logDebug } from "../../evlog.ts";
+import { parseToolInput } from "../tools/parseToolInput.ts";
 import {
   hasAuthorizedMaintainerDecision,
   type BotFindingThread,
-} from "../../review/run/reviewPriorFeedback.js";
+} from "../../review/run/reviewPriorFeedback.ts";
 import {
   formatVerificationValidationError,
   VerificationPayloadSchema,
   validateVerificationVerdicts,
   type VerificationPayload,
-} from "../../review/triageSchema.js";
+} from "../../review/triageSchema.ts";
 
 export type SubmitVerificationState = {
   submitted: boolean;

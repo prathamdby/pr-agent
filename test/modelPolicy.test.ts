@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { modelAssignmentForRole, resolveModelPolicy } from "../src/agent/runtime/modelPolicy.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { modelAssignmentForRole, resolveModelPolicy } from "../src/agent/runtime/modelPolicy.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 describe("resolveModelPolicy", () => {
   it("uses general primary for specialists and other sessions", () => {

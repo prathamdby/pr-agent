@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
-import { agentAuditRecordFromLifecycleEvent } from "../src/agent/runtime/agentAudit.js";
-import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanitizer.js";
+import { makeTestConfig } from "./helpers/config.ts";
+import { agentAuditRecordFromLifecycleEvent } from "../src/agent/runtime/agentAudit.ts";
+import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanitizer.ts";
 
 const analyticsMocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
@@ -9,18 +9,18 @@ const analyticsMocks = vi.hoisted(() => ({
   recordExecutionSpan: vi.fn(),
 }));
 
-vi.mock("../src/traces/recorder.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/traces/recorder.js")>()),
+vi.mock("../src/traces/recorder.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/traces/recorder.ts")>()),
   recordExecutionSpan: (...args: unknown[]) => analyticsMocks.recordExecutionSpan(...args),
 }));
 
-vi.mock("../src/analytics/index.js", () => ({
+vi.mock("../src/analytics/index.ts", () => ({
   captureEvent: (...args: unknown[]) => analyticsMocks.captureEvent(...args),
   captureException: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.js")>();
+vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
   return {
     ...actual,
     appendAgentEvents: analyticsMocks.appendAgentEvents,
@@ -40,12 +40,12 @@ import {
   lifecycleAuditToInsertRow,
   safeEmitPublishEvent,
   type AgentEventsContext,
-} from "../src/agent/runtime/agentEventSink.js";
+} from "../src/agent/runtime/agentEventSink.ts";
 import {
   llmSpanFromSession,
   projectWorkSpanToAgentEventRow,
   publishSpanFromContext,
-} from "../src/analytics/workSpan.js";
+} from "../src/analytics/workSpan.ts";
 
 describe("sanitizeAgentLifecycleEvent", () => {
   it("allows allowlisted turn fields", () => {

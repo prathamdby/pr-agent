@@ -23,21 +23,21 @@ import {
   getBuiltinModels,
   getBuiltinProviders,
 } from "@earendil-works/pi-ai/providers/all";
-import { AppError, isAppError } from "../../errors/appError.js";
+import { AppError, isAppError } from "../../errors/appError.ts";
 import {
   loadModelsJsonCatalog,
   type ModelsJsonCompat,
   type ModelsJsonModel,
   type ModelsJsonProvider,
-} from "./modelsJsonCatalog.js";
-import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
+} from "./modelsJsonCatalog.ts";
+import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.ts";
 
 export {
   defaultModelsJsonCandidatePath,
   MODELS_JSON_FILENAME,
   resolveModelsJsonPath,
   type ResolveModelsJsonPathOptions,
-} from "./modelsJsonPath.js";
+} from "./modelsJsonPath.ts";
 
 const KNOWN_API_STREAMS: Record<KnownApi, () => ProviderStreams> = {
   "openai-responses": openAIResponsesApi,

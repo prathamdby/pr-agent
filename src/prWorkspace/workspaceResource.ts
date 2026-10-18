@@ -1,16 +1,16 @@
 import { mkdtemp, readFile, readdir, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AppError } from "../errors/appError.js";
-import { LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS } from "../settings/index.js";
-import { isPlainObject } from "../util/typeGuards.js";
+import { AppError } from "../errors/appError.ts";
+import { LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS } from "../settings/index.ts";
+import { isPlainObject } from "../util/typeGuards.ts";
 import {
   createGitCredentialFiles,
   GIT_ASKPASS_NAME,
   GIT_TOKEN_FILE_NAME,
   makeDirectoriesWritable,
   type GitCredentialFiles,
-} from "./gitCredentials.js";
+} from "./gitCredentials.ts";
 
 export function assertGitSha(value: string, field: string): void {
   if (!/^[0-9a-f]{40}$/i.test(value)) {

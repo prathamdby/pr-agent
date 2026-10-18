@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
-import type { AgentLifecycleEvent } from "../src/agent/runtime/types.js";
+import { makeTestConfig } from "./helpers/config.ts";
+import type { AgentLifecycleEvent } from "../src/agent/runtime/types.ts";
 
 const runAgentLoop = vi.hoisted(() => vi.fn());
 
@@ -19,7 +19,7 @@ import {
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
-} from "../src/agent/runtime/piSession.js";
+} from "../src/agent/runtime/piSession.ts";
 
 describe("createPiSession seam", () => {
   beforeEach(() => {

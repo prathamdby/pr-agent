@@ -1,6 +1,6 @@
-import { AppError } from "../../errors/appError.js";
-import { isPullRequestOpenAndUnmerged } from "../../github/listPullRequestFiles.js";
-import type { PrSurface } from "../../github/prSurface.js";
+import { AppError } from "../../errors/appError.ts";
+import { isPullRequestOpenAndUnmerged } from "../../github/listPullRequestFiles.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
 
 export class TriageCancelledError extends AppError {
   constructor(message = "Triage work was cancelled") {

@@ -2,17 +2,17 @@ import {
   classifyProviderError,
   isCancelAbortError,
   type ProviderErrorKind,
-} from "../agent/providers/providerErrors.js";
+} from "../agent/providers/providerErrors.ts";
 import {
   classifyGithubError,
   githubRequestPath,
   looksLikeGithubError,
   type GithubErrorKind,
-} from "../github/githubErrors.js";
-import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { isAppError, type AppError } from "./appError.js";
-import type { AppErrorDomain, AppErrorKind } from "./appErrorCodes.js";
+} from "../github/githubErrors.ts";
+import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { isAppError, type AppError } from "./appError.ts";
+import type { AppErrorDomain, AppErrorKind } from "./appErrorCodes.ts";
 
 export type FailureDomain = "provider" | "github" | "internal" | "unknown";
 

@@ -1,4 +1,4 @@
-import type { CodeModeExecutorKind } from "../codeModeConstants.js";
+import type { CodeModeExecutorKind } from "../codeModeConstants.ts";
 import {
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
@@ -10,8 +10,8 @@ import {
   DEFAULT_PORT,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
   DEFAULT_ROLE,
-} from "../defaults.js";
-import { ENV } from "../envKeys.js";
+} from "../defaults.ts";
+import { ENV } from "../envKeys.ts";
 import {
   isProductionNodeEnv,
   optionalEnv,
@@ -20,8 +20,8 @@ import {
   readPositiveNumber,
   readStrictBoolean,
   requireEnv,
-} from "../envReaders.js";
-import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../reviewConstants.js";
+} from "../envReaders.ts";
+import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../reviewConstants.ts";
 
 export type RuntimeSlice = {
   readonly port: number;

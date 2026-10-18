@@ -1,21 +1,21 @@
-import { AppError } from "../../errors/appError.js";
-import { MAX_INLINE_REVIEW_COMMENTS, REVIEW_SEVERITY_RANK } from "../../settings/index.js";
-import type { AnchorFailure } from "./reviewFindingValidator.js";
-import { validateReviewPayload } from "./reviewFindingValidator.js";
-import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import { AppError } from "../../errors/appError.ts";
+import { MAX_INLINE_REVIEW_COMMENTS, REVIEW_SEVERITY_RANK } from "../../settings/index.ts";
+import type { AnchorFailure } from "./reviewFindingValidator.ts";
+import { validateReviewPayload } from "./reviewFindingValidator.ts";
+import { redactReviewPayloadSecrets } from "./reviewPublicOutput.ts";
+import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
   reviewFindingPlacementKey,
   type IdentifiedInlinePlacement,
   type InlinePlacement,
-} from "../placement/reviewDiffPlacement.js";
-import { derivedFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
-import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
-import type { EvidenceLedger } from "./evidenceLedger.js";
-import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
+} from "../placement/reviewDiffPlacement.ts";
+import { derivedFindingId, mintFindingId } from "../findingIdentity/findingMarker.ts";
+import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.ts";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
+import type { EvidenceLedger } from "./evidenceLedger.ts";
+import { assertFindingsHaveEvidence } from "./evidenceValidator.ts";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;

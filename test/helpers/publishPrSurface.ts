@@ -1,5 +1,5 @@
-import type { ReviewThreadResolution } from "../../src/github/reviewThreadResolution.js";
-import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
+import type { ReviewThreadResolution } from "../../src/github/reviewThreadResolution.ts";
+import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.ts";
 
 export function publishTestPrSurface(
   threads: ReadonlyMap<number, ReviewThreadResolution> = new Map([

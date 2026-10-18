@@ -1,6 +1,6 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -10,7 +10,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -35,29 +35,29 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PrSurface } from "../src/github/prSurface.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import type { PrSurface } from "../src/github/prSurface.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   getWorkItemCore: vi.fn(async () => null),
 }));
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>();
+    await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>();
   const records = new Map<
     string,
     {
-      selected: import("../src/agentWork/publishRecordRepository.js").SelectedOwnVerdict;
+      selected: import("../src/agentWork/publishRecordRepository.ts").SelectedOwnVerdict;
       checkApplied: boolean;
       statusApplied: boolean;
       githubId: null;
@@ -122,8 +122,8 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>()),
   assertPrActorLeaseHeld: vi.fn(async () => undefined),
 }));
 
@@ -133,12 +133,12 @@ import {
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
-} from "../src/agentWork/publishRecordRepository.js";
-import { getWorkItemCore } from "../src/agentWork/workItemStateRepository.js";
-import { logWarn } from "../src/evlog.js";
-import { AppError } from "../src/errors/appError.js";
-import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
-import * as closeRepository from "../src/agentWork/publishRecordRepository.js";
+} from "../src/agentWork/publishRecordRepository.ts";
+import { getWorkItemCore } from "../src/agentWork/workItemStateRepository.ts";
+import { logWarn } from "../src/evlog.ts";
+import { AppError } from "../src/errors/appError.ts";
+import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.ts";
+import * as closeRepository from "../src/agentWork/publishRecordRepository.ts";
 import {
   closeOutcomeForCoverage,
   closeReviewVerdictsForWorkItems,
@@ -150,11 +150,11 @@ import {
   reviewVerdict,
   reviewCheckRunName,
   waitForReviewCheckRunGithubId,
-} from "../src/agentWork/reviewVerdict.js";
+} from "../src/agentWork/reviewVerdict.ts";
 
-import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
-import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../src/review/statusCopy.js";
-import { persistOperationIntent } from "../src/agentWork/operationIntentRepository.js";
+import { DEFERRED_HEAD_SHA } from "../src/settings/index.ts";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../src/review/statusCopy.ts";
+import { persistOperationIntent } from "../src/agentWork/operationIntentRepository.ts";
 
 const pool = {} as never;
 
@@ -222,7 +222,7 @@ describe("review check run lifecycle", () => {
     "skips a never-started check during terminal cleanup after %s essential admission",
     async (access) => {
       const { availableInstallationCapabilities, createReviewCapabilityPolicy } =
-        await import("../src/github/installationCapabilities.js");
+        await import("../src/github/installationCapabilities.ts");
       const surface = makePrSurface();
       const observation = availableInstallationCapabilities({
         appId: "test",
@@ -252,7 +252,7 @@ describe("review check run lifecycle", () => {
 
   it("starts a pending status independently when Checks are denied", async () => {
     const { availableInstallationCapabilities, createReviewCapabilityPolicy } =
-      await import("../src/github/installationCapabilities.js");
+      await import("../src/github/installationCapabilities.ts");
     const surface = makePrSurface();
     const observation = availableInstallationCapabilities({
       appId: "test",

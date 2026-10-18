@@ -2,8 +2,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import * as v from "valibot";
-import { wrapUntrustedBlock, renderRepoPolicyTrustGuidance } from "../prompts/shared/safety.js";
-import { logWarn } from "../evlog.js";
+import { wrapUntrustedBlock, renderRepoPolicyTrustGuidance } from "../prompts/shared/safety.ts";
+import { logWarn } from "../evlog.ts";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_REPO_POLICY_FILE_BYTES,
@@ -12,8 +12,8 @@ import {
   MAX_REPO_POLICY_PATH_PATTERN_CHARS,
   REPO_POLICY_DIRNAME,
   REPO_POLICY_EXTENSION,
-} from "../settings/index.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 const frontmatterSchema = v.looseObject({
   globs: v.optional(v.union([v.string(), v.array(v.string())])),

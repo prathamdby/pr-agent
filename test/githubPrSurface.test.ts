@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const mocks = vi.hoisted(() => ({
   createForIssue: vi.fn(),
@@ -17,7 +17,7 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
   installationOctokit: () => {
     const rest = {
@@ -51,26 +51,26 @@ vi.mock("../src/github/appAuth.js", () => ({
   },
 }));
 
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return { ...actual, logDebug: mocks.logDebug };
 });
 
-vi.mock("../src/github/httpStatus.js", () => ({
+vi.mock("../src/github/httpStatus.ts", () => ({
   httpStatus: mocks.httpStatus,
 }));
 
-import { createPrSurface } from "../src/github/prSurface.js";
-import { unfencedSurface } from "../src/agentWork/writeFence.js";
+import { createPrSurface } from "../src/github/prSurface.ts";
+import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
-} from "../src/github/installationCapabilities.js";
+} from "../src/github/installationCapabilities.ts";
 import {
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const BOT_USER_ID = 999;
 

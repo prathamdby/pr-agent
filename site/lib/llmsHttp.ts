@@ -3,7 +3,7 @@ import {
   parseAgentQuery,
   renderAnswerJson,
   renderAnswerText,
-} from "./llmsKnowledge.js";
+} from "./llmsKnowledge.ts";
 
 const TEXT_HEADERS = {
   "Content-Type": "text/plain; charset=utf-8",

@@ -1,20 +1,20 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toToolParameters } from "../tools/toolParams.js";
-import { AppError } from "../../errors/appError.js";
-import { logDebug } from "../../evlog.js";
-import { parseToolInput } from "../tools/parseToolInput.js";
+import { toToolParameters } from "../tools/toolParams.ts";
+import { AppError } from "../../errors/appError.ts";
+import { logDebug } from "../../evlog.ts";
+import { parseToolInput } from "../tools/parseToolInput.ts";
 import {
   hasAuthorizedMaintainerDecision,
   type BotFindingThread,
-} from "../../review/run/reviewPriorFeedback.js";
+} from "../../review/run/reviewPriorFeedback.ts";
 import {
   formatTriageValidationError,
   TriagePayloadSchema,
   validateTriageVerdicts,
   type TriagePayload,
-} from "../../review/triageSchema.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import type { TriageWorkspaceToolState } from "./triageWorkspaceTools.js";
+} from "../../review/triageSchema.ts";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
+import type { TriageWorkspaceToolState } from "./triageWorkspaceTools.ts";
 
 export type SubmitTriageState = {
   submitted: boolean;

@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { GIT_TOKEN_FILE_NAME } from "../src/prWorkspace/gitCredentials.js";
+import { GIT_TOKEN_FILE_NAME } from "../src/prWorkspace/gitCredentials.ts";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
   sweepStaleOwnedWorkspaces,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
-} from "../src/prWorkspace/workspaceResource.js";
+} from "../src/prWorkspace/workspaceResource.ts";
 
 const STALE_AGE_MS = 3_600_000;
 

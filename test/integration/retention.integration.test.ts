@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
-import { runMigrations } from "../../src/db/migrations.js";
-import { runRetention } from "../../src/agentWork/retention.js";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { runRetention } from "../../src/agentWork/retention.ts";
 import {
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   RETENTION_DELETE_BATCH_SIZE,
-} from "../../src/settings/index.js";
-import { makeTestConfig } from "../helpers/config.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/settings/index.ts";
+import { makeTestConfig } from "../helpers/config.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const RETENTION = makeTestConfig({
   retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },

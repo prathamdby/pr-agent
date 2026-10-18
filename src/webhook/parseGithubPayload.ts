@@ -1,25 +1,25 @@
 import * as v from "valibot";
-import { checkRunWebhookSchema, type CheckRunWebhookPayload } from "./payloads/checkRunEvent.js";
+import { checkRunWebhookSchema, type CheckRunWebhookPayload } from "./payloads/checkRunEvent.ts";
 import {
   checkSuiteWebhookSchema,
   type CheckSuiteWebhookPayload,
-} from "./payloads/checkSuiteEvent.js";
-import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
-import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
+} from "./payloads/checkSuiteEvent.ts";
+import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.ts";
+import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.ts";
 import {
   isApprovalReview,
   pullRequestReviewWebhookSchema,
-} from "./payloads/pullRequestReviewEvent.js";
-import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
-import { statusWebhookSchema, type StatusWebhookPayload } from "./payloads/statusEvent.js";
-import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.js";
-import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
-import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
-import type { PullRequestReviewWebhookPayload } from "./payloads/pullRequestReviewEvent.js";
-import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
-import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
-import { AppError } from "../errors/appError.js";
-import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
+} from "./payloads/pullRequestReviewEvent.ts";
+import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.ts";
+import { statusWebhookSchema, type StatusWebhookPayload } from "./payloads/statusEvent.ts";
+import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.ts";
+import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.ts";
+import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.ts";
+import type { PullRequestReviewWebhookPayload } from "./payloads/pullRequestReviewEvent.ts";
+import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.ts";
+import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.ts";
+import { AppError } from "../errors/appError.ts";
+import { AUTOMATED_PR_ACTIONS } from "../settings/index.ts";
 
 type WebhookSchemaError = v.ValiError<v.GenericSchema | v.GenericSchemaAsync>;
 

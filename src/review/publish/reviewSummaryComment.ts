@@ -1,28 +1,28 @@
-import { createPublishContext } from "../../agentWork/publishOnce.js";
+import { createPublishContext } from "../../agentWork/publishOnce.ts";
 import type { Pool, PoolClient } from "pg";
-import { withSessionLock } from "../../db/sessionLock.js";
+import { withSessionLock } from "../../db/sessionLock.ts";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
-} from "../../agentWork/publishRecordRepository.js";
-import { logWarn } from "../../evlog.js";
-import { AppError } from "../../errors/appError.js";
-import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
+} from "../../agentWork/publishRecordRepository.ts";
+import { logWarn } from "../../evlog.ts";
+import { AppError } from "../../errors/appError.ts";
+import type { IssueCommentRef, PrSurface } from "../../github/prSurface.ts";
 import {
   POSTGRES_LOCK_TIMEOUT_MS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
   type AnyReviewLens,
-} from "../../settings/index.js";
-import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../../settings/index.ts";
+import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 import type {
   InstallationOperation,
   ReviewCapabilityPolicy,
-} from "../../github/installationCapabilities.js";
+} from "../../github/installationCapabilities.ts";
 
 function capabilityNotice(policy: ReviewCapabilityPolicy | undefined): string | null {
   if (!policy) return null;

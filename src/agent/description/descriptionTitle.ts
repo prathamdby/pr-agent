@@ -1,4 +1,4 @@
-import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.js";
+import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.ts";
 
 const CONVENTIONAL_TYPE_PREFIX =
   /^(?:feat|fix|docs|chore|refactor|test|perf|style|ci|build|revert)(?:\([^)]+\))?!?:\s+/i;

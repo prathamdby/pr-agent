@@ -1,9 +1,9 @@
-import type { ReplyTarget } from "../../agentWork/types.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
-import { operationIntentMarker } from "../../agentWork/publishOnce.js";
-import { isRecord } from "../../util/typeGuards.js";
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
+import type { ReplyTarget } from "../../agentWork/types.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.ts";
+import { operationIntentMarker } from "../../agentWork/publishOnce.ts";
+import { isRecord } from "../../util/typeGuards.ts";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 
 export type RecoveredAskReply = {
   readonly commentId: number;

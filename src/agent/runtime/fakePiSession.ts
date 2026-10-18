@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { AppError } from "../../errors/appError.js";
-import type { AgentRunnerTurn, TurnEnd } from "../providers/interface.js";
-import { promptMetadataFromText } from "../providers/usageMetadata.js";
+import { AppError } from "../../errors/appError.ts";
+import type { AgentRunnerTurn, TurnEnd } from "../providers/interface.ts";
+import { promptMetadataFromText } from "../providers/usageMetadata.ts";
 import type {
   AgentLifecycleEvent,
   PiSession,
   PiSessionCreateParams,
   PiSessionSendOptions,
-} from "./types.js";
+} from "./types.ts";
 
 type FakePiSessionReply = string | { readonly text: string; readonly end: TurnEnd };
 

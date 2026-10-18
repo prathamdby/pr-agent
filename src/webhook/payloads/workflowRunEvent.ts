@@ -1,6 +1,6 @@
 import * as v from "valibot";
-import { installationSchema, repositorySchema } from "./common.js";
-import { ciHeadCompletedRunSchema } from "./ciHeadSource.js";
+import { installationSchema, repositorySchema } from "./common.ts";
+import { ciHeadCompletedRunSchema } from "./ciHeadSource.ts";
 
 export const workflowRunWebhookSchema = v.object({
   action: v.string(),

@@ -1,5 +1,5 @@
-import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../settings/index.js";
-import { redactOutboundSecrets } from "./redactOutboundSecrets.js";
+import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../settings/index.ts";
+import { redactOutboundSecrets } from "./redactOutboundSecrets.ts";
 
 const NUL = String.fromCharCode(0);
 const PARTIAL_PRIVATE_KEY_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*$/g;

@@ -1,19 +1,19 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import { type Config, CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import { createAskPathGate } from "../../agent/ask/askSafety.js";
-import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
-import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
+import { type Config, CONTEXT7_RESPONSE_BYTES } from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import { createAskPathGate } from "../../agent/ask/askSafety.ts";
+import { buildContext7Tools } from "../../agent/tools/context7Tools.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.ts";
 import {
   buildWorkspaceTools,
   type ReviewThreadSource,
-} from "../../agent/tools/workspaceToolset.js";
-import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.js";
-import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
-import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
+} from "../../agent/tools/workspaceToolset.ts";
+import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.ts";
+import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.ts";
+import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.ts";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;

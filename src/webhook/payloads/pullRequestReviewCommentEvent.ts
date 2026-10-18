@@ -1,12 +1,12 @@
 import * as v from "valibot";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
 import {
   githubPrNumberSchema,
   githubSafeIdSchema,
   githubUserSchema,
   installationSchema,
   repositorySchema,
-} from "./common.js";
+} from "./common.ts";
 
 export const pullRequestReviewCommentWebhookSchema = v.object({
   action: v.string(),

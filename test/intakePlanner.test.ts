@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { toIntakeCommand } from "../src/webhook/intakeCommand.js";
-import { parseGithubPayload } from "../src/webhook/parseGithubPayload.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { toIntakeCommand } from "../src/webhook/intakeCommand.ts";
+import { parseGithubPayload } from "../src/webhook/parseGithubPayload.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const cfg = makeTestConfig();
 const bot = { userId: 42, login: "pr-agent[bot]" };

@@ -4,9 +4,9 @@ import {
   classifyAskQuestionIntent,
   createAskPathGate,
   isSensitivePath,
-} from "../src/agent/ask/askSafety.js";
-import { redactOutboundSecrets } from "../src/security/redactOutboundSecrets.js";
-import { sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.js";
+} from "../src/agent/ask/askSafety.ts";
+import { redactOutboundSecrets } from "../src/security/redactOutboundSecrets.ts";
+import { sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.ts";
 
 const jwtLikeSecret = `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(5)}`;
 

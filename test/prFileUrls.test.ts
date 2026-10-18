@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderDescriptionAgentBlock } from "../src/agent/description/descriptionRender.js";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.js";
+import { renderDescriptionAgentBlock } from "../src/agent/description/descriptionRender.ts";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.ts";
 
 describe("description review map file URLs", () => {
   it("links the file diff using the full sha256 of its repository path", () => {

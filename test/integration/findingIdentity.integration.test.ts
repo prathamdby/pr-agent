@@ -1,60 +1,60 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { runMigrations } from "../../src/db/migrations.js";
-import { openReviewArtifactStore } from "../../src/agentWork/reviewArtifactRepository.js";
-import { getOperationIntent } from "../../src/agentWork/operationIntentRepository.js";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { openReviewArtifactStore } from "../../src/agentWork/reviewArtifactRepository.ts";
+import { getOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
 import {
   deterministicInlineBatchId,
   reviewDuplicateOperationKey,
   reviewInlineBatchOperationKey,
-} from "../../src/agentWork/publishOnce.js";
+} from "../../src/agentWork/publishOnce.ts";
 import {
   createFakePrSurface,
   type FakePrSurfaceControls,
   type PrSurface,
-} from "../../src/github/prSurface.js";
-import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
-import { publishVerification } from "../../src/agent/verification/publishVerification.js";
+} from "../../src/github/prSurface.ts";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
+import { publishVerification } from "../../src/agent/verification/publishVerification.ts";
 import {
   loadFindingInventory,
   loadFindingInventoryFromThreads,
   type FindingInventory,
-} from "../../src/review/findingIdentity/findingInventory.js";
+} from "../../src/review/findingIdentity/findingInventory.ts";
 import {
   parseOwnedFindingMarker,
   parseOwnedReceipts,
   renderReceipt,
   type FindingId,
-} from "../../src/review/findingIdentity/findingMarker.js";
-import { AppError } from "../../src/errors/appError.js";
-import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseToolPolicy.js";
-import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.js";
-import { buildDeclareDuplicateTool } from "../../src/review/orchestrator/declareDuplicateTool.js";
-import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.js";
-import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.js";
+} from "../../src/review/findingIdentity/findingMarker.ts";
+import { AppError } from "../../src/errors/appError.ts";
+import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseToolPolicy.ts";
+import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.ts";
+import { buildDeclareDuplicateTool } from "../../src/review/orchestrator/declareDuplicateTool.ts";
+import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.ts";
+import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.ts";
 import {
   createFindingLedger,
   type FindingLedger,
-} from "../../src/review/orchestrator/orchestratorTypes.js";
-import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.js";
-import { createReviewPublishSession } from "../../src/review/publish/reviewPublishSession.js";
-import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
-import { createReviewArtifactBinding } from "../../src/review/recovery/reviewArtifacts.js";
-import { openReviewRecovery } from "../../src/review/recovery/reviewRecovery.js";
-import { reviewPayloadFromFindings, type ReviewFinding } from "../../src/review/reviewSchema.js";
-import type { ReviewPublishSession } from "../../src/review/publish/reviewPublishSession.js";
-import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../../src/review/statusCopy.js";
-import { makeTestConfig } from "../helpers/config.js";
+} from "../../src/review/orchestrator/orchestratorTypes.ts";
+import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.ts";
+import { createReviewPublishSession } from "../../src/review/publish/reviewPublishSession.ts";
+import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.ts";
+import { createReviewArtifactBinding } from "../../src/review/recovery/reviewArtifacts.ts";
+import { openReviewRecovery } from "../../src/review/recovery/reviewRecovery.ts";
+import { reviewPayloadFromFindings, type ReviewFinding } from "../../src/review/reviewSchema.ts";
+import type { ReviewPublishSession } from "../../src/review/publish/reviewPublishSession.ts";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../../src/review/statusCopy.ts";
+import { makeTestConfig } from "../helpers/config.ts";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
-} from "../helpers/evidenceTestHelpers.js";
+} from "../helpers/evidenceTestHelpers.ts";
 import {
   cachedDiffForLines,
   completeFindingInventory,
-} from "../helpers/reviewPublishTestHelpers.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../helpers/reviewPublishTestHelpers.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const HEAD_SHA = "abc1234";
 const LEASE_EPOCH = 7;

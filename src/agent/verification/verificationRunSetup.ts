@@ -1,18 +1,18 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../settings/index.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
+import type { Config } from "../../settings/index.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.ts";
 import {
   verificationSystemPrompt,
   buildVerificationUserContent,
-} from "../../prompts/verification/prompt.js";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
+} from "../../prompts/verification/prompt.ts";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
   type SubmitVerificationState,
-} from "./submitVerificationTool.js";
+} from "./submitVerificationTool.ts";
 
 export type VerificationRunSetup = {
   readonly systemPrompt: string;

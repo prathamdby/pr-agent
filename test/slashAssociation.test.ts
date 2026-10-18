@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSlashAssociationAllowed, reviewAuthorTrust } from "../src/commands/slashAssociation.js";
+import { isSlashAssociationAllowed, reviewAuthorTrust } from "../src/commands/slashAssociation.ts";
 
 describe("reviewAuthorTrust", () => {
   it.each(["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"])(

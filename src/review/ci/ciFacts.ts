@@ -5,7 +5,7 @@ import {
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 
 export type CiSummaryStatus = "passing" | "failing" | "pending" | "none" | "unavailable";
 

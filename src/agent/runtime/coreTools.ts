@@ -1,17 +1,17 @@
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { AppError } from "../../errors/appError.js";
-import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
+import { AppError } from "../../errors/appError.ts";
+import { recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
 import {
   combineAbortSignals,
   type AgentRunnerToolExecutor,
   type AgentToolCallContext,
   type HostCallOutcome,
-} from "../providers/interface.js";
-import { toolExecutionMode } from "./toolExecutionMode.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { isRecord } from "../../util/typeGuards.js";
-import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+} from "../providers/interface.ts";
+import { toolExecutionMode } from "./toolExecutionMode.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { isRecord } from "../../util/typeGuards.ts";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
 
 const TERMINAL_SUBMIT_TOOLS: ReadonlySet<string> = new Set([
   "submit_findings_report",

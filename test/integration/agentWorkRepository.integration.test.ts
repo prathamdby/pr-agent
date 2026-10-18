@@ -1,19 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { createPublishContext } from "../../src/agentWork/publishOnce.js";
-import * as evlog from "../../src/evlog.js";
-import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
+import * as evlog from "../../src/evlog.ts";
+import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.ts";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import { createFakePrSurface } from "../../src/github/prSurface.js";
-import * as closeRepository from "../../src/agentWork/publishRecordRepository.js";
+import { createFakePrSurface } from "../../src/github/prSurface.ts";
+import * as closeRepository from "../../src/agentWork/publishRecordRepository.ts";
 import {
   reviewVerdict,
   closeReviewVerdictsForWorkItems,
-} from "../../src/agentWork/reviewVerdict.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import * as postgres from "../../src/db/postgres.js";
-import * as leaseRepository from "../../src/agentWork/prActorLease.js";
-import { acquirePrActorLease, releasePrActorLease } from "../../src/agentWork/prActorLease.js";
+} from "../../src/agentWork/reviewVerdict.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import * as postgres from "../../src/db/postgres.ts";
+import * as leaseRepository from "../../src/agentWork/prActorLease.ts";
+import { acquirePrActorLease, releasePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
@@ -22,10 +22,10 @@ import {
   markWorkCompleted,
   markWorkFailed,
   markWorkRetrying,
-} from "../../src/agentWork/workItemStateRepository.js";
-import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
-import type { WorkStatus } from "../../src/agentWork/types.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
+import type { WorkStatus } from "../../src/agentWork/types.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "repo-it";
 
@@ -977,7 +977,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     "own verdict independently retains applicability across restart for %s",
     async (mode) => {
       const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
-        await import("../../src/github/installationCapabilities.js");
+        await import("../../src/github/installationCapabilities.ts");
       const id = await insertWorkItem({ status: "completed" });
       const identity = {
         workItemId: id,
@@ -1024,7 +1024,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         );
       if (mode === "pending_status_revoked") {
         const { reviewCommitStatusOperationKey } =
-          await import("../../src/agentWork/publishOnce.js");
+          await import("../../src/agentWork/publishOnce.ts");
         await pool.query(
           `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
            VALUES ($1, $2, $3, 'github.review_commit_status', 'pending', '{"__result":null}'::jsonb)`,
@@ -1089,8 +1089,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
   it("own verdict reconciles saved status acceptance without Checks access after restart", async () => {
     const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
-      await import("../../src/github/installationCapabilities.js");
-    const { reviewCommitStatusOperationKey } = await import("../../src/agentWork/publishOnce.js");
+      await import("../../src/github/installationCapabilities.ts");
+    const { reviewCommitStatusOperationKey } = await import("../../src/agentWork/publishOnce.ts");
     const id = await insertWorkItem({ status: "completed" });
     const identity = {
       workItemId: id,
@@ -1333,7 +1333,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   });
 
   it("own verdict two-client CAS returns the immutable visible winner", async () => {
-    const { claimOwnVerdict } = await import("../../src/agentWork/publishRecordRepository.js");
+    const { claimOwnVerdict } = await import("../../src/agentWork/publishRecordRepository.ts");
     const id = await insertWorkItem({ status: "completed" });
     const resourceKey = `repo-it-${id}`;
     await recordReviewCheckRun(pool, {
@@ -1435,7 +1435,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
   it("own verdict protects and reclaims a creation reservation on the same row", async () => {
     const { claimOwnVerdict, reserveReviewCheckRun, releaseUnstartedReviewCheckRunReservation } =
-      await import("../../src/agentWork/publishRecordRepository.js");
+      await import("../../src/agentWork/publishRecordRepository.ts");
     const id = await insertWorkItem({ status: "completed" });
     const params = {
       workItemId: id,

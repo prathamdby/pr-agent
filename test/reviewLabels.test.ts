@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
   labelsAlreadySynced,
   reviewLabelsFromPayload,
   syncReviewLabels,
-} from "../src/review/run/reviewLabels.js";
+} from "../src/review/run/reviewLabels.ts";
 
 const basePayload = makeReviewPayload();
 

@@ -109,7 +109,7 @@ Prompts:
 
 ## Verification
 
-`nub run dump-prompt all` before and after shows the prompt and tool-definition
+The complete prompt dump before and after shows the prompt and tool-definition
 changes and no keep-list removals. The existing unit suite passes with its pinned
 prompt contracts updated to the new wording. No new tests were added. Refusal
 handling, the effort hold, and compaction thinking stripping still need a live

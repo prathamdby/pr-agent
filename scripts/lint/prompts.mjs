@@ -94,9 +94,7 @@ function promptParts(rel) {
 function resolveSpecifier(context, specifier) {
   if (!specifier.startsWith("./") && !specifier.startsWith("../")) return null;
   const absolute = path.resolve(path.dirname(context.filename), specifier);
-  const rel = repoPath(context, absolute);
-  if (rel == null) return null;
-  return rel.endsWith(".js") ? `${rel.slice(0, -3)}.ts` : rel;
+  return repoPath(context, absolute);
 }
 
 function isRoleEntry(target) {
@@ -163,7 +161,7 @@ export const promptImports = {
     type: "problem",
     messages: {
       outside:
-        "Outside src/prompts/, import only <role>/prompt.js, shared/safety.js, or shared/repair.js, not '{{specifier}}' (ADR 0053).",
+        "Outside src/prompts/, import only <role>/prompt.ts, shared/safety.ts, or shared/repair.ts, not '{{specifier}}' (ADR 0053).",
       inside:
         "Prompt modules import other prompt modules, types, or the allow-listed modules only, not '{{specifier}}' (ADR 0053).",
       sharedRole: "shared/ never imports a role directory: '{{specifier}}' (ADR 0053).",

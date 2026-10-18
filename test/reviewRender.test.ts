@@ -3,7 +3,7 @@ import {
   parseOwnedFindingMarker,
   parseOwnedFindingRows,
   renderFindingMarker,
-} from "../src/review/findingIdentity/findingMarker.js";
+} from "../src/review/findingIdentity/findingMarker.ts";
 import { describe, expect, it } from "vitest";
 import {
   formatReviewCoverageStatus,
@@ -17,7 +17,7 @@ import {
   renderSpecialistReviewBody,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
-} from "../src/review/run/reviewRender.js";
+} from "../src/review/run/reviewRender.ts";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_FINDING_FOOTNOTE_INLINE,
@@ -29,12 +29,12 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
-} from "../src/settings/index.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.js";
-import { cachedDiffForFiles, testPlacements } from "./helpers/reviewPublishTestHelpers.js";
+} from "../src/settings/index.ts";
+import type { ReviewPayload } from "../src/review/reviewSchema.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
+import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.ts";
+import { cachedDiffForFiles, testPlacements } from "./helpers/reviewPublishTestHelpers.ts";
 
 const ctx = {
   owner: "acme",

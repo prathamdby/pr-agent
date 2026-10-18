@@ -1,6 +1,6 @@
-import { errorLogFields, toAppError } from "../../errors/appError.js";
-import { logWarn } from "../../evlog.js";
-import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
+import { errorLogFields, toAppError } from "../../errors/appError.ts";
+import { logWarn } from "../../evlog.ts";
+import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.ts";
 
 export async function pumpSpecialistCompletions(args: {
   readonly pending: ReadonlyMap<SpecialistId, Promise<SpecialistOutcome>>;

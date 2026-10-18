@@ -1,5 +1,5 @@
-import { AppError } from "../errors/appError.js";
-import { httpStatus } from "./httpStatus.js";
+import { AppError } from "../errors/appError.ts";
+import { httpStatus } from "./httpStatus.ts";
 
 export const installationOperations = [
   "pullRequestsRead",

@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from "pg";
-import { inTransaction, queryOne } from "../db/postgres.js";
-import { AppError } from "../errors/appError.js";
+import { inTransaction, queryOne } from "../db/postgres.ts";
+import { AppError } from "../errors/appError.ts";
 import {
   encodeReviewArtifact,
   parseReviewArtifactEnvelope,
@@ -9,8 +9,8 @@ import {
   reviewArtifactInvalid,
   type ReviewArtifactBinding,
   type ReviewArtifactEnvelope,
-} from "../review/recovery/reviewArtifacts.js";
-import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
+} from "../review/recovery/reviewArtifacts.ts";
+import { lockPrActorLeaseForUpdate } from "./prActorLease.ts";
 
 export const REVIEW_ARTIFACT_BUDGET_BYTES = 1_048_576;
 export const REVIEW_SETTLEMENT_RESERVE_BYTES = 8_192;

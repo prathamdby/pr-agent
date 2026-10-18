@@ -7,22 +7,22 @@ import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
-import { authMarkdownResponse, skillMarkdownResponse } from "./lib/agentDiscovery.js";
+import { authMarkdownResponse, skillMarkdownResponse } from "./lib/agentDiscovery.ts";
 import {
   AGENT_INSTRUCTIONS,
   AUTH_MD,
   LANDING_PAGE_MARKDOWN,
   LLMS_TXT_PROFILE,
   READ_PR_AGENT_SKILL,
-} from "./lib/agentResources.js";
-import { contentRevisionBuildPlugin } from "./lib/contentRevisionPlugin.js";
-import type { ConditionalHeaders } from "./lib/contentRevision.js";
-import { llmsTxtBuildPlugin, llmsTxtServePlugin } from "./lib/llmsTxtPlugins.js";
+} from "./lib/agentResources.ts";
+import { contentRevisionBuildPlugin } from "./lib/contentRevisionPlugin.ts";
+import type { ConditionalHeaders } from "./lib/contentRevision.ts";
+import { llmsTxtBuildPlugin, llmsTxtServePlugin } from "./lib/llmsTxtPlugins.ts";
 import {
   agentInstructionsResponse,
   homeMarkdownDocumentResponse,
   llmsProfileResponse,
-} from "./lib/siteHttp.js";
+} from "./lib/siteHttp.ts";
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
 

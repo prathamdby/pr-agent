@@ -2,9 +2,9 @@
 globs:
   - "site/**"
   - "package.json"
-  - "nub.jsonc"
-  - "nub.lock"
+  - ".npmrc"
+  - "package-lock.json"
   - "scripts/check-production-dependency-graph.mjs"
 ---
 
-`site/` is the workspace package `pr-agent-landing` (`site/package.json`). Vercel builds it from `site/vercel.json`: `npm install -g @nubjs/nub@0.7.2`, then `nub ci --filter pr-agent-landing...`, then `nub --node run build`. The backend package `pr-agent` never depends on it or its stack: `scripts/check-production-dependency-graph.mjs` (`nub run check:prod-deps`) walks `nub list --prod --filter pr-agent` and fails on `express`, `hono`, `next`, `react`, or `vite` under the `evlog` branch. React, Vite, and TanStack stay in `site/package.json`; the root `package.json` keeps `site` under `workspaces` and adds no frontend dependency. `src/` never imports from `site/`, and `site/lib/` never imports from `src/`; agent-facing copy is duplicated on purpose in `site/lib/llmsKnowledge.ts` and `site/lib/content.ts`, and `site/public/llms.txt` must equal `renderLlmsTxt()`. `lint:backend` ignores `site/`; `test/settingsInventory.test.ts` requires a `nub.lock` importer per workspace.
+`site/` is workspace `pr-agent-landing`. Vercel uses isolated npm 11.19.1 for install and build. It installs from the root with `npm ci --workspace=pr-agent-landing --include-workspace-root=false` and builds with `npm run --workspace=pr-agent-landing build`. One root lockfile and `.npmrc` own install policy. `check:prod-deps` installs a clean backend production tree and queries installed packages. It rejects frontend-only packages and `express`, `hono`, `next`, `react`, or `vite` under `evlog`. React, Vite, and TanStack stay in `site/package.json`; the root keeps `site` under `workspaces` and adds no frontend dependency. `src/` never imports `site/`, and `site/lib/` never imports `src/`. Agent-facing copy stays in `site/lib/llmsKnowledge.ts`; `site/lib/content.ts` owns shared human copy. `site/public/llms.txt` must equal `renderLlmsTxt()`. `lint:backend` ignores `site/`; `test/settingsInventory.test.ts` checks root lock declarations for every workspace.

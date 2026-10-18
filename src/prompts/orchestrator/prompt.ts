@@ -2,30 +2,30 @@ import type {
   AcceptedPlacement,
   SpecialistId,
   SpecialistOutcome,
-} from "../../review/orchestrator/orchestratorTypes.js";
+} from "../../review/orchestrator/orchestratorTypes.ts";
 import type {
   SpecialistBrief,
   SpecialistBriefRenderOptions,
-} from "../../review/orchestrator/briefTool.js";
-import type { JudgmentInventory } from "../../review/orchestrator/judgmentInventory.js";
-import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile.js";
-import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.js";
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
-import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
-import { communicationGuidance } from "../shared/communication.js";
-import { wrapUntrustedEvidence } from "../shared/safety.js";
-import { causalPublicationContract } from "../shared/behavior.js";
+} from "../../review/orchestrator/briefTool.ts";
+import type { JudgmentInventory } from "../../review/orchestrator/judgmentInventory.ts";
+import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile.ts";
+import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.ts";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
+import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.ts";
+import { communicationGuidance } from "../shared/communication.ts";
+import { wrapUntrustedEvidence } from "../shared/safety.ts";
+import { causalPublicationContract } from "../shared/behavior.ts";
 import {
   formatReviewPathProfileBlock,
   formatReviewSizeBudgetBlock,
   formatCheckoutCoverageBlock,
   formatSymbolIndexStatusLine,
-} from "./context.js";
+} from "./context.ts";
 
-import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.js";
-import { renderCodeModeHarness } from "../shared/tools.js";
+import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.ts";
+import { renderCodeModeHarness } from "../shared/tools.ts";
 
-export { formatPriorInlineFeedbackBlock } from "./context.js";
+export { formatPriorInlineFeedbackBlock } from "./context.ts";
 
 export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,

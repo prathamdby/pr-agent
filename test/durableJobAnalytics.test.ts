@@ -1,6 +1,6 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -10,7 +10,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -35,12 +35,12 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
@@ -48,24 +48,24 @@ import {
   createDurableRuntime,
   runDurableWorkItem,
   type DurableJobSpec,
-} from "../src/agentWork/durableJob.js";
-import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
-import { AppError } from "../src/errors/appError.js";
+} from "../src/agentWork/durableJob.ts";
+import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.ts";
+import { AppError } from "../src/errors/appError.ts";
 import {
   makeAskWorkItem,
   makeDescriptionWorkItem,
   makeReviewWorkItem,
   makeTriageWorkItem,
   makeVerificationWorkItem,
-} from "./helpers/agentWorkItems.js";
-import type { WorkCompletion } from "../src/analytics/workCompleted.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { runFullPrDescription } from "../src/agent/description/descriptionRun.js";
-import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
-import { loadPrHeadCiState } from "../src/agentWork/prHeadCiState.js";
+} from "./helpers/agentWorkItems.ts";
+import type { WorkCompletion } from "../src/analytics/workCompleted.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { runFullPrDescription } from "../src/agent/description/descriptionRun.ts";
+import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.ts";
+import { loadPrHeadCiState } from "../src/agentWork/prHeadCiState.ts";
 
-vi.mock("../src/agentWork/prHeadCiState.js", () => ({ loadPrHeadCiState: vi.fn() }));
-vi.mock("../src/agentWork/reviewLightweightCompletion.js", () => ({
+vi.mock("../src/agentWork/prHeadCiState.ts", () => ({ loadPrHeadCiState: vi.fn() }));
+vi.mock("../src/agentWork/reviewLightweightCompletion.ts", () => ({
   tryLightweightAutoReviewCompletion: vi.fn(),
 }));
 const verdict = vi.hoisted(() => ({
@@ -73,32 +73,32 @@ const verdict = vi.hoisted(() => ({
   close: vi.fn(async (_outcome: unknown): Promise<void> => undefined),
   repairIfOpen: vi.fn(async (): Promise<void> => undefined),
 }));
-vi.mock("../src/agentWork/reviewVerdict.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/reviewVerdict.js")>()),
+vi.mock("../src/agentWork/reviewVerdict.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/reviewVerdict.ts")>()),
   reviewVerdict: vi.fn(() => verdict),
 }));
 
-vi.mock("../src/agent/description/descriptionRun.js", () => ({
+vi.mock("../src/agent/description/descriptionRun.ts", () => ({
   runFullPrDescription: vi.fn(),
 }));
-vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.ts", () => ({
   withPrRepositoryView: vi.fn(async (_params, run) => run({ agentCwd: "/tmp", workspace: {} })),
 }));
-vi.mock("../src/prWorkspace/localPrWorkspace.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/prWorkspace/localPrWorkspace.js")>()),
+vi.mock("../src/prWorkspace/localPrWorkspace.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/prWorkspace/localPrWorkspace.ts")>()),
   workspaceCheckoutTelemetryFromError: vi.fn(() => undefined),
 }));
-import { makeTestConfig } from "./helpers/config.js";
-import { coreOf } from "./helpers/executorDurableHarness.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
-import { workspaceCheckoutTelemetryFromError } from "../src/prWorkspace/localPrWorkspace.js";
+import { makeTestConfig } from "./helpers/config.ts";
+import { coreOf } from "./helpers/executorDurableHarness.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.ts";
+import { workspaceCheckoutTelemetryFromError } from "../src/prWorkspace/localPrWorkspace.ts";
 import type {
   WorkspaceCheckoutTelemetry,
   WorkspaceFetchAttempt,
-} from "../src/prWorkspace/checkoutTelemetry.js";
-import { initTraces } from "../src/traces/recorder.js";
-import { isRecord } from "../src/util/typeGuards.js";
+} from "../src/prWorkspace/checkoutTelemetry.ts";
+import { initTraces } from "../src/traces/recorder.ts";
+import { isRecord } from "../src/util/typeGuards.ts";
 
 type PostHogOptions = {
   readonly host?: string;
@@ -126,20 +126,20 @@ const mockPostHog = vi.hoisted(() => {
 });
 
 vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>()),
   acquirePrActorLease: vi.fn(async () => ({ acquired: true, leaseEpoch: 1 })),
   isPrActorLeaseHeld: vi.fn(async () => true),
   releasePrActorLease: vi.fn(async () => undefined),
   armLeaseWatchdogHop: vi.fn(async () => ({ liveHop: true })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.ts", () => ({
   loadReviewExecutorPublishContext: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async () => null),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   getWorkItem: vi.fn(),
   getWorkItemCore: vi.fn(),
   getWorkItemPayload: vi.fn(),
@@ -156,8 +156,8 @@ vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
+vi.mock("../src/agentWork/reviewReschedule.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.ts")>();
   return {
     ...actual,
     cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
@@ -165,8 +165,8 @@ vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/appAuth.js", async (importOriginal) => ({
-  parseRepositoryInstallation: (await importOriginal<typeof import("../src/github/appAuth.js")>())
+vi.mock("../src/github/appAuth.ts", async (importOriginal) => ({
+  parseRepositoryInstallation: (await importOriginal<typeof import("../src/github/appAuth.ts")>())
     .parseRepositoryInstallation,
   installationOctokit: vi.fn(() => {
     throw new Error("Unexpected live GitHub access in analytics fixture");
@@ -192,20 +192,20 @@ vi.mock("../src/github/appAuth.js", async (importOriginal) => ({
     },
   })),
 }));
-vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
   nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
   recordGithubCapabilityDenial: vi.fn(async () => true),
   saveGithubCapabilityObservation: vi.fn(async () => true),
   changeGithubPreflightFailureCount: vi.fn(async () => 0),
 }));
-vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+vi.mock("../src/github/sharedRateLimitCircuit.ts", () => ({
   getSharedRateLimitCircuit: vi.fn(async () => null),
 }));
 
-import * as repo from "../src/agentWork/workItemStateRepository.js";
-import * as publishRecords from "../src/agentWork/publishRecordRepository.js";
-import * as appAuth from "../src/github/appAuth.js";
-import { isPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
+import * as repo from "../src/agentWork/workItemStateRepository.ts";
+import * as publishRecords from "../src/agentWork/publishRecordRepository.ts";
+import * as appAuth from "../src/github/appAuth.ts";
+import { isPrActorLeaseHeld } from "../src/agentWork/prActorLease.ts";
 
 let installationSurface = openInstallationSurface();
 

@@ -1,4 +1,4 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import { describe, expect, it } from "vitest";
 import {
   countAcceptedForSource,
@@ -6,8 +6,8 @@ import {
   specialistDonePhase,
   type AcceptedPlacement,
   type FindingLedger,
-} from "../src/review/orchestrator/orchestratorTypes.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 
 function finding(title: string): ReviewFinding {
   return {

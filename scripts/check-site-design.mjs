@@ -270,7 +270,7 @@ if (BOOTSTRAP) {
 
 if (!fs.existsSync(BASELINE_PATH)) {
   console.error(
-    `Missing ${path.relative(ROOT, BASELINE_PATH)}. Run: nub run check:site-design -- --bootstrap`,
+    `Missing ${path.relative(ROOT, BASELINE_PATH)}. Run: npm run check:site-design -- --bootstrap`,
   );
   process.exit(1);
 }

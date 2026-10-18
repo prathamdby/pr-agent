@@ -1,6 +1,6 @@
-import type { ReplyTarget } from "../../agentWork/types.js";
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
-import { ASK_TRUNCATED_NOTICE } from "../../settings/index.js";
+import type { ReplyTarget } from "../../agentWork/types.ts";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
+import { ASK_TRUNCATED_NOTICE } from "../../settings/index.ts";
 
 export function sanitizeAskAnswerText(text: string): string {
   let out = redactOutboundSecrets(text.trim());

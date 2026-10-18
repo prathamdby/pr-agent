@@ -2,20 +2,20 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   type Config,
   type AnyReviewLens,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   classifiedFailureLogFields,
   type ClassifiedFailure,
-} from "../../errors/classifiedFailure.js";
-import { logWarn } from "../../evlog.js";
+} from "../../errors/classifiedFailure.ts";
+import { logWarn } from "../../evlog.ts";
 import {
   createReviewSummaryComment,
   type SummaryCommentCoordination,
-} from "../publish/reviewSummaryComment.js";
-import { renderReviewFailureNotice } from "./progressComment.js";
-import type { ReviewRunSetup } from "./reviewRunSetup.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { renderFindingsSection, type FindingView } from "../findingIdentity/findingLifecycle.js";
+} from "../publish/reviewSummaryComment.ts";
+import { renderReviewFailureNotice } from "./progressComment.ts";
+import type { ReviewRunSetup } from "./reviewRunSetup.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { renderFindingsSection, type FindingView } from "../findingIdentity/findingLifecycle.ts";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;

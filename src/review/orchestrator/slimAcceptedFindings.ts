@@ -2,9 +2,9 @@ import type {
   AcceptedFindingSlimReference,
   FindingLedger,
   SpecialistId,
-} from "./orchestratorTypes.js";
-import type { ReviewFinding } from "../reviewSchema.js";
-import type { SpecialistReport } from "./specialistReport.js";
+} from "./orchestratorTypes.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import type { SpecialistReport } from "./specialistReport.ts";
 
 type ReportOutcome = {
   readonly specialist: SpecialistId;

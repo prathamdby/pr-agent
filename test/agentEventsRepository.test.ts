@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 import type { Pool } from "pg";
 import {
   appendAgentEvents,
   safeAppendAgentEvents,
   type AgentEventInsertRow,
-} from "../src/agentWork/agentEventsRepository.js";
+} from "../src/agentWork/agentEventsRepository.ts";
 
 function sampleRow(overrides: Partial<AgentEventInsertRow> = {}): AgentEventInsertRow {
   return {

@@ -13,9 +13,9 @@ import {
   renderCiActionPhrase,
   renderVerificationFailureBlock,
   formatReviewActionLineCiStatus,
-} from "../src/review/ci/ciSummaryCell.js";
-import type { CiSummary } from "../src/review/ci/ciFacts.js";
-import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
+} from "../src/review/ci/ciSummaryCell.ts";
+import type { CiSummary } from "../src/review/ci/ciFacts.ts";
+import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.ts";
 
 describe("renderCiSummary", () => {
   it("formats failing CI fields as plain text for the agent fix prompt", () => {

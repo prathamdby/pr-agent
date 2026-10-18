@@ -1,17 +1,17 @@
-import type { ReplyTarget } from "../agentWork/types.js";
+import type { ReplyTarget } from "../agentWork/types.ts";
 import type {
   ListPullRequestFilesLimits,
   ListPullRequestFilesResult,
   PullRequestBranchInfo,
   PullRequestForFileList,
-} from "./listPullRequestFiles.js";
-import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
+} from "./listPullRequestFiles.ts";
+import type { ListCommitCompareFilesResult } from "./compareCommitFiles.ts";
 import type {
   ReviewThreadResolution,
   ReviewThreadResolutionStatus,
   ReviewThreadSnapshot,
-} from "./reviewThreadResolution.js";
-import type { GithubReactionContent } from "../settings/index.js";
+} from "./reviewThreadResolution.ts";
+import type { GithubReactionContent } from "../settings/index.ts";
 import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
@@ -23,10 +23,10 @@ import type {
   PullRequestUpdate,
   PushedCommitSummary,
   ThreadBatchReview,
-} from "./prSurfaceTypes.js";
-import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
-import type { ReviewCheckRunConclusion } from "./reviewPublish.js";
+} from "./prSurfaceTypes.ts";
+import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.ts";
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.ts";
+import type { ReviewCheckRunConclusion } from "./reviewPublish.ts";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }

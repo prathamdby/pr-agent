@@ -1,12 +1,12 @@
-import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
-import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.ts";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.ts";
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -15,10 +15,10 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
       }),
   };
 });
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
-import { operationIntentMarker, reviewSummaryOperationKey } from "../src/agentWork/publishOnce.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
+import { operationIntentMarker, reviewSummaryOperationKey } from "../src/agentWork/publishOnce.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -28,7 +28,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -53,29 +53,29 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
-import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
-import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { AppError } from "../src/errors/appError.js";
-import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface, type FakePrSurfaceEvent } from "../src/github/prSurface.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
+import type { DurableExecutionResult } from "../src/agentWork/durableJob.ts";
+import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.ts";
+import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.ts";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.ts";
+import { AppError } from "../src/errors/appError.ts";
+import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { createFakePrSurface, type FakePrSurfaceEvent } from "../src/github/prSurface.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.ts";
 
 let durableSurfaceBundle = createFakePrSurface(
   { owner: "o", repo: "r", prNumber: 1 },
@@ -104,22 +104,22 @@ const mocks = vi.hoisted(() => ({
   ensureReviewAccess: vi.fn(async () => undefined),
   summaryConclude: vi.fn(
     async (
-      deps: { readonly prSurface: import("../src/github/prSurface.js").PrSurface },
+      deps: { readonly prSurface: import("../src/github/prSurface.ts").PrSurface },
       write: { readonly body: string },
     ) => deps.prSurface.upsertProgressComment(write.body, "## PR Agent Review"),
   ),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   shouldSkipWork: mocks.shouldSkipWork,
   getWorkItem: mocks.getWorkItem,
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
-  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.js");
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
+  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.ts");
   return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
     ...createOwnVerdictCloseMock(),
     loadReviewExecutorPublishContext: mocks.loadPublishContext,
     getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
@@ -128,9 +128,9 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
+vi.mock("../src/review/publish/reviewSummaryComment.ts", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.ts")>();
   return {
     ...actual,
     createReviewSummaryComment: (
@@ -141,35 +141,35 @@ vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) 
   };
 });
 
-vi.mock("../src/agentWork/prActorLease.js", () => ({
+vi.mock("../src/agentWork/prActorLease.ts", () => ({
   isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
+vi.mock("../src/review/orchestrator/orchestratorRun.ts", () => ({
   runOrchestratedPrReview: mocks.runOrchestratedPrReview,
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
-import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
-import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
-import * as reviewTrustedContext from "../src/review/run/reviewTrustedContext.js";
-import * as orchestratorPrompts from "../src/prompts/orchestrator/prompt.js";
-import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
-import * as evlog from "../src/evlog.js";
-import * as reviewPublish from "../src/github/reviewPublish.js";
-import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
+import * as listPullRequestFiles from "../src/github/listPullRequestFiles.ts";
+import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.ts";
+import * as prWorkspace from "../src/prWorkspace/prRepositoryView.ts";
+import * as reviewTrustedContext from "../src/review/run/reviewTrustedContext.ts";
+import * as orchestratorPrompts from "../src/prompts/orchestrator/prompt.ts";
+import * as reviewReschedule from "../src/agentWork/reviewReschedule.ts";
+import * as evlog from "../src/evlog.ts";
+import * as reviewPublish from "../src/github/reviewPublish.ts";
+import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.ts";
 import {
   getActiveRateLimitCircuit,
   RATE_LIMIT_CIRCUIT_THRESHOLD,
-} from "../src/github/rateLimitCircuit.js";
-import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+} from "../src/github/rateLimitCircuit.ts";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.ts";
+import * as prSurfaceModule from "../src/github/prSurface.ts";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
 
 let runExecution: () => Promise<unknown>;
 function configureExecution(
@@ -1802,7 +1802,7 @@ describe("review work definition", () => {
 
   it("appends rendered agent instruction files to trusted context when present", async () => {
     const checkout = await mkdtemp(join(tmpdir(), "agent-instruction-exec-"));
-    await writeFile(join(checkout, "AGENTS.md"), "Prefer nub install.\n", "utf8");
+    await writeFile(join(checkout, "AGENTS.md"), "Prefer npm ci.\n", "utf8");
     const preflight = {
       files: [{ filename: "src/a.ts" }],
       truncated: false,
@@ -1824,7 +1824,7 @@ describe("review work definition", () => {
       sizeBudget: buildReviewSizeBudget(preflight),
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
-      agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
+      agentInstructionFilesBlock: expect.stringContaining("Prefer npm ci."),
       checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
     });

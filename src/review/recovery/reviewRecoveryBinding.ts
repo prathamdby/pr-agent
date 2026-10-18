@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
-import type { Config } from "../../settings/index.js";
-import { MAX_TOOL_ROUNDS, ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../../settings/index.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { resolveModelPolicy } from "../../agent/runtime/modelPolicy.js";
-import { assertPiModelSelection } from "../../agent/runtime/modelsJson.js";
-import { SPECIALIST_SYSTEM_PROMPTS } from "../orchestrator/specialistRun.js";
-import { orchestratorSystemPrompt } from "../../prompts/orchestrator/prompt.js";
-import { encodeReviewArtifact, REVIEW_CONTRACT_VERSION } from "./reviewArtifacts.js";
+import type { Config } from "../../settings/index.ts";
+import { MAX_TOOL_ROUNDS, ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../../settings/index.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
+import { resolveModelPolicy } from "../../agent/runtime/modelPolicy.ts";
+import { assertPiModelSelection } from "../../agent/runtime/modelsJson.ts";
+import { SPECIALIST_SYSTEM_PROMPTS } from "../orchestrator/specialistRun.ts";
+import { orchestratorSystemPrompt } from "../../prompts/orchestrator/prompt.ts";
+import { encodeReviewArtifact, REVIEW_CONTRACT_VERSION } from "./reviewArtifacts.ts";
 
 export function reviewRecoveryBaseSha(pullRequest: unknown): string | null {
   const parsed = v.safeParse(

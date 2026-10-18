@@ -1,5 +1,5 @@
-import { workspaceToolExecutionMode } from "../tools/workspaceToolset.js";
-import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.js";
+import { workspaceToolExecutionMode } from "../tools/workspaceToolset.ts";
+import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
 
 export const SEQUENTIAL_TOOL_NAMES: ReadonlySet<string> = new Set([
   CODE_MODE_EXECUTE_NAME,

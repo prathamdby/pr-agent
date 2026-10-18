@@ -1,10 +1,10 @@
 import type { Pool } from "pg";
-import type { ReplyTarget } from "../../agentWork/types.js";
-import type { Config } from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.js";
+import type { ReplyTarget } from "../../agentWork/types.ts";
+import type { Config } from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.ts";
 
 export type CodeAnchor = {
   path: string;

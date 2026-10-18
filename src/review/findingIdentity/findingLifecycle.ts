@@ -4,16 +4,16 @@ import {
   renderTableLink,
   renderTableLocationMeta,
   renderTableStrong,
-} from "../../github/markdownFormat.js";
-import type { FindingLedger } from "../orchestrator/orchestratorTypes.js";
-import { isCheckFailingSeverity } from "../reviewSchema.js";
-import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.js";
+} from "../../github/markdownFormat.ts";
+import type { FindingLedger } from "../orchestrator/orchestratorTypes.ts";
+import { isCheckFailingSeverity } from "../reviewSchema.ts";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.ts";
 import type {
   FindingInventory,
   InventoryCompleteness,
   InventoryFinding,
-} from "./findingInventory.js";
-import { renderFindingRowMarker, type FindingId, type FindingSeverity } from "./findingMarker.js";
+} from "./findingInventory.ts";
+import { renderFindingRowMarker, type FindingId, type FindingSeverity } from "./findingMarker.ts";
 
 export type FindingStatus =
   | "new"

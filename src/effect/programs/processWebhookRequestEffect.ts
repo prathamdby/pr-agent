@@ -1,15 +1,15 @@
 import { Data, Duration, Effect, Exit, Fiber, Ref } from "effect";
-import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
-import type { WebhookHeaders } from "../../agentWork/types.js";
-import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
-import { captureWebhookReceived } from "../../analytics/workCompleted.js";
-import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
-import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
-import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
-import { toIntakeCommand } from "../../webhook/intakeCommand.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { isRecord } from "../../util/typeGuards.js";
+import { AgentWorkScheduler } from "../../agentWork/scheduler.ts";
+import type { WebhookHeaders } from "../../agentWork/types.ts";
+import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.ts";
+import { captureWebhookReceived } from "../../analytics/workCompleted.ts";
+import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.ts";
+import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.ts";
+import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.ts";
+import { toIntakeCommand } from "../../webhook/intakeCommand.ts";
+import { getAppBotIdentity } from "../../github/appAuth.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { isRecord } from "../../util/typeGuards.ts";
 
 function webhookDuplicateReason(
   intakeLog: RequestLogger,

@@ -7,11 +7,11 @@ import {
   withAuditMethods,
 } from "evlog";
 import { createLoggerStorage } from "evlog/toolkit";
-import { captureException, isAnalyticsEnabled } from "./analytics/index.js";
-import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "./errors/appError.js";
-import type { Config } from "./settings/index.js";
-import { sanitizeTelemetryRecord } from "./security/sanitizeTelemetryValue.js";
-import { isRecord } from "./util/typeGuards.js";
+import { captureException, isAnalyticsEnabled } from "./analytics/index.ts";
+import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "./errors/appError.ts";
+import type { Config } from "./settings/index.ts";
+import { sanitizeTelemetryRecord } from "./security/sanitizeTelemetryValue.ts";
+import { isRecord } from "./util/typeGuards.ts";
 
 export type { RequestLogger };
 
@@ -24,7 +24,7 @@ const LEVEL_RANK: Record<WideEventLevel, number> = {
   error: 3,
 };
 
-import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
+import { LOG_MAX_WIDE_EVENTS } from "./settings/index.ts";
 
 const DEFAULT_MAX_WIDE_EVENTS = LOG_MAX_WIDE_EVENTS;
 

@@ -1,10 +1,10 @@
-import { REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../../settings/index.js";
-import { isInlineSeverity, REVIEW_GATE_PROSE_FIELDS, type ReviewPayload } from "../reviewSchema.js";
-import { planInlinePlacements, type InlinePlacement } from "../placement/reviewDiffPlacement.js";
+import { REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../../settings/index.ts";
+import { isInlineSeverity, REVIEW_GATE_PROSE_FIELDS, type ReviewPayload } from "../reviewSchema.ts";
+import { planInlinePlacements, type InlinePlacement } from "../placement/reviewDiffPlacement.ts";
 import type {
   CachedPrDiffIndex,
   CommentableRightLineRanges,
-} from "../placement/reviewDiffIndex.js";
+} from "../placement/reviewDiffIndex.ts";
 
 const INTERNAL_FAILURE_PHRASING: RegExp[] = [
   /\bstructured publish\b.*\bfailed\b/is,

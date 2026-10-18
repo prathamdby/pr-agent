@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 
 type LoopEmit = (event: {
   type: string;
@@ -98,7 +98,7 @@ vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
 });
 
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
+import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.ts";
 import {
   compactionPolicyForRole,
   createPiSession,
@@ -106,15 +106,15 @@ import {
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   sessionCacheIdFromIdentity,
-} from "../src/agent/runtime/piSession.js";
-import { toCoreTool } from "../src/agent/runtime/coreTools.js";
-import * as coreToolsModule from "../src/agent/runtime/coreTools.js";
-import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.js";
-import type { ThinkingPolicy } from "../src/agent/runtime/types.js";
+} from "../src/agent/runtime/piSession.ts";
+import { toCoreTool } from "../src/agent/runtime/coreTools.ts";
+import * as coreToolsModule from "../src/agent/runtime/coreTools.ts";
+import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
+import type { ThinkingPolicy } from "../src/agent/runtime/types.ts";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import { isAppError } from "../src/errors/appError.js";
-import type { Config } from "../src/settings/index.js";
+import { isAppError } from "../src/errors/appError.ts";
+import type { Config } from "../src/settings/index.ts";
 
 const cfg = makeTestConfig({
   models: { providerKeys: { openai: "test-key" } },

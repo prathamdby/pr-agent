@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isPlainObject } from "../util/typeGuards.js";
+import { isPlainObject } from "../util/typeGuards.ts";
 
 export const TRACE_CONTENT_TRUNCATED = "[trace content truncated]";
 export const TRACE_MESSAGE_CHARS = 8_192;

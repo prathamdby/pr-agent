@@ -8,8 +8,8 @@ import {
   isSameRepoPullRequest,
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
-} from "../src/review/agentInstructionFiles.js";
-import { MAX_AGENT_INSTRUCTION_FILE_BYTES } from "../src/settings/reviewConstants.js";
+} from "../src/review/agentInstructionFiles.ts";
+import { MAX_AGENT_INSTRUCTION_FILE_BYTES } from "../src/settings/reviewConstants.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,14 +30,14 @@ describe("loadAgentInstructionFiles", () => {
   it("loads AGENTS.md and CLAUDE.md in fixed order", async () => {
     const root = await checkoutWith({
       "CLAUDE.md": "@AGENTS.md",
-      "AGENTS.md": "Agents rules.\n\nUse nub.",
+      "AGENTS.md": "Agents rules.\n\nUse npm.",
       "README.md": "ignored",
     });
     const result = await loadAgentInstructionFiles(root);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
     expect(result.files.map((file) => file.filename)).toEqual(["AGENTS.md", "CLAUDE.md"]);
-    expect(result.files[0].body).toContain("Use nub.");
+    expect(result.files[0].body).toContain("Use npm.");
     expect(result.files[1].body).toBe("@AGENTS.md");
   });
 

@@ -69,7 +69,7 @@ found that fff is not a drop-in `git grep`:
   and the fallback.
 - The image carries `@ff-labs/fff-node`, its platform package
   (`@ff-labs/fff-bin-linux-x64-gnu` is 11.2MB and needs glibc 2.30), and `ffi-rs`.
-  `nub prune --prod` keeps the platform packages.
+  Backend production installation retains the platform packages.
 - fff is pre-1.0. The dependency is pinned to an exact version, and the skipped
   extension list in `src/prWorkspace/fff/workspaceSearch.ts` mirrors that version.
   Re-check both on every bump.

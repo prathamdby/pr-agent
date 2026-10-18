@@ -75,7 +75,7 @@ also disables automatic trace cleanup.
 ## Verification
 
 Use existing suites and disposable Postgres. Preserve metadata/content dumps,
-model and signal reports, and the `nub run verify` artifact. No new test files.
+model and signal reports, and the disposable-stack verification artifact. No new test files.
 The repository verify command exercises durable integration with fake sessions;
 it does not itself run a live-model review. Record that limitation with measured
 artifact sizes rather than claiming live-model latency evidence.

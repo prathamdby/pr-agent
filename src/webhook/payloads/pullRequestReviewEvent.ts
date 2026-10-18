@@ -6,7 +6,7 @@ import {
   githubUserSchema,
   installationSchema,
   repositorySchema,
-} from "./common.js";
+} from "./common.ts";
 
 export const pullRequestReviewWebhookSchema = v.object({
   action: v.string(),

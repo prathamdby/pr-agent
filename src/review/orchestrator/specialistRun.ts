@@ -1,36 +1,36 @@
-import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
-import { AppError } from "../../errors/appError.js";
-import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import { emitWorkSpan, safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
-import { specialistSpanFromContext } from "../../analytics/workSpan.js";
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
+import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.ts";
+import { AppError } from "../../errors/appError.ts";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
+import { emitWorkSpan, safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.ts";
+import { specialistSpanFromContext } from "../../analytics/workSpan.ts";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import {
   classifyProviderError,
   isCancelAbortError,
   isProviderRefusalError,
   type ProviderErrorKind,
-} from "../../agent/providers/providerErrors.js";
-import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import type { PiSession } from "../../agent/runtime/types.js";
-import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
-import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
-import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
-import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
-import { parseToolInput } from "../../agent/tools/parseToolInput.js";
+} from "../../agent/providers/providerErrors.ts";
+import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.ts";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
+import type { PiSession } from "../../agent/runtime/types.ts";
+import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
+import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.ts";
+import { specialistReportSchema, type SpecialistReport } from "./specialistReport.ts";
+import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.ts";
+import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
+import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
+import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
 import {
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
-} from "./specialistTools.js";
-import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.js";
-import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.js";
-import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.js";
-import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.js";
-import { MISSING_REPORT_ERROR, renderSpecialistReportRepair } from "../../prompts/shared/repair.js";
+} from "./specialistTools.ts";
+import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.ts";
+import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.ts";
+import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.ts";
+import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.ts";
+import { MISSING_REPORT_ERROR, renderSpecialistReportRepair } from "../../prompts/shared/repair.ts";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;

@@ -1,12 +1,12 @@
 import { Effect, Fiber, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { PgBoss } from "pg-boss";
-import { createExecutionTracker } from "../src/agentWork/executionTracker.js";
-import { AgentWorkExecutions, AgentWorkExecutionsLive } from "../src/agentWork/runtime.js";
-import { AgentWorkerLive, stopWorkerConsumers } from "../src/agentWork/worker.js";
-import { WORKER_CONSUMER_QUEUES } from "../src/agentWork/workerHealth.js";
-import { ACK_QUEUE } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { createExecutionTracker } from "../src/agentWork/executionTracker.ts";
+import { AgentWorkExecutions, AgentWorkExecutionsLive } from "../src/agentWork/runtime.ts";
+import { AgentWorkerLive, stopWorkerConsumers } from "../src/agentWork/worker.ts";
+import { WORKER_CONSUMER_QUEUES } from "../src/agentWork/workerHealth.ts";
+import { ACK_QUEUE } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const shutdownHarness = vi.hoisted(() => {
   const ack = {
@@ -21,28 +21,28 @@ const shutdownHarness = vi.hoisted(() => {
   return { ack };
 });
 
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
     runWithOperationLogger: <T>(_meta: unknown, fn: () => Promise<T>) => fn(),
   };
 });
 
-vi.mock("../src/agentWork/executors/ackExecutor.js", () => ({
+vi.mock("../src/agentWork/executors/ackExecutor.ts", () => ({
   executeAckJob: vi.fn(() => shutdownHarness.ack.pending),
 }));
 
-vi.mock("../src/agentWork/retention.js", () => ({
+vi.mock("../src/agentWork/retention.ts", () => ({
   ensureRetentionSchedule: vi.fn(async () => undefined),
   runRetention: vi.fn(async () => ({})),
 }));
 
-vi.mock("../src/agentWork/lostRunningWork.js", () => ({
+vi.mock("../src/agentWork/lostRunningWork.ts", () => ({
   reconcileLostRunningWork: vi.fn(async () => undefined),
 }));
 
-vi.mock("../src/agentWork/projectionRepair.js", () => ({
+vi.mock("../src/agentWork/projectionRepair.ts", () => ({
   scanProjectionRepairPending: vi.fn(async () => ({
     pendingScanned: 0,
     enqueued: 0,
@@ -51,12 +51,12 @@ vi.mock("../src/agentWork/projectionRepair.js", () => ({
   })),
 }));
 
-vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
+vi.mock("../src/prWorkspace/localPrWorkspace.ts", () => ({
   cleanupStaleLocalPrWorkspaces: vi.fn(async () => undefined),
 }));
 
-vi.mock("../src/agentWork/workerHealth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/workerHealth.js")>();
+vi.mock("../src/agentWork/workerHealth.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/workerHealth.ts")>();
   return {
     ...actual,
     collectQueueDiagnostics: vi.fn(async () => ({ lostRunningWorkItems: [] })),

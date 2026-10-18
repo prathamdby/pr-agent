@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const runtimeMocks = vi.hoisted(() => {
   const trace: string[] = [];
@@ -32,25 +32,25 @@ const runtimeMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/db/postgres.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/db/postgres.js")>();
+vi.mock("../src/db/postgres.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/db/postgres.ts")>();
   return { ...actual, createPgPool: runtimeMocks.createPgPool };
 });
 
-vi.mock("../src/db/migrations.js", () => ({ runMigrations: runtimeMocks.runMigrations }));
+vi.mock("../src/db/migrations.ts", () => ({ runMigrations: runtimeMocks.runMigrations }));
 
-vi.mock("../src/agentWork/boss.js", () => ({
+vi.mock("../src/agentWork/boss.ts", () => ({
   createStartedBoss: runtimeMocks.createStartedBoss,
   ensureAgentQueues: runtimeMocks.ensureAgentQueues,
   stopBoss: runtimeMocks.stopBoss,
 }));
 
-vi.mock("../src/analytics/index.js", () => ({
+vi.mock("../src/analytics/index.ts", () => ({
   shutdownAnalytics: runtimeMocks.shutdownAnalytics,
 }));
 
-vi.mock("../src/agentWork/executionTracker.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/executionTracker.js")>();
+vi.mock("../src/agentWork/executionTracker.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/executionTracker.ts")>();
   return {
     ...actual,
     createExecutionTracker: () => {
@@ -69,8 +69,8 @@ vi.mock("../src/agentWork/executionTracker.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
     logWarn: (event: string) => {
@@ -82,7 +82,7 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
 describe("agent work runtime teardown", () => {
   it("shuts down analytics after pg-boss drains", async () => {
     runtimeMocks.trace.length = 0;
-    const { AgentWorkSchedulerRuntimeLive } = await import("../src/agentWork/runtime.js");
+    const { AgentWorkSchedulerRuntimeLive } = await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig();
 
     await Effect.runPromise(Effect.scoped(Layer.build(AgentWorkSchedulerRuntimeLive(cfg))));
@@ -102,7 +102,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.trace.length = 0;
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutionsLive, AgentWorkPoolLive } =
-      await import("../src/agentWork/runtime.js");
+      await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
 
     const Worker = Context.Service<"Worker", void>("Worker");
@@ -141,7 +141,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.warnings.length = 0;
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
-      await import("../src/agentWork/runtime.js");
+      await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
 
     let durableResolved = false;
@@ -212,7 +212,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.warnings.length = 0;
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
-      await import("../src/agentWork/runtime.js");
+      await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
     const analyticsError = new Error("analytics shutdown failed");
     runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
@@ -276,7 +276,7 @@ describe("agent work runtime teardown", () => {
     runtimeMocks.settleCalls.length = 0;
     runtimeMocks.warnings.length = 0;
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
-      await import("../src/agentWork/runtime.js");
+      await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
 
     let releaseDurable: () => void = () => undefined;

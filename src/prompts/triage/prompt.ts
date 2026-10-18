@@ -1,11 +1,11 @@
-import type { TriageScope } from "../../agentWork/types.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { communicationGuidance } from "../shared/communication.js";
-import { formatFindingThreadInventoryLines } from "../shared/context.js";
-import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.js";
-import { rejectedFindingSubmissionGuidance } from "../shared/repair.js";
-import { maintainerDecisionEvidenceGuidance } from "../shared/safety.js";
-import { nativeToolCallingGuidance } from "../shared/tools.js";
+import type { TriageScope } from "../../agentWork/types.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import { communicationGuidance } from "../shared/communication.ts";
+import { formatFindingThreadInventoryLines } from "../shared/context.ts";
+import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.ts";
+import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
+import { maintainerDecisionEvidenceGuidance } from "../shared/safety.ts";
+import { nativeToolCallingGuidance } from "../shared/tools.ts";
 
 export const triageNativeTooling = [
   "## Tools",

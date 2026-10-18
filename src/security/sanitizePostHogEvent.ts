@@ -1,5 +1,5 @@
-import { sanitizeTelemetryValue } from "./sanitizeTelemetryValue.js";
-import { isRecord } from "../util/typeGuards.js";
+import { sanitizeTelemetryValue } from "./sanitizeTelemetryValue.ts";
+import { isRecord } from "../util/typeGuards.ts";
 
 function isPostHogEventMessage(value: unknown): value is PostHogEventMessage {
   return isRecord(value) && (value.properties == null || isRecord(value.properties));

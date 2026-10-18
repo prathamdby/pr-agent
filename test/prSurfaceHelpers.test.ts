@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCommentIdByMarker } from "../src/github/prSurfaceHelpers.js";
+import { findCommentIdByMarker } from "../src/github/prSurfaceHelpers.ts";
 
 describe("findCommentIdByMarker", () => {
   it("returns the newest marker match and supports author scoping", () => {

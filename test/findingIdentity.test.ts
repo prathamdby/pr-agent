@@ -10,38 +10,38 @@ import {
   renderFindingRowMarker,
   renderReceipt,
   type FindingId,
-} from "../src/review/findingIdentity/findingMarker.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
-import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
+} from "../src/review/findingIdentity/findingMarker.ts";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.ts";
 import {
   OVERLAP_WINDOW_LINES,
   overlaps,
   reconcileObservation,
   type ObservationRelation,
-} from "../src/review/findingIdentity/findingReconcile.js";
+} from "../src/review/findingIdentity/findingReconcile.ts";
 import {
   executeDuplicateCleanup,
   planDuplicateCleanup,
   planSameIdCleanup,
   selectCanonical,
   type DuplicateCleanupStep,
-} from "../src/review/findingIdentity/duplicateCleanup.js";
+} from "../src/review/findingIdentity/duplicateCleanup.ts";
 import {
   buildFindingView,
   checkConclusion,
   renderFindingsSection,
   renderResolvedThisRun,
   type FindingRunOutcomes,
-} from "../src/review/findingIdentity/findingLifecycle.js";
+} from "../src/review/findingIdentity/findingLifecycle.ts";
 import type {
   ReviewThreadResolutionStatus,
   ReviewThreadSnapshot,
-} from "../src/github/reviewThreadResolution.js";
+} from "../src/github/reviewThreadResolution.ts";
 import type {
   AcceptedPlacement,
   ReaffirmedFinding,
-} from "../src/review/orchestrator/orchestratorTypes.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 
 const BOT = "pr-agent[bot]";
 

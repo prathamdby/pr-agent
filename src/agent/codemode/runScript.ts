@@ -2,28 +2,28 @@ import {
   CODE_MODE_MAX_OUTPUT_BYTES,
   CODE_MODE_TIMEOUT_MS,
   type CodeModeExecutorKind,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import type {
   AgentLifecycleEvent,
   AgentLifecycleExecutionEvent,
-} from "../runtime/lifecycleEvents.js";
-import type { AgentSessionRole } from "../runtime/types.js";
-import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { combineAbortSignals } from "../providers/abortSignals.js";
-import type { HostCallTracer } from "../providers/interface.js";
-import { createCodeModeCapabilityBridge } from "./capabilities.js";
-import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.js";
-import type { CodeModeResult } from "./result.js";
-import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.js";
-import { utf8ByteLength } from "../execution/json.js";
-import { acquireExecutor } from "../execution/pool.js";
+} from "../runtime/lifecycleEvents.ts";
+import type { AgentSessionRole } from "../runtime/types.ts";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.ts";
+import { combineAbortSignals } from "../providers/abortSignals.ts";
+import type { HostCallTracer } from "../providers/interface.ts";
+import { createCodeModeCapabilityBridge } from "./capabilities.ts";
+import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.ts";
+import type { CodeModeResult } from "./result.ts";
+import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.ts";
+import { utf8ByteLength } from "../execution/json.ts";
+import { acquireExecutor } from "../execution/pool.ts";
 import {
   createExecutionSessionStore,
   type ExecutionSessionStore,
-} from "../execution/sessionStore.js";
-import type { CodeModeCapabilityExecutors } from "./types.js";
+} from "../execution/sessionStore.ts";
+import type { CodeModeCapabilityExecutors } from "./types.ts";
 import { randomUUID } from "node:crypto";
-import { errorMessage } from "../../errors/errorMessage.js";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
 

@@ -1,10 +1,10 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-import { createPublishContext } from "../publishOnce.js";
-import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
-import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
-import { logWarn } from "../../evlog.js";
-import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
-import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
+import { createPublishContext } from "../publishOnce.ts";
+import { runFullPrDescription } from "../../agent/description/descriptionRun.ts";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
+import { logWarn } from "../../evlog.ts";
+import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.ts";
+import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.ts";
 
 type DescriptionDegradationReason = "publish_not_completed";
 

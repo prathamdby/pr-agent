@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   createOrchestratorPhaseRef,
   WRONG_PHASE_TOOL_CODE,
-} from "../src/review/orchestrator/phaseToolPolicy.js";
-import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/review/orchestrator/phaseToolPolicy.ts";
+import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.ts";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   cachedDiffForLines,
   completeFindingInventory,
-} from "./helpers/reviewPublishTestHelpers.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import type { PrSurface } from "../src/github/prSurface.js";
+} from "./helpers/reviewPublishTestHelpers.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import type { PrSurface } from "../src/github/prSurface.ts";
 const emptyInventory = completeFindingInventory();
 
 let nextReviewId = 100;

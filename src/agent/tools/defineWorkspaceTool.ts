@@ -1,9 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toToolParameters } from "./toolParams.js";
-import { AppError } from "../../errors/appError.js";
-import { type AgentRunnerToolExecutor, type AgentToolCallContext } from "../providers/interface.js";
-import { parseToolInput } from "./parseToolInput.js";
+import { toToolParameters } from "./toolParams.ts";
+import { AppError } from "../../errors/appError.ts";
+import { type AgentRunnerToolExecutor, type AgentToolCallContext } from "../providers/interface.ts";
+import { parseToolInput } from "./parseToolInput.ts";
 
 export type LocalTool<TResult = unknown> = {
   readonly description: string;

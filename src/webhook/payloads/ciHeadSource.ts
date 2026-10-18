@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { githubPrNumberSchema, githubSafeIdSchema, githubShaSchema } from "./common.js";
+import { githubPrNumberSchema, githubSafeIdSchema, githubShaSchema } from "./common.ts";
 
 export const ciHeadPullRequestSchema = v.object({
   number: githubPrNumberSchema,

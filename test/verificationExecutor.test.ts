@@ -1,17 +1,17 @@
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.ts";
 import type { PgBoss } from "pg-boss";
-import * as evlog from "../src/evlog.js";
-import { makeTestConfig } from "./helpers/config.js";
+import * as evlog from "../src/evlog.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   resetDurablePrSurface,
   seedBotFindingThreads,
-} from "./helpers/executorDurableHarness.js";
+} from "./helpers/executorDurableHarness.ts";
 
 const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
@@ -25,54 +25,54 @@ const mocks = vi.hoisted(() => ({
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.ts", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
-vi.mock("../src/agent/verification/verificationRun.js", () => ({
+vi.mock("../src/agent/verification/verificationRun.ts", () => ({
   runVerification: mocks.runVerification,
 }));
 
-vi.mock("../src/agent/verification/publishVerification.js", () => ({
+vi.mock("../src/agent/verification/publishVerification.ts", () => ({
   publishVerification: mocks.publishVerification,
 }));
 
-vi.mock("../src/agent/verification/publishVerificationFailure.js", () => ({
+vi.mock("../src/agent/verification/publishVerificationFailure.ts", () => ({
   publishVerificationFailure: mocks.publishVerificationFailure,
   clearVerificationFailureSignal: mocks.clearVerificationFailureSignal,
 }));
 
-vi.mock("../src/review/repoPolicy.js", () => ({
+vi.mock("../src/review/repoPolicy.ts", () => ({
   loadRepoPolicy: mocks.loadRepoPolicy,
 }));
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return { ...actual, isPrActorLeaseHeld: vi.fn().mockResolvedValue(true) };
 });
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   shouldSkipWork: mocks.shouldSkipWork,
 }));
 
-import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
-} from "../src/agentWork/verificationPublishGate.js";
-import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
+} from "../src/agentWork/verificationPublishGate.ts";
+import { makeVerificationWorkItem } from "./helpers/agentWorkItems.ts";
 
 let runExecution: () => Promise<unknown>;
 function configureExecution(

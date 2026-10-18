@@ -1,9 +1,9 @@
-import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile.js";
-import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.js";
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
-import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
-import type { PriorInlineFeedbackThread } from "../../review/run/reviewPriorFeedback.js";
-import { escapeTablePlainCell } from "../../github/markdownFormat.js";
+import type { ReviewPathProfile } from "../../review/placement/reviewPathProfile.ts";
+import type { ReviewSizeBudget } from "../../review/run/reviewSizeBudget.ts";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
+import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.ts";
+import type { PriorInlineFeedbackThread } from "../../review/run/reviewPriorFeedback.ts";
+import { escapeTablePlainCell } from "../../github/markdownFormat.ts";
 
 export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {
   if (profile.riskCategories.length === 0) {

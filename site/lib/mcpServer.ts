@@ -1,11 +1,11 @@
-import { renderResourceLinks } from "./agentResources.js";
+import { renderResourceLinks } from "./agentResources.ts";
 import {
   LIST_TOOL_NAME,
   MCP_TOOLS,
   QUERY_TOOL_NAME,
   type AgentToolDefinition,
-} from "./agentTools.js";
-import { answerAgentQuery, parseAgentQuery, renderAnswerText } from "./llmsKnowledge.js";
+} from "./agentTools.ts";
+import { answerAgentQuery, parseAgentQuery, renderAnswerText } from "./llmsKnowledge.ts";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 const SERVER_NAME = "pr-agent-site";

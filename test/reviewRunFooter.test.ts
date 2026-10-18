@@ -4,7 +4,7 @@ import {
   renderReviewRunFooter,
   resolveReviewWallClockMs,
   shortHeadSha,
-} from "../src/review/run/reviewRunFooter.js";
+} from "../src/review/run/reviewRunFooter.ts";
 
 describe("formatReviewDuration", () => {
   it("formats seconds, minutes, and hours compactly", () => {

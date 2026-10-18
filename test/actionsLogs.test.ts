@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../src/settings/index.js";
+import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../src/settings/index.ts";
 
 const { listWorkflowRunsForRepo, listJobsForWorkflowRun, downloadJobLogsForWorkflowRun } =
   vi.hoisted(() => ({
@@ -8,7 +8,7 @@ const { listWorkflowRunsForRepo, listJobsForWorkflowRun, downloadJobLogsForWorkf
     downloadJobLogsForWorkflowRun: vi.fn(),
   }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(() => ({
     paginate: async (
       route: (params: { page?: number; per_page?: number }) => Promise<{ data?: unknown }>,
@@ -53,7 +53,7 @@ import {
   isGithubNotFoundError,
   isMissingActionsPermissionError,
   listFailingActionsJobsForHead,
-} from "../src/github/actionsLogs.js";
+} from "../src/github/actionsLogs.ts";
 
 beforeEach(() => {
   listWorkflowRunsForRepo.mockReset();

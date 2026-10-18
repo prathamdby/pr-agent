@@ -3,7 +3,7 @@ import {
   MAX_TRIAGE_FINDINGS,
   TRIAGE_SKIP_REASON_MAX_CHARS,
   TRIAGE_VERDICT_EVIDENCE_MAX_CHARS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
 const threadRootCommentIdField = v.pipe(
   v.number(),

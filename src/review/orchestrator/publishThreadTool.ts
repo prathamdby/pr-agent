@@ -1,28 +1,28 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toToolParameters } from "../../agent/tools/toolParams.js";
-import { AppError, toAppError } from "../../errors/appError.js";
-import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
+import { toToolParameters } from "../../agent/tools/toolParams.ts";
+import { AppError, toAppError } from "../../errors/appError.ts";
+import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
+import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.ts";
 import {
   type FindingBatchInput,
   type FindingBatchResult,
   findingIdScope,
   publishFindingBatch,
   reconciledFindingKey,
-} from "../publish/publishFindingBatch.js";
-import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
+} from "../publish/publishFindingBatch.ts";
+import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.ts";
 import {
   reviewFindingEntries,
   reviewFindingSchema,
   reviewPayloadFromFindings,
   type ReviewFinding,
-} from "../reviewSchema.js";
-import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
-import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
-import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
-import { capFindingDetail, type FindingInventory } from "../findingIdentity/findingInventory.js";
-import { derivedFindingId, isFindingId, mintFindingId } from "../findingIdentity/findingMarker.js";
+} from "../reviewSchema.ts";
+import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.ts";
+import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
+import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.ts";
+import { capFindingDetail, type FindingInventory } from "../findingIdentity/findingInventory.ts";
+import { derivedFindingId, isFindingId, mintFindingId } from "../findingIdentity/findingMarker.ts";
 import {
   MAX_OVERLAP_ROUNDS,
   reconcileObservation,
@@ -30,15 +30,15 @@ import {
   type ObservationRelation,
   type OverlapCandidate,
   type ReconcileOutcome,
-} from "../findingIdentity/findingReconcile.js";
+} from "../findingIdentity/findingReconcile.ts";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
   type FindingLedger,
   type SpecialistId,
-} from "./orchestratorTypes.js";
-import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
-import type { RecoveryDecision } from "../recovery/reviewRecovery.js";
+} from "./orchestratorTypes.ts";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
+import type { RecoveryDecision } from "../recovery/reviewRecovery.ts";
 
 const findingIdsParam = v.pipe(
   v.array(v.string()),

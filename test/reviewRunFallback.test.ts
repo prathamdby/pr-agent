@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { classifyFailure } from "../src/errors/classifiedFailure.js";
-import * as evlog from "../src/evlog.js";
-import { publishReviewRunFailureNotice } from "../src/review/run/reviewRunFallback.js";
-import type { ReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { classifyFailure } from "../src/errors/classifiedFailure.ts";
+import * as evlog from "../src/evlog.ts";
+import { publishReviewRunFailureNotice } from "../src/review/run/reviewRunFallback.ts";
+import type { ReviewRunSetup } from "../src/review/run/reviewRunSetup.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
-vi.mock("../src/github/reviewPublish.js", () => ({
+vi.mock("../src/github/reviewPublish.ts", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 1 })),
 }));
 

@@ -1,5 +1,5 @@
-import { isAppError } from "../../errors/appError.js";
-import type { AppErrorCode } from "../../errors/appErrorCodes.js";
+import { isAppError } from "../../errors/appError.ts";
+import type { AppErrorCode } from "../../errors/appErrorCodes.ts";
 
 export type ProviderErrorKind =
   | "auth"

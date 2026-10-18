@@ -1,29 +1,26 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22.22.0-bookworm-slim AS deps
+FROM node:24.22.0-bookworm-slim AS deps
 WORKDIR /app
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-RUN npm install -g --ignore-scripts=false @nubjs/nub@0.7.2
-COPY package.json nub.lock nub.jsonc .npmrc .node-version ./
+COPY package.json package-lock.json .npmrc .node-version ./
 COPY site/package.json ./site/package.json
-# nub ci uses a project-local store so node_modules is COPY-safe across stages.
-RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
-  nub ci --filter 'pr-agent...'
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+  npm ci --workspaces=false
 
-FROM deps AS prod-deps
-# Drop devDependencies from the project-local tree. Leftover .store symlinks to
-# pruned packages are unused by production imports.
-RUN nub prune --prod --filter 'pr-agent...'
+FROM node:24.22.0-bookworm-slim AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json .npmrc .node-version ./
+COPY site/package.json ./site/package.json
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+  npm ci --omit=dev --workspaces=false
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
 COPY src ./src
 COPY migrations ./migrations
-RUN nub run build
+RUN npm run build
 
-FROM node:22.22.0-bookworm-slim AS runtime
+FROM node:24.22.0-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

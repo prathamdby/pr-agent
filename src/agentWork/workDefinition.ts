@@ -1,25 +1,25 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import { type Config } from "../settings/index.js";
-import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
-import type { PrSurface } from "../github/prSurface.js";
-import { logWarn } from "../evlog.js";
-import { WORK_QUEUES, type WorkType, type ReviewWorkItem } from "./types.js";
-import { leaseBinding } from "./writeFence.js";
+import { type Config } from "../settings/index.ts";
+import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.ts";
+import type { PrSurface } from "../github/prSurface.ts";
+import { logWarn } from "../evlog.ts";
+import { WORK_QUEUES, type WorkType, type ReviewWorkItem } from "./types.ts";
+import { leaseBinding } from "./writeFence.ts";
 import {
   runDurableWorkItem,
   createDurableRuntime,
   resolveWorkItemHead,
   type DurableJobSpec,
   type DurableRuntime,
-} from "./durableJob.js";
-import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.js";
-import { createAskWorkExecution } from "./executors/askExecutor.js";
-import { createDescriptionWorkExecution } from "./executors/descriptionExecutor.js";
-import { createReviewWorkExecution } from "./executors/reviewExecutor.js";
-import { createTriageWorkExecution } from "./executors/triageExecutor.js";
-import { createVerificationWorkExecution } from "./executors/verificationExecutor.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "./durableJob.ts";
+import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.ts";
+import { createAskWorkExecution } from "./executors/askExecutor.ts";
+import { createDescriptionWorkExecution } from "./executors/descriptionExecutor.ts";
+import { createReviewWorkExecution } from "./executors/reviewExecutor.ts";
+import { createTriageWorkExecution } from "./executors/triageExecutor.ts";
+import { createVerificationWorkExecution } from "./executors/verificationExecutor.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export type WorkExecution<T extends WorkType> = Pick<
   DurableJobSpec<T>,

@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { openRunRateLimitCircuit } from "../src/agent/runtime/rateLimitCircuit.js";
+import { openRunRateLimitCircuit } from "../src/agent/runtime/rateLimitCircuit.ts";
 import {
   createRateLimitCircuit,
   RATE_LIMIT_CIRCUIT_THRESHOLD,
   shouldShortCircuitGithubTool,
   runWithRateLimitCircuit,
-} from "../src/github/rateLimitCircuit.js";
+} from "../src/github/rateLimitCircuit.ts";
 import {
   getSharedRateLimitCircuit,
   isSharedRateLimitCircuitOpen,
   openSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
   upsertSharedRateLimitCircuit,
-} from "../src/github/sharedRateLimitCircuit.js";
-import * as evlog from "../src/evlog.js";
-import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../src/settings/index.js";
+} from "../src/github/sharedRateLimitCircuit.ts";
+import * as evlog from "../src/evlog.ts";
+import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../src/settings/index.ts";
 
 type CircuitRow = {
   installation_id: number;

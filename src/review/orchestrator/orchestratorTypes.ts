@@ -1,8 +1,8 @@
-import type { AppError } from "../../errors/appError.js";
-import type { ReviewCancelAttribution } from "../../settings/index.js";
-import type { SpecialistReport } from "./specialistReport.js";
-import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
-import type { FindingId } from "../findingIdentity/findingMarker.js";
+import type { AppError } from "../../errors/appError.ts";
+import type { ReviewCancelAttribution } from "../../settings/index.ts";
+import type { SpecialistReport } from "./specialistReport.ts";
+import type { InlinePlacement } from "../placement/reviewDiffPlacement.ts";
+import type { FindingId } from "../findingIdentity/findingMarker.ts";
 
 export type AcceptedFindingSlimReference = {
   readonly findingId: string;

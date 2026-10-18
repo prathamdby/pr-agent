@@ -51,7 +51,7 @@ markers, queue names, log events, and analytics properties keep their existing
 bytes while readers exist. ADR 0025's system and tool prefixes remain unchanged.
 The golden compatibility cases live in the existing
 `test/integration/publishRecordBatches.integration.test.ts`; prompt inspection
-uses `nub run dump-prompt all`.
+uses the complete prompt dump.
 
 ## M0 failure modes
 
@@ -162,7 +162,7 @@ reply remains pinned in the intake owner test rather than separate assertions
 against private constants. Prompt comparison is byte-identical to M0, SHA-256
 `d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
 Unsafe source assertions fell from 90 to 87; the baseline shrinks to 87.
-The initial `nub run test -- <paths>` invocation did not forward its filters and
+The initial filtered test invocation through the previous task runner did not forward its filters and
 hit the 120-second limit during a broader run; it is not recorded as a pass.
 The parent's full gate passed 196 unit suites (2,644 tests), 14 dedicated
 database integration suites (499 tests), and disposable-stack verification

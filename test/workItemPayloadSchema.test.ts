@@ -4,17 +4,17 @@ import {
   normalizeStaleHeadReplacement,
   parseWorkItemPayload,
   WorkItemPayloadValidationError,
-} from "../src/agentWork/workItemPayloadSchema.js";
-import type { AgentWorkItemCore, WorkType } from "../src/agentWork/types.js";
-import { AppError } from "../src/errors/appError.js";
+} from "../src/agentWork/workItemPayloadSchema.ts";
+import type { AgentWorkItemCore, WorkType } from "../src/agentWork/types.ts";
+import { AppError } from "../src/errors/appError.ts";
 import {
   makeAskWorkItem,
   makeDescriptionWorkItem,
   makeReviewWorkItem,
   makeTriageWorkItem,
   makeVerificationWorkItem,
-} from "./helpers/agentWorkItems.js";
-import { coreOf } from "./helpers/executorDurableHarness.js";
+} from "./helpers/agentWorkItems.ts";
+import { coreOf } from "./helpers/executorDurableHarness.ts";
 
 describe("WorkItemPayloadValidationError", () => {
   it("extends AppError with code and workType", () => {

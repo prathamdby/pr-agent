@@ -1,20 +1,20 @@
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../../settings/index.js";
+import type { Config } from "../../settings/index.ts";
 import {
   llmSpanFromSession,
   publishSpanFromContext,
   projectWorkSpanToAgentEventRow,
   type WorkSpan,
-} from "../../analytics/workSpan.js";
-import { recordExecutionSpan } from "../../traces/recorder.js";
-import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
-import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
-import type { TurnEnd } from "../providers/usageMetadata.js";
-import type { AgentAuditRecord } from "./agentAudit.js";
-import { agentAuditRecordFromLifecycleEvent } from "./agentAudit.js";
-import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
-import type { AgentSessionRole } from "./types.js";
-import type { FindingSource } from "../../review/orchestrator/orchestratorTypes.js";
+} from "../../analytics/workSpan.ts";
+import { recordExecutionSpan } from "../../traces/recorder.ts";
+import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.ts";
+import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.ts";
+import type { TurnEnd } from "../providers/usageMetadata.ts";
+import type { AgentAuditRecord } from "./agentAudit.ts";
+import { agentAuditRecordFromLifecycleEvent } from "./agentAudit.ts";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
+import type { AgentSessionRole } from "./types.ts";
+import type { FindingSource } from "../../review/orchestrator/orchestratorTypes.ts";
 
 export type AgentEventsContext = {
   readonly pool: Pool | PoolClient;

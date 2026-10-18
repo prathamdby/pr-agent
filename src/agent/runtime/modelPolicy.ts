@@ -1,5 +1,5 @@
-import type { Config } from "../../settings/index.js";
-import type { AgentSessionRole, ModelAssignment } from "./types.js";
+import type { Config } from "../../settings/index.ts";
+import type { AgentSessionRole, ModelAssignment } from "./types.ts";
 
 export type ResolvedModelPolicy = {
   readonly orchestratorPrimary: ModelAssignment;

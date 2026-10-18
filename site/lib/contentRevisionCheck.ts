@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { AGENT_RESOURCES } from "./agentResources.js";
-import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
-import { lastmodForSitemapPath, REVISION_IDS, type RevisionId } from "./contentRevision.js";
-import { renderLlmsTxt } from "./llmsKnowledge.js";
-import { renderOpenApiDocument } from "./openapi.js";
-import { renderAgentInstructionsMarkdown, renderHomeMarkdown } from "./pageMarkdown.js";
-import { SITE_ORIGIN } from "./site.js";
+import { AGENT_RESOURCES } from "./agentResources.ts";
+import { FETCH_MARKDOWN_LANGUAGES } from "./content.ts";
+import { lastmodForSitemapPath, REVISION_IDS, type RevisionId } from "./contentRevision.ts";
+import { renderLlmsTxt } from "./llmsKnowledge.ts";
+import { renderOpenApiDocument } from "./openapi.ts";
+import { renderAgentInstructionsMarkdown, renderHomeMarkdown } from "./pageMarkdown.ts";
+import { SITE_ORIGIN } from "./site.ts";
 
 export const ORIGIN_TOKEN = "https://origin.invalid";
 

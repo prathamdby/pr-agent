@@ -1,15 +1,15 @@
 const publicationWrites = vi.hoisted(() => ({
   write: vi
-    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
     .mockResolvedValue(undefined),
 }));
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -18,9 +18,9 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   };
 });
 const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -30,7 +30,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -55,41 +55,41 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/review/findingIdentity/threadMutationLock.js", () => ({
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock:
-    (): import("../src/review/findingIdentity/threadMutationLock.js").ThreadMutationLock =>
+    (): import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock =>
     (apply) =>
       apply(),
 }));
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
-import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
-import type { VerificationPayload } from "../src/review/triageSchema.js";
-import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
-import { renderCiSummaryCell } from "../src/review/ci/ciSummaryCell.js";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.ts";
+import type { VerificationPayload } from "../src/review/triageSchema.ts";
+import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_STUB_MARKER } from "../src/settings/index.ts";
+import { renderCiSummaryCell } from "../src/review/ci/ciSummaryCell.ts";
 import {
   publishTestPrSurface,
   resolveThreadIds,
   editReviewCommentEvents,
-} from "./helpers/publishPrSurface.js";
+} from "./helpers/publishPrSurface.ts";
 
-import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.js";
-import { operationIntentMarker } from "../src/agentWork/publishOnce.js";
-import { AppError } from "../src/errors/appError.js";
-import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
+import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.ts";
+import { operationIntentMarker } from "../src/agentWork/publishOnce.ts";
+import { AppError } from "../src/errors/appError.ts";
+import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.ts";
 
-vi.mock("../src/agentWork/ciProjection.js", () => ({
+vi.mock("../src/agentWork/ciProjection.ts", () => ({
   requestHeadCiProjection: vi.fn().mockResolvedValue("enqueued"),
 }));
 
-vi.mock("../src/agentWork/prHeadCiState.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prHeadCiState.js")>();
+vi.mock("../src/agentWork/prHeadCiState.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prHeadCiState.ts")>();
   return {
     ...actual,
     advancePrHeadCiRevisionForVerificationSignal: vi
@@ -98,8 +98,8 @@ vi.mock("../src/agentWork/prHeadCiState.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return {
     ...actual,
     assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
@@ -107,11 +107,11 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-import { publishVerification } from "../src/agent/verification/publishVerification.js";
+import { publishVerification } from "../src/agent/verification/publishVerification.ts";
 import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
-} from "../src/agent/verification/publishVerificationFailure.js";
+} from "../src/agent/verification/publishVerificationFailure.ts";
 
 describe("verification failure projection transitions", () => {
   it("does not advance a new head when clearing a failure from an old head", () => {
@@ -174,7 +174,7 @@ function resolutionMap(
   return new Map(entries);
 }
 
-let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
+let controls: import("../src/github/fakePrSurface.ts").FakePrSurfaceControls;
 
 function baseParams(overrides: {
   readonly payload: VerificationPayload;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatAskReply, sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.js";
-import { ASK_TRUNCATED_NOTICE } from "../src/settings/index.js";
+import { formatAskReply, sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.ts";
+import { ASK_TRUNCATED_NOTICE } from "../src/settings/index.ts";
 
 describe("formatAskReply", () => {
   it("returns plain answer for inline review threads", () => {

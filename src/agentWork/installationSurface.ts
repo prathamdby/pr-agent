@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
-import type { Config } from "../settings/index.js";
+import type { Config } from "../settings/index.ts";
 import {
   getAppBotIdentity,
   lookupRepositoryInstallation,
   parseRepositoryInstallation,
   type BotIdentity,
   type InstallationToken,
-} from "../github/appAuth.js";
+} from "../github/appAuth.ts";
 import {
   mintInstallationToken,
   isInstallationTokenNearExpiry,
-} from "../github/installationToken.js";
-import { createPrSurface } from "../github/prSurface.js";
+} from "../github/installationToken.ts";
+import { createPrSurface } from "../github/prSurface.ts";
 import {
   installationCapabilitiesFromPermissions,
   deniedInstallationCapabilities,
@@ -19,8 +19,8 @@ import {
   parseInstallationPermissions,
   type InstallationCapabilities,
   type InstallationPermissions,
-} from "../github/installationCapabilities.js";
-import { AppError } from "../errors/appError.js";
+} from "../github/installationCapabilities.ts";
+import { AppError } from "../errors/appError.ts";
 
 type AppConfig = Pick<Config, "github">;
 

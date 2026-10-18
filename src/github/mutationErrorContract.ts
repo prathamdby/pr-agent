@@ -1,5 +1,5 @@
-import { httpStatus } from "./httpStatus.js";
-import { isAppError } from "../errors/appError.js";
+import { httpStatus } from "./httpStatus.ts";
+import { isAppError } from "../errors/appError.ts";
 
 export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
   if (

@@ -14,12 +14,12 @@ import {
   DEFAULT_ASK_REPOSITORY_BURST,
   DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
   DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
-} from "../settings/index.js";
-import { inTransaction } from "../db/postgres.js";
-import { createAskWorkItem } from "./intake/workItemRepository.js";
-import { prResourceKey } from "./types.js";
-import { AppError } from "../errors/appError.js";
-import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.js";
+} from "../settings/index.ts";
+import { inTransaction } from "../db/postgres.ts";
+import { createAskWorkItem } from "./intake/workItemRepository.ts";
+import { prResourceKey } from "./types.ts";
+import { AppError } from "../errors/appError.ts";
+import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.ts";
 
 export type AskQuotaConfig = Config["ask"];
 

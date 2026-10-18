@@ -1,15 +1,15 @@
 const publicationWrites = vi.hoisted(() => ({
   write: vi
-    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
     .mockResolvedValue(undefined),
 }));
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -18,9 +18,9 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   };
 });
 const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -30,7 +30,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -55,39 +55,39 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/review/findingIdentity/threadMutationLock.js", () => ({
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
   threadMutationLock:
-    (): import("../src/review/findingIdentity/threadMutationLock.js").ThreadMutationLock =>
+    (): import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock =>
     (apply) =>
       apply(),
 }));
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
-} from "../src/prWorkspace/writablePrCheckout.js";
-import { TriageClosedPullRequestError } from "../src/agent/triage/triageErrors.js";
-import { isPullRequestOpenAndUnmerged } from "../src/github/listPullRequestFiles.js";
+} from "../src/prWorkspace/writablePrCheckout.ts";
+import { TriageClosedPullRequestError } from "../src/agent/triage/triageErrors.ts";
+import { isPullRequestOpenAndUnmerged } from "../src/github/listPullRequestFiles.ts";
 
 import {
   publishTestPrSurface,
   resolveThreadIds,
   upsertProgressBody,
-} from "./helpers/publishPrSurface.js";
+} from "./helpers/publishPrSurface.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   shouldSkipWork: vi.fn(async () => false),
 }));
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return {
     ...actual,
     assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
@@ -95,8 +95,8 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-import { triagePushOperationKey } from "../src/agentWork/publishOnce.js";
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
+import { triagePushOperationKey } from "../src/agentWork/publishOnce.ts";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import {
   isTriagePushOutcome,
   parseStoredTriagePreviewDetail,
@@ -106,14 +106,14 @@ import {
   publishTriagePreview,
   publishTriageReportOnly,
   type TriagePushOutcome,
-} from "../src/agent/triage/publishTriage.js";
+} from "../src/agent/triage/publishTriage.ts";
 import {
   TRIAGE_BULK_PARTIAL_NOTICE,
   TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const thread = {
   rootCommentId: 1,
@@ -187,7 +187,7 @@ const closedLifecycles = [
 ] as const;
 
 describe("publishTriage", () => {
-  let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
+  let controls: import("../src/github/fakePrSurface.ts").FakePrSurfaceControls;
 
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1,5 +1,5 @@
-import { productionInstallationSurface } from "../installationSurface.js";
-import { unfencedSurface } from "../writeFence.js";
+import { productionInstallationSurface } from "../installationSurface.ts";
+import { unfencedSurface } from "../writeFence.ts";
 import {
   type Config,
   DEFERRED_HEAD_SHA,
@@ -8,43 +8,43 @@ import {
   GITHUB_REACTION_PLUS_ONE,
   triageCancelledNotice,
   type GithubReactionContent,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logWarn } from "../../evlog.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
-import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
-import { getProgressCommentOwner } from "../publishRecordRepository.js";
+import { logWarn } from "../../evlog.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.ts";
+import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.ts";
+import { getProgressCommentOwner } from "../publishRecordRepository.ts";
 import {
   getReviewQueuePosition,
   getWorkItemCore,
   type ReviewQueuePosition,
-} from "../workItemStateRepository.js";
-import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.js";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../ciProjection.js";
-import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";
+} from "../workItemStateRepository.ts";
+import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.ts";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../ciProjection.ts";
+import { parseProgressRevisionState } from "../../review/run/commentMarkers.ts";
 import {
   renderReviewCancelledNotice,
   renderReviewAwaitingApprovalNotice,
   renderReviewProgressComment,
-} from "../../review/run/progressComment.js";
-import type { ReviewMode } from "../../review/reviewSchema.js";
-import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
-import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../../review/run/progressComment.ts";
+import type { ReviewMode } from "../../review/reviewSchema.ts";
+import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.ts";
+import { canPublishApprovalNotice } from "../intake/reviewApprovals.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 import {
   capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
   type InstallationCapabilities,
   type ReviewCapabilityPolicy,
-} from "../../github/installationCapabilities.js";
+} from "../../github/installationCapabilities.ts";
 import {
   loadGithubCapabilityObservation,
   nextGithubCapabilityObservationGeneration,
   recordGithubCapabilityDenial,
   saveGithubCapabilityObservation,
-} from "../githubCapabilityRepository.js";
+} from "../githubCapabilityRepository.ts";
 
 export async function canAckPublishProgress(
   pool: Pool,

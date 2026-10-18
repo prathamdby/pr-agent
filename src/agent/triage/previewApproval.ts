@@ -3,11 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import type { TriagePreviewHunk } from "./triageRender.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.ts";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
+import type { TriagePreviewHunk } from "./triageRender.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 const exec = promisify(execFile);
 

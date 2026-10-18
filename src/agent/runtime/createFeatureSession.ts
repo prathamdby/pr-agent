@@ -1,22 +1,22 @@
 import type { Pool, PoolClient } from "pg";
-import type { PiSessionCreateParams } from "./types.js";
+import type { PiSessionCreateParams } from "./types.ts";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../settings/index.js";
-import { combineAbortSignals, type AgentRunnerToolExecutor } from "../providers/interface.js";
-import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
-import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
-import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
-import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.js";
-import { createPiSession } from "./piSession.js";
-import { compactionPolicyForRole } from "./compactionPolicy.js";
-import { DEFAULT_PROMPT_CACHE_POLICY } from "./promptCachePolicy.js";
+import type { Config } from "../../settings/index.ts";
+import { combineAbortSignals, type AgentRunnerToolExecutor } from "../providers/interface.ts";
+import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.ts";
+import { thinkingPolicyFromCeiling } from "./thinkingPolicy.ts";
+import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.ts";
+import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
+import { createPiSession } from "./piSession.ts";
+import { compactionPolicyForRole } from "./compactionPolicy.ts";
+import { DEFAULT_PROMPT_CACHE_POLICY } from "./promptCachePolicy.ts";
 import {
   DEFAULT_TOOL_POLICY,
   type AgentLifecycleEvent,
   type AgentSessionRole,
   type ModelAssignment,
   type PiSession,
-} from "./types.js";
+} from "./types.ts";
 
 export type FeatureSessionContext = {
   readonly pool: Pool;

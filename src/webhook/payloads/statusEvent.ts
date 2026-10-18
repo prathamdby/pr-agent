@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { githubShaSchema, installationSchema, repositorySchema } from "./common.js";
+import { githubShaSchema, installationSchema, repositorySchema } from "./common.ts";
 
 export const statusWebhookSchema = v.object({
   sha: githubShaSchema,

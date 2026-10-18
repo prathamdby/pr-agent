@@ -1,18 +1,18 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
-import type { Config, AnyReviewLens } from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import type { ReviewPublishContext } from "../reviewSchema.js";
-import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
-import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
-import type { FindingInventory } from "../findingIdentity/findingInventory.js";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
+import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
+import type { Config, AnyReviewLens } from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import type { ReviewPublishContext } from "../reviewSchema.ts";
+import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.ts";
+import type { ReviewRecovery } from "../recovery/reviewRecovery.ts";
+import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
 import {
   createReviewDuplicateCleanup,
   type ReviewDuplicateCleanup,
-} from "./reviewDuplicateCleanup.js";
+} from "./reviewDuplicateCleanup.ts";
 
 export type PublishStopReason = "superseded" | "stale_head";
 

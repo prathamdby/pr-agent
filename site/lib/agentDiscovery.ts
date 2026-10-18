@@ -8,9 +8,9 @@ import {
   OPENAPI_DOCUMENT,
   READ_PR_AGENT_SKILL,
   SITE_HEALTH,
-} from "./agentResources.js";
-import { requestOrigin } from "./site.js";
-import { DOCUMENT_CACHE_CONTROL } from "./siteHttp.js";
+} from "./agentResources.ts";
+import { requestOrigin } from "./site.ts";
+import { DOCUMENT_CACHE_CONTROL } from "./siteHttp.ts";
 
 export const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
 

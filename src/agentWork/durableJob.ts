@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { annotateExecution, startWorkTrace } from "../traces/recorder.js";
+import { annotateExecution, startWorkTrace } from "../traces/recorder.ts";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import {
@@ -9,7 +9,7 @@ import {
   GITHUB_REACTION_PLUS_ONE,
   REVIEW_QUEUE,
   type GithubReactionContent,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   captureWorkRetried,
   captureWorkExecutionStopped,
@@ -19,17 +19,17 @@ import {
   type WorkCompletion,
   durationMsFromClaim,
   workFailureReasonFromClassified,
-} from "../analytics/workCompleted.js";
-import { loadCiWorkTelemetry } from "./ciWorkTelemetry.js";
-import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
-import { logError, logInfo, logWarn } from "../evlog.js";
-import type { InstallationToken } from "../github/appAuth.js";
-import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { isCancelAbortError } from "../agent/providers/providerErrors.js";
-import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
-import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
-import type { PrSurfaceMutationBoundary } from "../github/prSurfaceTypes.js";
+} from "../analytics/workCompleted.ts";
+import { loadCiWorkTelemetry } from "./ciWorkTelemetry.ts";
+import { AppError, errorLogFields, isAppError } from "../errors/appError.ts";
+import { logError, logInfo, logWarn } from "../evlog.ts";
+import type { InstallationToken } from "../github/appAuth.ts";
+import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { isCancelAbortError } from "../agent/providers/providerErrors.ts";
+import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.ts";
+import type { PullRequestForFileList } from "../github/listPullRequestFiles.ts";
+import type { PrSurfaceMutationBoundary } from "../github/prSurfaceTypes.ts";
 import {
   getWorkItem,
   getWorkItemCore,
@@ -37,54 +37,54 @@ import {
   markWorkCancelled,
   shouldSkipWork,
   type WorkClaim,
-} from "./workItemStateRepository.js";
-import { armLeaseWatchdogHop, isPrActorLeaseHeld } from "./prActorLease.js";
+} from "./workItemStateRepository.ts";
+import { armLeaseWatchdogHop, isPrActorLeaseHeld } from "./prActorLease.ts";
 import {
   openLeasedExecution,
   startCancelObserve,
   startLeaseRenewal,
   type LeasedExecution,
   type LeasedExecutionRuntime,
-} from "./leasedExecution.js";
-import { type PrSurface } from "../github/prSurface.js";
-import { reactionTargetsForWorkItem } from "./reactionTargets.js";
+} from "./leasedExecution.ts";
+import { type PrSurface } from "../github/prSurface.ts";
+import { reactionTargetsForWorkItem } from "./reactionTargets.ts";
 import {
   escalationForAttempt,
   maxAttempts,
   retryDispositionFor,
   type EscalationPlan,
   type RetryDisposition,
-} from "./retryPolicy.js";
-import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
-import { inTransaction } from "../db/postgres.js";
-import { isWorkItemType } from "./types.js";
-import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
-import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
+} from "./retryPolicy.ts";
+import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.ts";
+import { inTransaction } from "../db/postgres.ts";
+import { isWorkItemType } from "./types.ts";
+import { attachWorkItemPayload } from "./workItemPayloadSchema.ts";
+import { reconcilePendingIntents } from "./reconcilePendingIntents.ts";
 import {
   withPrRepositoryView,
   type PreparePrRepositoryViewParams,
   type PrRepositoryView,
-} from "../prWorkspace/prRepositoryView.js";
-import { workspaceCheckoutTelemetryFromError } from "../prWorkspace/localPrWorkspace.js";
+} from "../prWorkspace/prRepositoryView.ts";
+import { workspaceCheckoutTelemetryFromError } from "../prWorkspace/localPrWorkspace.ts";
 import {
   workspaceCheckoutProperties,
   type WorkspaceCheckoutProperties,
-} from "../prWorkspace/checkoutTelemetry.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../prWorkspace/checkoutTelemetry.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 import {
   assertEssentialInstallationCapabilities,
   createReviewCapabilityPolicy,
   essentialInstallationOperations,
   type ReviewCapabilityPolicy,
-} from "../github/installationCapabilities.js";
+} from "../github/installationCapabilities.ts";
 import {
   changeGithubPreflightFailureCount,
   nextGithubCapabilityObservationGeneration,
   recordGithubCapabilityDenial,
   saveGithubCapabilityObservation,
-} from "./githubCapabilityRepository.js";
-import { getSharedRateLimitCircuit } from "../github/sharedRateLimitCircuit.js";
-import { installationGroupId } from "./types.js";
+} from "./githubCapabilityRepository.ts";
+import { getSharedRateLimitCircuit } from "../github/sharedRateLimitCircuit.ts";
+import { installationGroupId } from "./types.ts";
 
 export type DurableExecutionContext = {
   readonly job: JobWithMetadata<{ workItemId: string }>;

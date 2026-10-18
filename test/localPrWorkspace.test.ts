@@ -6,19 +6,19 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
-import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.js";
-import { type AppError, isAppError, serializeAppError } from "../src/errors/appError.js";
-import { classifyFailure } from "../src/errors/classifiedFailure.js";
-import { retryDispositionFor } from "../src/agentWork/retryPolicy.js";
-import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.js";
-import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.js";
-import { makeTestConfig } from "./helpers/config.js";
+import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.ts";
+import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.ts";
+import { type AppError, isAppError, serializeAppError } from "../src/errors/appError.ts";
+import { classifyFailure } from "../src/errors/classifiedFailure.ts";
+import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
+import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
+import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const credentialHooks = { failAfterWrite: false };
 const allocatedWorkspaceRoots: string[] = [];
-vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
+vi.mock("../src/prWorkspace/gitCredentials.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.ts")>();
   return {
     ...actual,
     async createGitCredentialFiles(rootDir: string, token: string) {
@@ -39,13 +39,13 @@ afterEach(() => {
 import {
   prepareLocalPrWorkspace,
   workspaceCheckoutTelemetryFromError,
-} from "../src/prWorkspace/localPrWorkspace.js";
+} from "../src/prWorkspace/localPrWorkspace.ts";
 import {
   assertWorkspacePath,
   buildCheckoutCoverage,
   runWorkspaceGit,
-} from "../src/prWorkspace/repositoryReader.js";
-import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.js";
+} from "../src/prWorkspace/repositoryReader.ts";
+import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.ts";
 
 const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;
 
@@ -1255,7 +1255,7 @@ afterAll(async () => {
       `${JSON.stringify(
         {
           generatedAt: new Date().toISOString(),
-          reproduce: `PR_AGENT_WORKSPACE_FETCH_PROOF=${FETCH_PROOF_PATH}${LOW_SPEED_PROBE ? " PR_AGENT_GIT_LOW_SPEED_PROBE=1" : ""} nub run test test/localPrWorkspace.test.ts`,
+          reproduce: `PR_AGENT_WORKSPACE_FETCH_PROOF=${FETCH_PROOF_PATH}${LOW_SPEED_PROBE ? " PR_AGENT_GIT_LOW_SPEED_PROBE=1" : ""} npm run test -- test/localPrWorkspace.test.ts`,
           gitVersion: execFileSync("git", ["--version"], { encoding: "utf8" }).trim(),
           ...fetchProof,
         },

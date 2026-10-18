@@ -1,13 +1,13 @@
-import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
-import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.ts";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.ts";
 import { describe, expect, it } from "vitest";
-import { buildTrustedReviewContextForReview } from "../src/prompts/orchestrator/prompt.js";
-import { fetchPriorInlineFeedbackBlockForReview } from "../src/review/run/reviewTrustedContext.js";
-import { renderRepoPolicyBlock } from "../src/review/repoPolicy.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
-import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
-import type { CheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
+import { buildTrustedReviewContextForReview } from "../src/prompts/orchestrator/prompt.ts";
+import { fetchPriorInlineFeedbackBlockForReview } from "../src/review/run/reviewTrustedContext.ts";
+import { renderRepoPolicyBlock } from "../src/review/repoPolicy.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.ts";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.ts";
+import type { CheckoutCoverage } from "../src/prWorkspace/repositoryReader.ts";
 
 const sparseCoverage: CheckoutCoverage = {
   mode: "sparse",

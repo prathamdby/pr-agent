@@ -1,5 +1,5 @@
-import type { FindingInventory, InventoryFinding } from "./findingInventory.js";
-import { neutralizeMarkerEcho, type FindingId, type FindingSeverity } from "./findingMarker.js";
+import type { FindingInventory, InventoryFinding } from "./findingInventory.ts";
+import { neutralizeMarkerEcho, type FindingId, type FindingSeverity } from "./findingMarker.ts";
 
 export const OVERLAP_WINDOW_LINES = 10;
 export const MAX_OVERLAP_ROUNDS = 1;

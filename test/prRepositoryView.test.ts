@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
+import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.ts";
 
 const HEAD_SHA = "h".repeat(40);
 
@@ -23,7 +23,7 @@ const state = vi.hoisted(() => ({
   deletions: 0,
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: () => ({
     paginate: async (
       route: (params: unknown) => Promise<{ data?: unknown }>,
@@ -57,8 +57,8 @@ vi.mock("../src/github/appAuth.js", () => ({
   }),
 }));
 
-vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
+vi.mock("../src/github/listPullRequestFiles.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.ts")>();
   return {
     assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
     fetchPullRequestFiles: (...args: Parameters<typeof actual.fetchPullRequestFiles>) =>
@@ -66,7 +66,7 @@ vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
+vi.mock("../src/prWorkspace/localPrWorkspace.ts", () => ({
   selectLocalPrWorkspaceCheckoutMode: (repositorySizeKb?: number) =>
     repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
       ? "sparse"
@@ -112,12 +112,12 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
   },
 }));
 
-import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
-import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
+import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.ts";
+import * as listPullRequestFiles from "../src/github/listPullRequestFiles.ts";
 import {
   LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
   PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const params = {
   owner: "o",

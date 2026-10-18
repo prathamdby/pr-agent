@@ -1,20 +1,20 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { TriageScope } from "../../agentWork/types.js";
+import type { TriageScope } from "../../agentWork/types.ts";
 import {
   type Config,
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
   TRIAGE_VALIDATION_REPAIR_ROUNDS,
   MAX_TOOL_ROUNDS_TRIAGE,
-} from "../../settings/index.js";
-import { logInfo } from "../../evlog.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { TriagePayload } from "../../review/triageSchema.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
-import { TRIAGE_SUBMIT_ONLY_NUDGE, renderTriageRepairPrompt } from "../../prompts/triage/prompt.js";
+} from "../../settings/index.ts";
+import { logInfo } from "../../evlog.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { TriagePayload } from "../../review/triageSchema.ts";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
+import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
+import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.ts";
+import { TRIAGE_SUBMIT_ONLY_NUDGE, renderTriageRepairPrompt } from "../../prompts/triage/prompt.ts";
 
 export type TriageRunResult = {
   readonly lastAssistant: AssistantMessage;

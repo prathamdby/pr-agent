@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { AppError } from "../../errors/appError.js";
-import { pgBossDb } from "../../db/postgres.js";
+import { AppError } from "../../errors/appError.ts";
+import { pgBossDb } from "../../db/postgres.ts";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
@@ -9,7 +9,7 @@ import {
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   installationGroupId,
   type AckJobData,
@@ -21,7 +21,7 @@ import {
   type TriageJobData,
   type VerificationJobData,
   type WebhookHeaders,
-} from "../types.js";
+} from "../types.ts";
 
 export function jobCorrelation(
   eventId: string,

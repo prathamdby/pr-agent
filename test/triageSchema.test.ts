@@ -5,7 +5,7 @@ import {
   validateTriageVerdicts,
   VerificationPayloadSchema,
   validateVerificationVerdicts,
-} from "../src/review/triageSchema.js";
+} from "../src/review/triageSchema.ts";
 
 describe("triage schema", () => {
   it("accepts one verdict per inventory thread", () => {

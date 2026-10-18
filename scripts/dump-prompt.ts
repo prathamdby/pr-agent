@@ -1,6 +1,6 @@
-import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.js";
-import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
-import { makeTestConfig } from "../test/helpers/config.js";
+import { slimAcceptedFindings } from "../src/review/orchestrator/slimAcceptedFindings.ts";
+import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
+import { makeTestConfig } from "../test/helpers/config.ts";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
@@ -15,10 +15,10 @@ import {
   renderOrchestratorReconTurn,
   renderOrchestratorBriefRepair,
   renderOrchestratorSummaryRepair,
-} from "../src/prompts/orchestrator/prompt.js";
-import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
-import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.js";
+} from "../src/prompts/orchestrator/prompt.ts";
+import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.ts";
+import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.ts";
+import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.ts";
 import {
   COMPACTION_CUSTOM_INSTRUCTIONS,
   COMPACTION_SUMMARY_PREFIX,
@@ -26,24 +26,24 @@ import {
   SUMMARIZATION_PROMPT,
   SUMMARIZATION_SYSTEM_PROMPT,
   renderCompactionUserPrompt,
-} from "../src/prompts/compaction/prompt.js";
-import type { Config } from "../src/settings/index.js";
-import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
-import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/prompts/compaction/prompt.ts";
+import type { Config } from "../src/settings/index.ts";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
+import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   buildAskSystemPrompt,
   ASK_RETRY_NUDGE,
   ASK_SHORTEN_NUDGE,
   buildAskUserContent,
-} from "../src/prompts/ask/prompt.js";
+} from "../src/prompts/ask/prompt.ts";
 import {
   descriptionSystemPrompt,
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   buildDescriptionUserContent,
   renderDescriptionRepairPrompt,
-} from "../src/prompts/description/prompt.js";
+} from "../src/prompts/description/prompt.ts";
 import {
   triageSystemPrompt,
   buildTriageUserContent,
@@ -51,73 +51,73 @@ import {
   TRIAGE_SUBMIT_ONLY_NUDGE,
   TRIAGE_VALIDATION_REPAIR_HINT,
   renderTriageRepairPrompt,
-} from "../src/prompts/triage/prompt.js";
+} from "../src/prompts/triage/prompt.ts";
 import {
   verificationSystemPrompt,
   buildVerificationUserContent,
   VERIFICATION_SUBMIT_ONLY_NUDGE,
   renderVerificationRepairPrompt,
-} from "../src/prompts/verification/prompt.js";
-import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/prompts/ci/prompt.js";
+} from "../src/prompts/verification/prompt.ts";
+import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../src/prompts/ci/prompt.ts";
 import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
-} from "../src/prompts/judge/prompt.js";
-import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
-import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
-import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.js";
+} from "../src/prompts/judge/prompt.ts";
+import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
+import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.ts";
 import {
   buildSpecialistBriefTool,
   type SpecialistBrief,
-} from "../src/review/orchestrator/briefTool.js";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
-import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
-import { buildDeclareDuplicateTool } from "../src/review/orchestrator/declareDuplicateTool.js";
-import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.js";
-import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
+} from "../src/review/orchestrator/briefTool.ts";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
+import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.ts";
+import { buildDeclareDuplicateTool } from "../src/review/orchestrator/declareDuplicateTool.ts";
+import { judgmentInventory } from "../src/review/orchestrator/judgmentInventory.ts";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
-} from "../src/review/orchestrator/publishSummaryTool.js";
-import { createFakePrSurface } from "../src/github/fakePrSurface.js";
+} from "../src/review/orchestrator/publishSummaryTool.ts";
+import { createFakePrSurface } from "../src/github/fakePrSurface.ts";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
-} from "../src/agent/description/submitDescriptionTool.js";
+} from "../src/agent/description/submitDescriptionTool.ts";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
-} from "../src/agent/triage/triageWorkspaceTools.js";
+} from "../src/agent/triage/triageWorkspaceTools.ts";
 import {
   buildSubmitTriageTool,
   createSubmitTriageState,
-} from "../src/agent/triage/submitTriageTool.js";
-import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.js";
+} from "../src/agent/triage/submitTriageTool.ts";
+import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.ts";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
-} from "../src/agent/verification/submitVerificationTool.js";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
-import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
+} from "../src/agent/verification/submitVerificationTool.ts";
+import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
+import type { AskRunParams } from "../src/agent/ask/askRunTypes.ts";
 
-import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
-import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
+import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.ts";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.ts";
 import {
   formatReviewPathProfileBlock,
   formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
   formatSymbolIndexStatusLine,
   formatPriorInlineFeedbackBlock,
-} from "../src/prompts/orchestrator/context.js";
-import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.js";
-import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { renderRepoPolicyBlock, type RepoPolicy } from "../src/review/repoPolicy.js";
+} from "../src/prompts/orchestrator/context.ts";
+import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.ts";
+import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
+import { renderRepoPolicyBlock, type RepoPolicy } from "../src/review/repoPolicy.ts";
 import {
   renderAgentInstructionFilesBlock,
   type AgentInstructionFile,
-} from "../src/review/agentInstructionFiles.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
+} from "../src/review/agentInstructionFiles.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import {
   FINDING_ANTI_SUPPRESSION,
   wrapTrustedContext,
@@ -128,12 +128,12 @@ import {
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
-} from "../src/prompts/shared/safety.js";
+} from "../src/prompts/shared/safety.ts";
 
 import {
   MISSING_REPORT_ERROR,
   renderSpecialistReportRepair,
-} from "../src/prompts/shared/repair.js";
+} from "../src/prompts/shared/repair.ts";
 
 const emptyFindingInventory = buildFindingInventory({
   threads: { status: "ok", threads: [] },
@@ -846,7 +846,7 @@ const prompts: Record<string, string> = {
 
 if (!persona || (persona !== "all" && !(persona in prompts))) {
   console.error(
-    `Usage: nub run dump-prompt <persona>  (${Object.keys(prompts).join(" | ")} | all)`,
+    `Usage: npm run dump-prompt -- <persona>  (${Object.keys(prompts).join(" | ")} | all)`,
   );
   process.exit(1);
 }

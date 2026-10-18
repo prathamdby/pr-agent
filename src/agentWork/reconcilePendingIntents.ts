@@ -1,15 +1,15 @@
 import type { Pool, PoolClient } from "pg";
-import { logInfo } from "../evlog.js";
-import { queryOne } from "../db/postgres.js";
+import { logInfo } from "../evlog.ts";
+import { queryOne } from "../db/postgres.ts";
 import {
   listPendingOperationIntents,
   reconcileOperationIntent,
   type OperationIntentRow,
-} from "./operationIntentRepository.js";
+} from "./operationIntentRepository.ts";
 import {
   matchesVerificationThreadCompletion,
   parseVerificationThreadLedger,
-} from "./verificationThreadLedger.js";
+} from "./verificationThreadLedger.ts";
 
 type ReconcilePendingIntentsResult = {
   readonly reconciled: number;

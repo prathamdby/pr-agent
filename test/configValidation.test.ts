@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AppError } from "../src/errors/appError.js";
-import { ENV, type Config } from "../src/settings/index.js";
-import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
+import { AppError } from "../src/errors/appError.ts";
+import { ENV, type Config } from "../src/settings/index.ts";
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
 
 const BASE_ENV = {
   GITHUB_APP_ID: "1",
@@ -15,7 +15,7 @@ async function load(extra: Record<string, string>) {
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
   };
-  const { loadConfig } = await import("../src/settings/index.js");
+  const { loadConfig } = await import("../src/settings/index.ts");
   return loadConfig();
 }
 
@@ -239,7 +239,7 @@ describe("loadConfig validation", () => {
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     };
     delete process.env[ENV.DATABASE_URL];
-    const { loadConfig } = await import("../src/settings/index.js");
+    const { loadConfig } = await import("../src/settings/index.ts");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).code).toBe("config.missing_env");

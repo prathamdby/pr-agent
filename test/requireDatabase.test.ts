@@ -6,7 +6,7 @@ import {
   assertIntegrationDatabaseReady,
   formatMissingDatabaseUrlError,
   formatUnreachableDatabaseError,
-} from "./integration/requireDatabase.js";
+} from "./integration/requireDatabase.ts";
 
 describe("assertIntegrationDatabaseReady", () => {
   afterEach(() => {
@@ -28,7 +28,7 @@ describe("assertIntegrationDatabaseReady", () => {
       /docker compose -f docker-compose.dev.yml up -d/,
     );
     await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(
-      /nub run test:integration:inventory/,
+      /npm run test:integration:inventory/,
     );
   });
 

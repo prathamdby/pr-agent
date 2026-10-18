@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import {
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
-} from "../src/agentWork/autoWorkEnqueue.js";
+} from "../src/agentWork/autoWorkEnqueue.ts";
 
 function mockClient(options?: {
   readonly queuedIds?: readonly string[];

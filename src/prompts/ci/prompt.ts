@@ -1,6 +1,6 @@
-import { noToolsTurnGuidance } from "../shared/output.js";
-import { communicationGuidance } from "../shared/communication.js";
-import { wrapUntrustedBlock } from "../shared/safety.js";
+import { noToolsTurnGuidance } from "../shared/output.ts";
+import { communicationGuidance } from "../shared/communication.ts";
+import { wrapUntrustedBlock } from "../shared/safety.ts";
 
 export const ciGateRowContract = [
   "## CI gate row contract",

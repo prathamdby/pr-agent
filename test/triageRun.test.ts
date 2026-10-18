@@ -1,15 +1,15 @@
-import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
-import { TriageCancelledError } from "../src/agent/triage/triageErrors.js";
-import { makeTestConfig } from "./helpers/config.js";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
+import { runFullPrTriage } from "../src/agent/triage/triageRun.ts";
+import { TriageCancelledError } from "../src/agent/triage/triageErrors.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const providerState = vi.hoisted(() => ({
   createSession: vi.fn(),
 }));
 
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
   createFeaturePiSession: providerState.createSession,
 }));
 

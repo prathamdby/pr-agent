@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
-} from "../src/review/findings/findingPipeline.js";
-import { mintFindingId } from "../src/review/findingIdentity/findingMarker.js";
+} from "../src/review/findings/findingPipeline.ts";
+import { mintFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.js";
-import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+} from "../src/review/placement/reviewDiffIndex.ts";
+import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFinding,
   seedEvidenceForFindings,
-} from "./helpers/evidenceTestHelpers.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+} from "./helpers/evidenceTestHelpers.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {

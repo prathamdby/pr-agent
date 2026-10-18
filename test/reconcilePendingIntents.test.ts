@@ -1,6 +1,6 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -10,7 +10,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -38,15 +38,15 @@ beforeEach(() => {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 
-vi.mock("../src/db/postgres.js", () => ({
+vi.mock("../src/db/postgres.ts", () => ({
   queryOne: vi.fn(),
 }));
 
-vi.unmock("../src/agentWork/reconcilePendingIntents.js");
+vi.unmock("../src/agentWork/reconcilePendingIntents.ts");
 
-const { queryOne } = await import("../src/db/postgres.js");
+const { queryOne } = await import("../src/db/postgres.ts");
 const { reconcilePendingIntents, findCompletedPublishRecordId } =
-  await import("../src/agentWork/reconcilePendingIntents.js");
+  await import("../src/agentWork/reconcilePendingIntents.ts");
 
 const pool = {} as Pool;
 

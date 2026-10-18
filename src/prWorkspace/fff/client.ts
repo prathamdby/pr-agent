@@ -1,12 +1,12 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import * as v from "valibot";
-import { logWarn } from "../../evlog.js";
+import { logWarn } from "../../evlog.ts";
 import {
   LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS,
   LOCAL_WORKSPACE_FFF_RESPAWN_BACKOFF_MS,
-} from "../../settings/index.js";
-import type { FffFilesResult, FffGrepResult, FffOpenResult } from "./host.js";
+} from "../../settings/index.ts";
+import type { FffFilesResult, FffGrepResult, FffOpenResult } from "./host.ts";
 
 type Pending = {
   readonly resolve: (value: unknown) => void;

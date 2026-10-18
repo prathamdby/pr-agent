@@ -1,30 +1,30 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFindingLedger,
   type AcceptedPlacement,
   type FindingLedger,
   type ReviewCoverage,
-} from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   createOrchestratorPhaseRef,
   WRONG_PHASE_TOOL_CODE,
-} from "../src/review/orchestrator/phaseToolPolicy.js";
+} from "../src/review/orchestrator/phaseToolPolicy.ts";
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
-} from "../src/review/orchestrator/publishSummaryTool.js";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+} from "../src/review/orchestrator/publishSummaryTool.ts";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
 import {
   REVIEW_PUBLISH_SUMMARY_FIELDS,
   type ReviewFinding,
   type ReviewPayload,
-} from "../src/review/reviewSchema.js";
-import { REVIEW_GATE_PROSE_MAX_CHARS } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+} from "../src/review/reviewSchema.ts";
+import { REVIEW_GATE_PROSE_MAX_CHARS } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 function summarySession() {
   return createReviewPublishSession({
@@ -41,9 +41,9 @@ function summarySession() {
   });
 }
 
-vi.mock("../src/review/publish/publishSummaryOnly.js", async (importOriginal) => {
+vi.mock("../src/review/publish/publishSummaryOnly.ts", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/review/publish/publishSummaryOnly.js")>();
+    await importOriginal<typeof import("../src/review/publish/publishSummaryOnly.ts")>();
   return {
     ...actual,
     publishReviewSummaryOnly: vi.fn(async () => ({ kind: "published", summaryCommentId: 91 })),

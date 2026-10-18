@@ -1,14 +1,14 @@
-import { installationOctokit } from "./appAuth.js";
-import { AppError } from "../errors/appError.js";
-import { httpStatus } from "./httpStatus.js";
-import { stopPaginatedPage } from "./paginateOctokit.js";
+import { installationOctokit } from "./appAuth.ts";
+import { AppError } from "../errors/appError.ts";
+import { httpStatus } from "./httpStatus.ts";
+import { stopPaginatedPage } from "./paginateOctokit.ts";
 import {
   CHECK_RUNS_MAX_PAGES,
   CHECK_RUNS_PAGE_SIZE,
   COMMENTS_PAGE_SIZE,
   COMMENT_PAGINATION_MAX_PAGES,
   REVIEW_SUMMARY_SENTINEL,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
 export type InlineReviewComment = {
   path: string;

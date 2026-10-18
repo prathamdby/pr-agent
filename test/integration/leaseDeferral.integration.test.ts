@@ -1,27 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { makeTestConfig } from "../helpers/config.js";
+import { makeTestConfig } from "../helpers/config.ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import {
   acquirePrActorLease,
   armLeaseWatchdogHop,
   PR_ACTOR_LEASE_DEFER_SECONDS,
   releasePrActorLease,
-} from "../../src/agentWork/prActorLease.js";
-import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
+} from "../../src/agentWork/prActorLease.ts";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.ts";
 import {
   beginWorkAttempt,
   claimWorkForExecution,
   getWorkItem,
   markWorkCompleted,
-} from "../../src/agentWork/workItemStateRepository.js";
-import { createFakePrSurface } from "../../src/github/prSurface.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import { runMigrations } from "../../src/db/migrations.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
+import { createFakePrSurface } from "../../src/github/prSurface.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
 import {
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
@@ -34,9 +34,9 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
-} from "../../src/settings/index.js";
-import { installationGroupId, type QueueConfig } from "../../src/agentWork/types.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/settings/index.ts";
+import { installationGroupId, type QueueConfig } from "../../src/agentWork/types.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const DATABASE_URL = process.env.DATABASE_URL!;
 
@@ -638,7 +638,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
            FROM generate_series(0, 6) AS offsets(slot_offset)`,
         [REVIEW_QUEUE, workItemId],
       );
-      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.ts");
       const core = await getWorkItemCore(pool, workItemId);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -745,7 +745,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     try {
       const coreRow = await pool.query(`SELECT id FROM agent_work_items WHERE id = $1`, [first]);
       expect(coreRow.rowCount).toBe(1);
-      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.ts");
       const core = await getWorkItemCore(pool, first);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -846,7 +846,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       [id, resourceKey],
     );
     try {
-      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.ts");
       const core = await getWorkItemCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -907,7 +907,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     );
     try {
       const { getWorkItemCore: getCore } =
-        await import("../../src/agentWork/workItemStateRepository.js");
+        await import("../../src/agentWork/workItemStateRepository.ts");
       const core = await getCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       let attempts = 0;

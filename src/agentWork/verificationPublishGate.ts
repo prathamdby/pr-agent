@@ -1,4 +1,4 @@
-import type { DurableExecutionResult } from "./durableJob.js";
+import type { DurableExecutionResult } from "./durableJob.ts";
 
 export type VerificationDegradationReason =
   | "thread_resolution_degraded"

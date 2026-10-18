@@ -1,13 +1,13 @@
-import { DeliveryTx } from "../src/agentWork/intake/delivery.js";
+import { DeliveryTx } from "../src/agentWork/intake/delivery.ts";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
   applySlashCommandIntake as applySlash,
   type SlashCommandInput,
-} from "../src/agentWork/intake/slashIntake.js";
-import type { AckJobData } from "../src/agentWork/types.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/agentWork/intake/slashIntake.ts";
+import type { AckJobData } from "../src/agentWork/types.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const features = makeTestConfig().features;
 
@@ -134,7 +134,7 @@ function applySlashCommandIntake(
   boss: PgBoss,
   client: PoolClient,
   input: SlashCommandInput,
-  features: import("../src/settings/index.js").Features,
+  features: import("../src/settings/index.ts").Features,
 ) {
   return applySlash(boss, new DeliveryTx(client, input.headers), input, features);
 }

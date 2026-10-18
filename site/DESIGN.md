@@ -245,7 +245,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface (the sticky header).
-- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `nub run site:generate-og` when a token, the hero copy, or the mock changes.
+- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `npm run site:generate-og` when a token, the hero copy, or the mock changes.
 
 ## Radii
 
@@ -645,12 +645,12 @@ Run these before calling a site change done. They are the checks the maintainer 
 1. Repository gate:
 
    ```bash
-   nub run check:code
-   nub run check:site-design
-   nub run --node site:build
+   npm run check:code
+   npm run check:site-design
+   npm run site:build
    ```
 
-   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin fails when `site/public/llms.txt` differs from `renderLlmsTxt()`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `nub run fmt` if the format check fails.
+   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin fails when `site/public/llms.txt` differs from `renderLlmsTxt()`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `npm run fmt` if the format check fails.
 
    `check:site-design` (`scripts/check-site-design.mjs`, also in the CI `site` job) scans `site/app` and `site/components` and fails when any rule's count rises above `scripts/baselines/site-design-baseline.json`. Most counts are zero. `raw-color`, `primitive-read`, and `arbitrary-value` carry today's stock and may only shrink.
 
@@ -672,7 +672,7 @@ Run these before calling a site change done. They are the checks the maintainer 
 
    The check reads source text, so it cannot see contrast, behaviour, or class names built at runtime. A red rule is a finding: fix the code rather than raise the baseline. `--bootstrap` rewrites the baseline and refuses to run under `CI=true`.
 
-2. Screenshots at three widths. Start the dev server (`nub run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
+2. Screenshots at three widths. Start the dev server (`npm run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
 
    ```bash
    work="$(mktemp -d)"

@@ -1,19 +1,19 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
-import { AppError } from "../../errors/appError.js";
-import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import { AppError } from "../../errors/appError.ts";
+import { redactReviewText } from "../findings/reviewPublicOutput.ts";
 import {
   evidenceDescriptorSchema,
   OPENED_PATH_MAX_CHARS,
   persistedOpenedPaths,
-} from "../findings/evidenceLedger.js";
-import { specialistBriefSchema } from "../orchestrator/briefTool.js";
-import { specialistReportSchema } from "../orchestrator/specialistReport.js";
-import { reviewPayloadSchema } from "../reviewSchema.js";
+} from "../findings/evidenceLedger.ts";
+import { specialistBriefSchema } from "../orchestrator/briefTool.ts";
+import { specialistReportSchema } from "../orchestrator/specialistReport.ts";
+import { reviewPayloadSchema } from "../reviewSchema.ts";
 import {
   canonicalReviewDecisionSchema,
   UNREAD_COVERAGE_PATH_LIMIT,
-} from "./reviewRecoverySchema.js";
+} from "./reviewRecoverySchema.ts";
 
 export const REVIEW_CONTRACT_VERSION = "review-1";
 export const REVIEW_ARTIFACT_SCHEMA_VERSION = 5;

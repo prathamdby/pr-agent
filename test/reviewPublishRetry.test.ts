@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDefinitelyNoAcceptanceReviewError,
   isLineResolutionPublishError,
-} from "../src/github/reviewErrors.js";
+} from "../src/github/reviewErrors.ts";
 
 describe("isDefinitelyNoAcceptanceReviewError", () => {
   it("does not treat an ambiguous non-line-resolution 422 as unaccepted", () => {

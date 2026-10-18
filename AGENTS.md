@@ -15,26 +15,26 @@ Same PR: update every pointer whose branch matched the change.
 ## Check
 
 Check against the committed lockfile. If installed dependencies differ, run
-`nub ci --filter pr-agent... --filter pr-agent-landing...` before interpreting
+`npm ci` before interpreting
 typecheck failures or changing dependency-shaped fixtures.
 
 Before every push, run the backend check job from [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 ```bash
-nub run check:effect-versions
-nub run check:prod-deps
-nub run check:code
-nub run check:guards
-nub run test
-nub run build
+npm run check:effect-versions
+npm run check:prod-deps
+npm run check:code
+npm run check:guards
+npm run test
+npm run build
 ```
 
-PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD` over the PR range, and `nub run check:commit-messages` runs the same check locally.
+PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD` over the PR range, and `npm run check:commit-messages` runs the same check locally.
 
 A red check is a finding about your code. Never weaken a rule or delete a
 lock. A guard-count growth waits on guard-loosening approval.
 
-Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths. `nub run verify` proves the durable path on a disposable stack and leaves an artifact.
+Done when every command exits 0. Format with `npm run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... npm run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths. `npm run verify` proves the durable path on a disposable stack and leaves an artifact.
 
 Gardener loop: every correction becomes a rule. One-off note, recurring
 lint rule, or systemic principle — close now or as a concrete todo.
@@ -45,7 +45,7 @@ with a seam of its own, shaped like `PrSurface`; one import-rule row so
 the service SDK loads only there; credentials via `src/settings/`, never
 a new `process.env` reader; a durable work type lands with its executor
 and publish record in the same PR, and `docs/feature-map.md` absorbs it
-(`nub run gen:feature-map`); docs pointers update in the same PR; the
+(`npm run gen:feature-map`); docs pointers update in the same PR; the
 first sin observed in the new folder becomes a guard row.
 
 Refactor rules: import-rule rows are globs, so moves survive them; the
@@ -72,7 +72,7 @@ This file gives agents the operating model for this repository. Direct maintaine
 - If you must test a system in isolation, first write down all the ways it could fail, then write the code.
 - New test files remain opt-in. Do not create unit, integration, end-to-end, or spec files, or new test-only helpers/fixtures, unless the user explicitly requests their creation or approves them first. A request to implement, fix, test, or verify something does not by itself authorize new test files. Assume no by default; ask only when creating them has a concrete benefit, not as a routine step.
 - Prefer existing tests and direct browser or runtime checks without adding test files. Where test changes are in scope, exercise observable behavior and artifacts rather than asserting source-code strings, implementation shapes, or that tests exist.
-- Until a dedicated E2E suite exists, `nub run test:integration` is the durable-path proof for webhook, lease, and database work. Keep the unit suite small: security guards, architecture and import-graph locks, and isolation tests written from an explicit failure-mode list before the code.
+- Until a dedicated E2E suite exists, `npm run test:integration` is the durable-path proof for webhook, lease, and database work. Keep the unit suite small: security guards, architecture and import-graph locks, and isolation tests written from an explicit failure-mode list before the code.
 
 ## Non-negotiables
 
@@ -119,11 +119,11 @@ That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), 
 
 `docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once.
 
-Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` when you install it globally. Use `nub watch` only when you want host hot reload instead of an image rebuild.
+Use Node 24.22.0 LTS with npm 11.19.1 or a newer npm 11 release. The supported Node range is `^24.21.0`; CI and Docker stay pinned to 24.22.0. Run `npm ci` before checks. `npm run dev` uses native Node TypeScript and watches imported source; restart after environment or configuration changes.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
-Proof integration and E2E first. `DATABASE_URL=... nub run test:integration` is the durable-path suite for webhook, lease, and database work until a dedicated E2E suite exists; inventory-only runs use `nub run test:integration:inventory`. `nub run test` runs the small unit suite.
+Proof integration and E2E first. `DATABASE_URL=... npm run test:integration` is the durable-path suite for webhook, lease, and database work until a dedicated E2E suite exists; inventory-only runs use `npm run test:integration:inventory`. `npm run test` runs the small unit suite.
 
 ## Test data and external systems
 
@@ -362,4 +362,4 @@ The main site's human-facing copy is permission-gated (see Non-negotiables). Whe
 - Optional extras under Data privacy are separate `<details>` blocks: Context7, Logging, PostHog. Do not add a standalone analytics heading.
 - Sentence-case headings except `Pratham's way of hosting`. Short sentences. No puffery, no em dashes, no chatbot filler. If a sentence could sit in another project's README unchanged, cut it.
 - Long traps stay in `<details>`. The open page stays short.
-- After README or docs edits, run `nub run fmt` so `oxfmt --check` stays green.
+- After README or docs edits, run `npm run fmt` so `oxfmt --check` stays green.

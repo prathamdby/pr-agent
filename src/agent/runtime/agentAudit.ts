@@ -1,5 +1,5 @@
-import type { TurnEnd } from "../providers/usageMetadata.js";
-import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+import type { TurnEnd } from "../providers/usageMetadata.ts";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
 
 export type AgentAuditRecord = {
   readonly source: "agent_lifecycle";

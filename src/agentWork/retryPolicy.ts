@@ -1,16 +1,16 @@
-import { isCancelAbortError } from "../agent/providers/providerErrors.js";
-import { resolveModelPolicy } from "../agent/runtime/modelPolicy.js";
-import type { ModelAssignment } from "../agent/runtime/types.js";
+import { isCancelAbortError } from "../agent/providers/providerErrors.ts";
+import { resolveModelPolicy } from "../agent/runtime/modelPolicy.ts";
+import type { ModelAssignment } from "../agent/runtime/types.ts";
 import {
   type Config,
   ESCALATED_TOOL_ROUNDS_CAP,
   ESCALATED_TOOL_ROUNDS_MULTIPLIER,
   MAX_ESCALATED_VERIFICATION_INVENTORY,
-} from "../settings/index.js";
-import { isAppError } from "../errors/appError.js";
-import type { AppErrorCode } from "../errors/appErrorCodes.js";
-import { workspaceGitFailureKind } from "../prWorkspace/repositoryReader.js";
-import { isStaleHeadReplacementExhausted } from "./reviewReschedule.js";
+} from "../settings/index.ts";
+import { isAppError } from "../errors/appError.ts";
+import type { AppErrorCode } from "../errors/appErrorCodes.ts";
+import { workspaceGitFailureKind } from "../prWorkspace/repositoryReader.ts";
+import { isStaleHeadReplacementExhausted } from "./reviewReschedule.ts";
 
 export type RetryDisposition = "transient" | "deterministic" | "terminal";
 

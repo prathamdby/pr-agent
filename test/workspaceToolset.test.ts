@@ -19,51 +19,51 @@ import { describe, expect, it, afterEach } from "vitest";
 import {
   buildWorkspaceTools,
   type LocalWorkspaceToolLimits,
-} from "../src/agent/tools/workspaceToolset.js";
+} from "../src/agent/tools/workspaceToolset.ts";
 import {
   disposeSpillFile,
   READ_SPILL_FILENAME_PREFIX,
-} from "../src/agent/tools/readWorkspaceTextFile.js";
-import { createAskPathGate } from "../src/agent/ask/askSafety.js";
-import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
+} from "../src/agent/tools/readWorkspaceTextFile.ts";
+import { createAskPathGate } from "../src/agent/ask/askSafety.ts";
+import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
 import {
   type LocalPrWorkspace,
   prepareLocalPrWorkspace,
-} from "../src/prWorkspace/localPrWorkspace.js";
+} from "../src/prWorkspace/localPrWorkspace.ts";
 import {
   buildCheckoutCoverage,
   gitGrepWorkspace,
   type GitGrepWorkspaceParams,
   isTriageSearchPathAllowed,
   createWritableRepositoryReader,
-} from "../src/prWorkspace/repositoryReader.js";
+} from "../src/prWorkspace/repositoryReader.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-} from "../src/settings/index.js";
-import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
-import { hashNormalizedLineText } from "../src/review/findings/evidenceLedger.js";
-import { recordMarshalledEvidence } from "../src/agent/execution/marshal.js";
-import { rankPathsByQuery } from "../src/prWorkspace/fff/workspaceSearch.js";
+} from "../src/settings/index.ts";
+import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.ts";
+import { hashNormalizedLineText } from "../src/review/findings/evidenceLedger.ts";
+import { recordMarshalledEvidence } from "../src/agent/execution/marshal.ts";
+import { rankPathsByQuery } from "../src/prWorkspace/fff/workspaceSearch.ts";
 import {
   buildSymbolIndex,
   querySymbolIndex,
   symbolIndexStatus,
-} from "../src/prWorkspace/symbolIndex.js";
+} from "../src/prWorkspace/symbolIndex.ts";
 import {
   type ListPullRequestFilesResult,
   type PullRequestFileEntry,
-} from "../src/github/listPullRequestFiles.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+} from "../src/github/listPullRequestFiles.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
-} from "../src/agent/triage/triageWorkspaceTools.js";
-import { type WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
+} from "../src/agent/triage/triageWorkspaceTools.ts";
+import { type WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
+import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 
 const exec = promisify(execFile);
 

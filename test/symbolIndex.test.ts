@@ -4,8 +4,8 @@ import {
   isIndexableSourcePath,
   querySymbolIndex,
   symbolIndexStatus,
-} from "../src/prWorkspace/symbolIndex.js";
-import { formatSymbolIndexStatusLine } from "../src/prompts/orchestrator/context.js";
+} from "../src/prWorkspace/symbolIndex.ts";
+import { formatSymbolIndexStatusLine } from "../src/prompts/orchestrator/context.ts";
 
 describe("symbolIndex", () => {
   it("indexes TypeScript function definitions", async () => {

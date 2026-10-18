@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { recordMarshalledEvidence } from "../src/agent/execution/marshal.js";
+import { recordMarshalledEvidence } from "../src/agent/execution/marshal.ts";
 import {
   createEvidenceLedger,
   hashNormalizedLineText,
   normalizeEvidencePath,
   unreadChangedFilesNote,
   unreadChangedPaths,
-} from "../src/review/findings/evidenceLedger.js";
+} from "../src/review/findings/evidenceLedger.ts";
 
 describe("evidenceLedger", () => {
   const headSha = "a".repeat(40);

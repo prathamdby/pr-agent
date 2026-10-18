@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
-import { redactReviewText } from "./reviewPublicOutput.js";
+import { redactReviewText } from "./reviewPublicOutput.ts";
 
 export const evidenceDescriptorSchema = v.pipe(
   v.strictObject({

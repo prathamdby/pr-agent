@@ -1,19 +1,19 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { TriageScope } from "../../agentWork/types.js";
-import { type Config, MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import { triageSystemPrompt, buildTriageUserContent } from "../../prompts/triage/prompt.js";
+import type { TriageScope } from "../../agentWork/types.ts";
+import { type Config, MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
+import { triageSystemPrompt, buildTriageUserContent } from "../../prompts/triage/prompt.ts";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
   type TriageWorkspaceToolState,
-} from "./triageWorkspaceTools.js";
+} from "./triageWorkspaceTools.ts";
 import {
   buildSubmitTriageTool,
   createSubmitTriageState,
   type SubmitTriageState,
-} from "./submitTriageTool.js";
+} from "./submitTriageTool.ts";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;

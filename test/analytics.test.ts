@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import type { AiCapture } from "../src/analytics/posthogSink.js";
-import { createSessionTrace } from "../src/agent/runtime/sessionTrace.js";
-import { toToolParameters } from "../src/agent/tools/toolParams.js";
+import type { AiCapture } from "../src/analytics/posthogSink.ts";
+import { createSessionTrace } from "../src/agent/runtime/sessionTrace.ts";
+import { toToolParameters } from "../src/agent/tools/toolParams.ts";
 import {
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   type PiSessionCreateParams,
-} from "../src/agent/runtime/types.js";
-import * as evlog from "../src/evlog.js";
-import type { Config } from "../src/settings/index.js";
+} from "../src/agent/runtime/types.ts";
+import * as evlog from "../src/evlog.ts";
+import type { Config } from "../src/settings/index.ts";
 import {
   initTraces,
   openTraceSession,
@@ -19,8 +19,8 @@ import {
   startWorkTrace,
   TRACE_EVENT_BYTES,
   type TraceWork,
-} from "../src/traces/recorder.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/traces/recorder.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 type PostHogOptions = {
   readonly host?: string;
@@ -72,7 +72,7 @@ describe("analytics facade", () => {
   });
 
   it("does not load posthog-node when token is empty", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "", host: "" });
     analytics.captureEvent({
@@ -95,11 +95,11 @@ describe("analytics facade", () => {
   ])(
     "keeps send identity on the lifecycle trail and off ordinary PostHog (PostHog=$posthog, audit=$audit)",
     async ({ posthog, audit }) => {
-      const analytics = await import("../src/analytics/index.js");
+      const analytics = await import("../src/analytics/index.ts");
       const { createFeaturePiSession } =
-        await import("../src/agent/runtime/createFeatureSession.js");
-      const { createFakePiSession } = await import("../src/agent/runtime/fakePiSession.js");
-      const { makeTestConfig } = await import("./helpers/config.js");
+        await import("../src/agent/runtime/createFeatureSession.ts");
+      const { createFakePiSession } = await import("../src/agent/runtime/fakePiSession.ts");
+      const { makeTestConfig } = await import("./helpers/config.ts");
       const { Pool } = await import("pg");
       const pool = new Pool();
       const writes = vi.spyOn(pool, "query").mockImplementation(async () => ({
@@ -114,7 +114,7 @@ describe("analytics facade", () => {
       const capture = mockPostHog.instances[0]?.capture;
       capture?.mockImplementation(() => captureTimes.push(Date.now()));
       const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
-      const events: import("../src/agent/runtime/types.js").AgentLifecycleEvent[] = [];
+      const events: import("../src/agent/runtime/types.ts").AgentLifecycleEvent[] = [];
       const session = await createFeaturePiSession({
         role: "specialist",
         specialistId: "security",
@@ -180,7 +180,7 @@ describe("analytics facade", () => {
   );
 
   it("lazy-loads PostHog with autocapture and sanitizer when token is set", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({
       projectToken: "phc_test_token",
@@ -206,7 +206,7 @@ describe("analytics facade", () => {
   });
 
   it("forwards captureEvent and captureException to the PostHog client", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     const err = new Error("fail");
@@ -233,7 +233,7 @@ describe("analytics facade", () => {
   });
 
   it("sanitizes distinct ids before forwarding events and exceptions", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     const token = ["ghp", "1234567890123456789012345678901234"].join("_");
@@ -256,7 +256,7 @@ describe("analytics facade", () => {
   });
 
   it("shuts down the client and no-ops shutdown when disabled", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     await analytics.shutdownAnalytics();
@@ -266,18 +266,18 @@ describe("analytics facade", () => {
     vi.resetModules();
     mockPostHog.instances.length = 0;
     mockPostHog.PostHog.mockClear();
-    const disabled = await import("../src/analytics/index.js");
+    const disabled = await import("../src/analytics/index.ts");
     await disabled.initAnalytics({ projectToken: "  ", host: "" });
     await expect(disabled.shutdownAnalytics()).resolves.toBeUndefined();
     expect(mockPostHog.PostHog).not.toHaveBeenCalled();
   });
 
   it("forwards logError to captureException when analytics is enabled", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "token", host: "" });
 
-    const { AppError } = await import("../src/errors/appError.js");
-    const { logError } = await import("../src/evlog.js");
+    const { AppError } = await import("../src/errors/appError.ts");
+    const { logError } = await import("../src/evlog.ts");
     const err = new AppError({
       domain: "review",
       kind: "specialist_failed",
@@ -310,11 +310,11 @@ describe("analytics facade", () => {
   });
 
   it("sanitizes AppError telemetry before both analytics forwarding paths", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "token", host: "" });
 
-    const { AppError, errorLogFields } = await import("../src/errors/appError.js");
-    const { logError } = await import("../src/evlog.js");
+    const { AppError, errorLogFields } = await import("../src/errors/appError.ts");
+    const { logError } = await import("../src/evlog.ts");
     const token = ["ghp", "1234567890123456789012345678901234"].join("_");
     const error = new AppError({
       domain: "review",
@@ -350,19 +350,19 @@ describe("analytics facade", () => {
   });
 
   it("does not forward logError when analytics is disabled", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "", host: "" });
 
-    const { logError } = await import("../src/evlog.js");
+    const { logError } = await import("../src/evlog.ts");
     logError("agent_work_failed", { message: "boom", installationId: 1 });
 
     expect(mockPostHog.PostHog).not.toHaveBeenCalled();
   });
 
   it("resolves logError distinct ids from analyticsDistinctId and string installationId", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "token", host: "" });
-    const { logError } = await import("../src/evlog.js");
+    const { logError } = await import("../src/evlog.ts");
 
     logError("agent_work_failed", { analyticsDistinctId: "custom-id", message: "a" });
     logError("agent_work_failed", { installationId: "gh-123", message: "b" });
@@ -375,9 +375,9 @@ describe("analytics facade", () => {
   });
 
   it("builds captureException errors from non-Error args and meta fallbacks", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "token", host: "" });
-    const { logError } = await import("../src/evlog.js");
+    const { logError } = await import("../src/evlog.ts");
 
     logError("agent_work_failed", { installationId: 1 }, "raw string");
     logError("agent_work_failed", { installationId: 1, message: "fallback" });
@@ -390,9 +390,9 @@ describe("analytics facade", () => {
   });
 
   it("strips analyticsDistinctId, error, and err from forwarded properties", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
     await analytics.initAnalytics({ projectToken: "token", host: "" });
-    const { logError } = await import("../src/evlog.js");
+    const { logError } = await import("../src/evlog.ts");
 
     logError(
       "ev",
@@ -414,7 +414,7 @@ describe("analytics facade", () => {
     mockPostHog.PostHog.mockImplementationOnce(function () {
       throw new Error("sdk missing");
     });
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await expect(analytics.initAnalytics({ projectToken: "token", host: "" })).rejects.toThrow(
       /sdk missing/,
@@ -426,7 +426,7 @@ describe("analytics facade", () => {
   });
 
   it("commits a replacement sink only after construction succeeds", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({
       projectToken: "token-1",
@@ -453,7 +453,7 @@ describe("analytics facade", () => {
   });
 
   it("restores no-op and disables after a failed reinitialization", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     const previous = mockPostHog.instances[0];
@@ -480,7 +480,7 @@ describe("analytics facade", () => {
   });
 
   it("disables and drops the previous sink when reinitialized with an empty token", async () => {
-    const analytics = await import("../src/analytics/index.js");
+    const analytics = await import("../src/analytics/index.ts");
 
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     const previous = mockPostHog.instances[0];
@@ -498,7 +498,7 @@ describe("analytics facade", () => {
   it("does not register process signal listeners", async () => {
     const processOn = vi.spyOn(process, "on");
 
-    await import("../src/analytics/index.js");
+    await import("../src/analytics/index.ts");
 
     expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
     expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
@@ -506,7 +506,7 @@ describe("analytics facade", () => {
 
   it("initNoOpAnalytics keeps capture paths no-op without constructing PostHog", async () => {
     const { captureEvent, initNoOpAnalytics, isAnalyticsEnabled } =
-      await import("../src/analytics/index.js");
+      await import("../src/analytics/index.ts");
     initNoOpAnalytics();
     captureEvent({ distinctId: "server", event: "webhook received" });
     captureEvent({
@@ -519,12 +519,12 @@ describe("analytics facade", () => {
   });
 
   it("shutdownAnalytics resolves when no client was initialised", async () => {
-    const { shutdownAnalytics } = await import("../src/analytics/index.js");
+    const { shutdownAnalytics } = await import("../src/analytics/index.ts");
     await expect(shutdownAnalytics()).resolves.toBeUndefined();
   });
 
   it("before_send leaves events without error fields unchanged", async () => {
-    const { initAnalytics } = await import("../src/analytics/index.js");
+    const { initAnalytics } = await import("../src/analytics/index.ts");
     await initAnalytics({ projectToken: "token", host: "" });
 
     const beforeSend = mockPostHog.instances[0]?.options.before_send;
@@ -533,7 +533,7 @@ describe("analytics facade", () => {
   });
 
   it("sends AI traces through a client that does not sanitize tool bodies", async () => {
-    const { createPostHogAiCapture } = await import("../src/analytics/posthogSink.js");
+    const { createPostHogAiCapture } = await import("../src/analytics/posthogSink.ts");
     const capture = createPostHogAiCapture({ projectToken: "phc_ai", host: "" });
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("phc_ai", {
       flushInterval: 0,

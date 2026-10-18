@@ -1,36 +1,36 @@
-import { decodeCheckRef } from "../github/prSurfaceResults.js";
+import { decodeCheckRef } from "../github/prSurfaceResults.ts";
 import type { Pool, PoolClient } from "pg";
-import { logWarn } from "../evlog.js";
-import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
-import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
-import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
-import type { PrSurface } from "../github/prSurface.js";
-import type { InstallationOperation } from "../github/installationCapabilities.js";
-import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
+import { logWarn } from "../evlog.ts";
+import { isMissingActionsPermissionError } from "../github/actionsLogs.ts";
+import { isDuplicateCheckRunCreationError } from "../github/githubErrors.ts";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.ts";
+import type { PrSurface } from "../github/prSurface.ts";
+import type { InstallationOperation } from "../github/installationCapabilities.ts";
+import type { ReviewCheckRunConclusion } from "../github/reviewPublish.ts";
 import {
   checkRunFindingsSummary,
   FINDING_INVENTORY_UNAVAILABLE_NOTE,
-} from "../review/statusCopy.js";
+} from "../review/statusCopy.ts";
 import type {
   FindingCheck,
   FindingCheckConclusion,
-} from "../review/findingIdentity/findingLifecycle.js";
-import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.js";
+} from "../review/findingIdentity/findingLifecycle.ts";
+import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.ts";
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
   REVIEW_CHECK_RUN_WAIT_POLL_MS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   getReviewCheckRunGithubId,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
   getSummaryCommentGithubId,
-} from "./publishRecordRepository.js";
-import { getWorkItemCore } from "./workItemStateRepository.js";
+} from "./publishRecordRepository.ts";
+import { getWorkItemCore } from "./workItemStateRepository.ts";
 import {
   claimOwnVerdict,
   getDelegatedOwnVerdictFinish,
@@ -43,19 +43,19 @@ import {
   hasUnresolvedDelegatedOwnStatus,
   recordOwnVerdictSurfaceState,
   type SelectedOwnVerdict,
-} from "./publishRecordRepository.js";
+} from "./publishRecordRepository.ts";
 import {
   createPublishContext,
   reviewCheckOperationKey,
   throwIfExecutionAborted,
   publishOnce,
   reviewCommitStatusOperationKey,
-} from "./publishOnce.js";
-import type { WorkStatus } from "./types.js";
-import { errorMessage } from "../errors/errorMessage.js";
-import { getOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
-import { isRecord } from "../util/typeGuards.js";
-import { fenceForEpoch } from "./writeFence.js";
+} from "./publishOnce.ts";
+import type { WorkStatus } from "./types.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
+import { getOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.ts";
+import { isRecord } from "../util/typeGuards.ts";
+import { fenceForEpoch } from "./writeFence.ts";
 
 function hasAccess(surface: PrSurface, operation: InstallationOperation): boolean {
   return surface.capabilities == null || surface.capabilities.access(operation) === "available";

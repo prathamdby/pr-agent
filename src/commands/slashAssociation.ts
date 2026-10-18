@@ -1,4 +1,4 @@
-import { REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS } from "../settings/index.js";
+import { REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS } from "../settings/index.ts";
 
 export type ReviewAuthorTrust = "trusted" | "awaiting_approval";
 

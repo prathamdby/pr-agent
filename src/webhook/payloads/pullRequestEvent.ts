@@ -5,7 +5,7 @@ import {
   githubShaSchema,
   installationSchema,
   repositorySchema,
-} from "./common.js";
+} from "./common.ts";
 
 const lifecycleTimestampSchema = v.pipe(
   v.string(),

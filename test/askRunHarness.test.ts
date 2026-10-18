@@ -1,18 +1,18 @@
-import { ASK_RETRY_NUDGE, ASK_SHORTEN_NUDGE } from "../src/prompts/ask/prompt.js";
+import { ASK_RETRY_NUDGE, ASK_SHORTEN_NUDGE } from "../src/prompts/ask/prompt.ts";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ASK_FAILURE_MESSAGE, ASK_TRUNCATED_NOTICE } from "../src/settings/index.js";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { ASK_FAILURE_MESSAGE, ASK_TRUNCATED_NOTICE } from "../src/settings/index.ts";
+import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 
-vi.mock("../src/agent/tools/context7Tools.js", () => ({
+vi.mock("../src/agent/tools/context7Tools.ts", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
 const sendMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
 
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
   createFeaturePiSession: vi.fn(async () => ({
     role: "ask",
     send: sendMock,
@@ -21,9 +21,9 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
   })),
 }));
 
-import { runAskRun } from "../src/agent/ask/askRun.js";
-import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { runAskRun } from "../src/agent/ask/askRun.ts";
+import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 const cfg = makeTestConfig({
   concurrency: { review: 1, ask: 3 },

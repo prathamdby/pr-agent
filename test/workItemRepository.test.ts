@@ -7,7 +7,7 @@ import {
   createTriageWorkItem,
   createVerificationWorkItem,
   fetchActiveVerificationWorkItem,
-} from "../src/agentWork/intake/workItemRepository.js";
+} from "../src/agentWork/intake/workItemRepository.ts";
 
 const ref = {
   owner: "o",

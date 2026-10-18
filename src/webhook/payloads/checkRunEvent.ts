@@ -1,11 +1,11 @@
 import * as v from "valibot";
-import { ciHeadPullRequestSchema } from "./ciHeadSource.js";
+import { ciHeadPullRequestSchema } from "./ciHeadSource.ts";
 import {
   githubSafeIdSchema,
   githubShaSchema,
   installationSchema,
   repositorySchema,
-} from "./common.js";
+} from "./common.ts";
 
 export const checkRunBodySchema = v.object({
   id: githubSafeIdSchema,

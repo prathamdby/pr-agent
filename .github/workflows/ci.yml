@@ -41,19 +41,18 @@ jobs:
               - "docs/**"
               - "migrations/**"
               - "package.json"
-              - "nub.lock"
-              - "nub.jsonc"
+              - "package-lock.json"
               - "scripts/**"
               - "src/**"
               - "test/**"
               - "tsconfig*.json"
               - "vitest*.config.ts"
             site:
+              - ".npmrc"
               - ".github/workflows/ci.yml"
               - ".node-version"
               - "package.json"
-              - "nub.lock"
-              - "nub.jsonc"
+              - "package-lock.json"
               - "scripts/check-site-design.mjs"
               - "scripts/baselines/site-design-baseline.json"
               - "site/**"
@@ -86,17 +85,17 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: nubjs/setup-nub@v0
+      - uses: actions/setup-node@v4
         with:
-          cache: true
+          cache: npm
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent... --filter pr-agent-landing...
-      - run: nub run check:effect-versions
-      - run: nub run check:prod-deps
-      - run: nub run check:code
-      - run: nub run check:guards
-      - run: nub run test
-      - run: nub run build
+      - run: npm ci
+      - run: npm run check:effect-versions
+      - run: npm run check:prod-deps
+      - run: npm run check:code
+      - run: npm run check:guards
+      - run: npm run test
+      - run: npm run build
 
   commit-messages:
     if: github.event_name == 'pull_request'
@@ -138,12 +137,12 @@ jobs:
       DATABASE_URL: postgres://pr_agent:pr_agent@localhost:5432/pr_agent
     steps:
       - uses: actions/checkout@v4
-      - uses: nubjs/setup-nub@v0
+      - uses: actions/setup-node@v4
         with:
-          cache: true
+          cache: npm
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent...
-      - run: nub run test:integration
+      - run: npm ci --workspaces=false
+      - run: npm run test:integration
 
   docker:
     needs: changes
@@ -167,12 +166,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: nubjs/setup-nub@v0
+      - uses: actions/setup-node@v4
         with:
-          cache: true
+          cache: npm
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent... --filter pr-agent-landing...
-      - run: nub run lint
-      - run: nub run fmt:check
-      - run: nub run check:site-design
-      - run: nub run --node site:build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run fmt:check
+      - run: npm run check:site-design
+      - run: npm run site:build

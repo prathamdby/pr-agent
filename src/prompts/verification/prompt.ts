@@ -1,14 +1,14 @@
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { communicationGuidance } from "../shared/communication.js";
-import { formatFindingThreadInventoryLines } from "../shared/context.js";
-import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.js";
-import { rejectedFindingSubmissionGuidance } from "../shared/repair.js";
-import { maintainerDecisionEvidenceGuidance } from "../shared/safety.js";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import { communicationGuidance } from "../shared/communication.ts";
+import { formatFindingThreadInventoryLines } from "../shared/context.ts";
+import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.ts";
+import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
+import { maintainerDecisionEvidenceGuidance } from "../shared/safety.ts";
 import {
   GUEST_CAPABILITY_SPECS,
   type GuestCapabilitySpec,
-} from "../../agent/codemode/guestCatalogue.js";
-import { renderCodeModeHarness } from "../shared/tools.js";
+} from "../../agent/codemode/guestCatalogue.ts";
+import { renderCodeModeHarness } from "../shared/tools.ts";
 
 const VERIFICATION_GUEST_NAMES: ReadonlySet<string> = new Set([
   "readWorkspaceFile",

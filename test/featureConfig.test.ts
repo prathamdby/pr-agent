@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
 
 const BASE_ENV = {
   GITHUB_APP_ID: "1",
@@ -13,7 +13,7 @@ async function load(extra: Record<string, string>) {
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
   };
-  const { loadConfig } = await import("../src/settings/index.js");
+  const { loadConfig } = await import("../src/settings/index.ts");
   return loadConfig();
 }
 

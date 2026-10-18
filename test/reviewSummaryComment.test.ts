@@ -1,15 +1,15 @@
 const publicationWrites = vi.hoisted(() => ({
   write: vi
-    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
     .mockResolvedValue(undefined),
 }));
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -18,9 +18,9 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   };
 });
 const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -30,7 +30,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -55,44 +55,44 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 import type { Pool, PoolClient } from "pg";
-import type { PrSurface } from "../src/github/prSurface.js";
+import type { PrSurface } from "../src/github/prSurface.ts";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { renderReviewFailureNotice } from "../src/review/run/progressComment.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
+import { renderReviewFailureNotice } from "../src/review/run/progressComment.ts";
+import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.ts";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   type PublishReviewTestHarness,
-} from "./helpers/publishReviewTestSetup.js";
+} from "./helpers/publishReviewTestSetup.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
   const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.js");
+    await import("./helpers/publishReviewTestSetup.ts");
   return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
     ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };
 });
 
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return { ...actual, logWarn: vi.fn() };
 });
 
-vi.mock("../src/agentWork/ciProjection.js", () => ({
+vi.mock("../src/agentWork/ciProjection.ts", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
@@ -103,20 +103,20 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
 import {
   attachSummaryCommentCoordination,
   createReviewSummaryComment,
-} from "../src/review/publish/reviewSummaryComment.js";
+} from "../src/review/publish/reviewSummaryComment.ts";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
-} from "../src/agentWork/publishRecordRepository.js";
-import { logWarn } from "../src/evlog.js";
-import { withSessionLock } from "../src/db/sessionLock.js";
+} from "../src/agentWork/publishRecordRepository.ts";
+import { logWarn } from "../src/evlog.ts";
+import { withSessionLock } from "../src/db/sessionLock.ts";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
-} from "../src/github/installationCapabilities.js";
+} from "../src/github/installationCapabilities.ts";
 
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
@@ -896,7 +896,7 @@ describe("createReviewSummaryComment", () => {
 
   it("shares half-pool admission between progress and own verdict without checkout on deferral", async () => {
     const { withOwnVerdictClose } = await vi.importActual<
-      typeof import("../src/agentWork/publishRecordRepository.js")
+      typeof import("../src/agentWork/publishRecordRepository.ts")
     >("../src/agentWork/publishRecordRepository.js");
     const { pool: lockedPool } = createLockedPool();
     lockedPool.options.max = 2;

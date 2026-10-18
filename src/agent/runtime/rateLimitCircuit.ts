@@ -1,15 +1,15 @@
 import type { Pool } from "pg";
-import { logInfo, logWarn } from "../../evlog.js";
+import { logInfo, logWarn } from "../../evlog.ts";
 import {
   createRateLimitCircuit,
   type RateLimitCircuit,
   type RateLimitFailureClass,
-} from "../../github/rateLimitCircuit.js";
+} from "../../github/rateLimitCircuit.ts";
 import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
-} from "../../github/sharedRateLimitCircuit.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../../github/sharedRateLimitCircuit.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export async function openRunRateLimitCircuit(params: {
   readonly pool: Pool | undefined;

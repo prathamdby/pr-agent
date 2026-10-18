@@ -5,20 +5,20 @@ import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
   DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
   MAX_TOOL_ROUNDS_DESCRIBE,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   renderDescriptionRepairPrompt,
-} from "../../prompts/description/prompt.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import { logInfo } from "../../evlog.js";
-import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
+} from "../../prompts/description/prompt.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import { logInfo } from "../../evlog.ts";
+import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 
-import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
+import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.ts";
+import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;

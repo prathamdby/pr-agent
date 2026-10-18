@@ -1,7 +1,7 @@
 import { PostHog } from "posthog-node";
-import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.js";
-import { ANALYTICS_SHUTDOWN_TIMEOUT_MS } from "../settings/index.js";
-import type { AnalyticsSink } from "./types.js";
+import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.ts";
+import { ANALYTICS_SHUTDOWN_TIMEOUT_MS } from "../settings/index.ts";
+import type { AnalyticsSink } from "./types.ts";
 
 export type AiCapture = {
   capture(input: {

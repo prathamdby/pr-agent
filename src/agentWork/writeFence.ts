@@ -1,5 +1,5 @@
-import type { PrSurfaceMutationBoundary } from "../github/prSurfaceTypes.js";
-import { WORK_QUEUES, type WorkType } from "./types.js";
+import type { PrSurfaceMutationBoundary } from "../github/prSurfaceTypes.ts";
+import { WORK_QUEUES, type WorkType } from "./types.ts";
 
 export const UNLEASED_WORK_TYPES = ["ask"] as const satisfies readonly WorkType[];
 

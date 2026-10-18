@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { runRetention } from "../src/agentWork/retention.js";
-import { RETENTION_DELETE_BATCH_SIZE } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { runRetention } from "../src/agentWork/retention.ts";
+import { RETENTION_DELETE_BATCH_SIZE } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const RETENTION = makeTestConfig({
   retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },

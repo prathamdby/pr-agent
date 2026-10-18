@@ -8,7 +8,7 @@ const dir = path.join(ROOT, "migrations");
 const slug = process.argv[2];
 if (!slug || !/^[a-z][a-z0-9_]*$/.test(slug)) {
   console.error(
-    "Usage: nub run gen:migration <snake_slug>  (lowercase letters, digits, underscores)",
+    "Usage: npm run gen:migration -- <snake_slug>  (lowercase letters, digits, underscores)",
   );
   process.exit(1);
 }

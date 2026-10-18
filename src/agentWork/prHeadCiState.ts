@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from "pg";
-import { AppError } from "../errors/appError.js";
+import { AppError } from "../errors/appError.ts";
 import * as v from "valibot";
-import { isRecord } from "../util/typeGuards.js";
+import { isRecord } from "../util/typeGuards.ts";
 import {
   applyCiCheckFact,
   ciCheckFactSchema,
@@ -14,12 +14,12 @@ import {
   type CiCheckRunSnapshot,
   type CiLegacyStatus,
   type CiSourceAvailability,
-} from "../review/ci/ciFacts.js";
+} from "../review/ci/ciFacts.ts";
 import {
   CI_STATE_MAX_CHECKS,
   DEFERRED_HEAD_SHA,
   RETENTION_DELETE_BATCH_SIZE,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
 export type PrHeadCiStateRow = {
   readonly owner: string;

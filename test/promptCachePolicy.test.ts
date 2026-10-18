@@ -4,9 +4,9 @@ import {
   SESSION_CACHE_ID_MAX_LENGTH,
   cacheIdentityFromAssignment,
   sessionCacheIdFromIdentity,
-} from "../src/agent/runtime/promptCachePolicy.js";
-import type { AgentSessionRole } from "../src/agent/runtime/types.js";
-import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.js";
+} from "../src/agent/runtime/promptCachePolicy.ts";
+import type { AgentSessionRole } from "../src/agent/runtime/types.ts";
+import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.ts";
 
 const ROLES: readonly AgentSessionRole[] = [
   "orchestrator",

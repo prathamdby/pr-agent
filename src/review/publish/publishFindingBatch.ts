@@ -4,34 +4,34 @@ import {
   type IdentifiedInlinePlacement,
   type InlinePlacement,
   reviewFindingPlacementKey,
-} from "../placement/reviewDiffPlacement.js";
-import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.js";
-import type { FindingInventory } from "../findingIdentity/findingInventory.js";
-import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.js";
-import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
+} from "../placement/reviewDiffPlacement.ts";
+import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.ts";
+import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
+import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.ts";
+import { publishInlineReviewComments } from "../placement/reviewInlinePublish.ts";
 import {
   renderInlineThreadBody,
   renderReviewPointerLensMarker,
   renderSpecialistReviewBody,
-} from "../run/reviewRender.js";
-import { AppError } from "../../errors/appError.js";
+} from "../run/reviewRender.ts";
+import { AppError } from "../../errors/appError.ts";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
   type PlacementIdentity,
-} from "../findings/findingPipeline.js";
-import { reviewFindingEntries, type ReviewFinding } from "../reviewSchema.js";
-import { reviewPayloadFromFindings } from "../reviewSchema.js";
-import type { RepoPolicyResult } from "../repoPolicy.js";
-import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
-import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
+} from "../findings/findingPipeline.ts";
+import { reviewFindingEntries, type ReviewFinding } from "../reviewSchema.ts";
+import { reviewPayloadFromFindings } from "../reviewSchema.ts";
+import type { RepoPolicyResult } from "../repoPolicy.ts";
+import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.ts";
+import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
 import {
   deterministicInlineBatchId,
   operationIntentMarker,
   reviewInlineBatchOperationKey,
   publishOnce,
-} from "../../agentWork/publishOnce.js";
-import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
+} from "../../agentWork/publishOnce.ts";
+import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.ts";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -39,17 +39,17 @@ import type {
   FindingSource,
   ReaffirmedFinding,
   SummaryOnlyReason,
-} from "../orchestrator/orchestratorTypes.js";
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
-import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.js";
-import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.js";
-import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
-import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.js";
-import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
-import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
+} from "../orchestrator/orchestratorTypes.ts";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
+import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
+import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.ts";
+import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
+import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
+import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.ts";
+import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
+import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 
 const publishedPlacementSchema = v.object({
   finding: v.object(reviewFindingEntries),

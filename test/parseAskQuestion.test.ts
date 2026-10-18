@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ASK_USAGE_HINT, MAX_ASK_QUESTION_CHARS } from "../src/settings/index.js";
+import { ASK_USAGE_HINT, MAX_ASK_QUESTION_CHARS } from "../src/settings/index.ts";
 import {
   ASK_QUESTION_TOO_LONG_HINT,
   parseAskQuestion,
   parseAskQuestionResult,
-} from "../src/commands/parseAskQuestion.js";
+} from "../src/commands/parseAskQuestion.ts";
 
 describe("parseAskQuestionResult", () => {
   it("extracts unquoted question from first line", () => {

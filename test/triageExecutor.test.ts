@@ -1,10 +1,10 @@
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -20,9 +20,9 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
       }),
   };
 });
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -32,7 +32,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -57,17 +57,17 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.ts";
 import type { PgBoss } from "pg-boss";
-import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.ts";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -77,17 +77,17 @@ import {
   TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_NOT_ELIGIBLE,
-} from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   resetDurablePrSurface,
   seedBotFindingThreads,
   seedReviewCommentGraph,
-} from "./helpers/executorDurableHarness.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-import * as prActorLease from "../src/agentWork/prActorLease.js";
+} from "./helpers/executorDurableHarness.ts";
+import * as prSurfaceModule from "../src/github/prSurface.ts";
+import * as prActorLease from "../src/agentWork/prActorLease.ts";
 
 const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
@@ -108,45 +108,45 @@ const mocks = vi.hoisted(() => ({
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/github/reviewThreadResolution.js", () => ({
+vi.mock("../src/github/reviewThreadResolution.ts", () => ({
   warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
-vi.mock("../src/prWorkspace/writablePrCheckout.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/writablePrCheckout.js")>();
+vi.mock("../src/prWorkspace/writablePrCheckout.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/writablePrCheckout.ts")>();
   return {
     ...actual,
     withWritablePrCheckout: mocks.withWritablePrCheckout,
   };
 });
 
-vi.mock("../src/agent/triage/triageRun.js", () => ({
+vi.mock("../src/agent/triage/triageRun.ts", () => ({
   runFullPrTriage: mocks.runFullPrTriage,
 }));
 
-vi.mock("../src/agent/triage/previewApproval.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/triage/previewApproval.js")>();
+vi.mock("../src/agent/triage/previewApproval.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/triage/previewApproval.ts")>();
   return { ...actual, replayPreviewHunks: mocks.replayPreviewHunks };
 });
 
-vi.mock("../src/agent/triage/publishTriage.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agent/triage/publishTriage.js")>()),
+vi.mock("../src/agent/triage/publishTriage.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agent/triage/publishTriage.ts")>()),
   parseStoredTriagePreviewDetail: mocks.parseStoredTriagePreviewDetail,
   publishTriage: mocks.publishTriage,
   publishTriagePreview: mocks.publishTriagePreview,
   publishTriageReportOnly: mocks.publishTriageReportOnly,
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.ts", () => ({
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
 }));
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return {
     ...actual,
     assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
@@ -154,9 +154,9 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
-import { makeTriageWorkItem } from "./helpers/agentWorkItems.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import { makeTriageWorkItem } from "./helpers/agentWorkItems.ts";
 
 let runExecution: (executionPool?: Pool) => Promise<unknown>;
 function configureExecution(
@@ -354,7 +354,7 @@ describe("triage work definition", () => {
 
   it("handles closure after commit and before push as degraded no-push triage", async () => {
     const { publishTriage: realPublishTriage } = await vi.importActual<
-      typeof import("../src/agent/triage/publishTriage.js")
+      typeof import("../src/agent/triage/publishTriage.ts")
     >("../src/agent/triage/publishTriage.js");
     mocks.publishTriage.mockImplementation(realPublishTriage);
     const committedSha = "c".repeat(40);
@@ -448,7 +448,7 @@ describe("triage work definition", () => {
 
   it("handles closure that lands while the push is in flight as degraded no-push triage", async () => {
     const { publishTriage: realPublishTriage } = await vi.importActual<
-      typeof import("../src/agent/triage/publishTriage.js")
+      typeof import("../src/agent/triage/publishTriage.ts")
     >("../src/agent/triage/publishTriage.js");
     mocks.publishTriage.mockImplementation(realPublishTriage);
     const committedSha = "c".repeat(40);
@@ -1496,10 +1496,10 @@ describe("triage work definition", () => {
   });
 });
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   shouldSkipWork: mocks.shouldSkipWork,
 }));
-vi.mock("../src/agentWork/prHeadCiState.js", () => ({
+vi.mock("../src/agentWork/prHeadCiState.ts", () => ({
   loadPrHeadCiState: vi.fn(async () => null),
 }));

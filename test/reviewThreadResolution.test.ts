@@ -5,13 +5,13 @@ const mocks = vi.hoisted(() => ({
   logWarn: vi.fn(),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(() => ({
     graphql: mocks.graphql,
   })),
 }));
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logWarn: mocks.logWarn,
   logInfo: vi.fn(),
   logError: vi.fn(),
@@ -22,8 +22,8 @@ import {
   listReviewThreadResolution,
   resolveReviewThread,
   warnReviewThreadResolutionDegraded,
-} from "../src/github/reviewThreadResolution.js";
-import { MAX_REVIEW_THREAD_PAGES } from "../src/settings/index.js";
+} from "../src/github/reviewThreadResolution.ts";
+import { MAX_REVIEW_THREAD_PAGES } from "../src/settings/index.ts";
 
 function page(params: {
   readonly hasNextPage?: boolean;

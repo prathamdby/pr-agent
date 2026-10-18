@@ -1,10 +1,10 @@
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -13,9 +13,9 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
       }),
   };
 });
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -25,7 +25,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -50,26 +50,26 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { askFailureReplyOperationKey, askReplyOperationKey } from "../src/agentWork/publishOnce.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { askFailureReplyOperationKey, askReplyOperationKey } from "../src/agentWork/publishOnce.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   mockWorkClaim,
   resetDurablePrSurface,
-} from "./helpers/executorDurableHarness.js";
-import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
+} from "./helpers/executorDurableHarness.ts";
+import { makeAskWorkItem } from "./helpers/agentWorkItems.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import * as prSurfaceModule from "../src/github/prSurface.ts";
 
 const mocks = vi.hoisted(() => ({
   completed: vi.fn(),
@@ -82,37 +82,37 @@ const mocks = vi.hoisted(() => ({
   createAskExecutionId: vi.fn(),
 }));
 
-vi.mock("../src/agent/ask/askRun.js", () => ({
+vi.mock("../src/agent/ask/askRun.ts", () => ({
   runAskRun: mocks.runAskRun,
 }));
 
-vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.ts", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/agent/ask/recoverAskReply.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/ask/recoverAskReply.js")>();
+vi.mock("../src/agent/ask/recoverAskReply.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/ask/recoverAskReply.ts")>();
   return {
     ...actual,
     findExistingAskReplyComment: mocks.findExistingAskReplyComment,
   };
 });
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/askQuota.js", () => ({
+vi.mock("../src/agentWork/askQuota.ts", () => ({
   recordAskProviderUsage: mocks.recordAskProviderUsage,
   createAskExecutionId: mocks.createAskExecutionId,
 }));
 
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
 
 let runExecution: () => Promise<unknown>;
 function configureExecution(

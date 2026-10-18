@@ -9,8 +9,8 @@ import {
   type Api,
 } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import type { PromptCacheRetention } from "./promptCachePolicy.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+import type { PromptCacheRetention } from "./promptCachePolicy.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 const EMPTY_USAGE: Usage = {
   input: 0,

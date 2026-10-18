@@ -3,9 +3,9 @@ import {
   isPullRequestOpenAndUnmerged,
   listPullRequestFilesPaginated,
   type PullRequestForFileList,
-} from "../src/github/listPullRequestFiles.js";
-import { installationOctokit } from "../src/github/appAuth.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+} from "../src/github/listPullRequestFiles.ts";
+import { installationOctokit } from "../src/github/appAuth.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 function makeOctokitStub(pullsListFiles: ReturnType<typeof vi.fn>) {
   return {

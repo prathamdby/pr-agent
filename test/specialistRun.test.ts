@@ -1,15 +1,15 @@
-import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.js";
-import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.js";
+import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.ts";
+import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.ts";
+import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
-import type { PiSession } from "../src/agent/runtime/types.js";
-import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.js";
-import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.js";
-import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.js";
-import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
+import type { AgentRunnerTurn } from "../src/agent/providers/interface.ts";
+import type { PiSession } from "../src/agent/runtime/types.ts";
+import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.ts";
+import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
+import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
+import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.ts";
 
 type AttemptBehavior =
   | { readonly kind: "report"; readonly report: Record<string, unknown> }
@@ -32,16 +32,16 @@ const runnerMocks = vi.hoisted(() => ({
   recordExecutionSpan: vi.fn(),
 }));
 
-vi.mock("../src/traces/recorder.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/traces/recorder.js")>()),
+vi.mock("../src/traces/recorder.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/traces/recorder.ts")>()),
   recordExecutionSpan: runnerMocks.recordExecutionSpan,
 }));
 
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
   createFeaturePiSession: runnerMocks.createSession,
 }));
 
-import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";
+import { runSpecialist } from "../src/review/orchestrator/specialistRun.ts";
 
 const finding = {
   severity: "P2",

@@ -3,30 +3,30 @@ import { spawnSync } from "node:child_process";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import {
   acquirePrActorLease,
   PR_ACTOR_LEASE_DEFER_SECONDS,
   renewPrActorLease,
-} from "../../src/agentWork/prActorLease.js";
-import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
-import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository.js";
+} from "../../src/agentWork/prActorLease.ts";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
+import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository.ts";
 import {
   listTerminalReviewsWithOpenOwnChecks,
   reconcileLostRunningWork,
-} from "../../src/agentWork/lostRunningWork.js";
-import * as workState from "../../src/agentWork/workItemStateRepository.js";
+} from "../../src/agentWork/lostRunningWork.ts";
+import * as workState from "../../src/agentWork/workItemStateRepository.ts";
 import {
   claimWorkForExecution,
   markWorkCompleted,
-} from "../../src/agentWork/workItemStateRepository.js";
-import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
-import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import * as evlog from "../../src/evlog.js";
-import * as installationToken from "../../src/github/installationToken.js";
-import * as prSurface from "../../src/github/prSurface.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
+import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import * as evlog from "../../src/evlog.ts";
+import * as installationToken from "../../src/github/installationToken.ts";
+import * as prSurface from "../../src/github/prSurface.ts";
 import {
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
@@ -43,10 +43,10 @@ import {
   STALE_QUEUED_WORK_GRACE_SECONDS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../../src/settings/index.js";
-import type { QueueConfig } from "../../src/agentWork/types.js";
-import { makeTestConfig } from "../helpers/config.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/settings/index.ts";
+import type { QueueConfig } from "../../src/agentWork/types.ts";
+import { makeTestConfig } from "../helpers/config.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "stale-queue-it";
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -1545,7 +1545,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     "finds pending own-verdict selections only when %s remains applicable",
     async (state) => {
       const { claimOwnVerdict, recordOwnVerdictSurfaceState } =
-        await import("../../src/agentWork/publishRecordRepository.js");
+        await import("../../src/agentWork/publishRecordRepository.ts");
       const { id, resourceKey } = await insertAgedQueuedWork();
       await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE id = $1", [id]);
       const identity = {
@@ -1581,7 +1581,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       if (state === "pending_status_without_check") {
         expect(row.rows).toEqual([]);
         const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
-          await import("../../src/github/installationCapabilities.js");
+          await import("../../src/github/installationCapabilities.ts");
         const available = availableInstallationCapabilities({
           appId: makeTestConfig().github.appId,
           installationId: 1,
@@ -1630,9 +1630,9 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           saveGithubCapabilityObservation,
           loadGithubCapabilityObservation,
           recordGithubCapabilityDenial,
-        } = await import("../../src/agentWork/githubCapabilityRepository.js");
+        } = await import("../../src/agentWork/githubCapabilityRepository.ts");
         const { availableInstallationCapabilities } =
-          await import("../../src/github/installationCapabilities.js");
+          await import("../../src/github/installationCapabilities.ts");
         const availability = availableInstallationCapabilities({
           appId: makeTestConfig().github.appId,
           installationId: 1,
@@ -1691,8 +1691,9 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           ).not.toContain(id);
           const restarts = Array.from({ length: 2 }, () =>
             spawnSync(
-              "nub",
+              process.execPath,
               [
+                "--input-type=module",
                 "-e",
                 `
             const { Pool } = await import("pg");

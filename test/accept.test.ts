@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { negotiateType, parseAccept } from "../site/lib/accept.js";
+import { negotiateType, parseAccept } from "../site/lib/accept.ts";
 import {
   DEFAULT_PROGRAMMING_LANGUAGE,
   PROGRAMMING_LANGUAGES,
   negotiateProgrammingLanguage,
-} from "../site/lib/acceptLanguage.js";
+} from "../site/lib/acceptLanguage.ts";
 
 const MD = "text/markdown";
 const HTML = "text/html";

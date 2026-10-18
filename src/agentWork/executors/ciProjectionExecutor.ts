@@ -1,6 +1,6 @@
-import { productionInstallationSurface } from "../installationSurface.js";
-import { unfencedSurface } from "../writeFence.js";
-import { createPublishContext } from "../publishOnce.js";
+import { productionInstallationSurface } from "../installationSurface.ts";
+import { unfencedSurface } from "../writeFence.ts";
+import { createPublishContext } from "../publishOnce.ts";
 import {
   type Config,
   REVIEW_SUMMARY_SENTINEL,
@@ -8,15 +8,15 @@ import {
   VERIFICATION_PUBLISH_LENS,
   isAnyReviewLens,
   LEGACY_REVIEW_SUMMARY_SENTINELS,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logDebug, logWarn } from "../../evlog.js";
-import { type PrConversationComment, type PrSurface } from "../../github/prSurface.js";
+import { logDebug, logWarn } from "../../evlog.ts";
+import { type PrConversationComment, type PrSurface } from "../../github/prSurface.ts";
 import {
   getSharedRateLimitCircuit,
   isSharedRateLimitCircuitOpen,
-} from "../../github/sharedRateLimitCircuit.js";
+} from "../../github/sharedRateLimitCircuit.ts";
 import {
   injectVerificationFailureIntoCiCell,
   renderVerificationFailureBlock,
@@ -27,17 +27,17 @@ import {
   renderCiSummaryCell,
   shouldRenderCiSummaryRow,
   formatReviewActionLineCiStatus,
-} from "../../review/ci/ciSummaryCell.js";
-import type { CiSummaryAuthor } from "../../review/ci/ciAuthor.js";
-import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFacts.js";
+} from "../../review/ci/ciSummaryCell.ts";
+import type { CiSummaryAuthor } from "../../review/ci/ciAuthor.ts";
+import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFacts.ts";
 import {
   parseReviewMetaFromCommentBody,
   parseProgressRevisionState,
-} from "../../review/run/commentMarkers.js";
-import { captureCiStateChanged } from "../../analytics/workCompleted.js";
-import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
-import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.js";
-import { requestHeadCiProjection } from "../ciProjection.js";
+} from "../../review/run/commentMarkers.ts";
+import { captureCiStateChanged } from "../../analytics/workCompleted.ts";
+import { authorHeadCiIfFactsChanged } from "../ciAuthoring.ts";
+import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.ts";
+import { requestHeadCiProjection } from "../ciProjection.ts";
 import {
   asPrNumbers,
   clearProjectionRepairPending,
@@ -50,12 +50,12 @@ import {
   seedPrHeadCiStateFromSnapshot,
   storePrNumbersForHead,
   type PrHeadCiStateRow,
-} from "../prHeadCiState.js";
+} from "../prHeadCiState.ts";
 
-import { getProgressCommentOwner } from "../publishRecordRepository.js";
-import { getWorkItemCore } from "../workItemStateRepository.js";
-import { prResourceKey, type CiProjectionJobData } from "../types.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+import { getProgressCommentOwner } from "../publishRecordRepository.ts";
+import { getWorkItemCore } from "../workItemStateRepository.ts";
+import { prResourceKey, type CiProjectionJobData } from "../types.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 import {
   loadGithubCapabilityObservation,
   loadGithubCiSourceAvailability,
@@ -64,14 +64,14 @@ import {
   saveGithubCapabilityObservation,
   nextGithubCapabilityObservationGeneration,
   type GithubCiSourceAvailability,
-} from "../githubCapabilityRepository.js";
+} from "../githubCapabilityRepository.ts";
 import {
   capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
-} from "../../github/installationCapabilities.js";
-import type { CiStatusSourcesResult } from "../../github/ciStatus.js";
-import { ciSourcesComplete } from "../../review/ci/ciFacts.js";
+} from "../../github/installationCapabilities.ts";
+import type { CiStatusSourcesResult } from "../../github/ciStatus.ts";
+import { ciSourcesComplete } from "../../review/ci/ciFacts.ts";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 

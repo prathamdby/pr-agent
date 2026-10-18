@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
-import * as evlog from "../src/evlog.js";
-import * as appAuth from "../src/github/appAuth.js";
-import * as githubPayload from "../src/webhook/parseGithubPayload.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.ts";
+import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.ts";
+import * as evlog from "../src/evlog.ts";
+import * as appAuth from "../src/github/appAuth.ts";
+import * as githubPayload from "../src/webhook/parseGithubPayload.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const cfg = makeTestConfig({ webhook: { secret: "secret" } });
 function request(event: string, body: Buffer, signature = true) {

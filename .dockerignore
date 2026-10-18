@@ -6,7 +6,7 @@
 !.env.example
 
 # Backend image needs site/package.json so the workspace lockfile stays valid
-# under frozen Nub installs; exclude the rest of the landing package.
+# under frozen installs; exclude the rest of the landing package.
 site/**
 !site/package.json
 docs
@@ -23,3 +23,5 @@ coverage
 .idea
 *.log
 npm-debug.log*
+.audit
+verify-artifacts

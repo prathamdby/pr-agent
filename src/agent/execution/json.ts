@@ -1,4 +1,4 @@
-import { isRecord } from "../../util/typeGuards.js";
+import { isRecord } from "../../util/typeGuards.ts";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;

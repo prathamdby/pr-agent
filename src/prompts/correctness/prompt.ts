@@ -1,13 +1,13 @@
 import {
   reviewPayloadPerFindingContracts,
   specialistFindingsReportContract,
-} from "../shared/output.js";
+} from "../shared/output.ts";
 import {
   causalPublicationContract,
   highStakesTrivialTrapGuidance,
   readOnlyReviewGuidance,
   outOfScopeFilesGuidance,
-} from "../shared/behavior.js";
+} from "../shared/behavior.ts";
 import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
@@ -15,9 +15,9 @@ import {
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
   context7OutboundDataGuidance,
-} from "../shared/safety.js";
-import { specialistInvestigationHarness } from "../shared/tools.js";
-import { communicationGuidance } from "../shared/communication.js";
+} from "../shared/safety.ts";
+import { specialistInvestigationHarness } from "../shared/tools.ts";
+import { communicationGuidance } from "../shared/communication.ts";
 
 export const compactInvestigationMethod: readonly string[] = [
   "## Investigation method",

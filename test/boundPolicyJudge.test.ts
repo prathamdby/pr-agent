@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.js";
+import { reviewFindingPlacementKey } from "../src/review/placement/reviewDiffPlacement.ts";
 import {
   attachJudgedBoundPaths,
   citedSnippetForFinding,
@@ -7,14 +7,14 @@ import {
   parseBoundPolicyYesIds,
   resolveBoundPolicyFooters,
   type BoundPolicyJudgePair,
-} from "../src/review/publish/boundPolicyJudge.js";
+} from "../src/review/publish/boundPolicyJudge.ts";
 import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
-} from "../src/prompts/judge/prompt.js";
-import { candidatePolicyPairs, type RepoPolicyRule } from "../src/review/repoPolicy.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.js";
+} from "../src/prompts/judge/prompt.ts";
+import { candidatePolicyPairs, type RepoPolicyRule } from "../src/review/repoPolicy.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 const alwaysApply: RepoPolicyRule = {
   filename: "always.mdc",

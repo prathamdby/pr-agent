@@ -1,9 +1,9 @@
-import { logWarn } from "../evlog.js";
-import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.js";
-import { isRecord } from "../util/typeGuards.js";
-import { installationOctokit } from "./appAuth.js";
-import { classifyGithubError } from "./githubErrors.js";
-import { AppError } from "../errors/appError.js";
+import { logWarn } from "../evlog.ts";
+import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.ts";
+import { isRecord } from "../util/typeGuards.ts";
+import { installationOctokit } from "./appAuth.ts";
+import { classifyGithubError } from "./githubErrors.ts";
+import { AppError } from "../errors/appError.ts";
 
 export type ReviewThreadResolution = {
   readonly threadNodeId: string;

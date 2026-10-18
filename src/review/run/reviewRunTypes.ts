@@ -1,16 +1,16 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { PgBoss } from "pg-boss";
-import type { Config, AnyReviewLens } from "../../settings/index.js";
-import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { WorkSource } from "../reviewSchema.js";
-import type { FindingCheck } from "../findingIdentity/findingLifecycle.js";
-import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
-import type { RecordPublishStepWithCoordination } from "../publish/reviewSummaryComment.js";
-import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.js";
-import type { RepoPolicyResult } from "../repoPolicy.js";
-import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
+import type { Config, AnyReviewLens } from "../../settings/index.ts";
+import type { ClassifiedFailure } from "../../errors/classifiedFailure.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { WorkSource } from "../reviewSchema.ts";
+import type { FindingCheck } from "../findingIdentity/findingLifecycle.ts";
+import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.ts";
+import type { RecordPublishStepWithCoordination } from "../publish/reviewSummaryComment.ts";
+import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.ts";
+import type { RepoPolicyResult } from "../repoPolicy.ts";
+import type { ReviewRecovery } from "../recovery/reviewRecovery.ts";
 
 export type ReviewRunParams = {
   readonly recovery?: ReviewRecovery;

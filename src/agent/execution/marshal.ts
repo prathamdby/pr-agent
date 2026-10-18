@@ -3,15 +3,15 @@ import {
   CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH,
   CODE_MODE_SERIALIZE_MAX_DEPTH,
   CODE_MODE_SERIALIZE_MAX_STRING_BYTES,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   hashNormalizedLineText,
   recordDeliveredFileRead,
   type EvidenceLedger,
-} from "../../review/findings/evidenceLedger.js";
-import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
-import { utf8ByteLength } from "./json.js";
-import { isRecord } from "../../util/typeGuards.js";
+} from "../../review/findings/evidenceLedger.ts";
+import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.ts";
+import { utf8ByteLength } from "./json.ts";
+import { isRecord } from "../../util/typeGuards.ts";
 
 export type TruncationInfo = {
   readonly truncated: true;

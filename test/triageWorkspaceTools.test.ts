@@ -1,4 +1,4 @@
-import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildTriageWorkspaceTools,
   createTriageWorkspaceToolState,
-} from "../src/agent/triage/triageWorkspaceTools.js";
-import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { MAX_TRIAGE_FIXES_PER_RUN } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/agent/triage/triageWorkspaceTools.ts";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
+import { MAX_TRIAGE_FIXES_PER_RUN } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const exec = promisify(execFile);
 

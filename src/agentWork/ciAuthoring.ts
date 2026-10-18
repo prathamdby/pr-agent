@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
-import type { Config } from "../settings/index.js";
-import type { PrSurface } from "../github/prSurface.js";
+import type { Config } from "../settings/index.ts";
+import type { PrSurface } from "../github/prSurface.ts";
 import {
   createAgentCiSummaryAuthor,
   factsOnlyFailingSummary,
@@ -8,9 +8,9 @@ import {
   type CiSummaryAuthor,
   ciAuthorInputFromFacts,
   fetchCiAuthorContext,
-} from "../review/ci/ciAuthor.js";
-import { hashCiFacts, parseCiAuthoredCache, type CiAuthoredCache } from "../review/ci/ciFacts.js";
-import { storePrHeadCiAuthored, type PrHeadCiStateRow } from "./prHeadCiState.js";
+} from "../review/ci/ciAuthor.ts";
+import { hashCiFacts, parseCiAuthoredCache, type CiAuthoredCache } from "../review/ci/ciFacts.ts";
+import { storePrHeadCiAuthored, type PrHeadCiStateRow } from "./prHeadCiState.ts";
 
 export async function authorHeadCiIfFactsChanged(params: {
   readonly cfg: Config;

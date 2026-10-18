@@ -1,6 +1,6 @@
-import type { PrSurface } from "../../github/prSurfaceTypes.js";
-import type { ReviewThreadSnapshotComment } from "../../github/reviewThreadResolution.js";
-import { isBotAuthor, parseOwnedReceipts, renderReceipt, type FindingId } from "./findingMarker.js";
+import type { PrSurface } from "../../github/prSurfaceTypes.ts";
+import type { ReviewThreadSnapshotComment } from "../../github/reviewThreadResolution.ts";
+import { isBotAuthor, parseOwnedReceipts, renderReceipt, type FindingId } from "./findingMarker.ts";
 
 export type ResolutionReceiptKind = "fixed" | "dismissed";
 

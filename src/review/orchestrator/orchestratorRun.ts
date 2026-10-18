@@ -1,25 +1,25 @@
-import { slimAcceptedFindings } from "./slimAcceptedFindings.js";
+import { slimAcceptedFindings } from "./slimAcceptedFindings.ts";
 import { readFile } from "node:fs/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
-import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
-import type { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.ts";
+import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.ts";
+import type { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
+import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.ts";
 import {
   isCancelAbortError,
   isProviderRefusalError,
-} from "../../agent/providers/providerErrors.js";
+} from "../../agent/providers/providerErrors.ts";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
-} from "../../agent/runtime/agentEventSink.js";
-import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
-import { assistantFromText, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { prResourceKey } from "../../agentWork/types.js";
-import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
-import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
-import { logInfo, logWarn } from "../../evlog.js";
+} from "../../agent/runtime/agentEventSink.ts";
+import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.ts";
+import { assistantFromText, runValidationRepairLoop } from "../../agent/runtime/featureAgent.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
+import { prResourceKey } from "../../agentWork/types.ts";
+import { AppError, errorLogFields, toAppError } from "../../errors/appError.ts";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
+import { logInfo, logWarn } from "../../evlog.ts";
 import {
   MAX_TOOL_ROUNDS,
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
@@ -27,13 +27,13 @@ import {
   REVIEW_SUMMARY_SENTINEL,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
-} from "../../settings/index.js";
-import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
-import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
-import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
-import { createReviewPublishSession } from "../publish/reviewPublishSession.js";
-import { reviewPayloadFromFindings } from "../reviewSchema.js";
-import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
+} from "../../settings/index.ts";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.ts";
+import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.ts";
+import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.ts";
+import { createReviewPublishSession } from "../publish/reviewPublishSession.ts";
+import { reviewPayloadFromFindings } from "../reviewSchema.ts";
+import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.ts";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -41,10 +41,10 @@ import {
   recordClassifiedFailure,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-} from "../run/reviewRunMetrics.js";
-import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
-import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
-import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.js";
+} from "../run/reviewRunMetrics.ts";
+import { buildReviewRunSetup } from "../run/reviewRunSetup.ts";
+import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.ts";
+import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.ts";
 import {
   renderBriefMessage,
   orchestratorSystemPrompt,
@@ -57,8 +57,8 @@ import {
   renderOrchestratorReconTurn,
   renderOrchestratorBriefRepair,
   renderOrchestratorSummaryRepair,
-} from "../../prompts/orchestrator/prompt.js";
-import { pumpSpecialistCompletions } from "./completionPump.js";
+} from "../../prompts/orchestrator/prompt.ts";
+import { pumpSpecialistCompletions } from "./completionPump.ts";
 import {
   createFindingLedger,
   ledgerFindings,
@@ -72,32 +72,32 @@ import {
   type ReviewRunTiming,
   type SpecialistId,
   type SpecialistOutcome,
-} from "./orchestratorTypes.js";
-import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
-import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
-import { buildPublishThreadTool } from "./publishThreadTool.js";
-import { buildDeclareDuplicateTool } from "./declareDuplicateTool.js";
-import { judgmentInventory } from "./judgmentInventory.js";
+} from "./orchestratorTypes.ts";
+import { createOrchestratorPhaseRef } from "./phaseToolPolicy.ts";
+import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.ts";
+import { buildPublishThreadTool } from "./publishThreadTool.ts";
+import { buildDeclareDuplicateTool } from "./declareDuplicateTool.ts";
+import { judgmentInventory } from "./judgmentInventory.ts";
 import {
   loadFindingInventoryOrUnavailable,
   openReviewThreads,
   type AcceptedOpenThread,
   type FindingInventory,
-} from "../findingIdentity/findingInventory.js";
-import { buildFindingView, type FindingCheck } from "../findingIdentity/findingLifecycle.js";
-import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
-import { runSpecialist } from "./specialistRun.js";
-import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
-import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.js";
+} from "../findingIdentity/findingInventory.ts";
+import { buildFindingView, type FindingCheck } from "../findingIdentity/findingLifecycle.ts";
+import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.ts";
+import { runSpecialist } from "./specialistRun.ts";
+import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.ts";
+import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.ts";
 import {
   OPENED_PATH_MAX_CHARS,
   revalidateEvidenceDescriptors,
   unreadChangedFilesNote,
   unreadChangedPaths,
-} from "../findings/evidenceLedger.js";
-import { UNREAD_COVERAGE_PATH_LIMIT } from "../recovery/reviewRecoverySchema.js";
-import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
-import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
+} from "../findings/evidenceLedger.ts";
+import { UNREAD_COVERAGE_PATH_LIMIT } from "../recovery/reviewRecoverySchema.ts";
+import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
+import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
 
 function ownVerdictPublishParams(params: ReviewRunParams): {
   readonly workItemId?: string;

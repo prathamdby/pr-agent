@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { PrSurfaceMutationMethods } from "./prSurfaceTypes.js";
+import type { PrSurfaceMutationMethods } from "./prSurfaceTypes.ts";
 
 const postedReplySchema = v.object({ commentId: v.number() });
 const progressCommentSchema = v.object({ id: v.number(), updated: v.boolean() });

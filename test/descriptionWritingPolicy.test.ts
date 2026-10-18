@@ -3,8 +3,8 @@ import {
   enforceDescriptionMapPayload,
   resolveDescriptionBodyScale,
   resolveDescriptionWritingPolicy,
-} from "../src/agent/description/descriptionWritingPolicy.js";
-import type { DescriptionPayload } from "../src/agent/description/descriptionSchema.js";
+} from "../src/agent/description/descriptionWritingPolicy.ts";
+import type { DescriptionPayload } from "../src/agent/description/descriptionSchema.ts";
 import {
   DESCRIPTION_BODY_L_BULLET_MAX,
   DESCRIPTION_BODY_L_BULLET_MIN,
@@ -17,7 +17,7 @@ import {
   DESCRIPTION_MAP_MAX_ENTRIES,
   DESCRIPTION_MAP_OMIT_MAX_FILES,
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const basePayload = (prFiles?: DescriptionPayload["prFiles"]): DescriptionPayload => ({
   title: "t",

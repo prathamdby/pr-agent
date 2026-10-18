@@ -1,22 +1,22 @@
 import * as v from "valibot";
 import type { Pool } from "pg";
-import type { PrSurface } from "../../github/prSurface.js";
-import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
-import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.ts";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.ts";
+import { redactReviewText } from "../../review/findings/reviewPublicOutput.ts";
 import {
   renderPolicySuggestionForDismissed,
   type RepoPolicyResult,
-} from "../../review/repoPolicy.js";
+} from "../../review/repoPolicy.ts";
 import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
-} from "../../review/findingIdentity/resolutionReceipt.js";
-import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
-import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+} from "../../review/findingIdentity/resolutionReceipt.ts";
+import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.ts";
+import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.ts";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -26,21 +26,21 @@ import {
   type VerificationThreadLedger,
   type VerificationThreadState,
   type VerificationThreadCompletion,
-} from "../../agentWork/verificationThreadLedger.js";
+} from "../../agentWork/verificationThreadLedger.ts";
 import {
   operationIntentMarker,
   verificationThreadOperationKey,
   publishOnce,
   type OperationIntentRecovery,
-} from "../../agentWork/publishOnce.js";
+} from "../../agentWork/publishOnce.ts";
 import {
   getOperationIntent,
   type OperationIntentRow,
-} from "../../agentWork/operationIntentRepository.js";
-import { AppError, isAppError } from "../../errors/appError.js";
-import { isRecord } from "../../util/typeGuards.js";
-import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
+} from "../../agentWork/operationIntentRepository.ts";
+import { AppError, isAppError } from "../../errors/appError.ts";
+import { isRecord } from "../../util/typeGuards.ts";
+import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 
 type PublishVerificationParams = {
   readonly pool: Pool;

@@ -1,16 +1,16 @@
 import { Context, Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
-import { runMigrations } from "../db/migrations.js";
-import { createPgPool } from "../db/postgres.js";
-import { shutdownAnalytics } from "../analytics/index.js";
-import { initTraces } from "../traces/recorder.js";
-import { logWarn } from "../evlog.js";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
-import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
-import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
-import { toError } from "../errors/errorMessage.js";
+import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.ts";
+import { runMigrations } from "../db/migrations.ts";
+import { createPgPool } from "../db/postgres.ts";
+import { shutdownAnalytics } from "../analytics/index.ts";
+import { initTraces } from "../traces/recorder.ts";
+import { logWarn } from "../evlog.ts";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.ts";
+import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.ts";
+import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.ts";
+import { toError } from "../errors/errorMessage.ts";
 
 export class AgentWorkPool extends Context.Service<AgentWorkPool, Pool>()("AgentWorkPool") {}
 export class AgentWorkBoss extends Context.Service<AgentWorkBoss, PgBoss>()("AgentWorkBoss") {}

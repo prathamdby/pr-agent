@@ -4,7 +4,7 @@ import {
   LOCAL_WORKSPACE_GIT_GROUP_POLL_MS,
   LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS,
   LOCAL_WORKSPACE_GIT_KILL_GRACE_MS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
 export type GitGroupCleanup = "not_needed" | "complete" | "failed";
 

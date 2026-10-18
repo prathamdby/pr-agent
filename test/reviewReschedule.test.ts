@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { AppError } from "../src/errors/appError.js";
-import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.js";
+import { AppError } from "../src/errors/appError.ts";
+import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.ts";
 import {
   buildStaleReviewRescheduleResult,
   cancelPendingStaleHeadReplacement,
@@ -11,9 +11,9 @@ import {
   isStaleHeadReplacementExhausted,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
-} from "../src/agentWork/reviewReschedule.js";
-import type { ReviewWorkItem } from "../src/agentWork/types.js";
-import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+} from "../src/agentWork/reviewReschedule.ts";
+import type { ReviewWorkItem } from "../src/agentWork/types.ts";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.ts";
 
 const mocks = vi.hoisted(() => ({
   lockPrActorLeaseForUpdate: vi.fn(),
@@ -21,21 +21,21 @@ const mocks = vi.hoisted(() => ({
   loadReviewLifecycle: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   getWorkItem: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
 }));
-vi.mock("../src/agentWork/prActorLease.js", () => ({
+vi.mock("../src/agentWork/prActorLease.ts", () => ({
   lockPrActorLeaseForUpdate: mocks.lockPrActorLeaseForUpdate,
 }));
-vi.mock("../src/agentWork/autoWorkEnqueue.js", () => ({
+vi.mock("../src/agentWork/autoWorkEnqueue.ts", () => ({
   acquireAutoWorkIntakeLock: mocks.acquireAutoWorkIntakeLock,
 }));
-vi.mock("../src/agentWork/intake/workItemRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/intake/workItemRepository.js")>()),
+vi.mock("../src/agentWork/intake/workItemRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/intake/workItemRepository.ts")>()),
   loadReviewLifecycle: mocks.loadReviewLifecycle,
 }));
-vi.mock("../src/db/postgres.js", () => ({
+vi.mock("../src/db/postgres.ts", () => ({
   inTransaction: async (
     pool: Pool,
     fn: (client: PoolClient) => Promise<unknown>,
@@ -44,14 +44,14 @@ vi.mock("../src/db/postgres.js", () => ({
     executeSql: (text: string, values?: unknown[]) => client.query(text, values),
   }),
 }));
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
 }));
 
-import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/workItemStateRepository.js";
-import * as evlog from "../src/evlog.js";
+import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/workItemStateRepository.ts";
+import * as evlog from "../src/evlog.ts";
 
 const LEASE_EPOCH = 7;
 

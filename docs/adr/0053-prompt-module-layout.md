@@ -66,7 +66,7 @@ new prompt text from landing anywhere.
    stay in feature code. Callers pass derived values in.
 9. Assemblers reproduce today's arrays, `""` separators, and `.join` calls
    literally. There is no template engine, registry, or compose wrapper.
-10. A structure-only move must not change one byte of `nub run dump-prompt all`.
+10. A structure-only move must not change one byte of the complete prompt dump.
     Run it on the merge base, run it twice on the head, and `cmp` both head runs
     against the base. The PR body carries the commands and results. This keeps
     the stable prefixes of [ADR 0025](0025-prompt-cache-stability.md). No

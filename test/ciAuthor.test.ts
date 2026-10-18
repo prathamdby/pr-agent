@@ -12,9 +12,9 @@ import {
   mergeCiSummaryWithFacts,
   ciSummaryLlmSchema,
   fetchCiAuthorContext,
-} from "../src/review/ci/ciAuthor.js";
-import { buildCiContextUserMessage, ciGateRowContract } from "../src/prompts/ci/prompt.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+} from "../src/review/ci/ciAuthor.ts";
+import { buildCiContextUserMessage, ciGateRowContract } from "../src/prompts/ci/prompt.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 describe("condenseCiLogs", () => {
   it("detects Node 20 deprecation as noise", () => {

@@ -7,7 +7,7 @@ import {
   MAX_REPO_POLICY_FILE_BYTES,
   MAX_REPO_POLICY_FILES,
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
-} from "../src/settings/reviewConstants.js";
+} from "../src/settings/reviewConstants.ts";
 import {
   candidatePolicyPairs,
   loadRepoPolicy,
@@ -15,7 +15,7 @@ import {
   renderRepoPolicyBlock,
   ruleConsidersFile,
   type RepoPolicyResult,
-} from "../src/review/repoPolicy.js";
+} from "../src/review/repoPolicy.ts";
 
 async function policyFixture(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "repo-policy-mdc-"));

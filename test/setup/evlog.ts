@@ -1,5 +1,5 @@
-import { initNoOpAnalytics } from "../../src/analytics/index.js";
-import { initEvlog } from "../../src/evlog.js";
+import { initNoOpAnalytics } from "../../src/analytics/index.ts";
+import { initEvlog } from "../../src/evlog.ts";
 
 initEvlog("error", { silent: true, suppressDrainWarning: true });
 initNoOpAnalytics();

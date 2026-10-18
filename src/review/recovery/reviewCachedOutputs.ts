@@ -1,5 +1,5 @@
-import type { ReviewFinding } from "../reviewSchema.js";
-import type { EvidenceDescriptor, EvidenceLedger } from "../findings/evidenceLedger.js";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import type { EvidenceDescriptor, EvidenceLedger } from "../findings/evidenceLedger.ts";
 
 export function evidenceForCachedFindings(
   ledger: EvidenceLedger,

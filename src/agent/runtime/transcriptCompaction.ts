@@ -6,15 +6,15 @@ import {
   type Api,
   type Model,
 } from "@earendil-works/pi-ai";
-import type { SessionTrace } from "./sessionTrace.js";
-import { clampThinkingLevel } from "./thinkingPolicy.js";
-import type { ThinkingLevel } from "./types.js";
+import type { SessionTrace } from "./sessionTrace.ts";
+import { clampThinkingLevel } from "./thinkingPolicy.ts";
+import type { ThinkingLevel } from "./types.ts";
 import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
   SUMMARIZATION_SYSTEM_PROMPT,
   renderCompactionUserPrompt,
-} from "../../prompts/compaction/prompt.js";
+} from "../../prompts/compaction/prompt.ts";
 
 const COMPACTION_RESERVE_TOKENS = 16_384;
 const COMPACTION_KEEP_RECENT_TOKENS = 20_000;

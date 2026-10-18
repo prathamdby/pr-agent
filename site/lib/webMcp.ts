@@ -1,5 +1,5 @@
-import { AGENT_RESOURCES } from "./agentResources.js";
-import { PAGE_SECTIONS, WEB_MCP_TOOLS } from "./agentTools.js";
+import { AGENT_RESOURCES } from "./agentResources.ts";
+import { PAGE_SECTIONS, WEB_MCP_TOOLS } from "./agentTools.ts";
 
 export function renderWebMcpScript(): string {
   const payload = JSON.stringify({

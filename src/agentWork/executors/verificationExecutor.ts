@@ -1,33 +1,33 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-import { productionInstallationSurface } from "../installationSurface.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
+import { productionInstallationSurface } from "../installationSurface.ts";
 
-import { AppError } from "../../errors/appError.js";
-import { logInfo, logWarn } from "../../evlog.js";
-import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
-import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.js";
-import { loadRepoPolicy } from "../../review/repoPolicy.js";
-import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
-import { runVerification } from "../../agent/verification/verificationRun.js";
-import { publishVerification } from "../../agent/verification/publishVerification.js";
+import { AppError } from "../../errors/appError.ts";
+import { logInfo, logWarn } from "../../evlog.ts";
+import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.ts";
+import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.ts";
+import { loadRepoPolicy } from "../../review/repoPolicy.ts";
+import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.ts";
+import { runVerification } from "../../agent/verification/verificationRun.ts";
+import { publishVerification } from "../../agent/verification/publishVerification.ts";
 import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
-} from "../../agent/verification/publishVerificationFailure.js";
+} from "../../agent/verification/publishVerificationFailure.ts";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
-} from "../../settings/index.js";
-import { throwIfExecutionAborted } from "../publishOnce.js";
-import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
-import { type DurableExecutionResult } from "../durableJob.js";
-import { escalatedVerificationInventory } from "../retryPolicy.js";
+} from "../../settings/index.ts";
+import { throwIfExecutionAborted } from "../publishOnce.ts";
+import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
+import { type DurableExecutionResult } from "../durableJob.ts";
+import { escalatedVerificationInventory } from "../retryPolicy.ts";
 
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
   type VerificationDegradationReason,
-} from "../verificationPublishGate.js";
+} from "../verificationPublishGate.ts";
 
 export function createVerificationWorkExecution({
   cfg,

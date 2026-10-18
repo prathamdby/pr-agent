@@ -1,5 +1,5 @@
-import { githubErrorMessage } from "./githubErrors.js";
-import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.js";
+import { githubErrorMessage } from "./githubErrors.ts";
+import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.ts";
 
 function objectValue(value: unknown, key: string): unknown {
   if (typeof value !== "object" || value == null) return undefined;

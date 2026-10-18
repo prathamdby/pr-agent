@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const runAgentLoop = vi.hoisted(() => vi.fn());
 
@@ -20,18 +20,18 @@ import {
   type StopReason,
   type Usage,
 } from "@earendil-works/pi-ai";
-import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
-import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.js";
+import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.ts";
+import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.ts";
 import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
-} from "../src/prompts/compaction/prompt.js";
+} from "../src/prompts/compaction/prompt.ts";
 import {
   compactAgentMessages,
   compactIfNeeded,
   findSafeCutIndex,
-} from "../src/agent/runtime/transcriptCompaction.js";
-import type { AgentSessionRole } from "../src/agent/runtime/types.js";
+} from "../src/agent/runtime/transcriptCompaction.ts";
+import type { AgentSessionRole } from "../src/agent/runtime/types.ts";
 
 const ZERO_RATES = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 

@@ -1,8 +1,8 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toToolParameters } from "../../agent/tools/toolParams.js";
-import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import { AppError } from "../../errors/appError.js";
-import { specialistReportSchema } from "./specialistReport.js";
+import { toToolParameters } from "../../agent/tools/toolParams.ts";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
+import { AppError } from "../../errors/appError.ts";
+import { specialistReportSchema } from "./specialistReport.ts";
 
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
 

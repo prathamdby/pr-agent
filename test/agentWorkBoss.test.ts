@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgBoss } from "pg-boss";
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logDebug: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
 }));
 
-import { logError, logWarn } from "../src/evlog.js";
+import { logError, logWarn } from "../src/evlog.ts";
 import {
   bossConstructorOptions,
   createPgBossEventGate,
   ensureAgentQueues,
   retireCodeIndexBuildQueue,
   retireLeftoverCiRefreshQueues,
-} from "../src/agentWork/boss.js";
+} from "../src/agentWork/boss.ts";
 import {
   ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,
@@ -30,8 +30,8 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
   VERIFICATION_QUEUE,
-} from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 describe("bossConstructorOptions", () => {
   it("keeps pg-boss maintenance on the worker role", () => {

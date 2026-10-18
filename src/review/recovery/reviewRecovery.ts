@@ -1,17 +1,17 @@
-import type { ReviewArtifactStore } from "../../agentWork/reviewArtifactRepository.js";
-import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
+import type { ReviewArtifactStore } from "../../agentWork/reviewArtifactRepository.ts";
+import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.ts";
 import type {
   ReviewArtifact,
   ReviewArtifactBinding,
   ReviewArtifactEnvelope,
-} from "./reviewArtifacts.js";
+} from "./reviewArtifacts.ts";
 import {
   createReviewArtifactEnvelope,
   reviewArtifactHash,
   reviewArtifactInvalid,
-} from "./reviewArtifacts.js";
-import type { CanonicalReviewDecision, FindingLedgerSnapshot } from "./reviewRecoverySchema.js";
-import type { ReviewPayload } from "../reviewSchema.js";
+} from "./reviewArtifacts.ts";
+import type { CanonicalReviewDecision, FindingLedgerSnapshot } from "./reviewRecoverySchema.ts";
+import type { ReviewPayload } from "../reviewSchema.ts";
 
 export type RecoveryDecision = {
   readonly prepared: ReviewArtifactEnvelope & {

@@ -5,13 +5,13 @@ const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
 }));
 
-vi.mock("../src/analytics/index.js", () => ({
+vi.mock("../src/analytics/index.ts", () => ({
   captureEvent: mocks.capture,
   captureException: mocks.captureException,
 }));
 
-import { captureCiStateChanged } from "../src/analytics/workCompleted.js";
-import { ciWorkTelemetryFromRow } from "../src/agentWork/ciWorkTelemetry.js";
+import { captureCiStateChanged } from "../src/analytics/workCompleted.ts";
+import { ciWorkTelemetryFromRow } from "../src/agentWork/ciWorkTelemetry.ts";
 
 describe("CI state telemetry", () => {
   beforeEach(() => {

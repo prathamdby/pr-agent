@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
-import { AppError } from "../src/errors/appError.js";
-import { WebhookParseError, parseGithubPayload } from "../src/webhook/parseGithubPayload.js";
-import { prNumbersForCiHead, toCiHeadSource } from "../src/webhook/payloads/ciHeadSource.js";
+import { AppError } from "../src/errors/appError.ts";
+import { WebhookParseError, parseGithubPayload } from "../src/webhook/parseGithubPayload.ts";
+import { prNumbersForCiHead, toCiHeadSource } from "../src/webhook/payloads/ciHeadSource.ts";
 
 describe("WebhookParseError", () => {
   it("preserves eventName and valibotError through AppError", () => {

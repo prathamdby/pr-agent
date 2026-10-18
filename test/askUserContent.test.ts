@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildAskUserContent } from "../src/prompts/ask/prompt.js";
-import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { buildAskUserContent } from "../src/prompts/ask/prompt.ts";
+import type { AskRunParams } from "../src/agent/ask/askRunTypes.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });

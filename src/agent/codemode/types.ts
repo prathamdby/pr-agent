@@ -1,4 +1,4 @@
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
 
 export const CODE_MODE_EXECUTE_NAME = "execute";
 

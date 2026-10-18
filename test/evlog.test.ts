@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { log as globalLog } from "evlog";
-import { AppError } from "../src/errors/appError.js";
-import * as evlog from "../src/evlog.js";
+import { AppError } from "../src/errors/appError.ts";
+import * as evlog from "../src/evlog.ts";
 
 const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 

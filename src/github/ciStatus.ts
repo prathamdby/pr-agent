@@ -1,12 +1,12 @@
 import {
   isConfirmedCapabilityDenial,
   type ReviewCapabilityPolicy,
-} from "./installationCapabilities.js";
-import { classifyGithubError } from "./githubErrors.js";
-import { installationOctokit } from "./appAuth.js";
-import { paginateOctokitPagesWithMeta, stopPaginatedPage } from "./paginateOctokit.js";
-import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.js";
+} from "./installationCapabilities.ts";
+import { classifyGithubError } from "./githubErrors.ts";
+import { installationOctokit } from "./appAuth.ts";
+import { paginateOctokitPagesWithMeta, stopPaginatedPage } from "./paginateOctokit.ts";
+import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.ts";
+import type { CiCheckRunSnapshot, CiLegacyStatus, CiSourceAccess } from "../review/ci/ciFacts.ts";
 
 export type CheckRunsForHeadResult = {
   readonly checkRuns: CiCheckRunSnapshot[];

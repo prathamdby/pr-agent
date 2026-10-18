@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
@@ -12,10 +12,10 @@ import {
   TRIAGE_UNKNOWN_SUBCOMMAND,
   sanitizeGithubLogin,
   type Features,
-} from "../../settings/index.js";
-import type { DeliveryTx, DeferredIntakeEvent } from "./delivery.js";
-import { approveAwaiting } from "./reviewApprovals.js";
-import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
+} from "../../settings/index.ts";
+import type { DeliveryTx, DeferredIntakeEvent } from "./delivery.ts";
+import { approveAwaiting } from "./reviewApprovals.ts";
+import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.ts";
 import {
   type AckJobData,
   type AckTarget,
@@ -24,10 +24,10 @@ import {
   type TriageMode,
   type WebhookHeaders,
   prResourceKey,
-} from "../types.js";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
-import type { ReplyTarget } from "../types.js";
+} from "../types.ts";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
+import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.ts";
+import type { ReplyTarget } from "../types.ts";
 import {
   enqueueAck,
   enqueueDescription,
@@ -35,8 +35,8 @@ import {
   enqueueTriage,
   enqueueVerification,
   jobCorrelation,
-} from "./queueing.js";
-import { promoteAskFromWebhookEvent } from "./askIntake.js";
+} from "./queueing.ts";
+import { promoteAskFromWebhookEvent } from "./askIntake.ts";
 import {
   cancelActiveReviews,
   createDescriptionWorkItem,
@@ -45,7 +45,7 @@ import {
   createVerificationWorkItem,
   fetchActiveTriageWorkItem,
   fetchActiveVerificationWorkItem,
-} from "./workItemRepository.js";
+} from "./workItemRepository.ts";
 
 export type SlashCommandInput = {
   readonly headers: WebhookHeaders;

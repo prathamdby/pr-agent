@@ -1,8 +1,8 @@
 import type { Pool, PoolClient } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import { queryOne } from "../db/postgres.js";
-import { AppError } from "../errors/appError.js";
-import type { WorkType } from "./types.js";
+import { queryOne } from "../db/postgres.ts";
+import { AppError } from "../errors/appError.ts";
+import type { WorkType } from "./types.ts";
 
 export const PR_ACTOR_LEASE_DEFER_SECONDS = 15;
 

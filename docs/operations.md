@@ -101,7 +101,7 @@ and return `503`.
 ### Docker and Docker Compose
 
 - **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
-- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)). The runtime stage installs Debian `git` from `node:22.22.0-bookworm-slim` (2.39.x). Pinned workspace search runs on fff in a child process the worker forks on first use, with `git grep -nF -I -z` for files fff does not index and as the fallback. Triage search uses `git grep` alone. Both apply `maxResults` plus `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result. `git grep` does not pass `--max-count` (Git 2.40+). The image ships the `@ff-labs/fff-bin-*` platform package for its architecture; a host that cannot load it logs `workspace_search_fff_fallback` and searches with `git grep` ([ADR 0048](adr/0048-fff-workspace-search.md)).
+- **Image:** multi-stage `Dockerfile` (Node 24 LTS, pinned to 24.22.0); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)). The runtime stage installs Debian `git` from `node:24.22.0-bookworm-slim` (2.39.x). Pinned workspace search runs on fff in a child process the worker forks on first use, with `git grep -nF -I -z` for files fff does not index and as the fallback. Triage search uses `git grep` alone. Both apply `maxResults` plus `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result. `git grep` does not pass `--max-count` (Git 2.40+). The image ships the `@ff-labs/fff-bin-*` platform package for its architecture; a host that cannot load it logs `workspace_search_fff_fallback` and searches with `git grep` ([ADR 0048](adr/0048-fff-workspace-search.md)).
 - **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable. Shipped Compose healthchecks web with hardcoded `http://127.0.0.1:7224/health`, not `/ready`. `depends_on` is start-only. Postgres dying later does not fail the web service.
 - **Health (worker):** the worker listens on its own `PORT` for the same paths. That port is not published. `curl http://127.0.0.1:7224/ready` from the host hits web `/ready` (Postgres ping only). Worker `/ready` requires the eight registered consumers (`WORKER_CONSUMER_QUEUES`, including retention) plus Postgres/pg-boss. Compose checks that in-container. The image `HEALTHCHECK` hits `/health`, so a PaaS that honors only the Dockerfile can mark a worker healthy before consumers exist. Continuous queue/DLQ diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
 - **Webhook URL:** set GitHub to `https://<host>/webhooks`. The process binds HTTP on `7224`. Production Compose publishes that HTTP port only. Maintainer-local Caddy and a Cloudflare quick tunnel live in [docker-compose.dev.yml](../docker-compose.dev.yml). A public `http://<host>:7224/webhooks` URL is rejected except for loopback.
@@ -189,13 +189,14 @@ seven-day purge. Queries and maintenance checks:
 ### Local development edge cases
 
 - **Primary start** is `docker compose -f docker-compose.dev.yml up -d --build`. That file starts Postgres, Caddy, web, worker, and a Cloudflare quick tunnel to the web process. `dev/mock.env` has no PEM. The boot script generates one at process start. Print the public webhook URL with `node dev/print-public-webhook-url.cjs` and paste it on the GitHub App. The trycloudflare hostname changes on restart. Probe the laptop side with `curl -k https://web.localhost/health` and `curl -k https://worker.localhost/ready`. If the names do not resolve, add them to `/etc/hosts` or pass `curl --resolve`. Do not mix that file with `docker compose up`.
-- **`nub src/index.ts` loads `.env` automatically** when you opt into host processes. `nub watch src/index.ts` restarts on source, tsconfig, and env changes.
+- **`npm run dev`** runs `node --watch --env-file-if-exists=.env src/index.ts`. Node strips erasable TypeScript without a loader. Imported-source changes restart the process. Restart manually after `.env`, configuration, or other unwatched input changes.
+- Keep `.env` present for watching, even if settings come from exported variables (`touch .env` creates an empty file). On Node 24.22.0, watching with an absent optional env file can crash during shutdown after a source restart. Non-watching source and compiled production runs are unaffected.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only boot: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`. The example blob in `.env.example` fails `crypto.createPrivateKey()`.
 - The Compose `cloudflared` service is the public webhook path. Do not start a host smee or `cloudflared` process unless that service cannot reach Cloudflare. Do not point any fallback at the worker.
-- Host Nub must be `@nubjs/nub@0.7.2` (`package.json` `packageManager`). Image and Vercel pin the same version.
-- If switching from a prior pnpm- or npm-installed tree, delete `node_modules` before the first `nub install`.
-- **Vercel** site deploys install pinned Nub in [`site/vercel.json`](../site/vercel.json) (`npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...`), then build with `nub --node run build` (same plain-Node path as `site:build`). The site serves a dense agent profile at `/llms.txt` plus queryable `GET /llms?query=` and `GET /llms/json?query=` from [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts).
-- **Docker image** installs with Nub only (`nub ci --filter 'pr-agent...'` for build deps; `nub prune --prod --filter 'pr-agent...'` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
+- Host, CI, and images use Node 24.22.0 LTS. Root `devEngines` accepts Node `^24.21.0` so Vercel's managed Node 24 runtime can install the site. npm `>=11.19.1 <12` remains required, including commands launched from `site/`. Older npm releases do not provide the required release-age settings. See [ADR 0055](adr/0055-npm-native-node-toolchain.md) for the older runtime's HMAC-stream limitation and security-release review.
+- Run `npm ci` for a clean contributor installation against the root lockfile. It replaces the installed tree; no global package-manager installation is needed.
+- **Vercel** selects Node 24 from the manifest's `engines` and uses explicit commands in [`site/vercel.json`](../site/vercel.json). The hosted npm can fall below the required version. Installation first runs `npm install --global --prefix /tmp/pr-agent-npm --ignore-scripts --engine-strict --min-release-age=7 npm@11.19.1`. This isolates the toolchain without changing the hosted npm. From the configured `site` directory, installation then runs `cd .. && /tmp/pr-agent-npm/bin/npm ci --workspace=pr-agent-landing --include-workspace-root=false`; build runs `cd .. && /tmp/pr-agent-npm/bin/npm run --workspace=pr-agent-landing build`. Both phases retain `devEngines` checks. Check dashboard Node and command overrides separately. Root install policy applies. The site serves `/llms.txt`, `GET /llms?query=`, and `GET /llms/json?query=` from [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts).
+- **Docker image** installs build dependencies with `npm ci --workspaces=false` and production dependencies separately with `npm ci --omit=dev --workspaces=false`. Lifecycle scripts stay disabled, including for native packages. Runtime keeps the official Debian slim base, Git, certificates, the non-root user, and direct `node dist/index.js`; no package manager or compiler runs in the production process. [`.dockerignore`](../.dockerignore) keeps only the site's manifest for the shared lockfile.
 
 ### TLS in front of Compose
 
@@ -217,7 +218,7 @@ Canonical install steps live in [README.md](../README.md) **Installation**.
 
 ## Development
 
-Maintainer-local start is one Compose file, then optional host Nub if you want hot reload.
+Maintainer-local start is one Compose file, then optional host Node if you want source watching.
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
@@ -232,39 +233,38 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 
 ### Scripts
 
-| Script                                 | Purpose                                                                                                                     |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                                                                                             |
-| `nub watch src/index.ts`               | Auto-restart dev entry                                                                                                      |
-| `nub run build`                        | Compile to `dist/`                                                                                                          |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                                                                        |
-| `nub run typecheck`                    | `tsc --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `nub run build` uses `tsconfig.build.json` (`src/` only) |
-| `nub run lint`                         | Type-aware Oxlint, zero warnings (includes `site/`)                                                                         |
-| `nub run lint:backend`                 | Type-aware Oxlint, zero warnings, excluding `site/`                                                                         |
-| `nub run lint:fix`                     | Oxlint with safe fixes                                                                                                      |
-| `nub run fmt`                          | Format with Oxfmt                                                                                                           |
-| `nub run fmt:check`                    | Check formatting                                                                                                            |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                                                                          |
-| `nub run check:effect-versions`        | Verify pinned Effect deps                                                                                                   |
-| `nub run check:prod-deps`              | Production dependency graph guard                                                                                           |
-| `nub run check:commit-messages`        | Lint PR commits against /commit conventional rules (`--base`, `--head`)                                                     |
-| `nub run test`                         | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                        |
-| `nub run test:watch`                   | Vitest watch mode                                                                                                           |
-| `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                     |
-| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                              |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch)                                                                                        |
-| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                                                                                 |
-| `nub run site:build`                   | Landing site production build                                                                                               |
-| `nub run check:site-design`            | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                      |
-| `nub run site:generate-og`             | Generate landing OG assets                                                                                                  |
+| Script                                                        | Purpose                                                                                                                     |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `node --env-file-if-exists=.env src/index.ts` / `npm run dev` | Run `src/index.ts` (`ROLE` env)                                                                                             |
+| `npm run dev`                                                 | Auto-restart dev entry                                                                                                      |
+| `npm run build`                                               | Compile to `dist/`                                                                                                          |
+| `npm run start` / `node dist/index.js`                        | Run compiled `dist/`                                                                                                        |
+| `npm run typecheck`                                           | `tsc --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `npm run build` uses `tsconfig.build.json` (`src/` only) |
+| `npm run lint`                                                | Type-aware Oxlint, zero warnings (includes `site/`)                                                                         |
+| `npm run lint:backend`                                        | Type-aware Oxlint, zero warnings, excluding `site/`                                                                         |
+| `npm run lint:fix`                                            | Oxlint with safe fixes                                                                                                      |
+| `npm run fmt`                                                 | Format with Oxfmt                                                                                                           |
+| `npm run fmt:check`                                           | Check formatting                                                                                                            |
+| `npm run check:code`                                          | `typecheck` + `lint` + `fmt:check`                                                                                          |
+| `npm run check:effect-versions`                               | Verify pinned Effect deps                                                                                                   |
+| `npm run check:prod-deps`                                     | Clean installed backend production graph guard                                                                              |
+| `npm run check:commit-messages`                               | Lint PR commits against /commit conventional rules (`--base`, `--head`)                                                     |
+| `npm run test`                                                | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                        |
+| `npm run test:watch`                                          | Vitest watch mode                                                                                                           |
+| `npm run test:integration`                                    | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                     |
+| `npm run test:integration:inventory`                          | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                              |
+| `npm run site:dev`                                            | Landing site local dev (`pr-agent-landing`)                                                                                 |
+| `npm run site:build`                                          | Landing site production build                                                                                               |
+| `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                      |
+| `npm run site:generate-og`                                    | Generate landing OG assets                                                                                                  |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
+Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `npm run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. There are no cooling exclusions. npm exclusions match package names/globs, not exact versions; any future exception needs a narrow name and a checked locked version.
 
-Both lint scripts pass `--deny-warnings`. `nub run check:guards` locks suppression markers with `lint-suppressions(src)` (5) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
+Both lint scripts pass `--deny-warnings`. `npm run check:guards` locks suppression markers with `lint-suppressions(src)` (5) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
 
 ### Effect version gate
 
-`nub run check:effect-versions` enforces direct pins and installed shell versions:
+`npm run check:effect-versions` enforces direct pins and installed shell versions:
 
 - `effect@4.0.0`
 - `@effect/platform-node@4.0.0`
@@ -273,25 +273,9 @@ The Node adapter's installed `effect` and transitive
 `@effect/platform-node-shared` must also be `4.0.0`. `@effect/platform`
 must not be a direct dependency.
 
-The migration temporarily excludes these exact versions from the seven-day
-release-age check in `nub.jsonc`. The global `minimumReleaseAge: "7d"` and
-unrelated exclusions stay unchanged:
+The initial Effect 4 adapter migration required five temporary release-age exceptions. Those exceptions expired on October 8, 2026. The current npm policy has no exclusions.
 
-| Exact exclusion                      | Required by                                      | Published UTC           |
-| ------------------------------------ | ------------------------------------------------ | ----------------------- |
-| `effect@4.0.0`                       | Direct shell dependency                          | 2026-10-01 03:11:28.537 |
-| `@effect/platform-node@4.0.0`        | Direct Node adapter dependency                   | 2026-10-01 01:48:35.463 |
-| `@effect/platform-node-shared@4.0.0` | `@effect/platform-node@4.0.0`                    | 2026-10-01 01:47:33.378 |
-| `ws@8.22.0`                          | Node adapter → shared adapter → `ws`             | 2026-09-26 15:00:57.748 |
-| `undici@8.11.2`                      | `@effect/platform-node@4.0.0` → `undici:^8.11.2` | 2026-09-24 08:37:55.067 |
-
-The installer rejected `undici@8.11.2` before its October 1 cooling cutoff;
-it was the only version satisfying the adapter's range. Its exact exception
-follows the same removal date as the four planned exceptions. Remove only
-these five entries on **2026-10-08 after 03:11:28.537 UTC**, once all five
-versions are at least seven days old. Keep unrelated exclusions.
-
-`nub run test` runs this gate before Vitest (`pretest`).
+`npm run test` explicitly runs this gate before Vitest. Lifecycle hooks are not used because dependency scripts stay disabled.
 
 Agent index: [AGENTS.md](../AGENTS.md).
 
@@ -299,7 +283,7 @@ Agent index: [AGENTS.md](../AGENTS.md).
 
 - Treat `WEBHOOK_SECRET` and app private keys as production secrets.
 - **`/ask`** applies deterministic outbound redaction (tokens, host URLs, PEM blocks) before posting replies; obvious bot-internals probes get an **Ask meta refusal** without an LLM call ([ADR 0007](adr/0007-ask-red-team-hardening.md)).
-- **Triage workspace boundary:** direct reads, search results, edits, staging, and commits use the canonical triage sensitive/control-path policy. Search may inspect the checkout internally, but it never returns a blocked path or its matching text; symlink targets are resolved before the decision.
+- **Triage workspace boundary:** Direct reads, search results, edits, staging, and commits use the canonical triage sensitive/control-path policy. Every `.jsonc` file, including nested and case variants, is a control-plane path. Verification search blocks these paths too. Search may inspect the checkout internally, but it never returns a blocked path or its matching text; symlink targets are resolved before the decision.
 - **Verification workspace search:** `searchWorkspace` uses the Local PR workspace literal-search operation and that same sensitive/control-path predicate on permitted tracked paths. Blocked hits are withheld before the result cap and counted; the count is logged as `verification_search_matches_filtered`. Search output over `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` returns as truncated rather than failing. Read tools keep their existing path gates. Diff tools read cached PR patches and keep the sensitive-path gate without requiring a deleted file to exist at head.
 - **Triage report comments** run through the same public-output redactor before upsert to GitHub (normal and report-only paths).
 - **Telemetry redaction** uses one canonical recursive sanitizer at logging and analytics boundaries (`src/security/sanitizeTelemetryValue.ts`). It handles `AppError` messages, contexts, raw values, causes, arrays, objects, Error fields, and circular references across camel- and snake-case payloads. Secret-shaped strings and sensitive keys are replaced while safe codes, classifications, work IDs, provider kinds, and resource identifiers remain available. PostHog is optional: enabled only when `POSTHOG_PROJECT_TOKEN` is non-empty and sink construction succeeds (`src/analytics` facade; empty token means no SDK load). Failed construction or reinitialization restores a no-op sink with analytics disabled; the PostHog `before_send` sanitizer is the final recursive backstop for explicit and autocaptured exceptions ([ADR 0007](adr/0007-ask-red-team-hardening.md)).

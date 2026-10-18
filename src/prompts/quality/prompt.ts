@@ -4,13 +4,13 @@ import {
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
   specialistFindingsReportContract,
-} from "../shared/output.js";
+} from "../shared/output.ts";
 import {
   causalPublicationContract,
   highStakesTrivialTrapGuidance,
   readOnlyReviewGuidance,
   outOfScopeFilesGuidance,
-} from "../shared/behavior.js";
+} from "../shared/behavior.ts";
 import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
@@ -18,9 +18,9 @@ import {
   specialistUntrustedEvidenceGuidance,
   userSupplementGuidance,
   context7OutboundDataGuidance,
-} from "../shared/safety.js";
-import { specialistInvestigationHarness } from "../shared/tools.js";
-import { communicationGuidance } from "../shared/communication.js";
+} from "../shared/safety.ts";
+import { specialistInvestigationHarness } from "../shared/tools.ts";
+import { communicationGuidance } from "../shared/communication.ts";
 
 export const automatedQualitySystemPrompt = [
   "You are the quality specialist investigator for this pull request. Your job is to find structural causes of present harm: invalid ownership, diverged duplicates, unsafe fallbacks, unreachable cleanup, contradictory sources of truth, and layer-boundary failures with an observable caller impact.",

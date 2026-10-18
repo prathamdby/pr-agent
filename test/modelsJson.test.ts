@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertPiModelSelection, resolveModelsJsonPath } from "../src/agent/runtime/modelsJson.js";
-import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
+import { assertPiModelSelection, resolveModelsJsonPath } from "../src/agent/runtime/modelsJson.ts";
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
 
 const BASE_ENV = {
   GITHUB_APP_ID: "1",
@@ -236,7 +236,7 @@ describe("loadConfig models.json", () => {
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       ...extra,
     };
-    const { loadConfig } = await import("../src/settings/index.js");
+    const { loadConfig } = await import("../src/settings/index.ts");
     return loadConfig();
   }
 

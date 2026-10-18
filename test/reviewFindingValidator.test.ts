@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { validateReviewPayload } from "../src/review/findings/reviewFindingValidator.js";
+import { validateReviewPayload } from "../src/review/findings/reviewFindingValidator.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.js";
-import { REVIEW_GATE_PROSE_FIELDS } from "../src/review/reviewSchema.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+} from "../src/review/placement/reviewDiffIndex.ts";
+import { REVIEW_GATE_PROSE_FIELDS } from "../src/review/reviewSchema.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
 describe("validateReviewPayload", () => {
   it("accepts gate text mentioning structured publish without failure wording", () => {

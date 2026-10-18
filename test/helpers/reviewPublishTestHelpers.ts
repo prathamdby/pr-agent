@@ -1,40 +1,40 @@
-import type { Config } from "../../src/settings/index.js";
-import { makeTestConfig } from "./config.js";
-import { reviewCheckDetailsUrl } from "../../src/agentWork/reviewVerdict.js";
-import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
-import type { PrSurface } from "../../src/github/prSurface.js";
+import type { Config } from "../../src/settings/index.ts";
+import { makeTestConfig } from "./config.ts";
+import { reviewCheckDetailsUrl } from "../../src/agentWork/reviewVerdict.ts";
+import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.ts";
+import type { PrSurface } from "../../src/github/prSurface.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../../src/review/placement/reviewDiffIndex.js";
-import type { AcceptedPlacement } from "../../src/review/orchestrator/orchestratorTypes.js";
+} from "../../src/review/placement/reviewDiffIndex.ts";
+import type { AcceptedPlacement } from "../../src/review/orchestrator/orchestratorTypes.ts";
 import {
   applyFindingLedgerDelta,
   createFindingLedger,
-} from "../../src/review/orchestrator/orchestratorTypes.js";
-import type { ReviewPayload, ReviewPublishContext } from "../../src/review/reviewSchema.js";
-import type { RepoPolicyResult } from "../../src/review/repoPolicy.js";
-import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.js";
+} from "../../src/review/orchestrator/orchestratorTypes.ts";
+import type { ReviewPayload, ReviewPublishContext } from "../../src/review/reviewSchema.ts";
+import type { RepoPolicyResult } from "../../src/review/repoPolicy.ts";
+import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.ts";
 import {
   publishFindingBatch,
   type ReconciledFindings,
-} from "../../src/review/publish/publishFindingBatch.js";
+} from "../../src/review/publish/publishFindingBatch.ts";
 import {
   createReviewPublishSession,
   type ReviewPublishSessionInput,
-} from "../../src/review/publish/reviewPublishSession.js";
-import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
-import type { RecordPublishStepWithCoordination } from "../../src/review/publish/reviewSummaryComment.js";
-import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
-import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.js";
-import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding } from "../../src/review/reviewSchema.js";
-import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
+} from "../../src/review/publish/reviewPublishSession.ts";
+import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.ts";
+import type { RecordPublishStepWithCoordination } from "../../src/review/publish/reviewSummaryComment.ts";
+import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.ts";
+import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.ts";
+import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.ts";
+import type { ReviewFinding } from "../../src/review/reviewSchema.ts";
+import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.ts";
 import {
   buildFindingInventory,
   type FindingInventory,
-} from "../../src/review/findingIdentity/findingInventory.js";
+} from "../../src/review/findingIdentity/findingInventory.ts";
 
 export function completeFindingInventory(): FindingInventory {
   return buildFindingInventory({

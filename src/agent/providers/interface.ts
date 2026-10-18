@@ -1,7 +1,7 @@
-import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
-import type { AgentSessionRole } from "../runtime/types.js";
-import type { AgentRunnerTurn, TurnEnd } from "./usageMetadata.js";
-import { combineAbortSignals, idleAbortSignal } from "./abortSignals.js";
+import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.ts";
+import type { AgentSessionRole } from "../runtime/types.ts";
+import type { AgentRunnerTurn, TurnEnd } from "./usageMetadata.ts";
+import { combineAbortSignals, idleAbortSignal } from "./abortSignals.ts";
 
 export type { AgentRunnerTurn, TurnEnd };
 export { combineAbortSignals, idleAbortSignal };

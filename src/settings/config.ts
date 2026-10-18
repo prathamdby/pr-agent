@@ -1,6 +1,6 @@
-import type { Features } from "./featureModes.js";
-import { readAskSlice, type AskSlice } from "./slices/ask.js";
-import { readFeatures } from "./slices/features.js";
+import type { Features } from "./featureModes.ts";
+import { readAskSlice, type AskSlice } from "./slices/ask.ts";
+import { readFeatures } from "./slices/features.ts";
 import {
   readAssociationsSlice,
   readGithubSlice,
@@ -8,13 +8,13 @@ import {
   type AssociationsSlice,
   type GithubSlice,
   type WebhookSlice,
-} from "./slices/github.js";
+} from "./slices/github.ts";
 import {
   readModelsSlice,
   readProviderSlice,
   type ModelsSlice,
   type ProviderSlice,
-} from "./slices/models.js";
+} from "./slices/models.ts";
 import {
   readConcurrencySlice,
   readQueueSlice,
@@ -22,7 +22,7 @@ import {
   type ConcurrencySlice,
   type QueueSlice,
   type RetentionSlice,
-} from "./slices/queue.js";
+} from "./slices/queue.ts";
 import {
   readAgentEventsSlice,
   readCodeModeSlice,
@@ -38,7 +38,7 @@ import {
   type PosthogSlice,
   type ReviewSlice,
   type RuntimeSlice,
-} from "./slices/service.js";
+} from "./slices/service.ts";
 
 export type Config = {
   readonly runtime: RuntimeSlice;

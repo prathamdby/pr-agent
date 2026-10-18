@@ -1,11 +1,11 @@
-import { escapeTableCellContent, renderTableCode } from "../../github/markdownFormat.js";
-import type { TriageScope } from "../../agentWork/types.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
-import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.js";
-import { TRIAGE_PREVIEW_SENTINEL, TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.js";
-import type { CiRollup } from "../../review/ci/ciFacts.js";
-import { renderCiRollupMarker } from "../../review/ci/ciSummaryCell.js";
+import { escapeTableCellContent, renderTableCode } from "../../github/markdownFormat.ts";
+import type { TriageScope } from "../../agentWork/types.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.ts";
+import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.ts";
+import { TRIAGE_PREVIEW_SENTINEL, TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.ts";
+import type { CiRollup } from "../../review/ci/ciFacts.ts";
+import { renderCiRollupMarker } from "../../review/ci/ciSummaryCell.ts";
 
 export type TriagePreviewHunk = {
   readonly threadRootCommentId: number;
