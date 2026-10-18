@@ -58,7 +58,11 @@ CI uses setup-node and root-lockfile caching. The trusted guard workflow install
 and executes only base-branch tooling; PR-head files remain inspection input.
 Vercel selects Node 24 from `package.json` engines, installs the site from the root
 lock, and builds the workspace. `site/vercel.json` sets commands; its schema does
-not accept `nodeVersion`. Dashboard overrides need a separate operator check.
+not accept `nodeVersion`. The hosted Node image can bundle npm below the required
+minimum. Bootstrap npm 11.19.1 into `/tmp/pr-agent-npm` with release-age, engine,
+and lifecycle-script protections, then use that binary for both install and
+build. This leaves the hosted npm untouched and preserves repository
+`devEngines`. Dashboard overrides need a separate operator check.
 
 Every `.jsonc` file is a control-plane path, at any depth and case. The canonical
 policy blocks triage reads, search, writes, staging, and commits, and verification
