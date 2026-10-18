@@ -5,12 +5,12 @@ import {
   mergeDescriptionIntoPrBody,
   prBodyHasAgentDescriptionBlock,
   wrapDescriptionAgentBlock,
-} from "../src/agent/description/descriptionBodyMerge.js";
+} from "../src/agent/description/descriptionBodyMerge.ts";
 import {
   DESCRIPTION_AGENT_BODY_BEGIN,
   DESCRIPTION_AGENT_BODY_END,
   DESCRIPTION_AGENT_HEADER,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const agentBlock = `${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`;
 

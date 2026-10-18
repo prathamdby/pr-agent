@@ -1,16 +1,16 @@
 import { vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
-import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
+import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.ts";
 import {
   createFakePrSurface,
   type FakePrSurfaceControls,
   type PrReviewComment,
-} from "../../src/github/prSurface.js";
-import { VERIFICATION_STUB_MARKER } from "../../src/settings/index.js";
-import { renderReviewPointerLensMarker } from "../../src/review/run/reviewRender.js";
-import type { BotFindingThread } from "../../src/review/run/reviewPriorFeedback.js";
-import * as repo from "../../src/agentWork/workItemStateRepository.js";
-import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.js";
+} from "../../src/github/prSurface.ts";
+import { VERIFICATION_STUB_MARKER } from "../../src/settings/index.ts";
+import { renderReviewPointerLensMarker } from "../../src/review/run/reviewRender.ts";
+import type { BotFindingThread } from "../../src/review/run/reviewPriorFeedback.ts";
+import * as repo from "../../src/agentWork/workItemStateRepository.ts";
+import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.ts";
 
 let durableSurfaceBundle = createFakePrSurface(
   { owner: "o", repo: "r", prNumber: 1 },

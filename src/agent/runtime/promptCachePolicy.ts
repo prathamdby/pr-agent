@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { SESSION_CACHE_ID_MAX_LENGTH } from "../../settings/index.js";
-import type { AgentSessionRole, ModelAssignment } from "./types.js";
+import { SESSION_CACHE_ID_MAX_LENGTH } from "../../settings/index.ts";
+import type { AgentSessionRole, ModelAssignment } from "./types.ts";
 
 export { SESSION_CACHE_ID_MAX_LENGTH };
 

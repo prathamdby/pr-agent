@@ -4,9 +4,9 @@ import {
   resolveInlineAnchorLine,
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.js";
+} from "../src/review/placement/reviewDiffIndex.ts";
 
-import { cachedDiffForFiles } from "./helpers/reviewPublishTestHelpers.js";
+import { cachedDiffForFiles } from "./helpers/reviewPublishTestHelpers.ts";
 
 describe("reviewDiffIndex", () => {
   it("parses added and context RIGHT lines from unified diff", () => {

@@ -5,11 +5,11 @@ import {
   renderReviewCancelledNotice,
   renderReviewFailureNotice,
   renderReviewProgressComment,
-} from "../src/review/run/progressComment.js";
+} from "../src/review/run/progressComment.ts";
 import {
   parseProgressRevisionState,
   parseReviewMetaFromCommentBody,
-} from "../src/review/run/commentMarkers.js";
+} from "../src/review/run/commentMarkers.ts";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_PROGRESS_NOTE,
@@ -21,13 +21,13 @@ import {
   reviewCancelLastError,
   reviewProgressCancelledNote,
   sanitizeGithubLogin,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 import {
   STATUS_FAILED,
   STATUS_NO_FINDINGS,
   STATUS_RUNNING,
   STATUS_WAITING,
-} from "../src/review/statusCopy.js";
+} from "../src/review/statusCopy.ts";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {

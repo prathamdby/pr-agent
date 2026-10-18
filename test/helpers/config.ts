@@ -1,4 +1,4 @@
-import type { Config } from "../../src/settings/index.js";
+import type { Config } from "../../src/settings/index.ts";
 
 type ModelsOverrides = Partial<Omit<Config["models"], "providerKeys">> & {
   readonly providerKeys?: Partial<Config["models"]["providerKeys"]>;

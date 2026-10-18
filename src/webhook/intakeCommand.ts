@@ -4,18 +4,18 @@ import {
   IGNORED_REVIEW_APPROVAL_NOT_ENABLED,
   IGNORED_UNAUTHORIZED_SLASH,
   OWN_COMMIT_STATUS_CONTEXT,
-} from "../settings/index.js";
-import type { BotIdentity } from "../github/appAuth.js";
-import type { IntakeCommand } from "../agentWork/intake/delivery.js";
-import type { SlashCommandInput } from "../agentWork/intake/slashIntake.js";
-import type { WebhookHeaders } from "../agentWork/types.js";
-import { parseSlashCommand } from "../commands/parseSlashCommand.js";
-import { commentMentionsBot } from "../commands/parseBotMention.js";
-import { isSlashAssociationAllowed, reviewAuthorTrust } from "../commands/slashAssociation.js";
-import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/ciFacts.js";
-import type { ParsedGithubEvent } from "./parseGithubPayload.js";
-import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.js";
-import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/ciHeadSource.js";
+} from "../settings/index.ts";
+import type { BotIdentity } from "../github/appAuth.ts";
+import type { IntakeCommand } from "../agentWork/intake/delivery.ts";
+import type { SlashCommandInput } from "../agentWork/intake/slashIntake.ts";
+import type { WebhookHeaders } from "../agentWork/types.ts";
+import { parseSlashCommand } from "../commands/parseSlashCommand.ts";
+import { commentMentionsBot } from "../commands/parseBotMention.ts";
+import { isSlashAssociationAllowed, reviewAuthorTrust } from "../commands/slashAssociation.ts";
+import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/ciFacts.ts";
+import type { ParsedGithubEvent } from "./parseGithubPayload.ts";
+import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.ts";
+import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/ciHeadSource.ts";
 
 export function toIntakeCommand(
   cfg: Pick<Config, "features" | "associations" | "github">,

@@ -1,5 +1,5 @@
-import type { TurnEnd } from "../providers/usageMetadata.js";
-import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
+import type { TurnEnd } from "../providers/usageMetadata.ts";
+import type { AgentSessionPhase, AgentSessionRole } from "./types.ts";
 
 export type AgentLifecycleTurnEvent = {
   readonly kind: "turn";

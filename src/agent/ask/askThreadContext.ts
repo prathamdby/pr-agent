@@ -1,9 +1,9 @@
-import { logWarn } from "../../evlog.js";
-import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../../settings/index.js";
-import type { ReplyTarget } from "../../agentWork/types.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+import { logWarn } from "../../evlog.ts";
+import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../../settings/index.ts";
+import type { ReplyTarget } from "../../agentWork/types.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type ThreadComment = {
   readonly id: number;

@@ -1,7 +1,7 @@
 import * as v from "valibot";
-import { AppError } from "../errors/appError.js";
-import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/index.js";
-import { isRecord } from "../util/typeGuards.js";
+import { AppError } from "../errors/appError.ts";
+import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/index.ts";
+import { isRecord } from "../util/typeGuards.ts";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
@@ -13,7 +13,7 @@ import type {
   TriageWorkPayload,
   VerificationWorkPayload,
   WorkType,
-} from "./types.js";
+} from "./types.ts";
 
 export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
           payload->'staleHeadReplacement'->>'replacementWorkItemId',

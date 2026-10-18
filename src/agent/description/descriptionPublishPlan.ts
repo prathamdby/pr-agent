@@ -1,9 +1,9 @@
-import type { PrResource } from "../../agentWork/types.js";
-import type { Config } from "../../settings/index.js";
-import type { PullRequestForFileList } from "../../github/listPullRequestFiles.js";
-import { mergeDescriptionIntoPrBody } from "./descriptionBodyMerge.js";
-import { renderDescriptionAgentBlock } from "./descriptionRender.js";
-import type { DescriptionPayload } from "./descriptionSchema.js";
+import type { PrResource } from "../../agentWork/types.ts";
+import type { Config } from "../../settings/index.ts";
+import type { PullRequestForFileList } from "../../github/listPullRequestFiles.ts";
+import { mergeDescriptionIntoPrBody } from "./descriptionBodyMerge.ts";
+import { renderDescriptionAgentBlock } from "./descriptionRender.ts";
+import type { DescriptionPayload } from "./descriptionSchema.ts";
 
 export type DescriptionPublishPlan = {
   readonly title: string;

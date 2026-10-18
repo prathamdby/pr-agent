@@ -11,11 +11,11 @@ import {
   WAITING_FOR_CI_SUMMARY,
   type CiCheckFact,
   type CiCheckRunSnapshot,
-} from "../src/review/ci/ciFacts.js";
+} from "../src/review/ci/ciFacts.ts";
 import {
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_INCOMPLETE,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
   return {

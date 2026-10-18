@@ -1,4 +1,4 @@
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_WORK_RETENTION_SECONDS,
@@ -22,14 +22,14 @@ import {
   DEFAULT_TRIAGE_CONCURRENCY,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
-} from "../defaults.js";
-import { ENV } from "../envKeys.js";
+} from "../defaults.ts";
+import { ENV } from "../envKeys.ts";
 import {
   optionalEnv,
   readNonNegativeNumber,
   readPositiveNumber,
   readStrictBoolean,
-} from "../envReaders.js";
+} from "../envReaders.ts";
 
 export type QueueSlice = {
   readonly retryLimit: number;

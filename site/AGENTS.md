@@ -1,6 +1,6 @@
 # Landing site
 
-This file covers `site/`. The root [AGENTS.md](../AGENTS.md) still applies, including the copy approval gate. [DESIGN.md](DESIGN.md) is the design spec. This file says how to change the design system without breaking it or the spec's shape. Run every `nub` command from the repository root.
+This file covers `site/`. The root [AGENTS.md](../AGENTS.md) still applies, including the copy approval gate. [DESIGN.md](DESIGN.md) is the design spec. This file says how to change the design system without breaking it or the spec's shape. Run every `npm` command from the repository root.
 
 ## Before UI work
 
@@ -40,11 +40,11 @@ Before you add or change a section, a component, a style, a token, or a class re
 - Recipes are the exact class strings from the code, in backticks. Copy them, never paraphrase.
 - Token tables keep their columns: token, value, then purpose. The File map keeps one row per file that owns part of the system.
 - Match the file's voice: sentence-case headings, short sentences, no em dashes, and its spelling (colour, behaviour).
-- Run `nub run fmt` after editing. oxfmt realigns the tables, so do not align them by hand.
+- Run `npm run fmt` after editing. oxfmt realigns the tables, so do not align them by hand.
 
 ## The check
 
-`nub run check:site-design` runs `scripts/check-site-design.mjs` against `scripts/baselines/site-design-baseline.json`. DESIGN.md lists its rules under Verification.
+`npm run check:site-design` runs `scripts/check-site-design.mjs` against `scripts/baselines/site-design-baseline.json`. DESIGN.md lists its rules under Verification.
 
 - A red rule is a finding about your change. Fix the code. Never raise a baseline count, weaken a rule, or move a class into a string built at runtime to hide it.
 - An `@theme` token missing from DESIGN.md fails `docs-token-parity`, and so does a `--color-*` named in DESIGN.md that does not exist.
@@ -53,7 +53,7 @@ Before you add or change a section, a component, a style, a token, or a class re
 
 ## Verify
 
-1. `nub run check:code`, `nub run check:site-design`, and `nub run --node site:build`. `public/llms.txt` must still equal `renderLlmsTxt()`.
+1. `npm run check:code`, `npm run check:site-design`, and `npm run site:build`. `public/llms.txt` must still equal `renderLlmsTxt()`.
 2. Screenshots at 1440, 820, and 390, as DESIGN.md Verification describes.
 3. For a refactor, capture before and after, diff the pixels at tolerance 0, and compare the page text and the markdown twin (`curl -H 'Accept: text/markdown'`). An unlisted difference is a defect.
 

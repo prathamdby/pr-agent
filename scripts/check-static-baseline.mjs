@@ -171,7 +171,7 @@ if (BOOTSTRAP) {
 
 if (!fs.existsSync(BASELINE_PATH)) {
   console.error(
-    `Missing ${path.relative(ROOT, BASELINE_PATH)}. Run: nub run check:static-baseline -- --bootstrap`,
+    `Missing ${path.relative(ROOT, BASELINE_PATH)}. Run: npm run check:static-baseline -- --bootstrap`,
   );
   process.exit(1);
 }

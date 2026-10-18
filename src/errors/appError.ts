@@ -1,9 +1,9 @@
-import { appErrorCode, type AppErrorCode, type AppErrorShape } from "./appErrorCodes.js";
-import { isRecord } from "../util/typeGuards.js";
+import { appErrorCode, type AppErrorCode, type AppErrorShape } from "./appErrorCodes.ts";
+import { isRecord } from "../util/typeGuards.ts";
 import {
   sanitizeTelemetryString,
   sanitizeTelemetryValue,
-} from "../security/sanitizeTelemetryValue.js";
+} from "../security/sanitizeTelemetryValue.ts";
 
 export type AppErrorContext = Record<string, unknown>;
 

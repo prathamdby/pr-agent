@@ -1,14 +1,14 @@
-import type { Config, ReviewCancelAttribution } from "../settings/index.js";
+import type { Config, ReviewCancelAttribution } from "../settings/index.ts";
 import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../settings/queueConstants.js";
-import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
-import type { ReviewMode } from "../review/reviewSchema.js";
-import type { WorkSource } from "../review/reviewSchema.js";
+} from "../settings/queueConstants.ts";
+import type { CodeAnchor } from "../agent/ask/askRunTypes.ts";
+import type { ReviewMode } from "../review/reviewSchema.ts";
+import type { WorkSource } from "../review/reviewSchema.ts";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 

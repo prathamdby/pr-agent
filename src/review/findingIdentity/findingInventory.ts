@@ -1,12 +1,12 @@
-import { errorMessage } from "../../errors/errorMessage.js";
-import { logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurfaceTypes.js";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { logWarn } from "../../evlog.ts";
+import type { PrSurface } from "../../github/prSurfaceTypes.ts";
 import type {
   ListReviewThreadResolutionResult,
   ReviewThreadSnapshot,
-} from "../../github/reviewThreadResolution.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
-import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
+} from "../../github/reviewThreadResolution.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../../settings/index.ts";
+import type { FindingSource } from "../orchestrator/orchestratorTypes.ts";
 import {
   isBotAuthor,
   legacyFindingId,
@@ -16,7 +16,7 @@ import {
   parseOwnedReceipts,
   type FindingId,
   type FindingSeverity,
-} from "./findingMarker.js";
+} from "./findingMarker.ts";
 
 export type InventoryCompleteness = "complete" | "partial" | "unavailable" | "permission_denied";
 export type FindingResolution = "fixed" | "dismissed" | "duplicate";

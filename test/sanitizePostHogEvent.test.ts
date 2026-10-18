@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   sanitizePostHogEvent,
   type PostHogEventMessage,
-} from "../src/security/sanitizePostHogEvent.js";
+} from "../src/security/sanitizePostHogEvent.ts";
 
 const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 

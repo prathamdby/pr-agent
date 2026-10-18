@@ -1,8 +1,8 @@
-import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../settings/index.js";
-import { installationOctokit } from "./appAuth.js";
-import { classifyGithubError } from "./githubErrors.js";
-import { stopPaginatedPage } from "./paginateOctokit.js";
-import { isConfirmedCapabilityDenial } from "./installationCapabilities.js";
+import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../settings/index.ts";
+import { installationOctokit } from "./appAuth.ts";
+import { classifyGithubError } from "./githubErrors.ts";
+import { stopPaginatedPage } from "./paginateOctokit.ts";
+import { isConfirmedCapabilityDenial } from "./installationCapabilities.ts";
 
 const WORKFLOW_RUNS_PAGE_SIZE = 20;
 const WORKFLOW_RUNS_MAX_PAGES = 2;

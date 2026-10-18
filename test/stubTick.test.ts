@@ -1,8 +1,8 @@
 import type { Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
-vi.mock("../src/agentWork/ciProjection.js", () => ({
+vi.mock("../src/agentWork/ciProjection.ts", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
@@ -17,7 +17,7 @@ const summaryWrite = vi.hoisted(() =>
   })),
 );
 
-vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
+vi.mock("../src/review/publish/reviewSummaryComment.ts", () => ({
   createReviewSummaryComment: (deps: {
     readonly prSurface: unknown;
     readonly reviewLens: string;
@@ -41,12 +41,12 @@ vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
   }),
 }));
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
 
-import { logWarn } from "../src/evlog.js";
-import { tickProgressComment } from "../src/review/orchestrator/stubTick.js";
+import { logWarn } from "../src/evlog.ts";
+import { tickProgressComment } from "../src/review/orchestrator/stubTick.ts";
 
 const pool = {} as Pool;
 

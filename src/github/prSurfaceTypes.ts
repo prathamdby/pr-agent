@@ -1,25 +1,25 @@
-import type { PrResource } from "../agentWork/types.js";
-import type { Config, GithubReactionContent } from "../settings/index.js";
-import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
-import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
-import type { ReplyTarget } from "../agentWork/types.js";
-import type { InstallationToken } from "./appAuth.js";
-import type { ReviewCapabilityPolicy } from "./installationCapabilities.js";
-import type { CiStatusSourcesResult } from "./ciStatus.js";
+import type { PrResource } from "../agentWork/types.ts";
+import type { Config, GithubReactionContent } from "../settings/index.ts";
+import type { OperationIntentRow } from "../agentWork/operationIntentRepository.ts";
+import type { OperationIntentRecovery } from "../agentWork/publishOnce.ts";
+import type { ReplyTarget } from "../agentWork/types.ts";
+import type { InstallationToken } from "./appAuth.ts";
+import type { ReviewCapabilityPolicy } from "./installationCapabilities.ts";
+import type { CiStatusSourcesResult } from "./ciStatus.ts";
 import type {
   ListPullRequestFilesLimits,
   ListPullRequestFilesResult,
   PullRequestForFileList,
-} from "./listPullRequestFiles.js";
-import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
-import type { DownloadActionsJobLogsResult, ListFailingActionsJobsResult } from "./actionsLogs.js";
+} from "./listPullRequestFiles.ts";
+import type { ListCommitCompareFilesResult } from "./compareCommitFiles.ts";
+import type { DownloadActionsJobLogsResult, ListFailingActionsJobsResult } from "./actionsLogs.ts";
 import type {
   ListReviewThreadResolutionResult,
   ReviewThreadSnapshot,
-} from "./reviewThreadResolution.js";
-import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
-import type { ReviewThreadComment } from "../review/run/reviewPriorFeedback.js";
+} from "./reviewThreadResolution.ts";
+import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.ts";
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.ts";
+import type { ReviewThreadComment } from "../review/run/reviewPriorFeedback.ts";
 
 export type AcknowledgementTarget =
   | { readonly kind: "pr"; readonly prNumber: number }

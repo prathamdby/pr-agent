@@ -1,17 +1,17 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
-import { logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { ReviewCancelAttribution, AnyReviewLens } from "../../settings/index.js";
-import { createReviewSummaryComment } from "../publish/reviewSummaryComment.js";
-import type { WorkSource } from "../reviewSchema.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
+import { logWarn } from "../../evlog.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { ReviewCancelAttribution, AnyReviewLens } from "../../settings/index.ts";
+import { createReviewSummaryComment } from "../publish/reviewSummaryComment.ts";
+import type { WorkSource } from "../reviewSchema.ts";
 import {
   renderReviewCancelledNotice,
   renderReviewProgressComment,
   type SpecialistTickState,
-} from "../run/progressComment.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../run/progressComment.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 type ProgressTickRevision = 1 | 2 | 3 | 4 | 5 | 6;
 type SpecialistStatusTick = Extract<SpecialistTickState, { readonly kind: "specialists" }>;

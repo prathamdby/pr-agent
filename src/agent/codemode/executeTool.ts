@@ -1,24 +1,24 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import type { CodeModeExecutorKind } from "../../settings/index.js";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import type { CodeModeExecutorKind } from "../../settings/index.ts";
+import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.ts";
+import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.ts";
 import {
   createExecutionSessionStore,
   type ExecutionSessionStore,
-} from "../execution/sessionStore.js";
-import { runCodeModeScript } from "./runScript.js";
-import type { CodeModeResult } from "./result.js";
-import { renderExecuteDescription } from "./guestCatalogue.js";
-import { CODE_MODE_EXECUTE_NAME, type CodeModeCapabilityExecutors } from "./types.js";
+} from "../execution/sessionStore.ts";
+import { runCodeModeScript } from "./runScript.ts";
+import type { CodeModeResult } from "./result.ts";
+import { renderExecuteDescription } from "./guestCatalogue.ts";
+import { CODE_MODE_EXECUTE_NAME, type CodeModeCapabilityExecutors } from "./types.ts";
 
 export {
   CODE_MODE_EXECUTE_NAME,
   CODE_MODE_WORKSPACE_TOOL_NAMES,
   type CodeModeCapabilityExecutors,
   type CodeModeWorkspaceToolName,
-} from "./types.js";
+} from "./types.ts";
 
 export function buildCodeModeExecuteTool(params: {
   readonly capabilities: CodeModeCapabilityExecutors;

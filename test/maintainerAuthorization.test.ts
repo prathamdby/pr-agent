@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assembleBotReviewThreads } from "../src/review/run/reviewPriorFeedback.js";
+import { assembleBotReviewThreads } from "../src/review/run/reviewPriorFeedback.ts";
 
 describe("maintainer decisions in assembled review threads", () => {
   it.each([

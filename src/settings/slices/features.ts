@@ -13,9 +13,9 @@ import {
   REVIEW_LABELS_MODES,
   VERIFICATION_FEATURE_MODES,
   type Features,
-} from "../featureModes.js";
-import { ENV } from "../envKeys.js";
-import { readEnum, readStrictBoolean } from "../envReaders.js";
+} from "../featureModes.ts";
+import { ENV } from "../envKeys.ts";
+import { readEnum, readStrictBoolean } from "../envReaders.ts";
 
 export function readFeatures(): Features {
   return {

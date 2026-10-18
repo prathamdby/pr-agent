@@ -1,5 +1,5 @@
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
-import type { ReviewPayload } from "../reviewSchema.js";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
+import type { ReviewPayload } from "../reviewSchema.ts";
 
 export function redactReviewText(text: string): string {
   return redactOutboundSecrets(text);

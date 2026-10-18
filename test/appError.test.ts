@@ -7,7 +7,7 @@ import {
   sanitizeErrorForTelemetry,
   serializeAppError,
   toAppError,
-} from "../src/errors/appError.js";
+} from "../src/errors/appError.ts";
 
 const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 

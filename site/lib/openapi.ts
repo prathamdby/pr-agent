@@ -8,10 +8,10 @@ import {
   MCP_SERVER_CARD,
   READ_PR_AGENT_SKILL,
   SITE_HEALTH,
-} from "./agentResources.js";
-import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
-import { MAX_QUERY_CHARS } from "./llmsKnowledge.js";
-import { REPO_URL, SITE_ORIGIN } from "./site.js";
+} from "./agentResources.ts";
+import { FETCH_MARKDOWN_LANGUAGES } from "./content.ts";
+import { MAX_QUERY_CHARS } from "./llmsKnowledge.ts";
+import { REPO_URL, SITE_ORIGIN } from "./site.ts";
 
 function markdownResponse(description: string) {
   return {

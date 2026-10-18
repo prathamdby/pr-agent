@@ -1,4 +1,4 @@
-import { sanitizeGithubLogin, type ReviewCancelAttribution } from "./reviewConstants.js";
+import { sanitizeGithubLogin, type ReviewCancelAttribution } from "./reviewConstants.ts";
 
 export const TRIAGE_SUMMARY_SENTINEL = "## PR Agent Triage";
 export const TRIAGE_PREVIEW_SENTINEL = "## PR Agent Triage Preview";

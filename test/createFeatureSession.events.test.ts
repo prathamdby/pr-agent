@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AgentEventInsertRow } from "../src/agentWork/agentEventsRepository.js";
-import { makeTestConfig } from "./helpers/config.js";
+import type { AgentEventInsertRow } from "../src/agentWork/agentEventsRepository.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
   function fakePiSession(): {
@@ -26,8 +26,8 @@ const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.js")>();
+vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
   return {
     ...actual,
     appendAgentEvents,
@@ -42,7 +42,7 @@ vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agent/runtime/piSession.js", () => ({
+vi.mock("../src/agent/runtime/piSession.ts", () => ({
   createPiSession: vi.fn(async (params: { eventSink: (event: unknown) => void }) => {
     params.eventSink({
       kind: "turn",
@@ -57,10 +57,10 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
   DEFAULT_TOOL_POLICY: {},
 }));
 
-import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
-import { createPiSession } from "../src/agent/runtime/piSession.js";
-import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.js";
-import { createFakePiSession } from "../src/agent/runtime/fakePiSession.js";
+import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.ts";
+import { createPiSession } from "../src/agent/runtime/piSession.ts";
+import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.ts";
+import { createFakePiSession } from "../src/agent/runtime/fakePiSession.ts";
 
 describe("createFeaturePiSession agent events", () => {
   beforeEach(() => {

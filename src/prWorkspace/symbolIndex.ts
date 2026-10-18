@@ -3,7 +3,7 @@ import {
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
 export type SymbolKind = "function" | "class" | "type" | "variable";
 

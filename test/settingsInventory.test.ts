@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parse as parseYaml } from "yaml";
-import { ENV, EXTERNAL_ENV } from "../src/settings/index.js";
+import { execFileSync } from "node:child_process";
+import { ENV, EXTERNAL_ENV } from "../src/settings/index.ts";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
-const NUB_JSONC_PATH = path.join(process.cwd(), "nub.jsonc");
-const NUB_LOCK_PATH = path.join(process.cwd(), "nub.lock");
+const LOCK_PATH = path.join(process.cwd(), "package-lock.json");
 const PACKAGE_JSON_PATH = path.join(process.cwd(), "package.json");
 
 function parseEnvExampleKeys(content: string): string[] {
@@ -77,44 +76,54 @@ describe("settings inventory", () => {
     }
   });
 
-  it("nub.jsonc keeps a 7d cooling window with string excludes", () => {
-    const config = parseYaml(fs.readFileSync(NUB_JSONC_PATH, "utf8")) as {
-      install?: {
-        minimumReleaseAge?: unknown;
-        minimumReleaseAgeExclude?: unknown;
-      };
-    };
-    expect(config.install?.minimumReleaseAge).toBe("7d");
-    const excludes = config.install?.minimumReleaseAgeExclude;
-    expect(Array.isArray(excludes)).toBe(true);
-    expect((excludes as unknown[]).length).toBeGreaterThan(0);
-    for (const entry of excludes as unknown[]) {
-      expect(typeof entry).toBe("string");
-      expect((entry as string).length).toBeGreaterThan(0);
-    }
+  it("npm applies the shared install policy from both workspace directories", () => {
+    const cli = process.env.npm_execpath;
+    expect(cli).toBeTruthy();
+    if (!cli) throw new Error("Run the suite through npm run test");
+    const config = JSON.parse(
+      execFileSync(process.execPath, [cli, "config", "list", "--json"], {
+        encoding: "utf8",
+      }),
+    );
+    expect(config["min-release-age"]).toBe(7);
+    expect(config["min-release-age-exclude"]).toEqual([]);
+    expect(config["legacy-peer-deps"]).toBe(true);
+    expect(config["ignore-scripts"]).toBe(true);
+    expect(config["engine-strict"]).toBe(true);
+    const environment = execFileSync(process.execPath, [cli, "run", "env"], {
+      cwd: path.join(process.cwd(), "site"),
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter((line) =>
+        /^(npm_config_local_prefix|npm_config_ignore_scripts|npm_config_legacy_peer_deps|npm_config_engine_strict)=/.test(
+          line,
+        ),
+      )
+      .toSorted();
+    expect(environment).toEqual(
+      [
+        `npm_config_local_prefix=${process.cwd()}`,
+        "npm_config_ignore_scripts=true",
+        "npm_config_legacy_peer_deps=true",
+        "npm_config_engine_strict=true",
+      ].toSorted(),
+    );
   });
 
-  it("nub.lock overrides and importers match package.json", () => {
+  it("the root lock includes each workspace and its declared dependencies", () => {
     const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
-      overrides?: Record<string, string>;
       workspaces?: string[];
     };
-    const lock = parseYaml(fs.readFileSync(NUB_LOCK_PATH, "utf8")) as {
-      overrides?: Record<string, string | number>;
-      importers?: Record<string, unknown>;
-    };
-    expect(pkg.overrides).toBeTruthy();
-    expect(lock.overrides).toBeTruthy();
-    const pkgOverrides = pkg.overrides!;
-    const lockOverrides = Object.fromEntries(
-      Object.entries(lock.overrides!).map(([key, value]) => [key, String(value)]),
-    );
-    expect(lockOverrides).toEqual(pkgOverrides);
+    const lock = JSON.parse(fs.readFileSync(LOCK_PATH, "utf8"));
     const workspaces = pkg.workspaces ?? [];
     expect(workspaces.length).toBeGreaterThan(0);
-    for (const workspace of workspaces) {
-      const importerKey = workspace === "." ? "." : workspace;
-      expect(lock.importers?.[importerKey], `missing importer ${importerKey}`).toBeTruthy();
+    for (const workspace of ["", ...workspaces]) {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(process.cwd(), workspace, "package.json"), "utf8"),
+      );
+      expect(lock.packages[workspace]?.dependencies).toEqual(manifest.dependencies);
+      expect(lock.packages[workspace]?.devDependencies).toEqual(manifest.devDependencies);
     }
   });
 });

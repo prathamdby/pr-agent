@@ -3,7 +3,7 @@ import {
   botMentionLogins,
   commentMentionsBot,
   stripBotMentions,
-} from "../src/commands/parseBotMention.js";
+} from "../src/commands/parseBotMention.ts";
 
 const BOT_LOGIN = "pr-agent[bot]";
 

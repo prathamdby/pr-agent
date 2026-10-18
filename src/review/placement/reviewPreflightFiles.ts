@@ -1,6 +1,6 @@
-import type { ListPullRequestFilesResult } from "../../github/listPullRequestFiles.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { PreflightFileEntry } from "../run/reviewChangeGate.js";
+import type { ListPullRequestFilesResult } from "../../github/listPullRequestFiles.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { PreflightFileEntry } from "../run/reviewChangeGate.ts";
 
 export type ReviewPreflightMetadata = {
   readonly files: readonly PreflightFileEntry[];

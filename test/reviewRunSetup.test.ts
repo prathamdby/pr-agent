@@ -1,11 +1,11 @@
-import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.ts";
 import { describe, expect, it, vi } from "vitest";
-import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
-import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
-import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
+import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.ts";
+import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
 
 const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/review-run-setup",

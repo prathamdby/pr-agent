@@ -1,6 +1,6 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-import { productionInstallationSurface } from "../installationSurface.js";
-import { createPublishContext } from "../publishOnce.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
+import { productionInstallationSurface } from "../installationSurface.ts";
+import { createPublishContext } from "../publishOnce.ts";
 import type { Pool } from "pg";
 
 import {
@@ -15,31 +15,31 @@ import {
   TRIAGE_PUBLISH_LENS,
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
-} from "../../settings/index.js";
-import { AppError } from "../../errors/appError.js";
-import { logWarn } from "../../evlog.js";
-import type { BotIdentity } from "../../github/appAuth.js";
-import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
-import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
+} from "../../settings/index.ts";
+import { AppError } from "../../errors/appError.ts";
+import { logWarn } from "../../evlog.ts";
+import type { BotIdentity } from "../../github/appAuth.ts";
+import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.ts";
+import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.ts";
 import {
   fetchBotFindingThreads,
   resolveReviewThreadRootId,
   type BotFindingThread,
-} from "../../review/run/reviewPriorFeedback.js";
-import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.js";
-import { runFullPrTriage } from "../../agent/triage/triageRun.js";
+} from "../../review/run/reviewPriorFeedback.ts";
+import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.ts";
+import { runFullPrTriage } from "../../agent/triage/triageRun.ts";
 import {
   previewApprovalSets,
   remapBulkPayload,
   replayPreviewHunks,
-} from "../../agent/triage/previewApproval.js";
+} from "../../agent/triage/previewApproval.ts";
 import {
   assertTriagePullRequestWritable,
   TriageCancelledError,
   TriageClosedPullRequestError,
-} from "../../agent/triage/triageErrors.js";
+} from "../../agent/triage/triageErrors.ts";
 import {
   parseStoredTriagePreviewDetail,
   recoverTriagePublication,
@@ -48,18 +48,18 @@ import {
   publishTriageReportOnly,
   type PublishTriageResult,
   type StoredTriagePreviewDetail,
-} from "../../agent/triage/publishTriage.js";
-import { withWritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
+} from "../../agent/triage/publishTriage.ts";
+import { withWritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
 import {
   buildTriageCommitAttribution,
   gitPersonFromGithubUser,
   type GitPerson,
-} from "../../agent/triage/commitAttribution.js";
-import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
-import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.js";
-import type { EscalationPlan } from "../retryPolicy.js";
-import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
-import { toError } from "../../errors/errorMessage.js";
+} from "../../agent/triage/commitAttribution.ts";
+import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
+import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.ts";
+import type { EscalationPlan } from "../retryPolicy.ts";
+import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.ts";
+import { toError } from "../../errors/errorMessage.ts";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 

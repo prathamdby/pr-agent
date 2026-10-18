@@ -1,26 +1,26 @@
-import type { PrResource } from "../agentWork/types.js";
+import type { PrResource } from "../agentWork/types.ts";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
-} from "../review/placement/reviewPreflightFiles.js";
+} from "../review/placement/reviewPreflightFiles.ts";
 import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
-} from "../github/listPullRequestFiles.js";
-import { logWarn } from "../evlog.js";
+} from "../github/listPullRequestFiles.ts";
+import { logWarn } from "../evlog.ts";
 import {
   PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
   type LocalPrWorkspace,
-} from "./localPrWorkspace.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "./localPrWorkspace.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;

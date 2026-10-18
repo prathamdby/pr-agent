@@ -1,14 +1,14 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   CONTEXT7_BASE_URL,
   CONTEXT7_LIBRARY_ID_MAX_CHARS,
   CONTEXT7_LIBRARY_NAME_MAX_CHARS,
   CONTEXT7_QUERY_MAX_CHARS,
   CONTEXT7_TOPIC_MAX_CHARS,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   assertContext7LibraryId,
   assertContext7LibraryName,
@@ -17,11 +17,11 @@ import {
   prepareContext7OutboundText,
   redactContext7Json,
   redactContext7Response,
-} from "../../security/context7OutboundPolicy.js";
-import { capTextOutput } from "./toolOutputBudget.js";
-import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
-import { isRecord } from "../../util/typeGuards.js";
-import type { AgentToolCallContext } from "../providers/interface.js";
+} from "../../security/context7OutboundPolicy.ts";
+import { capTextOutput } from "./toolOutputBudget.ts";
+import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.ts";
+import { isRecord } from "../../util/typeGuards.ts";
+import type { AgentToolCallContext } from "../providers/interface.ts";
 
 const resolveLibraryIdSchema = v.object({
   libraryName: v.pipe(

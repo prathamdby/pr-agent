@@ -1,18 +1,18 @@
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { inTransaction, pgBossDb } from "../db/postgres.js";
-import { AppError, isAppError } from "../errors/appError.js";
-import { logError, logInfo } from "../evlog.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
-import { acquireAutoWorkIntakeLock } from "./autoWorkEnqueue.js";
+import { inTransaction, pgBossDb } from "../db/postgres.ts";
+import { AppError, isAppError } from "../errors/appError.ts";
+import { logError, logInfo } from "../evlog.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.ts";
+import { acquireAutoWorkIntakeLock } from "./autoWorkEnqueue.ts";
 import {
   loadReviewLifecycle,
   transferProgressCommentOwnership,
-} from "./intake/workItemRepository.js";
-import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
-import { getWorkItem, markQueuedWorkCancelled } from "./workItemStateRepository.js";
+} from "./intake/workItemRepository.ts";
+import { lockPrActorLeaseForUpdate } from "./prActorLease.ts";
+import { getWorkItem, markQueuedWorkCancelled } from "./workItemStateRepository.ts";
 import {
   installationGroupId,
   type ReviewWorkItem,
@@ -20,9 +20,9 @@ import {
   type ReviewJobData,
   type ReviewWorkPayload,
   type StaleHeadReplacement,
-} from "./types.js";
-import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "./types.ts";
+import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export type StaleReviewRescheduleResult = {
   readonly kind: "rescheduled";

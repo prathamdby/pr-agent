@@ -3,8 +3,8 @@ import {
   degradedReasonFromReviewFlags,
   reviewWorkOutcome,
   workFailureReasonFromClassified,
-} from "../src/analytics/workCompleted.js";
-import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.js";
+} from "../src/analytics/workCompleted.ts";
+import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.ts";
 
 function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunMetricsSnapshot {
   return {

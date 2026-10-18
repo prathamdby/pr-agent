@@ -1,23 +1,23 @@
-import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
-import { runMigrations } from "../../src/db/migrations.js";
-import { inTransaction } from "../../src/db/postgres.js";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
 import {
   acquirePrActorLease,
   assertPrActorLeaseHeld,
   releasePrActorLease,
-} from "../../src/agentWork/prActorLease.js";
-import * as repository from "../../src/agentWork/publishRecordRepository.js";
-import * as evlog from "../../src/evlog.js";
-import { createFakePrSurface } from "../../src/github/prSurface.js";
-import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
-import { publishOnce } from "../../src/agentWork/publishOnce.js";
-import { fenceForEpoch } from "../../src/agentWork/writeFence.js";
-import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
-import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
+} from "../../src/agentWork/prActorLease.ts";
+import * as repository from "../../src/agentWork/publishRecordRepository.ts";
+import * as evlog from "../../src/evlog.ts";
+import { createFakePrSurface } from "../../src/github/prSurface.ts";
+import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.ts";
+import { publishOnce } from "../../src/agentWork/publishOnce.ts";
+import { fenceForEpoch } from "../../src/agentWork/writeFence.ts";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.ts";
+import { tickProgressComment } from "../../src/review/orchestrator/stubTick.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.ts";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
@@ -25,19 +25,19 @@ import {
   createTriageWorkItem,
   createVerificationWorkItem,
   recordReviewLifecycleObservation,
-} from "../../src/agentWork/intake/workItemRepository.js";
-import { acquireAutoWorkIntakeLock } from "../../src/agentWork/autoWorkEnqueue.js";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
+} from "../../src/agentWork/intake/workItemRepository.ts";
+import { acquireAutoWorkIntakeLock } from "../../src/agentWork/autoWorkEnqueue.ts";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.ts";
 import {
   getReviewQueuePosition,
   getWorkItem,
-} from "../../src/agentWork/workItemStateRepository.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
 import {
   getProgressCommentOwner,
   getProgressCommentRevision,
-} from "../../src/agentWork/publishRecordRepository.js";
-import { prResourceKey } from "../../src/agentWork/types.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/agentWork/publishRecordRepository.ts";
+import { prResourceKey } from "../../src/agentWork/types.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "work-item-repo-it";
 const EVENT = "work-item-repo-it";

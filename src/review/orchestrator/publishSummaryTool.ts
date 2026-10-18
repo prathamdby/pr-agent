@@ -1,24 +1,24 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toToolParameters } from "../../agent/tools/toolParams.js";
-import { AppError, toAppError } from "../../errors/appError.js";
-import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
-import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
+import { toToolParameters } from "../../agent/tools/toolParams.ts";
+import { AppError, toAppError } from "../../errors/appError.ts";
+import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
+import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.ts";
+import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
 import {
   publishReviewSummaryOnly,
   type PublishSummaryOnlyResult,
-} from "../publish/publishSummaryOnly.js";
-import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
+} from "../publish/publishSummaryOnly.ts";
+import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.ts";
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
   REVIEW_PUBLISH_SUMMARY_FIELDS,
   type ReviewPayload,
-} from "../reviewSchema.js";
-import { ledgerFindings, type FindingLedger, type ReviewCoverage } from "./orchestratorTypes.js";
-import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
-import type { FindingCheck } from "../findingIdentity/findingLifecycle.js";
+} from "../reviewSchema.ts";
+import { ledgerFindings, type FindingLedger, type ReviewCoverage } from "./orchestratorTypes.ts";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
+import type { FindingCheck } from "../findingIdentity/findingLifecycle.ts";
 
 const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_SUMMARY_FIELDS);
 

@@ -1,6 +1,6 @@
-import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
-import type { ReviewFinding } from "../reviewSchema.js";
-import { normalizeEvidencePath, type EvidenceLedger } from "./evidenceLedger.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import { normalizeEvidencePath, type EvidenceLedger } from "./evidenceLedger.ts";
 
 export type EvidenceRejectedFinding = {
   readonly finding: ReviewFinding;

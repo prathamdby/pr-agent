@@ -4,6 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const npmCli = process.env.npm_execpath;
+if (!npmCli) {
+  console.error("Run this verifier through npm run verify.");
+  process.exit(1);
+}
 
 if (process.env.DATABASE_URL && !process.argv.includes("--use-env")) {
   console.error(
@@ -56,7 +61,7 @@ try {
   const started = new Date().toISOString();
   let result = "";
   try {
-    result = execFileSync("nub", ["run", "test:integration"], {
+    result = execFileSync(process.execPath, [npmCli, "run", "test:integration"], {
       cwd: ROOT,
       encoding: "utf8",
       maxBuffer: 100 * 1024 * 1024,

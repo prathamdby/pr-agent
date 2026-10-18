@@ -157,7 +157,7 @@ Paste the GitHub App private key as one line with `\n` for newlines, or as base6
 
 - `WEBHOOK_SECRET` must match the secret you set on the GitHub App.
 - Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host integration tests and optional host processes. [Local development](#local-development) publishes that port from `docker-compose.dev.yml`. Production Compose does not.
-- Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `nub src/index.ts` without `PORT` falls back to `3000`.
+- Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `node --env-file-if-exists=.env src/index.ts` without `PORT` falls back to `3000`.
 - `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
 - On shutdown the worker stops taking jobs, waits briefly for in-flight work to record its outcome, and exits. Work that outlives that window is recovered by a later worker. Details: [docs/operations.md](docs/operations.md).
 - Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
@@ -395,21 +395,21 @@ For live App deliveries, put real GitHub fields in `.env` and start with `PR_AGE
 Do not start [docker-compose.yml](docker-compose.yml) at the same time. That file is the self-host path. It has no Caddy, no tunnel, and does not publish Postgres.
 
 <details>
-<summary>Tests, Nub pin, and the landing site</summary>
+<summary>Tests, Node and npm, and the landing site</summary>
 
 `docker-compose.dev.yml` publishes Postgres at `localhost:5432`. Integration tests use that URL. Unit tests do not need the database, Caddy, or the tunnel.
 
 ```bash
-nub run test
-DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration
-nub run check:code
+npm run test
+DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent npm run test:integration
+npm run check:code
 ```
 
-Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases: `nub run test:integration:inventory`.
+Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases: `npm run test:integration:inventory`.
 
-Host Nub is optional on this path. Pin it to `0.7.2` when you install it (`package.json` `packageManager`, `Dockerfile`, `site/vercel.json`). Use `nub watch src/index.ts` only if you want to edit TypeScript on the host instead of rebuilding the image. Give the two roles distinct `PORT` values. Do not copy `PORT=7224` onto both terminals.
+For host development, install Node 24.22.0 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. Give web and worker distinct `PORT` values.
 
-If you previously installed with pnpm or npm at the repo root, delete `node_modules` before the first `nub install` so the virtual store is not mixed (`.pnpm/` vs Nub’s store).
+One root `package-lock.json` covers the backend and landing workspace. Use `npm ci --workspaces=false` for backend build dependencies, `npm ci --omit=dev --workspaces=false` for backend production, or `npm ci --workspace=pr-agent-landing --include-workspace-root=false` for the site. `.npmrc` owns the seven-day release-age policy, disabled dependency lifecycle scripts, legacy peer resolution, and strict engines.
 
 More scripts and edge cases: [docs/operations.md](docs/operations.md#development).
 

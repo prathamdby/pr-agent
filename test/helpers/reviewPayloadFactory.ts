@@ -1,4 +1,4 @@
-import { reviewPayloadFromFindings, type ReviewPayload } from "../../src/review/reviewSchema.js";
+import { reviewPayloadFromFindings, type ReviewPayload } from "../../src/review/reviewSchema.ts";
 
 const DEFAULT_REVIEW_PAYLOAD: ReviewPayload = {
   ...reviewPayloadFromFindings([]),

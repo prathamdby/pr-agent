@@ -1,15 +1,15 @@
-import type { PublishRecordStore, PublishIntentStore } from "./publishOnce.js";
-import { fencedWrite } from "./fencedWrite.js";
-import { isRecord } from "../util/typeGuards.js";
-import { logWarn } from "../evlog.js";
-import { AppError, errorLogFields } from "../errors/appError.js";
-import { ASK_PUBLISH_LENS } from "../settings/index.js";
+import type { PublishRecordStore, PublishIntentStore } from "./publishOnce.ts";
+import { fencedWrite } from "./fencedWrite.ts";
+import { isRecord } from "../util/typeGuards.ts";
+import { logWarn } from "../evlog.ts";
+import { AppError, errorLogFields } from "../errors/appError.ts";
+import { ASK_PUBLISH_LENS } from "../settings/index.ts";
 import crypto from "node:crypto";
 import {
   selectRetainedDescriptionSurfaceIdentity,
   type OperationIntentRow,
   type OperationIntentStatus,
-} from "./operationIntentRepository.js";
+} from "./operationIntentRepository.ts";
 
 type StoredIntent = {
   id: string;
@@ -172,7 +172,7 @@ export function createFakePublishStore(): PublishIntentStore {
 }
 
 export function createFakePublishRecords(
-  publishStepSpecs: typeof import("./publishOnce.js").publishStepSpecs,
+  publishStepSpecs: typeof import("./publishOnce.ts").publishStepSpecs,
 ): PublishRecordStore {
   const rows = new Map<
     string,

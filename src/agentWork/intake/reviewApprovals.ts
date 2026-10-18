@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from "pg";
-import { RETENTION_DELETE_BATCH_SIZE } from "../../settings/index.js";
-import { prResourceKey, type PrRef } from "../types.js";
+import { RETENTION_DELETE_BATCH_SIZE } from "../../settings/index.ts";
+import { prResourceKey, type PrRef } from "../types.ts";
 
 type ApprovalTarget = {
   resource_key: string;

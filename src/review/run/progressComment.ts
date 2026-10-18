@@ -4,7 +4,7 @@ import {
   renderKeyValueTable,
   renderTableCode,
   renderTableStrong,
-} from "../../github/markdownFormat.js";
+} from "../../github/markdownFormat.ts";
 import {
   STATUS_DONE,
   STATUS_FAILED,
@@ -12,7 +12,7 @@ import {
   STATUS_RUNNING,
   STATUS_WAITING,
   statusFindings,
-} from "../statusCopy.js";
+} from "../statusCopy.ts";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_AWAITING_APPROVAL_NOTE,
@@ -25,20 +25,20 @@ import {
   reviewProgressCancelledNote,
   type ReviewCancelAttribution,
   type AnyReviewLens,
-} from "../../settings/index.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import type { WorkSource } from "../reviewSchema.js";
-import type { CiSummary } from "../ci/ciFacts.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.js";
-import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.js";
+} from "../../settings/index.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
+import type { WorkSource } from "../reviewSchema.ts";
+import type { CiSummary } from "../ci/ciFacts.ts";
+import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.ts";
+import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.ts";
 import {
   SPECIALIST_IDS,
   type ReconRunPhase,
   type SpecialistId,
   type SpecialistRunPhase,
-} from "../orchestrator/orchestratorTypes.js";
-import { renderProgressRevisionComment } from "./commentMarkers.js";
-import { renderStaleReviewMetadataComment } from "./reviewRender.js";
+} from "../orchestrator/orchestratorTypes.ts";
+import { renderProgressRevisionComment } from "./commentMarkers.ts";
+import { renderStaleReviewMetadataComment } from "./reviewRender.ts";
 
 type SpecialistPhase = SpecialistRunPhase;
 

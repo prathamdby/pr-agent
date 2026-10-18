@@ -6,9 +6,9 @@ import {
   probeWorkerDependencies,
   startPeriodicQueueDiagnostics,
   WORKER_CONSUMER_QUEUES,
-} from "../src/agentWork/workerHealth.js";
-import { REVIEW_QUEUE } from "../src/settings/index.js";
-import * as evlog from "../src/evlog.js";
+} from "../src/agentWork/workerHealth.ts";
+import { REVIEW_QUEUE } from "../src/settings/index.ts";
+import * as evlog from "../src/evlog.ts";
 
 describe("evaluateWorkerReadiness", () => {
   it("is ready when consumers are registered and dependencies respond", () => {

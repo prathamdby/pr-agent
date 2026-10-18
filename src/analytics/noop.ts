@@ -1,4 +1,4 @@
-import type { AnalyticsSink } from "./types.js";
+import type { AnalyticsSink } from "./types.ts";
 
 export const noopAnalyticsSink: AnalyticsSink = {
   captureEvent() {},

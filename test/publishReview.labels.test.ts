@@ -1,28 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import * as evlog from "../src/evlog.js";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import * as evlog from "../src/evlog.ts";
+import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.ts";
+import { testPublishState } from "./helpers/reviewPublishTestHelpers.ts";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
   type PublishReviewTestHarness,
-} from "./helpers/publishReviewTestSetup.js";
+} from "./helpers/publishReviewTestSetup.ts";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
-} from "../src/github/installationCapabilities.js";
+} from "../src/github/installationCapabilities.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
   const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.js");
+    await import("./helpers/publishReviewTestSetup.ts");
   return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
     ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };

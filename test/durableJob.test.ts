@@ -1,6 +1,6 @@
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -10,7 +10,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -35,44 +35,44 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
-import { AppError } from "../src/errors/appError.js";
+import { AppError } from "../src/errors/appError.ts";
 import {
   createDurableRuntime,
   createDurableExecutionContext,
   runDurableWorkItem,
   type DurableExecutionResult,
   type DurableJobSpec,
-} from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem } from "../src/agentWork/types.js";
-import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
-import { coreOf } from "./helpers/executorDurableHarness.js";
+} from "../src/agentWork/durableJob.ts";
+import type { AgentWorkItem } from "../src/agentWork/types.ts";
+import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { DEFERRED_HEAD_SHA } from "../src/settings/index.ts";
+import { coreOf } from "./helpers/executorDurableHarness.ts";
 import type { PoolClient } from "pg";
-import { availableInstallationCapabilities } from "../src/github/installationCapabilities.js";
+import { availableInstallationCapabilities } from "../src/github/installationCapabilities.ts";
 
-vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
   nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
   recordGithubCapabilityDenial: vi.fn(async () => true),
   saveGithubCapabilityObservation: vi.fn(async () => true),
   changeGithubPreflightFailureCount: vi.fn(async () => 0),
 }));
-vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+vi.mock("../src/github/sharedRateLimitCircuit.ts", () => ({
   getSharedRateLimitCircuit: vi.fn(async () => null),
 }));
-import * as capabilitiesRepository from "../src/agentWork/githubCapabilityRepository.js";
-import { getSharedRateLimitCircuit } from "../src/github/sharedRateLimitCircuit.js";
+import * as capabilitiesRepository from "../src/agentWork/githubCapabilityRepository.ts";
+import { getSharedRateLimitCircuit } from "../src/github/sharedRateLimitCircuit.ts";
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   getWorkItem: vi.fn(),
   getWorkItemCore: vi.fn(),
   getWorkItemPayload: vi.fn(),
@@ -89,8 +89,8 @@ vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return {
     ...actual,
     acquirePrActorLease: vi.fn(),
@@ -100,7 +100,7 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
 }));
@@ -110,8 +110,8 @@ const prSurfaceMocks = vi.hoisted(() => ({
   getHead: vi.fn(async () => ({ headSha: "x", pullRequest: {} })),
 }));
 
-vi.mock("../src/github/prSurface.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/prSurface.js")>();
+vi.mock("../src/github/prSurface.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/prSurface.ts")>();
   return {
     ...actual,
     createPrSurface: vi.fn(() => ({
@@ -124,19 +124,19 @@ vi.mock("../src/github/prSurface.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   logError: vi.fn(),
 }));
 
-import * as repo from "../src/agentWork/workItemStateRepository.js";
-import * as prActorLease from "../src/agentWork/prActorLease.js";
-import * as appAuth from "../src/github/appAuth.js";
-import * as evlog from "../src/evlog.js";
-import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
-import * as repositoryView from "../src/prWorkspace/prRepositoryView.js";
-import { mockWorkClaim, fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
+import * as repo from "../src/agentWork/workItemStateRepository.ts";
+import * as prActorLease from "../src/agentWork/prActorLease.ts";
+import * as appAuth from "../src/github/appAuth.ts";
+import * as evlog from "../src/evlog.ts";
+import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.ts";
+import * as repositoryView from "../src/prWorkspace/prRepositoryView.ts";
+import { mockWorkClaim, fakeDurablePrSurface } from "./helpers/executorDurableHarness.ts";
 
 let installationSurface = openInstallationSurface();
 

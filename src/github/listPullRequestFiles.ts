@@ -1,7 +1,7 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
-import { AppError } from "../errors/appError.js";
-import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.js";
-import { installationOctokit } from "./appAuth.js";
+import { AppError } from "../errors/appError.ts";
+import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.ts";
+import { installationOctokit } from "./appAuth.ts";
 
 export type PullRequestFileEntry = {
   readonly filename: string;

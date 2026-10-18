@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import { AppError } from "../../errors/appError.js";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import type { ReplyTarget } from "../types.js";
+import { AppError } from "../../errors/appError.ts";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
+import type { ReplyTarget } from "../types.ts";
 import type {
   AckTarget,
   AskWorkPayload,
@@ -12,14 +12,14 @@ import type {
   TriageScope,
   TriageWorkPayload,
   VerificationWorkPayload,
-} from "../types.js";
-import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
-import { reviewCancelLastError, type ReviewCancelAttribution } from "../../settings/index.js";
-import { prResourceKey, type PrRef } from "../types.js";
-import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.js";
-import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
-import { transition } from "../workItemTransitions.js";
-import { unleasedFence } from "../writeFence.js";
+} from "../types.ts";
+import type { ReviewMode, WorkSource } from "../../review/reviewSchema.ts";
+import { reviewCancelLastError, type ReviewCancelAttribution } from "../../settings/index.ts";
+import { prResourceKey, type PrRef } from "../types.ts";
+import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.ts";
+import { parseWorkItemPayload } from "../workItemPayloadSchema.ts";
+import { transition } from "../workItemTransitions.ts";
+import { unleasedFence } from "../writeFence.ts";
 
 const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type IN ('review', 'description', 'triage')

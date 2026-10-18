@@ -8,7 +8,7 @@ export const INTEGRATION_DATABASE_HINT = [
   "Start one, then re-run:",
   "  docker compose -f docker-compose.dev.yml up -d",
   "  export DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent",
-  "  nub run test:integration",
+  "  npm run test:integration",
   "",
   "Or with a one-off container:",
   "  docker run -d --name pr-agent-postgres \\",
@@ -16,7 +16,7 @@ export const INTEGRATION_DATABASE_HINT = [
   "    -p 5432:5432 postgres:16-alpine",
   "",
   "Inventory-only (skips DB suites when unavailable):",
-  "  nub run test:integration:inventory",
+  "  npm run test:integration:inventory",
 ].join("\n");
 
 export function allowIntegrationSkipWithoutDatabase(env: NodeJS.ProcessEnv = process.env): boolean {

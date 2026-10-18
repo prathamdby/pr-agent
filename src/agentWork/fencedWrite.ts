@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from "pg";
-import { assertPrActorLeaseHeld } from "./prActorLease.js";
-import type { WriteFence } from "./writeFence.js";
+import { assertPrActorLeaseHeld } from "./prActorLease.ts";
+import type { WriteFence } from "./writeFence.ts";
 
 function epochOf(fence: WriteFence | number | null | undefined): number | null {
   if (typeof fence === "number") return fence;

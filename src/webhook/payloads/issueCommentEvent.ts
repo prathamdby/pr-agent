@@ -5,7 +5,7 @@ import {
   githubUserSchema,
   installationSchema,
   repositorySchema,
-} from "./common.js";
+} from "./common.ts";
 
 export const issueCommentWebhookSchema = v.object({
   action: v.string(),

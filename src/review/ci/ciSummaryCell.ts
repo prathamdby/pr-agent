@@ -3,13 +3,13 @@ import {
   escapeTablePlainCell,
   renderTableEm,
   renderTableLink,
-} from "../../github/markdownFormat.js";
+} from "../../github/markdownFormat.ts";
 import {
   VERIFICATION_FAILURE_END,
   VERIFICATION_FAILURE_START,
   VERIFICATION_FAILURE_TEXT,
-} from "../../settings/index.js";
-import type { CiFailureDetail, CiRollup, CiSummary } from "./ciFacts.js";
+} from "../../settings/index.ts";
+import type { CiFailureDetail, CiRollup, CiSummary } from "./ciFacts.ts";
 
 export const CI_PROJECTION_FORMAT = 1;
 

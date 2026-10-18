@@ -1,8 +1,8 @@
-import { createPublishContext } from "./publishOnce.js";
+import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
-import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.js";
-import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
-import { isRecord } from "../util/typeGuards.js";
+import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.ts";
+import { VERIFICATION_PUBLISH_LENS } from "../settings/index.ts";
+import { isRecord } from "../util/typeGuards.ts";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
 

@@ -29,9 +29,9 @@ vi.mock("@octokit/rest", () => ({
   },
 }));
 
-import { AppError } from "../src/errors/appError.js";
-import { createAppBotIdentityLookup } from "../src/github/appAuth.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { AppError } from "../src/errors/appError.ts";
+import { createAppBotIdentityLookup } from "../src/github/appAuth.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const cfg = makeTestConfig({ github: { appId: "111", privateKey: "k" } });
 

@@ -53,7 +53,7 @@ compare normalized titles and details.
 
 ## Verification
 
-`nub run dump-prompt all` before and after shows identical tool definitions and
+The complete prompt dump before and after shows identical tool definitions and
 additions only in system and turn prompt text. The existing unit suite passes
 without changes. Output quality needs a live run on a test App: the same pull
 request head reviewed before and after, with accepted-finding counts, summary

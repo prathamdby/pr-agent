@@ -1,9 +1,9 @@
 import type { Pool } from "pg";
-import { withSessionLock } from "../../db/sessionLock.js";
-import { AppError } from "../../errors/appError.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { logWarn } from "../../evlog.js";
-import { POSTGRES_LOCK_TIMEOUT_MS } from "../../settings/index.js";
+import { withSessionLock } from "../../db/sessionLock.ts";
+import { AppError } from "../../errors/appError.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { logWarn } from "../../evlog.ts";
+import { POSTGRES_LOCK_TIMEOUT_MS } from "../../settings/index.ts";
 
 export type ThreadMutationLock = <T>(apply: () => Promise<T>) => Promise<T>;
 

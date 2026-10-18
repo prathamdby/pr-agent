@@ -1,4 +1,4 @@
-import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../../prompts/ci/prompt.js";
+import { CI_SUMMARY_SYSTEM_PROMPT, buildCiContextUserMessage } from "../../prompts/ci/prompt.ts";
 import * as v from "valibot";
 import {
   type Config,
@@ -11,20 +11,20 @@ import {
   REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_REASON_MAX_CHARS,
-} from "../../settings/index.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { AppError } from "../../errors/appError.js";
-import { logDebug, logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import { redactReviewText } from "../findings/reviewPublicOutput.js";
+} from "../../settings/index.ts";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
+import { AppError } from "../../errors/appError.ts";
+import { logDebug, logWarn } from "../../evlog.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { redactReviewText } from "../findings/reviewPublicOutput.ts";
 import {
   isCheckFactFailing,
   type CiCheckFact,
   type CiFailureDetail,
   type CiSummary,
   type CiSummaryStatus,
-} from "./ciFacts.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "./ciFacts.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export const ciSummaryLlmSchema = v.object({
   headline: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS)),

@@ -2,7 +2,7 @@ import {
   DESCRIPTION_AGENT_BODY_BEGIN,
   DESCRIPTION_AGENT_BODY_END,
   DESCRIPTION_AGENT_HEADER,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 
 export function wrapDescriptionAgentBlock(agentBlock: string): string {
   const trimmed = agentBlock.trim();

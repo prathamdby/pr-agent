@@ -1,12 +1,12 @@
-import { negotiateType } from "./accept.js";
-import { negotiateProgrammingLanguage } from "./acceptLanguage.js";
+import { negotiateType } from "./accept.ts";
+import { negotiateProgrammingLanguage } from "./acceptLanguage.ts";
 import {
   AI_CATALOG,
   API_CATALOG,
   LANDING_PAGE_MARKDOWN,
   LLMS_TXT_PROFILE,
-} from "./agentResources.js";
-import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
+} from "./agentResources.ts";
+import { FETCH_MARKDOWN_LANGUAGES } from "./content.ts";
 import {
   applyRevisionHeaders,
   conditionalResponse,
@@ -14,16 +14,16 @@ import {
   revisionFor,
   sitemapRevision,
   type ConditionalHeaders,
-} from "./contentRevision.js";
-import { renderSitemapXml } from "./discovery.js";
-import { renderLlmsTxt } from "./llmsKnowledge.js";
-import { renderOpenApiDocument } from "./openapi.js";
-import { SITE_ORIGIN } from "./site.js";
+} from "./contentRevision.ts";
+import { renderSitemapXml } from "./discovery.ts";
+import { renderLlmsTxt } from "./llmsKnowledge.ts";
+import { renderOpenApiDocument } from "./openapi.ts";
+import { SITE_ORIGIN } from "./site.ts";
 import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
   renderNotFoundMarkdown,
-} from "./pageMarkdown.js";
+} from "./pageMarkdown.ts";
 
 const HTML_TYPE = "text/html";
 const MARKDOWN_TYPE = "text/markdown";

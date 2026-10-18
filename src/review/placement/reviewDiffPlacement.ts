@@ -1,8 +1,8 @@
-import type { ReviewFinding } from "../reviewSchema.js";
-import { isInlineSeverity } from "../reviewSchema.js";
-import type { FindingId } from "../findingIdentity/findingMarker.js";
-import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
-import { resolveInlineAnchorLine, type CachedPrDiffIndex } from "./reviewDiffIndex.js";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import { isInlineSeverity } from "../reviewSchema.ts";
+import type { FindingId } from "../findingIdentity/findingMarker.ts";
+import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
+import { resolveInlineAnchorLine, type CachedPrDiffIndex } from "./reviewDiffIndex.ts";
 
 export type InlinePlacement = {
   readonly finding: ReviewFinding;

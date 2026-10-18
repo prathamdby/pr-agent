@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { specialistReportSchema } from "../src/review/orchestrator/specialistReport.js";
+import { specialistReportSchema } from "../src/review/orchestrator/specialistReport.ts";
 
 describe("specialistReportSchema", () => {
   it("defaults omitted findings to an empty list for no_findings", () => {

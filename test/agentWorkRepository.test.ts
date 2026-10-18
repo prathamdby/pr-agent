@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Pool } from "pg";
 
-vi.mock("../src/db/postgres.js", () => ({
+vi.mock("../src/db/postgres.ts", () => ({
   queryOne: vi.fn(),
 }));
 
-import { queryOne } from "../src/db/postgres.js";
+import { queryOne } from "../src/db/postgres.ts";
 import {
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
@@ -13,9 +13,9 @@ import {
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   reserveReviewCheckRun,
-} from "../src/agentWork/publishRecordRepository.js";
-import { getWorkItem } from "../src/agentWork/workItemStateRepository.js";
-import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
+} from "../src/agentWork/publishRecordRepository.ts";
+import { getWorkItem } from "../src/agentWork/workItemStateRepository.ts";
+import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.ts";
 
 const pool = {} as Pool;
 

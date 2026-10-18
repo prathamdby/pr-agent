@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { createOperationLogger } from "../src/evlog.js";
-import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { createOperationLogger } from "../src/evlog.ts";
+import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.ts";
 import {
   ACK_QUEUE,
   CI_PROJECTION_QUEUE,
@@ -11,9 +11,9 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   VERIFICATION_QUEUE,
-} from "../src/settings/index.js";
-import * as postgres from "../src/db/postgres.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/settings/index.ts";
+import * as postgres from "../src/db/postgres.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const intakeCfg = makeTestConfig();
 

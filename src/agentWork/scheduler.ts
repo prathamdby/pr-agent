@@ -1,11 +1,11 @@
 import { Context, Duration, Effect } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { type Config, HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
-import type { RequestLogger } from "../evlog.js";
-import { toError } from "../errors/errorMessage.js";
-import { runDelivery, type IntakeCommand } from "./intake/delivery.js";
-import type { AskQuotaConfig } from "./askQuota.js";
+import { type Config, HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.ts";
+import type { RequestLogger } from "../evlog.ts";
+import { toError } from "../errors/errorMessage.ts";
+import { runDelivery, type IntakeCommand } from "./intake/delivery.ts";
+import type { AskQuotaConfig } from "./askQuota.ts";
 
 export class AgentWorkScheduler extends Context.Service<
   AgentWorkScheduler,

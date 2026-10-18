@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
-} from "../src/agent/description/descriptionSchema.js";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.js";
+} from "../src/agent/description/descriptionSchema.ts";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.ts";
 
 describe("descriptionSchema", () => {
   it("accepts minimal valid payload", () => {

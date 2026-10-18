@@ -9,7 +9,7 @@ import type {
   TriageWorkPayload,
   VerificationWorkItem,
   VerificationWorkPayload,
-} from "../../src/agentWork/types.js";
+} from "../../src/agentWork/types.ts";
 
 type ReviewOverrides = Omit<
   Partial<ReviewWorkItem>,

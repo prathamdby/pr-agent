@@ -1,30 +1,30 @@
-import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.ts";
 import {
   openInstallationSurface,
   productionInstallationSurface,
-} from "../../src/agentWork/installationSurface.js";
-import { createPublishContext } from "../../src/agentWork/publishOnce.js";
-import type { PrRef } from "../../src/agentWork/types.js";
+} from "../../src/agentWork/installationSurface.ts";
+import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
+import type { PrRef } from "../../src/agentWork/types.ts";
 import {
   runDelivery,
   type AutomatedPullRequestIntakeOpts,
   type CiStateFactInput,
-} from "../../src/agentWork/intake/delivery.js";
-import type { Config } from "../../src/settings/index.js";
-import type { RequestLogger } from "../../src/evlog.js";
+} from "../../src/agentWork/intake/delivery.ts";
+import type { Config } from "../../src/settings/index.ts";
+import type { RequestLogger } from "../../src/evlog.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../../src/agentWork/ciProjection.js";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
-import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../src/agentWork/ciProjection.ts";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
+import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.ts";
+import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.ts";
 import {
   loadPrHeadCiState,
   storePrNumbersForHead,
   listProjectionRepairPendingHeads,
-} from "../../src/agentWork/prHeadCiState.js";
+} from "../../src/agentWork/prHeadCiState.ts";
 import {
   saveGithubCapabilityObservation,
   loadGithubCapabilityObservation,
@@ -32,47 +32,47 @@ import {
   recordGithubCiSourceRead,
   changeGithubPreflightFailureCount,
   recordGithubCapabilityDenial,
-} from "../../src/agentWork/githubCapabilityRepository.js";
-import { getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
-import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
-import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
-import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
-import * as appAuth from "../../src/github/appAuth.js";
-import * as installationToken from "../../src/github/installationToken.js";
-import * as prSurface from "../../src/github/prSurface.js";
-import * as evlog from "../../src/evlog.js";
-import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
-import * as verificationRun from "../../src/agent/verification/verificationRun.js";
+} from "../../src/agentWork/githubCapabilityRepository.ts";
+import { getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
+import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.ts";
+import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.ts";
+import * as appAuth from "../../src/github/appAuth.ts";
+import * as installationToken from "../../src/github/installationToken.ts";
+import * as prSurface from "../../src/github/prSurface.ts";
+import * as evlog from "../../src/evlog.ts";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.ts";
+import * as verificationRun from "../../src/agent/verification/verificationRun.ts";
 import type {
   CiProjectionJobData,
   JobCorrelation,
   QueueConfig,
   WebhookHeaders,
-} from "../../src/agentWork/types.js";
-import type { CiSummaryAuthor } from "../../src/review/ci/ciAuthor.js";
+} from "../../src/agentWork/types.ts";
+import type { CiSummaryAuthor } from "../../src/review/ci/ciAuthor.ts";
 import {
   hashCiFacts,
   parseCiAuthoredCache,
   observedAtFromGithub,
   type CiCheckFact,
   type CiCheckRunSnapshot,
-} from "../../src/review/ci/ciFacts.js";
+} from "../../src/review/ci/ciFacts.ts";
 import {
   renderCiRollupMarker,
   parseCiSummaryMarkerVersion,
   renderCiSummaryCell,
-} from "../../src/review/ci/ciSummaryCell.js";
-import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
-import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
-import { publishSummaryForTest } from "../helpers/reviewPublishTestHelpers.js";
-import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
-import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
-import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { pgBossDb } from "../../src/db/postgres.js";
-import { createOperationLogger } from "../../src/evlog.js";
-import { createFakePrSurface } from "../../src/github/prSurface.js";
-import { isUnfencedSurface } from "../../src/agentWork/writeFence.js";
+} from "../../src/review/ci/ciSummaryCell.ts";
+import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.ts";
+import { tickProgressComment } from "../../src/review/orchestrator/stubTick.ts";
+import { publishSummaryForTest } from "../helpers/reviewPublishTestHelpers.ts";
+import { makeReviewPayload } from "../helpers/reviewPayloadFactory.ts";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.ts";
+import { renderReviewProgressComment } from "../../src/review/run/progressComment.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { pgBossDb } from "../../src/db/postgres.ts";
+import { createOperationLogger } from "../../src/evlog.ts";
+import { createFakePrSurface } from "../../src/github/prSurface.ts";
+import { isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
 import {
   CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -90,18 +90,18 @@ import {
   TRIAGE_SUMMARY_SENTINEL,
   VERIFICATION_PUBLISH_LENS,
   VERIFICATION_QUEUE,
-} from "../../src/settings/index.js";
-import { makeTestConfig } from "../helpers/config.js";
+} from "../../src/settings/index.ts";
+import { makeTestConfig } from "../helpers/config.ts";
 import {
   deniedInstallationCapabilities,
   unknownInstallationCapabilities,
-} from "../../src/github/installationCapabilities.js";
-import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
+} from "../../src/github/installationCapabilities.ts";
+import { makeVerificationWorkItem } from "../helpers/agentWorkItems.ts";
 import {
   makeDurableJobMetadata,
   seedBotFindingThreads,
-} from "../helpers/executorDurableHarness.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../helpers/executorDurableHarness.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "ci-projection-it";
 const REPO = "app";
@@ -2948,7 +2948,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     const { publishVerificationFailure, clearVerificationFailureSignal } =
-      await import("../../src/agent/verification/publishVerificationFailure.js");
+      await import("../../src/agent/verification/publishVerificationFailure.ts");
     await publishVerificationFailure({
       pool,
       workItemId,
@@ -3672,7 +3672,7 @@ function applyCompletedRunCiIntake(
   pool: Pool,
   headers: WebhookHeaders,
   data: Extract<
-    import("../../src/agentWork/intake/delivery.js").IntakeCommand,
+    import("../../src/agentWork/intake/delivery.ts").IntakeCommand,
     { kind: "ci_refresh" }
   >["data"],
   log: RequestLogger,

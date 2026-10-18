@@ -1,8 +1,8 @@
 import * as v from "valibot";
-import { logDebug } from "../../evlog.js";
-import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
-import { formatValidationIssues } from "../../util/formatValidationIssues.js";
-import { isPlainObject } from "../../util/typeGuards.js";
+import { logDebug } from "../../evlog.ts";
+import { recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
+import { formatValidationIssues } from "../../util/formatValidationIssues.ts";
+import { isPlainObject } from "../../util/typeGuards.ts";
 
 export type ToolInputRepairKind =
   | "null_optional_dropped"

@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
   DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
   GITHUB_AUTHOR_ASSOCIATIONS,
-} from "../defaults.js";
-import { ENV } from "../envKeys.js";
-import { optionalEnv, requireEnv } from "../envReaders.js";
-import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_TIMEOUT_MS } from "../webhookConstants.js";
+} from "../defaults.ts";
+import { ENV } from "../envKeys.ts";
+import { optionalEnv, requireEnv } from "../envReaders.ts";
+import { WEBHOOK_MAX_BODY_BYTES, WEBHOOK_TIMEOUT_MS } from "../webhookConstants.ts";
 
 export type GithubSlice = {
   readonly appId: string;

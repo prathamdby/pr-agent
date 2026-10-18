@@ -1,32 +1,32 @@
-import { decodeProgressComment } from "../github/prSurfaceResults.js";
-import { createPublishContext } from "./publishOnce.js";
+import { decodeProgressComment } from "../github/prSurfaceResults.ts";
+import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
-import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
-import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.js";
-import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
-import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
-import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
-import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
-import type { PrSurface } from "../github/prSurface.js";
-import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
-import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.js";
-import { summaryCommentVerdictMeta } from "./reviewVerdict.js";
-import { getSummaryCommentGithubId } from "./publishRecordRepository.js";
-import { shouldSkipWork } from "./workItemStateRepository.js";
-import type { AgentWorkItem } from "./types.js";
-import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
-import { fenceForEpoch } from "./writeFence.js";
-import { loadFindingInventoryOrUnavailable } from "../review/findingIdentity/findingInventory.js";
+import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.ts";
+import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.ts";
+import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.ts";
+import { renderLightweightReviewCompletion } from "../review/run/reviewRender.ts";
+import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.ts";
+import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.ts";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.ts";
+import type { PrSurface } from "../github/prSurface.ts";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.ts";
+import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.ts";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.ts";
+import { summaryCommentVerdictMeta } from "./reviewVerdict.ts";
+import { getSummaryCommentGithubId } from "./publishRecordRepository.ts";
+import { shouldSkipWork } from "./workItemStateRepository.ts";
+import type { AgentWorkItem } from "./types.ts";
+import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.ts";
+import { fenceForEpoch } from "./writeFence.ts";
+import { loadFindingInventoryOrUnavailable } from "../review/findingIdentity/findingInventory.ts";
 import {
   buildFindingView,
   findingCheck,
   renderFindingsSection,
   type FindingCheck,
-} from "../review/findingIdentity/findingLifecycle.js";
-import { REVIEW_SUMMARY_BODY_MAX_CHARS } from "../settings/index.js";
+} from "../review/findingIdentity/findingLifecycle.ts";
+import { REVIEW_SUMMARY_BODY_MAX_CHARS } from "../settings/index.ts";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }

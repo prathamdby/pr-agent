@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
-import { renderLlmsTxt } from "./llmsKnowledge.js";
+import { renderLlmsTxt } from "./llmsKnowledge.ts";
 
 const siteDir = fileURLToPath(new URL("..", import.meta.url));
 

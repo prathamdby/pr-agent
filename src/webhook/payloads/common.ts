@@ -5,7 +5,7 @@ import {
   GITHUB_REPO_NAME_MAX_CHARS,
   GITHUB_SAFE_ID_MAX,
   GITHUB_SHA_MAX_CHARS,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 
 export const githubPrNumberSchema = v.pipe(
   v.number(),

@@ -76,7 +76,7 @@ diagnostic cut; an output cap cuts a line; auth or missing-ref failures spend
 retries or start a useless fallback; a failed fallback hides the original
 timeout; telemetry is lost for a cached workspace or a failed checkout.
 
-Proof: `PR_AGENT_WORKSPACE_FETCH_PROOF=verify-artifacts/workspace-fetch-proof.json PR_AGENT_GIT_LOW_SPEED_PROBE=1 nub run test test/localPrWorkspace.test.ts`
+Repeat the workspace-fetch proof: `PR_AGENT_WORKSPACE_FETCH_PROOF=verify-artifacts/workspace-fetch-proof.json PR_AGENT_GIT_LOW_SPEED_PROBE=1 npm run test -- test/localPrWorkspace.test.ts`
 writes the attempts, the execution span, and the process-tree result.
 
 ## Alternatives considered

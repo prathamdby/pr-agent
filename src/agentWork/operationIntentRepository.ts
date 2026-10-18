@@ -1,8 +1,8 @@
-import { fencedWrite } from "./fencedWrite.js";
+import { fencedWrite } from "./fencedWrite.ts";
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import { AppError } from "../errors/appError.js";
-import { queryOne } from "../db/postgres.js";
+import { AppError } from "../errors/appError.ts";
+import { queryOne } from "../db/postgres.ts";
 
 export type OperationIntentStatus = "pending" | "reconciled" | "failed" | "outcome_unknown";
 

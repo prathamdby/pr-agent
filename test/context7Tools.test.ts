@@ -1,20 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { AppError } from "../src/errors/appError.js";
-import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
+import { AppError } from "../src/errors/appError.ts";
+import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
 import {
   CONTEXT7_LIBRARY_ID_MAX_CHARS,
   CONTEXT7_LIBRARY_NAME_MAX_CHARS,
   CONTEXT7_QUERY_MAX_CHARS,
   CONTEXT7_RESPONSE_BYTES,
   CONTEXT7_TOPIC_MAX_CHARS,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 import {
   assertContext7LibraryId,
   assertContext7LibraryName,
   CONTEXT7_LIBRARY_ID_PATTERN,
   CONTEXT7_LIBRARY_NAME_PATTERN,
   prepareContext7OutboundText,
-} from "../src/security/context7OutboundPolicy.js";
+} from "../src/security/context7OutboundPolicy.ts";
 
 const MAX_RESPONSE_BYTES = CONTEXT7_RESPONSE_BYTES;
 

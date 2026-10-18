@@ -1,11 +1,11 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { CodeModeExecutorKind } from "../../settings/index.js";
-import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { createExecutionSessionStore } from "../execution/sessionStore.js";
-import { buildCodeModeExecuteTool } from "./executeTool.js";
-import { CODE_MODE_EXECUTE_NAME, CODE_MODE_WORKSPACE_TOOL_NAMES } from "./types.js";
-import type { CodeModeCapabilityExecutors } from "./types.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
+import type { CodeModeExecutorKind } from "../../settings/index.ts";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.ts";
+import { createExecutionSessionStore } from "../execution/sessionStore.ts";
+import { buildCodeModeExecuteTool } from "./executeTool.ts";
+import { CODE_MODE_EXECUTE_NAME, CODE_MODE_WORKSPACE_TOOL_NAMES } from "./types.ts";
+import type { CodeModeCapabilityExecutors } from "./types.ts";
 
 export type ToolBundle = {
   readonly piTools: readonly PiTool[];

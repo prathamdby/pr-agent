@@ -1,11 +1,11 @@
 import type { Pool, PoolClient } from "pg";
-import type { CiSourceAccess, CiSourceAvailability } from "../review/ci/ciFacts.js";
+import type { CiSourceAccess, CiSourceAvailability } from "../review/ci/ciFacts.ts";
 import type {
   InstallationCapabilities,
   InstallationOperation,
-} from "../github/installationCapabilities.js";
-import { RETENTION_DELETE_BATCH_SIZE } from "../settings/index.js";
-import { fencedWrite } from "./fencedWrite.js";
+} from "../github/installationCapabilities.ts";
+import { RETENTION_DELETE_BATCH_SIZE } from "../settings/index.ts";
+import { fencedWrite } from "./fencedWrite.ts";
 
 export type GithubCapabilities = Partial<InstallationCapabilities["availability"]>;
 

@@ -1,4 +1,4 @@
-import { BOT_SECRET_PATTERNS } from "../settings/index.js";
+import { BOT_SECRET_PATTERNS } from "../settings/index.ts";
 
 export function redactOutboundSecrets(text: string): string {
   let out = text;

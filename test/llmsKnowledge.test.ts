@@ -5,8 +5,8 @@ import {
   LLMS_TXT_MISMATCH,
   llmsTxtBuildPlugin,
   llmsTxtServePlugin,
-} from "../site/lib/llmsTxtPlugins.js";
-import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
+} from "../site/lib/llmsTxtPlugins.ts";
+import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.ts";
 import {
   readEntry,
   REVISION_IDS,
@@ -14,17 +14,17 @@ import {
   lastmodForSitemapPath,
   revisionFor,
   sitemapRevision,
-} from "../site/lib/contentRevision.js";
-import { contentRevisionBuildPlugin } from "../site/lib/contentRevisionPlugin.js";
+} from "../site/lib/contentRevision.ts";
+import { contentRevisionBuildPlugin } from "../site/lib/contentRevisionPlugin.ts";
 import {
   CONTENT_REVISION_HOST,
   CONTENT_REVISION_MISMATCH,
   redactOrigin,
   revisionHashes,
   stableDocumentBodies,
-} from "../site/lib/contentRevisionCheck.js";
-import { renderSitemapXml } from "../site/lib/discovery.js";
-import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.js";
+} from "../site/lib/contentRevisionCheck.ts";
+import { renderSitemapXml } from "../site/lib/discovery.ts";
+import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.ts";
 import {
   FEATURE_KEYS,
   KNOWLEDGE_CHUNKS,
@@ -37,8 +37,8 @@ import {
   renderAnswerJson,
   renderAnswerText,
   renderLlmsTxt,
-} from "../site/lib/llmsKnowledge.js";
-import { SITE_ORIGIN } from "../site/lib/site.js";
+} from "../site/lib/llmsKnowledge.ts";
+import { SITE_ORIGIN } from "../site/lib/site.ts";
 
 describe("parseAgentQuery", () => {
   it("treats blank and stop-word input as empty", () => {

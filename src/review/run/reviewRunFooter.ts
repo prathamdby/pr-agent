@@ -1,4 +1,4 @@
-import { escapeTableHtml } from "../../github/markdownFormat.js";
+import { escapeTableHtml } from "../../github/markdownFormat.ts";
 
 export type ReviewRunFooterMeta = {
   readonly durationMs: number;

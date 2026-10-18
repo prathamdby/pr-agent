@@ -3,8 +3,8 @@ import {
   assertPhaseToolAllowed,
   createOrchestratorPhaseRef,
   WRONG_PHASE_TOOL_CODE,
-} from "../src/review/orchestrator/phaseToolPolicy.js";
-import { buildSpecialistBriefTool } from "../src/review/orchestrator/briefTool.js";
+} from "../src/review/orchestrator/phaseToolPolicy.ts";
+import { buildSpecialistBriefTool } from "../src/review/orchestrator/briefTool.ts";
 
 describe("phaseToolPolicy", () => {
   it("allows brief only in recon and rejects it in synthesis", () => {

@@ -1,11 +1,11 @@
-import { escapeTableHtml, renderInlineCodeLink } from "../../github/markdownFormat.js";
+import { escapeTableHtml, renderInlineCodeLink } from "../../github/markdownFormat.ts";
 import { createHash } from "node:crypto";
-import type { PrResource } from "../../agentWork/types.js";
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
-import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.js";
-import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.js";
-import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
-import { renderDescriptionVisual } from "./descriptionVisualSanitize.js";
+import type { PrResource } from "../../agentWork/types.ts";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.ts";
+import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.ts";
+import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.ts";
+import { renderDescriptionVisual } from "./descriptionVisualSanitize.ts";
 
 function renderReviewMap(files: readonly DescriptionPrFile[], ctx: PrResource): string {
   if (files.length === 0) return "";

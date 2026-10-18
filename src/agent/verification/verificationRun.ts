@@ -5,22 +5,22 @@ import {
   VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
   VERIFICATION_VALIDATION_REPAIR_ROUNDS,
   MAX_TOOL_ROUNDS_VERIFICATION,
-} from "../../settings/index.js";
-import { logInfo } from "../../evlog.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import type { VerificationPayload } from "../../review/triageSchema.js";
-import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
+} from "../../settings/index.ts";
+import { logInfo } from "../../evlog.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import type { VerificationPayload } from "../../review/triageSchema.ts";
+import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
+import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 import {
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
-} from "./verificationRunSetup.js";
+} from "./verificationRunSetup.ts";
 import {
   VERIFICATION_SUBMIT_ONLY_NUDGE,
   renderVerificationRepairPrompt,
-} from "../../prompts/verification/prompt.js";
+} from "../../prompts/verification/prompt.ts";
 
 export type VerificationRunResult = {
   readonly lastAssistant: AssistantMessage;

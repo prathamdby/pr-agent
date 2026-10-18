@@ -1,7 +1,7 @@
 import * as v from "valibot";
-import { evidenceDescriptorSchema, OPENED_PATH_MAX_CHARS } from "../findings/evidenceLedger.js";
-import { reviewFindingEntries, reviewFindingSchema } from "../reviewSchema.js";
-import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.js";
+import { evidenceDescriptorSchema, OPENED_PATH_MAX_CHARS } from "../findings/evidenceLedger.ts";
+import { reviewFindingEntries, reviewFindingSchema } from "../reviewSchema.ts";
+import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.ts";
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const source = v.picklist(["correctness", "security", "quality", "tests", "review"]);

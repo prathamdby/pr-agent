@@ -1,9 +1,9 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logDebug, logWarn } from "../evlog.js";
-import { CI_PROJECTION_REPAIR_BATCH_SIZE } from "../settings/index.js";
-import { requestHeadCiProjection } from "./ciProjection.js";
-import { clearProjectionRepairPending, listProjectionRepairPendingHeads } from "./prHeadCiState.js";
+import { logDebug, logWarn } from "../evlog.ts";
+import { CI_PROJECTION_REPAIR_BATCH_SIZE } from "../settings/index.ts";
+import { requestHeadCiProjection } from "./ciProjection.ts";
+import { clearProjectionRepairPending, listProjectionRepairPendingHeads } from "./prHeadCiState.ts";
 
 export type ProjectionRepairScanReport = {
   readonly pendingScanned: number;

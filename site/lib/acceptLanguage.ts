@@ -1,4 +1,4 @@
-import { parseQuality } from "./accept.js";
+import { parseQuality } from "./accept.ts";
 
 export const PROGRAMMING_LANGUAGES = [
   "typescript",

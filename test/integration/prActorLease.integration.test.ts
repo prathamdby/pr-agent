@@ -1,63 +1,63 @@
-import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.ts";
 import {
   operationIntentMarker,
   runInOperationIntentFrame,
-} from "../../src/agentWork/publishOnce.js";
-import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
-import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
-import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
+} from "../../src/agentWork/publishOnce.ts";
+import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/github/prSurface.ts";
+import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../../src/github/prSurface.ts";
+import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.ts";
 
-import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
-import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
-import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.js";
+import { createDurableRuntime } from "../../src/agentWork/durableJob.ts";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
+import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.ts";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { PgBoss, type WorkOptions } from "pg-boss";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import * as postgres from "../../src/db/postgres.js";
-import * as bossModule from "../../src/agentWork/boss.js";
-import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
-import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
-import * as descriptionExecutorModule from "../../src/agentWork/executors/descriptionExecutor.js";
-import * as triageExecutorModule from "../../src/agentWork/executors/triageExecutor.js";
-import * as verificationExecutorModule from "../../src/agentWork/executors/verificationExecutor.js";
-import * as askExecutorModule from "../../src/agentWork/executors/askExecutor.js";
-import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
-import { AppError } from "../../src/errors/appError.js";
-import { legacyFindingId } from "../../src/review/findingIdentity/findingMarker.js";
-import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
-import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
-import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
-import * as retentionModule from "../../src/agentWork/retention.js";
-import * as lostRunningModule from "../../src/agentWork/lostRunningWork.js";
-import * as projectionRepairModule from "../../src/agentWork/projectionRepair.js";
-import * as workerHealthModule from "../../src/agentWork/workerHealth.js";
-import * as prWorkspaceModule from "../../src/prWorkspace/prRepositoryView.js";
-import { agentWorkWorkerLive } from "../../src/agentWork/worker.js";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
+import * as postgres from "../../src/db/postgres.ts";
+import * as bossModule from "../../src/agentWork/boss.ts";
+import * as executionTrackerModule from "../../src/agentWork/executionTracker.ts";
+import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.ts";
+import * as descriptionExecutorModule from "../../src/agentWork/executors/descriptionExecutor.ts";
+import * as triageExecutorModule from "../../src/agentWork/executors/triageExecutor.ts";
+import * as verificationExecutorModule from "../../src/agentWork/executors/verificationExecutor.ts";
+import * as askExecutorModule from "../../src/agentWork/executors/askExecutor.ts";
+import * as descriptionRun from "../../src/agent/description/descriptionRun.ts";
+import { AppError } from "../../src/errors/appError.ts";
+import { legacyFindingId } from "../../src/review/findingIdentity/findingMarker.ts";
+import { assistantFromText } from "../../src/agent/runtime/featureAgent.ts";
+import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.ts";
+import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.ts";
+import * as retentionModule from "../../src/agentWork/retention.ts";
+import * as lostRunningModule from "../../src/agentWork/lostRunningWork.ts";
+import * as projectionRepairModule from "../../src/agentWork/projectionRepair.ts";
+import * as workerHealthModule from "../../src/agentWork/workerHealth.ts";
+import * as prWorkspaceModule from "../../src/prWorkspace/prRepositoryView.ts";
+import { agentWorkWorkerLive } from "../../src/agentWork/worker.ts";
 import {
   DEFERRED_HEAD_SHA,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
   STALE_QUEUED_WORK_GRACE_SECONDS,
-} from "../../src/settings/index.js";
-import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import * as evlog from "../../src/evlog.js";
-import * as leaseRepository from "../../src/agentWork/prActorLease.js";
-import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
-import * as workRepository from "../../src/agentWork/workItemStateRepository.js";
-import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
-import * as appAuth from "../../src/github/appAuth.js";
-import * as prSurfaceModule from "../../src/github/prSurface.js";
-import { runDurableWorkItem, type DurableJobSpec } from "../../src/agentWork/durableJob.js";
-import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
+} from "../../src/settings/index.ts";
+import { retryDispositionFor } from "../../src/agentWork/retryPolicy.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import * as evlog from "../../src/evlog.ts";
+import * as leaseRepository from "../../src/agentWork/prActorLease.ts";
+import * as intentRepository from "../../src/agentWork/operationIntentRepository.ts";
+import * as workRepository from "../../src/agentWork/workItemStateRepository.ts";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
+import * as appAuth from "../../src/github/appAuth.ts";
+import * as prSurfaceModule from "../../src/github/prSurface.ts";
+import { runDurableWorkItem, type DurableJobSpec } from "../../src/agentWork/durableJob.ts";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.ts";
 
-import { makeTestConfig } from "../helpers/config.js";
+import { makeTestConfig } from "../helpers/config.ts";
 import {
   acquirePrActorLease,
   armLeaseWatchdogHop,
@@ -66,26 +66,26 @@ import {
   releasePrActorLease,
   releasePrActorLeaseHeldByWorkItems,
   renewPrActorLease,
-} from "../../src/agentWork/prActorLease.js";
-import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
-import { publishOnce } from "../../src/agentWork/publishOnce.js";
+} from "../../src/agentWork/prActorLease.ts";
+import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.ts";
+import { publishOnce } from "../../src/agentWork/publishOnce.ts";
 import {
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
-} from "../../src/agentWork/reviewReschedule.js";
+} from "../../src/agentWork/reviewReschedule.ts";
 import {
   installationGroupId,
   WORK_QUEUES,
   type ReviewWorkItem,
-} from "../../src/agentWork/types.js";
+} from "../../src/agentWork/types.ts";
 import {
   cancelActiveReviews,
   cancelActiveTriage,
-} from "../../src/agentWork/intake/workItemRepository.js";
+} from "../../src/agentWork/intake/workItemRepository.ts";
 import {
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
-} from "../../src/agentWork/autoWorkEnqueue.js";
+} from "../../src/agentWork/autoWorkEnqueue.ts";
 import {
   claimWorkForExecution,
   getWorkItem,
@@ -93,17 +93,17 @@ import {
   markWorkFailed,
   markWorkPublishDegraded,
   updateRunningWorkHeadSha,
-} from "../../src/agentWork/workItemStateRepository.js";
-import { hasDatabase, integrationPool } from "./db.js";
-import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
-import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
-import { publishVerification } from "../../src/agent/verification/publishVerification.js";
-import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.js";
-import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
+import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.ts";
+import { publishVerification } from "../../src/agent/verification/publishVerification.ts";
+import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.ts";
+import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
-} from "../../src/agentWork/verificationThreadLedger.js";
+} from "../../src/agentWork/verificationThreadLedger.ts";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;

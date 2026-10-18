@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../settings/index.js";
-import { logWarn } from "../evlog.js";
-import { errorMessage } from "../errors/errorMessage.js";
+import type { Config } from "../settings/index.ts";
+import { logWarn } from "../evlog.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export type AgentEventInsertRow = {
   readonly workItemId?: string | null;

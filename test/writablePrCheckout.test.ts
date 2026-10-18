@@ -17,8 +17,8 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const credentialHooks = { failAfterWrite: false };
-vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
+vi.mock("../src/prWorkspace/gitCredentials.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.ts")>();
   return {
     ...actual,
     async createGitCredentialFiles(rootDir: string, token: string) {
@@ -30,20 +30,20 @@ vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
     },
   };
 });
-import { AppError } from "../src/errors/appError.js";
+import { AppError } from "../src/errors/appError.ts";
 import {
   buildCommitCommandArgs,
   gitIdentityEnv,
   StaleHeadPushError,
   withWritablePrCheckout,
-} from "../src/prWorkspace/writablePrCheckout.js";
+} from "../src/prWorkspace/writablePrCheckout.ts";
 import {
   buildTriageCommitAttribution,
   formatCoAuthoredByTrailer,
   gitPersonFromGithubUser,
   githubNoreplyEmail,
-} from "../src/agent/triage/commitAttribution.js";
-import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.js";
+} from "../src/agent/triage/commitAttribution.ts";
+import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.ts";
 
 const execFile = promisify(execFileCb);
 const TEST_TIMEOUT_MS = 20_000;

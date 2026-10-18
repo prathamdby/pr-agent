@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTriageUserContent } from "../src/prompts/triage/prompt.js";
+import { buildTriageUserContent } from "../src/prompts/triage/prompt.ts";
 
 describe("triage user message", () => {
   it("renders inventory and wraps maintainer replies as untrusted", () => {

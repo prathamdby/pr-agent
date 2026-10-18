@@ -1,19 +1,19 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { makeTestConfig } from "../helpers/config.js";
+import { makeTestConfig } from "../helpers/config.ts";
 import type { Pool } from "pg";
-import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.ts";
 function insertWebhookEvent(
   client: import("pg").PoolClient,
-  headers: import("../../src/agentWork/types.js").WebhookHeaders,
+  headers: import("../../src/agentWork/types.ts").WebhookHeaders,
   decision: string,
 ) {
   return new DeliveryTx(client, headers).insert(decision);
 }
-import type { WebhookHeaders } from "../../src/agentWork/types.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import { runRetention } from "../../src/agentWork/retention.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import type { WebhookHeaders } from "../../src/agentWork/types.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import { runRetention } from "../../src/agentWork/retention.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const EVENT = "webhook-dedupe-it";
 

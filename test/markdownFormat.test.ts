@@ -7,7 +7,7 @@ import {
   renderKeyValueTable,
   renderTableLink,
   renderTableStrong,
-} from "../src/github/markdownFormat.js";
+} from "../src/github/markdownFormat.ts";
 
 describe("markdownFormat", () => {
   it("escapeTableCell escapes pipes and newlines", () => {

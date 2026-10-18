@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AppError } from "../src/errors/appError.js";
+import { AppError } from "../src/errors/appError.ts";
 import {
   classifyGithubError,
   githubRequestPath,
   isDuplicateCheckRunCreationError,
   looksLikeGithubError,
-} from "../src/github/githubErrors.js";
+} from "../src/github/githubErrors.ts";
 
 describe("isDuplicateCheckRunCreationError", () => {
   it("accepts a structured CheckRun already-exists validation", () => {

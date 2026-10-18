@@ -3,9 +3,9 @@ import {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
   VERIFICATION_STUB_MARKER,
-} from "../src/settings/index.js";
-import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
-import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
+} from "../src/settings/index.ts";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.ts";
+import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.ts";
 
 const [, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] = LEGACY_REVIEW_POINTER_BODIES;
 
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   listReviewComments: vi.fn(),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(() => ({
     paginate: async (
       route: (params: unknown) => Promise<{ data?: unknown }>,
@@ -43,12 +43,12 @@ import {
   parseReviewPointerLensMarker,
   priorFeedbackLensesForSelection,
   type ReviewThreadComment,
-} from "../src/review/run/reviewPriorFeedback.js";
-import { createPrSurface } from "../src/github/prSurface.js";
-import { unavailableFindingInventory } from "../src/review/findingIdentity/findingInventory.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.js";
-import { unfencedSurface } from "../src/agentWork/writeFence.js";
+} from "../src/review/run/reviewPriorFeedback.ts";
+import { createPrSurface } from "../src/github/prSurface.ts";
+import { unavailableFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.ts";
+import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {

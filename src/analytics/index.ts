@@ -1,10 +1,10 @@
-import { noopAnalyticsSink } from "./noop.js";
-import type { AnalyticsSink, CaptureEventInput } from "./types.js";
-import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "../errors/appError.js";
+import { noopAnalyticsSink } from "./noop.ts";
+import type { AnalyticsSink, CaptureEventInput } from "./types.ts";
+import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "../errors/appError.ts";
 import {
   sanitizeTelemetryRecord,
   sanitizeTelemetryString,
-} from "../security/sanitizeTelemetryValue.js";
+} from "../security/sanitizeTelemetryValue.ts";
 
 type AnalyticsState = {
   readonly sink: AnalyticsSink;
@@ -29,7 +29,7 @@ export async function initAnalytics(opts: {
   }
 
   try {
-    const { createPostHogSink } = await import("./posthogSink.js");
+    const { createPostHogSink } = await import("./posthogSink.ts");
     const nextSink = createPostHogSink({ projectToken, host: opts.host.trim() });
     state = { sink: nextSink, enabled: true };
   } catch (error) {

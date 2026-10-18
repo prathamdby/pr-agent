@@ -1,31 +1,31 @@
-import { decodeProgressComment } from "../../github/prSurfaceResults.js";
-import { isRecord } from "../../util/typeGuards.js";
+import { decodeProgressComment } from "../../github/prSurfaceResults.ts";
+import { isRecord } from "../../util/typeGuards.ts";
 import { isDeepStrictEqual } from "node:util";
-import { assertPrActorLeaseHeld } from "../../agentWork/prActorLease.js";
-import { AppError } from "../../errors/appError.js";
-import { getWorkItemCore, shouldSkipWork } from "../../agentWork/workItemStateRepository.js";
-import { createPublishContext } from "../../agentWork/publishOnce.js";
-import type { TriageScope } from "../../agentWork/types.js";
+import { assertPrActorLeaseHeld } from "../../agentWork/prActorLease.ts";
+import { AppError } from "../../errors/appError.ts";
+import { getWorkItemCore, shouldSkipWork } from "../../agentWork/workItemStateRepository.ts";
+import { createPublishContext } from "../../agentWork/publishOnce.ts";
+import type { TriageScope } from "../../agentWork/types.ts";
 import type { Pool } from "pg";
 import * as v from "valibot";
-import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
-import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
+import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.ts";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.ts";
+import { redactReviewText } from "../../review/findings/reviewPublicOutput.ts";
 import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
-} from "../../review/findingIdentity/resolutionReceipt.js";
-import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+} from "../../review/findingIdentity/resolutionReceipt.ts";
+import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import {
   TriagePayloadSchema,
   type TriagePayload,
   type TriageVerdict,
-} from "../../review/triageSchema.js";
+} from "../../review/triageSchema.ts";
 import {
   TRIAGE_BULK_PARTIAL_NOTICE,
   TRIAGE_CLOSED_PR_NOTICE,
@@ -34,13 +34,13 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   assertTriagePullRequestWritable,
   TriageCancelledError,
   TriageClosedPullRequestError,
-} from "./triageErrors.js";
-import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.js";
+} from "./triageErrors.ts";
+import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.ts";
 import {
   operationIntentMarker,
   triagePreviewOperationKey,
@@ -49,19 +49,19 @@ import {
   triageThreadOperationKey,
   publishOnce,
   throwIfExecutionAborted,
-} from "../../agentWork/publishOnce.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
+} from "../../agentWork/publishOnce.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
-} from "../../prWorkspace/writablePrCheckout.js";
+} from "../../prWorkspace/writablePrCheckout.ts";
 import {
   classifyTriageBulkOutcomes,
   renderTriagePreview,
   renderTriageReport,
   type TriageBulkOutcome,
   type TriagePreviewHunk,
-} from "./triageRender.js";
+} from "./triageRender.ts";
 
 type TriagePublishCheckout = Pick<
   WritablePrCheckout,

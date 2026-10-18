@@ -1,7 +1,7 @@
-import { createAskPathGate } from "./askSafety.js";
-import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
-import type { AskRunParams } from "./askRunTypes.js";
+import { createAskPathGate } from "./askSafety.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.ts";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
+import type { AskRunParams } from "./askRunTypes.ts";
 
 export function buildAskRunSetup(params: AskRunParams) {
   const pathGate = createAskPathGate();

@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { promoteAskFromWebhookEvent } from "../src/agentWork/intake/askIntake.js";
+import { promoteAskFromWebhookEvent } from "../src/agentWork/intake/askIntake.ts";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
   ASK_THROTTLED_BODY,
   ASK_USAGE_HINT,
   MAX_ASK_QUESTION_CHARS,
-} from "../src/settings/index.js";
-import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
-import { defaultAskQuotaConfig } from "../src/agentWork/askQuota.js";
+} from "../src/settings/index.ts";
+import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.ts";
+import { defaultAskQuotaConfig } from "../src/agentWork/askQuota.ts";
 
 function baseInput(overrides: Record<string, unknown> = {}) {
   return {

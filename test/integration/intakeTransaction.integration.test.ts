@@ -1,54 +1,54 @@
-import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
 import {
   runDelivery,
   DeliveryTx,
   type AutomatedPullRequestIntakeOpts,
   type ReviewApprovalSignal,
-} from "../../src/agentWork/intake/delivery.js";
-import type { Config } from "../../src/settings/index.js";
-import type { RequestLogger } from "../../src/evlog.js";
+} from "../../src/agentWork/intake/delivery.ts";
+import type { Config } from "../../src/settings/index.ts";
+import type { RequestLogger } from "../../src/evlog.ts";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
-import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
-import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.js";
+import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.ts";
+import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import {
   applySlashCommandIntake as applySlash,
   type SlashCommandInput,
-} from "../../src/agentWork/intake/slashIntake.js";
-import { promoteAskFromWebhookEvent } from "../../src/agentWork/intake/askIntake.js";
-import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository.js";
-import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
-import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
-import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
-import * as analytics from "../../src/analytics/index.js";
-import * as workTelemetry from "../../src/analytics/workCompleted.js";
+} from "../../src/agentWork/intake/slashIntake.ts";
+import { promoteAskFromWebhookEvent } from "../../src/agentWork/intake/askIntake.ts";
+import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository.ts";
+import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.ts";
+import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.ts";
+import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.ts";
+import * as analytics from "../../src/analytics/index.ts";
+import * as workTelemetry from "../../src/analytics/workCompleted.ts";
 import type {
   AckJobData,
   CiProjectionJobData,
   PrRef,
   QueueConfig,
   WebhookHeaders,
-} from "../../src/agentWork/types.js";
-import { prResourceKey } from "../../src/agentWork/types.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { createOperationLogger, initEvlog } from "../../src/evlog.js";
-import { makeTestConfig } from "../helpers/config.js";
-import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
-import * as appAuth from "../../src/github/appAuth.js";
-import * as installationToken from "../../src/github/installationToken.js";
-import * as prSurface from "../../src/github/prSurface.js";
-import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
-import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
+} from "../../src/agentWork/types.ts";
+import { prResourceKey } from "../../src/agentWork/types.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { createOperationLogger, initEvlog } from "../../src/evlog.ts";
+import { makeTestConfig } from "../helpers/config.ts";
+import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.ts";
+import * as appAuth from "../../src/github/appAuth.ts";
+import * as installationToken from "../../src/github/installationToken.ts";
+import * as prSurface from "../../src/github/prSurface.ts";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.ts";
+import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.ts";
 
-vi.mock("../../src/agent/ask/askRun.js", () => ({
+vi.mock("../../src/agent/ask/askRun.ts", () => ({
   runAskRun: vi.fn(async () => ({
     answer: "Synthetic ask answer.",
     usage: { estimated: false, totalTokens: 4 },
@@ -75,9 +75,9 @@ import {
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
-} from "../../src/settings/index.js";
-import { hasDatabase, integrationPool } from "./db.js";
-import type { AskJobData } from "../../src/agentWork/types.js";
+} from "../../src/settings/index.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
+import type { AskJobData } from "../../src/agentWork/types.ts";
 
 const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
@@ -954,7 +954,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
       (job) => job.data.delivery === h.delivery,
     )!.data;
-    const settings = await import("../../src/settings/index.js");
+    const settings = await import("../../src/settings/index.ts");
     const expectedBody =
       expected === "unknown"
         ? settings.TRIAGE_UNKNOWN_SUBCOMMAND
@@ -1074,8 +1074,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       if (body.includes("all")) expect(row.payload.excludeThreadRootCommentIds).toEqual([55, 66]);
       expect(
         (
-          await boss.findJobs<import("../../src/agentWork/types.js").TriageJobData>(
-            (await import("../../src/settings/index.js")).TRIAGE_QUEUE,
+          await boss.findJobs<import("../../src/agentWork/types.ts").TriageJobData>(
+            (await import("../../src/settings/index.ts")).TRIAGE_QUEUE,
             {},
           )
         ).filter((job) => job.data.workItemId === row.id),
@@ -4016,8 +4016,8 @@ function applySlashCommandIntake(
   boss: PgBoss,
   client: import("pg").PoolClient,
   input: SlashCommandInput,
-  features: import("../../src/settings/index.js").Features,
-  askQuota?: import("../../src/agentWork/askQuota.js").AskQuotaConfig,
+  features: import("../../src/settings/index.ts").Features,
+  askQuota?: import("../../src/agentWork/askQuota.ts").AskQuotaConfig,
 ) {
   const tx = new DeliveryTx(client, input.headers);
   return applySlash(boss, tx, input, features, askQuota).then((events) => [

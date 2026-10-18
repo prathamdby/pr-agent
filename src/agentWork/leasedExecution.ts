@@ -1,12 +1,12 @@
 import os from "node:os";
 import type { Pool, PoolClient } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import { type Config, REVIEW_CANCEL_POLL_INTERVAL_MS } from "../settings/index.js";
-import { AppError } from "../errors/appError.js";
-import { logInfo, logWarn } from "../evlog.js";
-import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
-import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../github/prSurface.js";
-import { inTransaction } from "../db/postgres.js";
+import { type Config, REVIEW_CANCEL_POLL_INTERVAL_MS } from "../settings/index.ts";
+import { AppError } from "../errors/appError.ts";
+import { logInfo, logWarn } from "../evlog.ts";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.ts";
+import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../github/prSurface.ts";
+import { inTransaction } from "../db/postgres.ts";
 import {
   acquirePrActorLease,
   armLeaseWatchdogHop,
@@ -15,9 +15,9 @@ import {
   releasePrActorLease,
   renewPrActorLease,
   type PrActorLeaseKey,
-} from "./prActorLease.js";
-import { publishOnce } from "./publishOnce.js";
-import { installationGroupId, type AgentWorkItemCore, type WorkType } from "./types.js";
+} from "./prActorLease.ts";
+import { publishOnce } from "./publishOnce.ts";
+import { installationGroupId, type AgentWorkItemCore, type WorkType } from "./types.ts";
 import {
   beginWorkAttempt,
   claimWorkForExecution,
@@ -31,10 +31,10 @@ import {
   updateRunningWorkHeadSha,
   type WorkAttemptResult,
   type WorkClaim,
-} from "./workItemStateRepository.js";
-import { errorMessage } from "../errors/errorMessage.js";
-import type { WorkExecutionStopReason } from "../analytics/workCompleted.js";
-import { fenceForEpoch } from "./writeFence.js";
+} from "./workItemStateRepository.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
+import type { WorkExecutionStopReason } from "../analytics/workCompleted.ts";
+import { fenceForEpoch } from "./writeFence.ts";
 
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
 

@@ -3,10 +3,10 @@ import {
   type FindingInventory,
   type InventoryCompleteness,
   type InventoryFinding,
-} from "../findingIdentity/findingInventory.js";
-import { neutralizeMarkerEcho } from "../findingIdentity/findingMarker.js";
-import type { ReviewFinding } from "../reviewSchema.js";
-import type { AcceptedPlacement } from "./orchestratorTypes.js";
+} from "../findingIdentity/findingInventory.ts";
+import { neutralizeMarkerEcho } from "../findingIdentity/findingMarker.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import type { AcceptedPlacement } from "./orchestratorTypes.ts";
 
 const PROMPT_INVENTORY_CAP = 150;
 

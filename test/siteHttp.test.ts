@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.js";
+import { requestOrigin, SITE_ORIGIN } from "../site/lib/site.ts";
 import {
   AI_CATALOG,
   API_CATALOG,
   LANDING_PAGE_MARKDOWN,
   LLMS_TXT_PROFILE,
-} from "../site/lib/agentResources.js";
+} from "../site/lib/agentResources.ts";
 import {
   conditionalResponse,
   revisionFor,
   type ConditionalHeaders,
-} from "../site/lib/contentRevision.js";
+} from "../site/lib/contentRevision.ts";
 import {
   DOCUMENT_CACHE_CONTROL,
   agentInstructionsResponse,
@@ -27,7 +27,7 @@ import {
   sitemapResponse,
   varyOn,
   varyOnAccept,
-} from "../site/lib/siteHttp.js";
+} from "../site/lib/siteHttp.ts";
 
 const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CATALOG.mediaType}", <${AI_CATALOG.path}>; rel="ai-catalog"; type="${AI_CATALOG.mediaType}"`;
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;

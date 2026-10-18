@@ -8,7 +8,7 @@ import {
   isTriageControlPath,
   isTriageSafeNewFilePath,
   normalizeRepoRelativePath,
-} from "../src/agent/triage/triageWritePolicy.js";
+} from "../src/agent/triage/triageWritePolicy.ts";
 
 describe("triageWritePolicy", () => {
   async function tempRoot(): Promise<string> {
@@ -37,7 +37,9 @@ describe("triageWritePolicy", () => {
     "Taskfile.yml",
     "Makefile",
     "package.json",
-    "nub.jsonc",
+    "settings.jsonc",
+    "src/settings.jsonc",
+    "docs/example.jsonc",
     ".gitmodules",
     "pyproject.toml",
     "setup.py",
@@ -73,6 +75,10 @@ describe("triageWritePolicy", () => {
     "././.npmrc",
     "config\\..\\.env.production",
     ".GITHUB\\WORKFLOWS\\CI.YML",
+    ".\\SETTINGS.JSONC",
+    "././config/Settings.JsOnC",
+    "src\\nested\\settings.jsonc",
+    "src/../settings.jsonc",
   ] as const)("denies normalized sensitive/control path variant %s", (path) => {
     expect(isTriageControlPath(path)).toBe(true);
   });
@@ -87,6 +93,7 @@ describe("triageWritePolicy", () => {
     "CMakeLists.txt.bak",
     "bunfig.toml.bak",
     "deno.json.lock",
+    "src/settings.jsonc.template",
   ] as const)("allows non-control path %s", (path) => {
     expect(isTriageControlPath(path)).toBe(false);
   });

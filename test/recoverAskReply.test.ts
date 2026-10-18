@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findExistingAskReplyComment } from "../src/agent/ask/recoverAskReply.js";
-import { askReplyOperationKey, operationIntentMarker } from "../src/agentWork/publishOnce.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { findExistingAskReplyComment } from "../src/agent/ask/recoverAskReply.ts";
+import { askReplyOperationKey, operationIntentMarker } from "../src/agentWork/publishOnce.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 describe("findExistingAskReplyComment", () => {
   it("recovers a reply posted under the unscoped ask operation key", async () => {

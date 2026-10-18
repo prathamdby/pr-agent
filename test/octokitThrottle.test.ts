@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import * as evlog from "../src/evlog.js";
-import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle.js";
+import * as evlog from "../src/evlog.ts";
+import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle.ts";
 import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 describe("octokitThrottle hooks", () => {
   const options = {

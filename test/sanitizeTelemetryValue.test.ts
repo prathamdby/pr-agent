@@ -3,7 +3,7 @@ import {
   sanitizeTelemetryRecord,
   sanitizeTelemetryString,
   sanitizeTelemetryValue,
-} from "../src/security/sanitizeTelemetryValue.js";
+} from "../src/security/sanitizeTelemetryValue.ts";
 
 const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 

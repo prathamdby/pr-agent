@@ -1,8 +1,8 @@
-import { publishOnce, reviewDuplicateOperationKey } from "../../agentWork/publishOnce.js";
-import { prResourceKey } from "../../agentWork/types.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { logWarn } from "../../evlog.js";
+import { publishOnce, reviewDuplicateOperationKey } from "../../agentWork/publishOnce.ts";
+import { prResourceKey } from "../../agentWork/types.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { logWarn } from "../../evlog.ts";
 import {
   duplicateStepApplied,
   executeDuplicateCleanup,
@@ -11,12 +11,12 @@ import {
   type DuplicateCleanupDeps,
   type DuplicateCleanupPlan,
   type DuplicateCleanupRefusal,
-} from "../findingIdentity/duplicateCleanup.js";
-import type { FindingInventory } from "../findingIdentity/findingInventory.js";
-import type { CleanedDuplicate } from "../findingIdentity/findingLifecycle.js";
-import type { FindingId } from "../findingIdentity/findingMarker.js";
-import { threadMutationLock } from "../findingIdentity/threadMutationLock.js";
-import type { ReviewPublishSession } from "./reviewPublishSession.js";
+} from "../findingIdentity/duplicateCleanup.ts";
+import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
+import type { CleanedDuplicate } from "../findingIdentity/findingLifecycle.ts";
+import type { FindingId } from "../findingIdentity/findingMarker.ts";
+import { threadMutationLock } from "../findingIdentity/threadMutationLock.ts";
+import type { ReviewPublishSession } from "./reviewPublishSession.ts";
 
 export type DeclaredDuplicate =
   | {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.js";
+import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.ts";
 
 export type WorkSpanContext = {
   readonly workItemId: string;

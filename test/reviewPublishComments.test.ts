@@ -1,14 +1,14 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 import { describe, expect, it } from "vitest";
-import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
-import type { PrReviewComment } from "../src/github/prSurface.js";
+import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.ts";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
+import type { PrReviewComment } from "../src/github/prSurface.ts";
 
 function reviewComment(c: {
   path: string;

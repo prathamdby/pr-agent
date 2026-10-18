@@ -1,4 +1,4 @@
-import type { BotIdentity } from "../../github/appAuth.js";
+import type { BotIdentity } from "../../github/appAuth.ts";
 export type GitPerson = {
   readonly name: string;
   readonly email: string;

@@ -1,9 +1,9 @@
 import { parentPort } from "node:worker_threads";
-import { decodeHostCallFailure, hostCancelHalt, type CodeModeHostHaltPayload } from "./hostHalt.js";
-import { runQuickJsCell } from "./quickjsCell.js";
-import type { JsonObject } from "./json.js";
-import type { QuickJsCellResult } from "./quickjsCell.js";
-import { errorMessage, toError } from "../../errors/errorMessage.js";
+import { decodeHostCallFailure, hostCancelHalt, type CodeModeHostHaltPayload } from "./hostHalt.ts";
+import { runQuickJsCell } from "./quickjsCell.ts";
+import type { JsonObject } from "./json.ts";
+import type { QuickJsCellResult } from "./quickjsCell.ts";
+import { errorMessage, toError } from "../../errors/errorMessage.ts";
 
 if (!parentPort) {
   throw new Error("executorWorker must run as a worker thread");

@@ -1,4 +1,4 @@
-import { buildWorkspaceTools, defineToolset } from "../tools/workspaceToolset.js";
+import { buildWorkspaceTools, defineToolset } from "../tools/workspaceToolset.ts";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
@@ -8,19 +8,19 @@ import {
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
   MAX_TRIAGE_FIXES_PER_RUN,
-} from "../../settings/index.js";
-import { AppError } from "../../errors/appError.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { repoPathParam } from "../tools/toolParams.js";
-import { defineLocalTool } from "../tools/defineWorkspaceTool.js";
-import { normalizeTextFileEncoding } from "../tools/readWorkspaceTextFile.js";
+} from "../../settings/index.ts";
+import { AppError } from "../../errors/appError.ts";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.ts";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
+import { repoPathParam } from "../tools/toolParams.ts";
+import { defineLocalTool } from "../tools/defineWorkspaceTool.ts";
+import { normalizeTextFileEncoding } from "../tools/readWorkspaceTextFile.ts";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
   normalizeRepoRelativePath,
-} from "./triageWritePolicy.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "./triageWritePolicy.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type TriageCommitError = {
   readonly threadRootCommentId: number;

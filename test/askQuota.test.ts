@@ -6,8 +6,8 @@ import {
   defaultAskQuotaConfig,
   recordAskProviderUsage,
   type AskQuotaConfig,
-} from "../src/agentWork/askQuota.js";
-import { AppError } from "../src/errors/appError.js";
+} from "../src/agentWork/askQuota.ts";
+import { AppError } from "../src/errors/appError.ts";
 
 type Bucket = {
   scope: string;

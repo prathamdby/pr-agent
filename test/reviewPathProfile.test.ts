@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.js";
-import { formatReviewPathProfileBlock } from "../src/prompts/orchestrator/context.js";
+import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.ts";
+import { formatReviewPathProfileBlock } from "../src/prompts/orchestrator/context.ts";
 
 describe("buildReviewPathProfile", () => {
   it("detects risk categories from changed paths", () => {

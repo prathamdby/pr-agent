@@ -1,5 +1,5 @@
-import { DEFAULT_PROGRAMMING_LANGUAGE, type ProgrammingLanguage } from "./acceptLanguage.js";
-import { renderDocLinks, renderResourceLinks } from "./agentResources.js";
+import { DEFAULT_PROGRAMMING_LANGUAGE, type ProgrammingLanguage } from "./acceptLanguage.ts";
+import { renderDocLinks, renderResourceLinks } from "./agentResources.ts";
 import {
   ALTERNATIVE_ROWS,
   APP_FIELDS,
@@ -22,9 +22,9 @@ import {
   SLASH_COMMANDS,
   comparisonMarkLabel,
   pickSnippet,
-} from "./content.js";
-import { sanitizeQueryRaw } from "./llmsKnowledge.js";
-import { DOCS_URL, REPO_URL, SITE_ORIGIN } from "./site.js";
+} from "./content.ts";
+import { sanitizeQueryRaw } from "./llmsKnowledge.ts";
+import { DOCS_URL, REPO_URL, SITE_ORIGIN } from "./site.ts";
 
 const [STEP_ONE, STEP_TWO, STEP_THREE] = QUICKSTART_STEPS;
 

@@ -3,14 +3,14 @@ import { join } from "node:path";
 import {
   wrapUntrustedBlock,
   renderAgentInstructionFilesTrustGuidance,
-} from "../prompts/shared/safety.js";
-import { logWarn } from "../evlog.js";
+} from "../prompts/shared/safety.ts";
+import { logWarn } from "../evlog.ts";
 import {
   AGENT_INSTRUCTION_FILENAMES,
   MAX_AGENT_INSTRUCTION_BYTES,
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
-} from "../settings/index.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 type AgentInstructionFilename = (typeof AGENT_INSTRUCTION_FILENAMES)[number];
 

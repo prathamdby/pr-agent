@@ -1,5 +1,5 @@
-import { REVIEW_SEVERITY_RANK } from "../../settings/index.js";
-import type { ReviewFinding } from "../reviewSchema.js";
+import { REVIEW_SEVERITY_RANK } from "../../settings/index.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
 
 export function compareReviewFindingsBySeverityFileLine(
   a: ReviewFinding,

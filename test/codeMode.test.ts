@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
-import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.js";
+import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
+import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.ts";
 import {
   CodeModeHostHalt,
   decodeHostCallFailure,
   encodeHostCallFailure,
   isCodeModeHostHalt,
-} from "../src/agent/execution/hostHalt.js";
-import type { CodeModeResult } from "../src/agent/codemode/result.js";
-import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
-import { boundJsonValue } from "../src/agent/execution/marshal.js";
-import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.js";
-import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.js";
-import { AppError } from "../src/errors/appError.js";
-import { startWorkerHealthServer } from "../src/agentWork/workerHealth.js";
-import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.js";
-import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.js";
+} from "../src/agent/execution/hostHalt.ts";
+import type { CodeModeResult } from "../src/agent/codemode/result.ts";
+import { runCodeModeScript } from "../src/agent/codemode/runScript.ts";
+import { boundJsonValue } from "../src/agent/execution/marshal.ts";
+import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.ts";
+import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.ts";
+import { AppError } from "../src/errors/appError.ts";
+import { startWorkerHealthServer } from "../src/agentWork/workerHealth.ts";
+import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.ts";
+import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.ts";
 
 function asResult(value: unknown): CodeModeResult {
   return value as CodeModeResult;

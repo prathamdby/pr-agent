@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeGithubAppPrivateKey } from "../src/settings/index.js";
-import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
+import { normalizeGithubAppPrivateKey } from "../src/settings/index.ts";
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
 
 describe("normalizeGithubAppPrivateKey", () => {
   it("accepts escaped newlines wrapped in quotes", () => {

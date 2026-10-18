@@ -1,6 +1,6 @@
 import * as v from "valibot";
-import { MAX_SPECIALIST_FINDINGS } from "../../settings/index.js";
-import { reviewFindingSchema } from "../reviewSchema.js";
+import { MAX_SPECIALIST_FINDINGS } from "../../settings/index.ts";
+import { reviewFindingSchema } from "../reviewSchema.ts";
 
 export const specialistReportSchema = v.pipe(
   v.object({

@@ -1,14 +1,14 @@
-import { buildReviewSizeBudget } from "./run/reviewSizeBudget.js";
-import { buildReviewPathProfile } from "./placement/reviewPathProfile.js";
-import type { BotIdentity } from "../github/appAuth.js";
+import { buildReviewSizeBudget } from "./run/reviewSizeBudget.ts";
+import { buildReviewPathProfile } from "./placement/reviewPathProfile.ts";
+import type { BotIdentity } from "../github/appAuth.ts";
 import {
   createPublishContext,
   OPERATION_INTENT_RESULT_KEY,
   operationIntentMarker,
   reviewSummaryOperationKey,
-} from "../agentWork/publishOnce.js";
-import { getOperationIntent } from "../agentWork/operationIntentRepository.js";
-import { isRecord } from "../util/typeGuards.js";
+} from "../agentWork/publishOnce.ts";
+import { getOperationIntent } from "../agentWork/operationIntentRepository.ts";
+import { isRecord } from "../util/typeGuards.ts";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
@@ -20,41 +20,41 @@ import {
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
   REVIEW_FINALIZATION_WINDOW_MS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   degradedReasonFromReviewFlags,
   durationMsFromClaim,
   reviewWorkOutcome,
   workFailureReasonFromClassified,
   type WorkCompletedOutcome,
-} from "../analytics/workCompleted.js";
-import { AppError } from "../errors/appError.js";
-import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
-import type { PrSurface } from "../github/prSurface.js";
-import { runWithRateLimitCircuit } from "../github/rateLimitCircuit.js";
-import { openRunRateLimitCircuit } from "../agent/runtime/rateLimitCircuit.js";
+} from "../analytics/workCompleted.ts";
+import { AppError } from "../errors/appError.ts";
+import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.ts";
+import type { PrSurface } from "../github/prSurface.ts";
+import { runWithRateLimitCircuit } from "../github/rateLimitCircuit.ts";
+import { openRunRateLimitCircuit } from "../agent/runtime/rateLimitCircuit.ts";
 import {
   assertPullRequestFilesHeadSha,
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
-} from "../github/listPullRequestFiles.js";
-import { runOrchestratedPrReview } from "./orchestrator/orchestratorRun.js";
-import type { ReviewRunResult } from "./run/reviewRunTypes.js";
-import type { ReviewRunGate, ReviewRunTiming } from "./orchestrator/orchestratorTypes.js";
-import { loadRepoPolicy, renderRepoPolicyBlock } from "./repoPolicy.js";
+} from "../github/listPullRequestFiles.ts";
+import { runOrchestratedPrReview } from "./orchestrator/orchestratorRun.ts";
+import type { ReviewRunResult } from "./run/reviewRunTypes.ts";
+import type { ReviewRunGate, ReviewRunTiming } from "./orchestrator/orchestratorTypes.ts";
+import { loadRepoPolicy, renderRepoPolicyBlock } from "./repoPolicy.ts";
 import {
   isSameRepoPullRequest,
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
-} from "./agentInstructionFiles.js";
-import { buildTrustedReviewContextForReview } from "../prompts/orchestrator/prompt.js";
-import { fetchPriorInlineFeedbackBlockForReview } from "./run/reviewTrustedContext.js";
+} from "./agentInstructionFiles.ts";
+import { buildTrustedReviewContextForReview } from "../prompts/orchestrator/prompt.ts";
+import { fetchPriorInlineFeedbackBlockForReview } from "./run/reviewTrustedContext.ts";
 import {
   resolveAgentEventsContext,
   safeEmitCoverageEvent,
-} from "../agent/runtime/agentEventSink.js";
-import { buildReviewPreflightMetadataFromPullRequestFiles } from "./placement/reviewPreflightFiles.js";
-import type { ReviewMode } from "./reviewSchema.js";
+} from "../agent/runtime/agentEventSink.ts";
+import { buildReviewPreflightMetadataFromPullRequestFiles } from "./placement/reviewPreflightFiles.ts";
+import type { ReviewMode } from "./reviewSchema.ts";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -62,47 +62,47 @@ import {
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-} from "./run/reviewRunMetrics.js";
-import { logInfo, logWarn } from "../evlog.js";
-import { attachSummaryCommentCoordination } from "./publish/reviewSummaryComment.js";
-import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
-import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.js";
-import { prBodyHasDescriptionReviewMap } from "../agent/description/descriptionRender.js";
-import { tryLightweightAutoReviewCompletion } from "../agentWork/reviewLightweightCompletion.js";
+} from "./run/reviewRunMetrics.ts";
+import { logInfo, logWarn } from "../evlog.ts";
+import { attachSummaryCommentCoordination } from "./publish/reviewSummaryComment.ts";
+import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.ts";
+import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.ts";
+import { prBodyHasDescriptionReviewMap } from "../agent/description/descriptionRender.ts";
+import { tryLightweightAutoReviewCompletion } from "../agentWork/reviewLightweightCompletion.ts";
 import {
   closeOutcomeForCoverage,
   reviewVerdict,
   type OwnVerdictOutcome,
   ownVerdictFromSummaryDetail,
-} from "../agentWork/reviewVerdict.js";
+} from "../agentWork/reviewVerdict.ts";
 import {
   loadReviewExecutorPublishContext,
   type ReviewExecutorPublishContext,
-} from "../agentWork/publishRecordRepository.js";
-import { getWorkItem, shouldSkipWork } from "../agentWork/workItemStateRepository.js";
+} from "../agentWork/publishRecordRepository.ts";
+import { getWorkItem, shouldSkipWork } from "../agentWork/workItemStateRepository.ts";
 
 import {
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
   type StaleReviewRescheduleResult,
-} from "../agentWork/reviewReschedule.js";
-import type { EscalationPlan } from "../agentWork/retryPolicy.js";
+} from "../agentWork/reviewReschedule.ts";
+import type { EscalationPlan } from "../agentWork/retryPolicy.ts";
 import {
   type DurableExecutionContext,
   type DurableExecutionResult,
-} from "../agentWork/durableJob.js";
-import { type ReviewWorkItem, type ReviewWorkPayload } from "../agentWork/types.js";
-import type { ReviewProfileFields, WorkCompletion } from "../analytics/workCompleted.js";
-import type { ReviewRunMetricsSnapshot } from "./run/reviewRunMetrics.js";
-import { errorMessage } from "../errors/errorMessage.js";
-import { createReviewArtifactBinding, encodeReviewArtifact } from "./recovery/reviewArtifacts.js";
-import { openReviewRecovery } from "./recovery/reviewRecovery.js";
+} from "../agentWork/durableJob.ts";
+import { type ReviewWorkItem, type ReviewWorkPayload } from "../agentWork/types.ts";
+import type { ReviewProfileFields, WorkCompletion } from "../analytics/workCompleted.ts";
+import type { ReviewRunMetricsSnapshot } from "./run/reviewRunMetrics.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
+import { createReviewArtifactBinding, encodeReviewArtifact } from "./recovery/reviewArtifacts.ts";
+import { openReviewRecovery } from "./recovery/reviewRecovery.ts";
 import {
   reviewRecoveryBaseSha,
   reviewRecoveryInputDigest,
   reviewRecoveryModelApis,
-} from "./recovery/reviewRecoveryBinding.js";
-import { openReviewArtifactStore } from "../agentWork/reviewArtifactRepository.js";
+} from "./recovery/reviewRecoveryBinding.ts";
+import { openReviewArtifactStore } from "../agentWork/reviewArtifactRepository.ts";
 
 type ReviewDegradationReason = "publish_not_completed";
 

@@ -18,12 +18,12 @@ import {
   CODE_MODE_PENDING_JOBS_PER_PUMP,
   CODE_MODE_STATE_MAX_BYTES,
   CODE_MODE_TIMEOUT_MS,
-} from "../../settings/index.js";
-import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "./hostHalt.js";
-import type { CodeModeErrorCode } from "./hostHalt.js";
-import { injectLastExpressionReturn } from "./injectReturn.js";
-import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../../settings/index.ts";
+import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "./hostHalt.ts";
+import type { CodeModeErrorCode } from "./hostHalt.ts";
+import { injectLastExpressionReturn } from "./injectReturn.ts";
+import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type HostCall = (
   name: string,

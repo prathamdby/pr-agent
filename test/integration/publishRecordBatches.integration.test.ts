@@ -1,19 +1,19 @@
-import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.js";
-import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
-import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
-import type { PrSurfaceMutation } from "../../src/github/prSurface.js";
+import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
+import { createDurableRuntime } from "../../src/agentWork/durableJob.ts";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
+import type { PrSurfaceMutation } from "../../src/github/prSurface.ts";
 import {
   createPublishContext,
   publishStepSpecs,
   postgresPublishRecords,
   postgresPublishStore,
-} from "../../src/agentWork/publishOnce.js";
+} from "../../src/agentWork/publishOnce.ts";
 import {
   createFakePublishRecords,
   createFakePublishStore,
-} from "../../src/agentWork/fakePublishStore.js";
-import { isRecord } from "../../src/util/typeGuards.js";
+} from "../../src/agentWork/fakePublishStore.ts";
+import { isRecord } from "../../src/util/typeGuards.ts";
 import { randomUUID } from "node:crypto";
 import { fork } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -22,64 +22,64 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { PgBoss, type JobWithMetadata } from "pg-boss";
-import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
-import * as reconciliation from "../../src/agentWork/reconcilePendingIntents.js";
-import * as durableJob from "../../src/agentWork/durableJob.js";
-import type { DurableJobSpec } from "../../src/agentWork/durableJob.js";
-import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
+import * as intentRepository from "../../src/agentWork/operationIntentRepository.ts";
+import * as reconciliation from "../../src/agentWork/reconcilePendingIntents.ts";
+import * as durableJob from "../../src/agentWork/durableJob.ts";
+import type { DurableJobSpec } from "../../src/agentWork/durableJob.ts";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import {
   claimWorkForExecution,
   beginWorkAttempt,
   getWorkItem,
-} from "../../src/agentWork/workItemStateRepository.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
 import {
   loadReviewExecutorPublishContext,
   recordReviewCheckRun,
-} from "../../src/agentWork/publishRecordRepository.js";
-import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
-import { AppError } from "../../src/errors/appError.js";
-import type { ReviewJobData } from "../../src/agentWork/types.js";
-import { prResourceKey } from "../../src/agentWork/types.js";
+} from "../../src/agentWork/publishRecordRepository.ts";
+import { retryDispositionFor } from "../../src/agentWork/retryPolicy.ts";
+import { AppError } from "../../src/errors/appError.ts";
+import type { ReviewJobData } from "../../src/agentWork/types.ts";
+import { prResourceKey } from "../../src/agentWork/types.ts";
 import {
   claimSummaryCommentCreation,
   ownVerdictCloseOperationKey,
-} from "../../src/agentWork/publishRecordRepository.js";
-import { type PublishStep } from "../../src/agentWork/publishOnce.js";
-import { saveVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
-import { WORKER_CONSUMER_QUEUES, WORKER_DLQ_QUEUES } from "../../src/agentWork/workerHealth.js";
-import * as analytics from "../../src/analytics/index.js";
-import * as evlog from "../../src/evlog.js";
+} from "../../src/agentWork/publishRecordRepository.ts";
+import { type PublishStep } from "../../src/agentWork/publishOnce.ts";
+import { saveVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.ts";
+import { WORKER_CONSUMER_QUEUES, WORKER_DLQ_QUEUES } from "../../src/agentWork/workerHealth.ts";
+import * as analytics from "../../src/analytics/index.ts";
+import * as evlog from "../../src/evlog.ts";
 import {
   captureCiStateChanged,
   recordWorkCompleted,
   captureWebhookReceived,
   captureWorkRetried,
-} from "../../src/analytics/workCompleted.js";
-import * as appAuth from "../../src/github/appAuth.js";
-import * as surfaceFactory from "../../src/github/prSurface.js";
-import { withPrSurfaceMutationBoundary } from "../../src/github/prSurfaceMutation.js";
-import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
-import { findReviewCheckRunByName } from "../../src/github/reviewPublish.js";
-import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../../src/settings/index.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
-import { initialProgressTickState } from "../../src/review/run/progressComment.js";
+} from "../../src/analytics/workCompleted.ts";
+import * as appAuth from "../../src/github/appAuth.ts";
+import * as surfaceFactory from "../../src/github/prSurface.ts";
+import { withPrSurfaceMutationBoundary } from "../../src/github/prSurfaceMutation.ts";
+import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.ts";
+import { findReviewCheckRunByName } from "../../src/github/reviewPublish.ts";
+import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../../src/settings/index.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.ts";
+import { initialProgressTickState } from "../../src/review/run/progressComment.ts";
 import {
   parseProgressRevisionState,
   withProgressRevisionComment,
-} from "../../src/review/run/commentMarkers.js";
-import { createReviewWorkExecution } from "../../src/agentWork/executors/reviewExecutor.js";
-import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
+} from "../../src/review/run/commentMarkers.ts";
+import { createReviewWorkExecution } from "../../src/agentWork/executors/reviewExecutor.ts";
+import { tickProgressComment } from "../../src/review/orchestrator/stubTick.ts";
 import {
   renderReviewPointerLensMarker,
   renderStaleReviewMetadataComment,
-} from "../../src/review/run/reviewRender.js";
+} from "../../src/review/run/reviewRender.ts";
 import {
   renderCiRollupMarker,
   renderCiActionPhrase,
   renderCiSummaryCell,
-} from "../../src/review/ci/ciSummaryCell.js";
-import { wrapDescriptionAgentBlock } from "../../src/agent/description/descriptionBodyMerge.js";
-import { makeTestConfig } from "../helpers/config.js";
+} from "../../src/review/ci/ciSummaryCell.ts";
+import { wrapDescriptionAgentBlock } from "../../src/agent/description/descriptionBodyMerge.ts";
+import { makeTestConfig } from "../helpers/config.ts";
 import {
   runInOperationIntentFrame,
   publishOnce,
@@ -98,27 +98,27 @@ import {
   reviewCheckOperationKey,
   reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
-} from "../../src/agentWork/publishOnce.js";
-import { createFakePrSurface } from "../../src/github/prSurface.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { hasDatabase, integrationPool } from "./db.js";
-import { publishTriage, recoverTriagePublication } from "../../src/agent/triage/publishTriage.js";
+} from "../../src/agentWork/publishOnce.ts";
+import { createFakePrSurface } from "../../src/github/prSurface.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
+import { publishTriage, recoverTriagePublication } from "../../src/agent/triage/publishTriage.ts";
 import {
   openReviewArtifactStore,
   REVIEW_ARTIFACT_BUDGET_BYTES,
   REVIEW_SETTLEMENT_RESERVE_BYTES,
-} from "../../src/agentWork/reviewArtifactRepository.js";
+} from "../../src/agentWork/reviewArtifactRepository.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   reviewArtifactHash,
-} from "../../src/review/recovery/reviewArtifacts.js";
-import { reviewPayloadFromFindings } from "../../src/review/reviewSchema.js";
+} from "../../src/review/recovery/reviewArtifacts.ts";
+import { reviewPayloadFromFindings } from "../../src/review/reviewSchema.ts";
 import {
   createEvidenceLedger,
   recordDeliveredFileRead,
   revalidateEvidenceDescriptors,
-} from "../../src/review/findings/evidenceLedger.js";
+} from "../../src/review/findings/evidenceLedger.ts";
 
 describe("review artifact evidence descriptors", () => {
   it("revalidates fresh governed reads rather than replaying response hashes as range hashes", async () => {

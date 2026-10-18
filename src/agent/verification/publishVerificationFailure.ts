@@ -1,20 +1,20 @@
-import { createPublishContext } from "../../agentWork/publishOnce.js";
+import { createPublishContext } from "../../agentWork/publishOnce.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
-import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.js";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { PrConversationComment } from "../../github/prSurfaceTypes.ts";
+import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.ts";
 import {
   LEGACY_REVIEW_SUMMARY_SENTINELS,
   REVIEW_SUMMARY_SENTINEL,
   VERIFICATION_PUBLISH_LENS,
-} from "../../settings/index.js";
-import { requestHeadCiProjection } from "../../agentWork/ciProjection.js";
+} from "../../settings/index.ts";
+import { requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
 import {
   advancePrHeadCiRevisionForVerificationSignal,
   isEffectiveVerificationSignalTransition,
   type VerificationSignalPrior,
-} from "../../agentWork/prHeadCiState.js";
+} from "../../agentWork/prHeadCiState.ts";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
@@ -22,7 +22,7 @@ import {
   upsertVerificationFailureSignal,
   type VerificationFailureSignal,
   type VerificationThreadLedger,
-} from "../../agentWork/verificationThreadLedger.js";
+} from "../../agentWork/verificationThreadLedger.ts";
 
 const REVIEW_SUMMARY_SENTINELS = [
   REVIEW_SUMMARY_SENTINEL,

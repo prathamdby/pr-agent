@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { isFindingSource, type FindingSource } from "../orchestrator/orchestratorTypes.js";
-import type { ReviewFinding } from "../reviewSchema.js";
+import { isFindingSource, type FindingSource } from "../orchestrator/orchestratorTypes.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
 
 export type FindingId = string & { readonly __brand: "FindingId" };
 export type FindingSeverity = ReviewFinding["severity"];

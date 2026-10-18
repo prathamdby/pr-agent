@@ -2,8 +2,8 @@ import {
   createEvidenceLedger,
   hashNormalizedLineText,
   type EvidenceLedger,
-} from "../../src/review/findings/evidenceLedger.js";
-import type { ReviewFinding } from "../../src/review/reviewSchema.js";
+} from "../../src/review/findings/evidenceLedger.ts";
+import type { ReviewFinding } from "../../src/review/reviewSchema.ts";
 
 export function createTestEvidenceLedger(headSha = "abc1234"): EvidenceLedger {
   return createEvidenceLedger(headSha);

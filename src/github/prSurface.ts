@@ -1,7 +1,7 @@
-import { isUnfencedSurface, type SurfaceFence } from "../agentWork/writeFence.js";
-import { createPrSurfaceImpl } from "./prSurfaceImpl.js";
-import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
-import type { CreatePrSurfaceParams, PrSurface } from "./prSurfaceTypes.js";
+import { isUnfencedSurface, type SurfaceFence } from "../agentWork/writeFence.ts";
+import { createPrSurfaceImpl } from "./prSurfaceImpl.ts";
+import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.ts";
+import type { CreatePrSurfaceParams, PrSurface } from "./prSurfaceTypes.ts";
 
 export type FencedPrSurfaceParams = CreatePrSurfaceParams & {
   readonly mutationBoundary: SurfaceFence;
@@ -32,10 +32,10 @@ export type {
   ReviewCheckOutcome,
   ReviewCommitStatusParams,
   ThreadBatchReview,
-} from "./prSurfaceTypes.js";
-export { createFakePrSurface } from "./fakePrSurface.js";
-export type { FakePrSurfaceControls, FakePrSurfaceEvent } from "./fakePrSurface.js";
-export { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
+} from "./prSurfaceTypes.ts";
+export { createFakePrSurface } from "./fakePrSurface.ts";
+export type { FakePrSurfaceControls, FakePrSurfaceEvent } from "./fakePrSurface.ts";
+export { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.ts";
 
 export function createPrSurface(params: FencedPrSurfaceParams): PrSurface {
   const mutationBoundary = isUnfencedSurface(params.mutationBoundary)

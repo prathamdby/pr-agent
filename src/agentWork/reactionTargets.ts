@@ -1,4 +1,4 @@
-import type { AckTarget, AgentWorkItem } from "./types.js";
+import type { AckTarget, AgentWorkItem } from "./types.ts";
 
 export function reactionTargetsForWorkItem(item: AgentWorkItem): readonly AckTarget[] {
   const stored = item.payload.ackTargets;

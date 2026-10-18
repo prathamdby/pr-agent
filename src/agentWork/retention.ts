@@ -1,11 +1,11 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { type Config, RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
-import { logWarn } from "../evlog.js";
-import { deleteExpiredAskQuotaState } from "./askQuota.js";
-import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
-import { deleteExpiredReviewApprovals } from "./intake/reviewApprovals.js";
-import { deleteExpiredGithubCapabilities } from "./githubCapabilityRepository.js";
+import { type Config, RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.ts";
+import { logWarn } from "../evlog.ts";
+import { deleteExpiredAskQuotaState } from "./askQuota.ts";
+import { deleteExpiredPrHeadCiState } from "./prHeadCiState.ts";
+import { deleteExpiredReviewApprovals } from "./intake/reviewApprovals.ts";
+import { deleteExpiredGithubCapabilities } from "./githubCapabilityRepository.ts";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 

@@ -3,15 +3,15 @@ import {
   REVIEW_SIZE_TIER_LARGE_MIN_CHANGES,
   REVIEW_SIZE_TIER_MEDIUM_MAX_FILES,
   REVIEW_SIZE_TIER_SMALL_MAX_FILES,
-} from "../src/settings/reviewConstants.js";
+} from "../src/settings/reviewConstants.ts";
 import {
   buildReviewSizeBudget,
   classifyReviewBudgetTier,
-} from "../src/review/run/reviewSizeBudget.js";
+} from "../src/review/run/reviewSizeBudget.ts";
 import {
   formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
-} from "../src/prompts/orchestrator/context.js";
+} from "../src/prompts/orchestrator/context.ts";
 
 describe("classifyReviewBudgetTier", () => {
   it("classifies small PRs", () => {

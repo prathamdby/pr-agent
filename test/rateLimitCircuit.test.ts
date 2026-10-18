@@ -9,13 +9,13 @@ import {
   runWithRateLimitCircuit,
   shouldShortCircuitGithubTool,
   wrapExecutorsWithRateLimitCircuit,
-} from "../src/github/rateLimitCircuit.js";
-import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle.js";
+} from "../src/github/rateLimitCircuit.ts";
+import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle.ts";
 import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
-} from "../src/settings/index.js";
-import * as evlog from "../src/evlog.js";
+} from "../src/settings/index.ts";
+import * as evlog from "../src/evlog.ts";
 
 describe("rateLimitCircuit", () => {
   afterEach(() => {

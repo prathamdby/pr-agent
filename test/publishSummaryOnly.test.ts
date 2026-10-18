@@ -1,19 +1,19 @@
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
-  const { createFakePublishRecords } = await import("../src/agentWork/fakePublishStore.js");
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
+  const { createFakePublishRecords } = await import("../src/agentWork/fakePublishStore.ts");
   const records = createFakePublishRecords(actual.publishStepSpecs);
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) => actual.createPublishContext(client, identity, records),
   };
 });
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
 const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
   return {
     get store() {
       return store;
@@ -23,7 +23,7 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(
     (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
       publishStoreState.store.persistOperationIntent(...args),
@@ -48,20 +48,20 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   completeFindingInventory,
   publishSummaryForTest,
-} from "./helpers/reviewPublishTestHelpers.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+} from "./helpers/reviewPublishTestHelpers.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 function configuredSummarySurface() {
   const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -92,8 +92,8 @@ function configuredSummarySurface() {
   return { ...bundle, upsertProgressComment, setReviewCommitStatus };
 }
 
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
+vi.mock("../src/github/reviewPublish.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/reviewPublish.ts")>();
   return {
     ...actual,
     findIssueCommentBySentinel: vi.fn(async () => null),
@@ -105,22 +105,22 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
   const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.js");
+    await import("./helpers/publishReviewTestSetup.ts");
   return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
     ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };
 });
 
-vi.mock("../src/agentWork/ciProjection.js", () => ({
+vi.mock("../src/agentWork/ciProjection.ts", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
@@ -128,16 +128,16 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.ts";
+import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.ts";
 import type { Pool, PoolClient } from "pg";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
-import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
+import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.ts";
 import {
   createReviewArtifactBinding,
   parseReviewArtifactEnvelope,
-} from "../src/review/recovery/reviewArtifacts.js";
+} from "../src/review/recovery/reviewArtifacts.ts";
 
 function finding(line: number): ReviewFinding {
   return {

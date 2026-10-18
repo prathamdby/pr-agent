@@ -1,16 +1,16 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-import { productionInstallationSurface } from "../installationSurface.js";
-import { createPublishContext } from "../publishOnce.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
-import { renderFailureNoticeWithFindings } from "../../review/run/reviewRunFallback.js";
-import { loadFindingInventoryOrUnavailable } from "../../review/findingIdentity/findingInventory.js";
-import { buildFindingView } from "../../review/findingIdentity/findingLifecycle.js";
-import { runReviewForWorkItem } from "../../review/runReviewForWorkItem.js";
-import { isOwnCheckOpen, ownVerdictFromSummaryDetail, reviewVerdict } from "../reviewVerdict.js";
-import { getProgressCommentOwner } from "../publishRecordRepository.js";
-import { cancelPendingStaleHeadReplacement } from "../reviewReschedule.js";
-import { isAppError } from "../../errors/appError.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
+import { productionInstallationSurface } from "../installationSurface.ts";
+import { createPublishContext } from "../publishOnce.ts";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
+import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.ts";
+import { renderFailureNoticeWithFindings } from "../../review/run/reviewRunFallback.ts";
+import { loadFindingInventoryOrUnavailable } from "../../review/findingIdentity/findingInventory.ts";
+import { buildFindingView } from "../../review/findingIdentity/findingLifecycle.ts";
+import { runReviewForWorkItem } from "../../review/runReviewForWorkItem.ts";
+import { isOwnCheckOpen, ownVerdictFromSummaryDetail, reviewVerdict } from "../reviewVerdict.ts";
+import { getProgressCommentOwner } from "../publishRecordRepository.ts";
+import { cancelPendingStaleHeadReplacement } from "../reviewReschedule.ts";
+import { isAppError } from "../../errors/appError.ts";
 
 export function createReviewWorkExecution({
   cfg,

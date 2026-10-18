@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
 import {
   CHECK_RUNS_MAX_PAGES,
   CHECK_RUNS_PAGE_SIZE,
   COMMENTS_PAGE_SIZE,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 
 const {
   listComments,
@@ -85,7 +85,7 @@ const {
   };
 });
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit,
 }));
 
@@ -97,9 +97,9 @@ import {
   listPullRequestLabels,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { findPublishedThreadBatch } from "../src/github/prSurfaceHelpers.js";
+} from "../src/github/reviewPublish.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { findPublishedThreadBatch } from "../src/github/prSurfaceHelpers.ts";
 
 describe("findIssueCommentBySentinel", () => {
   beforeEach(() => {

@@ -3,8 +3,8 @@ import {
   PROGRAMMING_LANGUAGES,
   type ProgrammingLanguage,
   type ServableLanguages,
-} from "./acceptLanguage.js";
-import { SITE_ORIGIN } from "./site.js";
+} from "./acceptLanguage.ts";
+import { SITE_ORIGIN } from "./site.ts";
 
 type FeatureItem = {
   title: string;

@@ -1,8 +1,8 @@
 import type { PoolClient } from "pg";
-import type { WorkSource } from "../review/reviewSchema.js";
-import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
-import { transition, type TransitionSelector } from "./workItemTransitions.js";
-import { unleasedFence } from "./writeFence.js";
+import type { WorkSource } from "../review/reviewSchema.ts";
+import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.ts";
+import { transition, type TransitionSelector } from "./workItemTransitions.ts";
+import { unleasedFence } from "./writeFence.ts";
 
 export type AutoWorkSupersedeTarget =
   | {

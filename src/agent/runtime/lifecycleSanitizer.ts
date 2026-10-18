@@ -1,9 +1,9 @@
-import { logWarn } from "../../evlog.js";
-import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
-import { isPlainObject } from "../../util/typeGuards.js";
-import type { TurnEnd } from "../providers/usageMetadata.js";
-import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
-import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
+import { logWarn } from "../../evlog.ts";
+import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.ts";
+import { isPlainObject } from "../../util/typeGuards.ts";
+import type { TurnEnd } from "../providers/usageMetadata.ts";
+import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.ts";
+import type { AgentSessionPhase, AgentSessionRole } from "./types.ts";
 
 const SESSION_ROLES = {
   orchestrator: true,

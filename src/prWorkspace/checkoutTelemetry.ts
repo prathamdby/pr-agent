@@ -1,10 +1,10 @@
-import { isAppError } from "../errors/appError.js";
+import { isAppError } from "../errors/appError.ts";
 import type {
   LocalPrWorkspaceCheckoutMode,
   WorkspaceGitDiagnostics,
   WorkspaceGitFailureKind,
   WorkspaceGitTimeoutSource,
-} from "./repositoryReader.js";
+} from "./repositoryReader.ts";
 
 export type WorkspaceCheckoutMode = LocalPrWorkspaceCheckoutMode | "sparse_fallback";
 

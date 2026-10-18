@@ -1,12 +1,12 @@
-import type { PrSurface } from "../../github/prSurface.js";
-import type { InlinePlacement } from "./reviewDiffPlacement.js";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { InlinePlacement } from "./reviewDiffPlacement.ts";
 import {
   isLineResolutionPublishError,
   lineResolutionPublishErrorHint,
   type LineResolutionPublishErrorHint,
-} from "../../github/reviewErrors.js";
-import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
-import type { InlineReviewComment } from "../../github/reviewPublish.js";
+} from "../../github/reviewErrors.ts";
+import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
+import type { InlineReviewComment } from "../../github/reviewPublish.ts";
 
 type InlinePublishParams<TPlacement extends InlinePlacement> = {
   prSurface: PrSurface;

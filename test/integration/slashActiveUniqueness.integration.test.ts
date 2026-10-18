@@ -1,4 +1,4 @@
-import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,33 +8,33 @@ import type { PgBoss } from "pg-boss";
 import {
   applySlashCommandIntake as applySlash,
   type SlashCommandInput,
-} from "../../src/agentWork/intake/slashIntake.js";
-import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
-import * as installationToken from "../../src/github/installationToken.js";
-import * as appAuth from "../../src/github/appAuth.js";
-import * as prSurface from "../../src/github/prSurface.js";
-import { parseProgressRevisionState } from "../../src/review/run/commentMarkers.js";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+} from "../../src/agentWork/intake/slashIntake.ts";
+import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.ts";
+import * as installationToken from "../../src/github/installationToken.ts";
+import * as appAuth from "../../src/github/appAuth.ts";
+import * as prSurface from "../../src/github/prSurface.ts";
+import { parseProgressRevisionState } from "../../src/review/run/commentMarkers.ts";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import {
   acquirePrActorLease,
   assertPrActorLeaseHeld,
   isPrActorLeaseHeld,
   renewPrActorLease,
-} from "../../src/agentWork/prActorLease.js";
+} from "../../src/agentWork/prActorLease.ts";
 import {
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
-} from "../../src/agentWork/reviewReschedule.js";
+} from "../../src/agentWork/reviewReschedule.ts";
 import {
   claimWorkForExecution,
   getReviewQueuePosition,
   getWorkItem,
-} from "../../src/agentWork/workItemStateRepository.js";
-import { inTransaction } from "../../src/db/postgres.js";
-import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
-import { makeTestConfig } from "../helpers/config.js";
-import { runMigrations } from "../../src/db/migrations.js";
+} from "../../src/agentWork/workItemStateRepository.ts";
+import { inTransaction } from "../../src/db/postgres.ts";
+import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.ts";
+import { makeTestConfig } from "../helpers/config.ts";
+import { runMigrations } from "../../src/db/migrations.ts";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
@@ -57,11 +57,11 @@ import {
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../../src/settings/index.js";
-import type { AckJobData, QueueConfig } from "../../src/agentWork/types.js";
-import { prResourceKey } from "../../src/agentWork/types.js";
-import { makeReviewWorkItem } from "../helpers/agentWorkItems.js";
-import { hasDatabase, integrationPool } from "./db.js";
+} from "../../src/settings/index.ts";
+import type { AckJobData, QueueConfig } from "../../src/agentWork/types.ts";
+import { prResourceKey } from "../../src/agentWork/types.ts";
+import { makeReviewWorkItem } from "../helpers/agentWorkItems.ts";
+import { hasDatabase, integrationPool } from "./db.ts";
 
 const testFeatures = makeTestConfig().features;
 
@@ -2089,8 +2089,8 @@ function applySlashCommandIntake(
   boss: PgBoss,
   client: import("pg").PoolClient,
   input: SlashCommandInput,
-  features: import("../../src/settings/index.js").Features,
-  askQuota?: import("../../src/agentWork/askQuota.js").AskQuotaConfig,
+  features: import("../../src/settings/index.ts").Features,
+  askQuota?: import("../../src/agentWork/askQuota.ts").AskQuotaConfig,
 ) {
   const tx = new DeliveryTx(client, input.headers);
   return applySlash(boss, tx, input, features, askQuota).then((events) => [

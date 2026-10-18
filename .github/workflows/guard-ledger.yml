@@ -23,11 +23,11 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
           persist-credentials: false
-      - uses: nubjs/setup-nub@v0
+      - uses: actions/setup-node@v4
         with:
-          cache: true
+          cache: npm
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent...
+      - run: npm ci --workspaces=false
       - id: ledger
         run: node scripts/check-guard-ledger.mjs --report --base-tree . --head-tree head
 

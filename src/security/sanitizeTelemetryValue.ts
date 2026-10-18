@@ -1,5 +1,5 @@
-import { redactOutboundSecrets } from "./redactOutboundSecrets.js";
-import { isRecord } from "../util/typeGuards.js";
+import { redactOutboundSecrets } from "./redactOutboundSecrets.ts";
+import { isRecord } from "../util/typeGuards.ts";
 
 const CIRCULAR_VALUE = "[circular]";
 const UNSUPPORTED_VALUE = "[unsupported]";

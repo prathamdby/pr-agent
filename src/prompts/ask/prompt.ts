@@ -1,12 +1,12 @@
-import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.js";
-import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.js";
-import { communicationGuidance } from "../shared/communication.js";
+import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.ts";
+import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.ts";
+import { communicationGuidance } from "../shared/communication.ts";
 import {
   context7OutboundDataGuidance,
   wrapTrustedContext,
   wrapUntrustedBlock,
-} from "../shared/safety.js";
-import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../shared/tools.js";
+} from "../shared/safety.ts";
+import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../shared/tools.ts";
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,

@@ -1,8 +1,8 @@
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 import {
   defaultModelsJsonCandidatePath,
   resolveModelsJsonPath,
-} from "../../agent/runtime/modelsJsonPath.js";
+} from "../../agent/runtime/modelsJsonPath.ts";
 import {
   DEFAULT_PI_FALLBACK_MODEL,
   DEFAULT_PI_FALLBACK_PROVIDER,
@@ -14,14 +14,14 @@ import {
   DEFAULT_PI_PROVIDER_RETRY_MAX,
   DEFAULT_PI_THINKING_CEILING,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
-} from "../defaults.js";
-import { ENV, EXTERNAL_ENV } from "../envKeys.js";
+} from "../defaults.ts";
+import { ENV, EXTERNAL_ENV } from "../envKeys.ts";
 import {
   optionalEnv,
   readEnum,
   readNonNegativeInteger,
   readPositiveNumber,
-} from "../envReaders.js";
+} from "../envReaders.ts";
 
 const WEB_UNVALIDATED_PI_API = "web-unvalidated";
 
@@ -89,7 +89,7 @@ export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSli
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
   let piApi = WEB_UNVALIDATED_PI_API;
   if (role === "worker") {
-    const { assertPiModelSelection } = await import("../../agent/runtime/modelsJson.js");
+    const { assertPiModelSelection } = await import("../../agent/runtime/modelsJson.ts");
     piApi = await assertPiModelSelection({
       modelsJsonPath,
       piProvider,

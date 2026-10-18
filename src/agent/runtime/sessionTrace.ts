@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
 import { contentText, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
-import { isPlainObject } from "../../util/typeGuards.js";
-import { logWarn } from "../../evlog.js";
+import { isPlainObject } from "../../util/typeGuards.ts";
+import { logWarn } from "../../evlog.ts";
 import {
   boundText,
   boundTraceValue,
@@ -21,18 +21,18 @@ import {
   type FindingSnapshot,
   type PostHogMessage,
   type PostHogPart,
-} from "../../traces/aiContent.js";
+} from "../../traces/aiContent.ts";
 import {
   openTraceSession,
   type TraceDraft,
   type TraceHandle,
   type TraceStatus,
-} from "../../traces/recorder.js";
-import type { PiSessionCreateParams, PiSessionSendOptions } from "./types.js";
-import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
-import { exactUsageFromProviderUsage } from "../providers/usageMetadata.js";
-import type { HostCallOutcome } from "../providers/interface.js";
-import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
+} from "../../traces/recorder.ts";
+import type { PiSessionCreateParams, PiSessionSendOptions } from "./types.ts";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
+import { exactUsageFromProviderUsage } from "../providers/usageMetadata.ts";
+import type { HostCallOutcome } from "../providers/interface.ts";
+import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.ts";
 
 const HOST_CALL_INPUT_CHARS = 2_048;
 const HOST_CALL_PREVIEW_CHARS = 4_096;

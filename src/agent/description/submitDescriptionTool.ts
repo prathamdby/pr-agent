@@ -1,33 +1,33 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { toToolParameters } from "../tools/toolParams.js";
+import { toToolParameters } from "../tools/toolParams.ts";
 import * as v from "valibot";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import { AppError } from "../../errors/appError.js";
-import { logDebug, logInfo } from "../../evlog.js";
-import { planDescriptionPublish } from "./descriptionPublishPlan.js";
-import { coerceDescriptionPayloadInput, descriptionPayloadSchema } from "./descriptionSchema.js";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../../prompts/description/prompt.js";
-import { parseToolInput } from "../tools/parseToolInput.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
+import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { AppError } from "../../errors/appError.ts";
+import { logDebug, logInfo } from "../../evlog.ts";
+import { planDescriptionPublish } from "./descriptionPublishPlan.ts";
+import { coerceDescriptionPayloadInput, descriptionPayloadSchema } from "./descriptionSchema.ts";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../../prompts/description/prompt.ts";
+import { parseToolInput } from "../tools/parseToolInput.ts";
 import {
   enforceDescriptionMapPayload,
   type DescriptionMapMode,
-} from "./descriptionWritingPolicy.js";
-import { enforceDescriptionTitle } from "./descriptionTitle.js";
+} from "./descriptionWritingPolicy.ts";
+import { enforceDescriptionTitle } from "./descriptionTitle.ts";
 import {
   enforceDescriptionVisualPayload,
   formatDescriptionVisualValidationError,
   validateDescriptionVisuals,
-} from "./descriptionVisualSanitize.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
+} from "./descriptionVisualSanitize.ts";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import {
   descriptionPrBodyOperationKey,
   operationIntentMarker,
   type OperationIntentContext,
   publishOnce,
-} from "../../agentWork/publishOnce.js";
+} from "../../agentWork/publishOnce.ts";
 
 const descriptionPublishResultSchema = v.object({
   prNumber: v.number(),

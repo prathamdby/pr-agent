@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 
 export const MODELS_JSON_FILENAME = "models.json";
 

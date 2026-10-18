@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
-} from "../src/review/placement/reviewDiffPlacement.js";
-import { isLineResolutionPublishError } from "../src/github/reviewErrors.js";
+} from "../src/review/placement/reviewDiffPlacement.ts";
+import { isLineResolutionPublishError } from "../src/github/reviewErrors.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.js";
-import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.js";
+} from "../src/review/placement/reviewDiffIndex.ts";
+import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.ts";
 
 describe("reviewDiffPlacement", () => {
   it("posts P3 findings inline when the anchor resolves", () => {

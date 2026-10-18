@@ -1,4 +1,4 @@
-import type { AgentSessionRole, CompactionPolicy } from "./types.js";
+import type { AgentSessionRole, CompactionPolicy } from "./types.ts";
 
 const COMPACTION_ENABLED: Readonly<Record<AgentSessionRole, boolean>> = {
   orchestrator: false,

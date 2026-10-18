@@ -3,7 +3,7 @@ import {
   isReviewForceCommand,
   parseSlashCommand,
   parseTriageCommand,
-} from "../src/commands/parseSlashCommand.js";
+} from "../src/commands/parseSlashCommand.ts";
 
 describe("parseSlashCommand", () => {
   it("parses first non-empty line command", () => {

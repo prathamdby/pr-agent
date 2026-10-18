@@ -1,15 +1,15 @@
 const publicationWrites = vi.hoisted(() => ({
   write: vi
-    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
     .mockResolvedValue(undefined),
 }));
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -20,23 +20,23 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
 const recordPublishStep = publicationWrites.write;
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { makeTestConfig } from "./helpers/config.js";
-import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
-import type { AckJobData } from "../src/agentWork/types.js";
+import { makeTestConfig } from "./helpers/config.ts";
+import { executeAckJob } from "../src/agentWork/executors/ackExecutor.ts";
+import type { AckJobData } from "../src/agentWork/types.ts";
 import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
   REVIEW_SUMMARY_SENTINEL,
-} from "../src/settings/index.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
+} from "../src/settings/index.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import * as prSurfaceModule from "../src/github/prSurface.ts";
 
 let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 
-vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/github/installationToken.js")>()),
+vi.mock("../src/github/installationToken.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/github/installationToken.ts")>()),
   mintInstallationToken: vi.fn(async () => ({
     token: "tok",
     expiresAtTs: Date.now() + 3_600_000,
@@ -44,10 +44,10 @@ vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
   })),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
-vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
   nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
   recordGithubCapabilityDenial: vi.fn(async () => true),
   loadGithubCapabilityObservation: vi.fn(async () => ({
@@ -70,7 +70,7 @@ vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
   saveGithubCapabilityObservation: vi.fn(async () => true),
 }));
 
-vi.mock("../src/agentWork/ciProjection.js", () => ({
+vi.mock("../src/agentWork/ciProjection.ts", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
@@ -78,13 +78,13 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.ts", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
   getProgressCommentOwner: vi.fn(async () => null),
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
+vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
   getReviewQueuePosition: vi.fn(async () => null),
   getWorkItemCore: vi.fn(async () => ({
     id: "wi-1",
@@ -100,9 +100,9 @@ const summaryWrite = vi.hoisted(() =>
   })),
 );
 
-vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
+vi.mock("../src/review/publish/reviewSummaryComment.ts", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.ts")>();
   return {
     ...actual,
     createReviewSummaryComment: (
@@ -127,7 +127,7 @@ vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) 
   };
 });
 
-vi.mock("../src/agentWork/reviewVerdict.js", () => ({
+vi.mock("../src/agentWork/reviewVerdict.ts", () => ({
   closeReviewVerdictsForWorkItems: vi.fn(async () => undefined),
   reviewVerdict: vi.fn(() => ({
     pending: vi.fn(async () => 123),
@@ -136,40 +136,40 @@ vi.mock("../src/agentWork/reviewVerdict.js", () => ({
   })),
 }));
 
-vi.mock("../src/evlog.js", () => ({
+vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
 
-import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
-import { getProgressCommentOwner } from "../src/agentWork/publishRecordRepository.js";
+import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.ts";
+import { getProgressCommentOwner } from "../src/agentWork/publishRecordRepository.ts";
 import {
   getReviewQueuePosition,
   getWorkItemCore,
-} from "../src/agentWork/workItemStateRepository.js";
-import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../src/agentWork/reviewVerdict.js";
+} from "../src/agentWork/workItemStateRepository.ts";
+import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../src/agentWork/reviewVerdict.ts";
 
 import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
-} from "../src/review/run/progressComment.js";
+} from "../src/review/run/progressComment.ts";
 import {
   REVIEW_PROGRESS_QUEUE_LABEL,
   REVIEW_PROGRESS_QUEUED_NOTE,
   reviewProgressCancelledNote,
   triageCancelledNotice,
-} from "../src/settings/index.js";
-import { logWarn } from "../src/evlog.js";
+} from "../src/settings/index.ts";
+import { logWarn } from "../src/evlog.ts";
 import {
   availableInstallationCapabilities,
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
-} from "../src/github/installationCapabilities.js";
+} from "../src/github/installationCapabilities.ts";
 import {
   loadGithubCapabilityObservation,
   saveGithubCapabilityObservation,
-} from "../src/agentWork/githubCapabilityRepository.js";
-import { productionInstallationSurface } from "../src/agentWork/installationSurface.js";
-import { AppError } from "../src/errors/appError.js";
+} from "../src/agentWork/githubCapabilityRepository.ts";
+import { productionInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import { AppError } from "../src/errors/appError.ts";
 
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;

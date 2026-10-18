@@ -1,9 +1,9 @@
 import { vi, type Mock } from "vitest";
-import type { ReviewPayload } from "../../src/review/reviewSchema.js";
-import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
-import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.js";
-import { makeReviewPayload } from "./reviewPayloadFactory.js";
-import { makeTestConfig } from "./config.js";
+import type { ReviewPayload } from "../../src/review/reviewSchema.ts";
+import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.ts";
+import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.ts";
+import { makeReviewPayload } from "./reviewPayloadFactory.ts";
+import { makeTestConfig } from "./config.ts";
 
 export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
   findings: [

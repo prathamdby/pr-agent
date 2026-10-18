@@ -1,16 +1,16 @@
-import { runFeatureAgent } from "../src/agent/runtime/featureAgent.js";
-import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
-import { createFakePiSession } from "../src/agent/runtime/fakePiSession.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { runValidationRepairLoop } from "../src/agent/runtime/featureAgent.js";
+import { runFeatureAgent } from "../src/agent/runtime/featureAgent.ts";
+import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.ts";
+import { createFakePiSession } from "../src/agent/runtime/fakePiSession.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { runValidationRepairLoop } from "../src/agent/runtime/featureAgent.ts";
 import { describe, expect, it } from "vitest";
 import {
   buildSubmitTriageTool,
   createSubmitTriageState,
-} from "../src/agent/triage/submitTriageTool.js";
-import type { TriageWorkspaceToolState } from "../src/agent/triage/triageWorkspaceTools.js";
-import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
+} from "../src/agent/triage/submitTriageTool.ts";
+import type { TriageWorkspaceToolState } from "../src/agent/triage/triageWorkspaceTools.ts";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 
 function inventoryThread(): BotFindingThread {
   return {
@@ -131,7 +131,7 @@ describe("feature submit repair", () => {
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
-} from "../src/agent/verification/submitVerificationTool.js";
+} from "../src/agent/verification/submitVerificationTool.ts";
 
 function verificationInventoryThread(): BotFindingThread {
   return {

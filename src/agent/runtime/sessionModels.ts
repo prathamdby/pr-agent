@@ -1,6 +1,6 @@
 import { InMemoryCredentialStore, type MutableModels } from "@earendil-works/pi-ai";
-import type { Config } from "../../settings/index.js";
-import { overlayCatalog } from "./modelsJson.js";
+import type { Config } from "../../settings/index.ts";
+import { overlayCatalog } from "./modelsJson.ts";
 
 export type SessionModels = {
   readonly models: MutableModels;

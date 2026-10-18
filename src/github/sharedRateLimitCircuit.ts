@@ -1,9 +1,9 @@
 import type { Pool, PoolClient } from "pg";
-import { queryOne } from "../db/postgres.js";
-import { logWarn } from "../evlog.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
-import { errorMessage } from "../errors/errorMessage.js";
+import { queryOne } from "../db/postgres.ts";
+import { logWarn } from "../evlog.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 export type SharedRateLimitCircuitRow = {
   readonly installationId: number;
   readonly openUntil: Date;

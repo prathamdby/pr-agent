@@ -1,17 +1,17 @@
-import { getAppBotIdentity, installationOctokit } from "./appAuth.js";
-import type { InstallationToken } from "./appAuth.js";
-import { logDebug, logWarn } from "../evlog.js";
-import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installationToken.js";
-import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.js";
-import { listCommitCompareFiles } from "./compareCommitFiles.js";
+import { getAppBotIdentity, installationOctokit } from "./appAuth.ts";
+import type { InstallationToken } from "./appAuth.ts";
+import { logDebug, logWarn } from "../evlog.ts";
+import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installationToken.ts";
+import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.ts";
+import { listCommitCompareFiles } from "./compareCommitFiles.ts";
 import {
   readCiStatusSources,
   listPullsForHead,
   listLegacyCommitStatusesForHeadDetailed,
-} from "./ciStatus.js";
-import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
-import { isDuplicateCheckRunCreationError } from "./githubErrors.js";
-import { httpStatus } from "./httpStatus.js";
+} from "./ciStatus.ts";
+import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.ts";
+import { isDuplicateCheckRunCreationError } from "./githubErrors.ts";
+import { httpStatus } from "./httpStatus.ts";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
@@ -24,15 +24,15 @@ import {
   updateIssueComment,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
-} from "./reviewPublish.js";
+} from "./reviewPublish.ts";
 import {
   getReviewThreadSnapshot,
   listReviewThreadResolution,
   resolveReviewThread,
-} from "./reviewThreadResolution.js";
-import { stopPaginatedPage } from "./paginateOctokit.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import type { ReplyTarget } from "../agentWork/types.js";
+} from "./reviewThreadResolution.ts";
+import { stopPaginatedPage } from "./paginateOctokit.ts";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
+import type { ReplyTarget } from "../agentWork/types.ts";
 import {
   COMMENT_PAGINATION_MAX_PAGES,
   COMMENTS_PAGE_SIZE,
@@ -42,7 +42,7 @@ import {
   PR_COMMITS_MAX_PAGES,
   PR_COMMITS_PAGE_SIZE,
   type GithubReactionContent,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
@@ -52,13 +52,13 @@ import type {
   PrSurface,
   ReviewCheckOutcome,
   ThreadBatchReview,
-} from "./prSurfaceTypes.js";
-import { errorMessage } from "../errors/errorMessage.js";
-import { AppError } from "../errors/appError.js";
+} from "./prSurfaceTypes.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
+import { AppError } from "../errors/appError.ts";
 import {
   isConfirmedCapabilityDenial,
   type InstallationOperation,
-} from "./installationCapabilities.js";
+} from "./installationCapabilities.ts";
 
 async function listConversationCommentsForPr(
   token: string,

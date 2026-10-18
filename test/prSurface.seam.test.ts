@@ -1,35 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-vi.unmock("../src/github/ciStatus.js");
-import { makeTestConfig } from "./helpers/config.js";
-import type { PrSurface } from "../src/github/prSurface.js";
-import { createFakePrSurface, createPrSurface } from "../src/github/prSurface.js";
-import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
+vi.unmock("../src/github/ciStatus.ts");
+import { makeTestConfig } from "./helpers/config.ts";
+import type { PrSurface } from "../src/github/prSurface.ts";
+import { createFakePrSurface, createPrSurface } from "../src/github/prSurface.ts";
+import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.ts";
 import {
   installationCapabilitiesFromPermissions,
   createReviewCapabilityPolicy,
-} from "../src/github/installationCapabilities.js";
+} from "../src/github/installationCapabilities.ts";
 
 const reviewPublishMocks = vi.hoisted(() => ({
   createReviewCheckRun: vi.fn(),
   findReviewCheckRunByName: vi.fn(),
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(),
   getAppBotIdentity: vi.fn(async () => ({ userId: 99, login: "pr-agent[bot]" })),
   mintInstallationAuth: vi.fn(),
 }));
 
-vi.mock("../src/github/installationToken.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/installationToken.js")>();
+vi.mock("../src/github/installationToken.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/installationToken.ts")>();
   return {
     ...actual,
     mintInstallationToken: vi.fn(),
   };
 });
 
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
+vi.mock("../src/github/reviewPublish.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/reviewPublish.ts")>();
   return {
     ...actual,
     createReviewCheckRun: reviewPublishMocks.createReviewCheckRun,
@@ -37,7 +37,7 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   };
 });
 
-import { installationOctokit } from "../src/github/appAuth.js";
+import { installationOctokit } from "../src/github/appAuth.ts";
 
 function pageData(raw: unknown): unknown {
   if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
@@ -72,9 +72,9 @@ async function paginateMock(
   }
   return items;
 }
-import { mintInstallationToken } from "../src/github/installationToken.js";
-import { createReviewCheckRun, findReviewCheckRunByName } from "../src/github/reviewPublish.js";
-import { unfencedSurface } from "../src/agentWork/writeFence.js";
+import { mintInstallationToken } from "../src/github/installationToken.ts";
+import { createReviewCheckRun, findReviewCheckRunByName } from "../src/github/reviewPublish.ts";
+import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 
 const SENTINEL = "<!-- pr-agent-progress -->";
 

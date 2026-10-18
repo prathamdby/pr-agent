@@ -10,27 +10,27 @@ import {
   truncatePriorInlineText,
   type PriorInlineFeedbackThread,
   type ReviewThreadComment,
-} from "../src/review/run/reviewPriorFeedback.js";
-import { formatPriorInlineFeedbackBlock } from "../src/prompts/orchestrator/context.js";
-import { createPrSurface } from "../src/github/prSurface.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/review/run/reviewPriorFeedback.ts";
+import { formatPriorInlineFeedbackBlock } from "../src/prompts/orchestrator/context.ts";
+import { createPrSurface } from "../src/github/prSurface.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 import {
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
-} from "../src/settings/index.js";
-import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
+} from "../src/settings/index.ts";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.ts";
 
 const [SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] =
   LEGACY_REVIEW_POINTER_BODIES;
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   installationOctokit: vi.fn(),
 }));
 
-import { installationOctokit } from "../src/github/appAuth.js";
-import { unfencedSurface } from "../src/agentWork/writeFence.js";
+import { installationOctokit } from "../src/github/appAuth.ts";
+import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 
 function comment(
   partial: Partial<ReviewThreadComment> & Pick<ReviewThreadComment, "id">,

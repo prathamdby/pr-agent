@@ -1,5 +1,5 @@
-import { isAppError } from "../errors/appError.js";
-import { httpStatus } from "./httpStatus.js";
+import { isAppError } from "../errors/appError.ts";
+import { httpStatus } from "./httpStatus.ts";
 
 type RecordLike = Record<string, unknown>;
 

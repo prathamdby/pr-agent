@@ -9,8 +9,8 @@ import {
   revisionHashes,
   stableDocumentBodies,
   type SitemapCoverageResource,
-} from "./contentRevisionCheck.js";
-import { REVISION_IDS, type RevisionId } from "./contentRevision.js";
+} from "./contentRevisionCheck.ts";
+import { REVISION_IDS, type RevisionId } from "./contentRevision.ts";
 
 const siteDir = fileURLToPath(new URL("..", import.meta.url));
 

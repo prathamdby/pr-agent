@@ -9,9 +9,9 @@ import {
   POSTGRES_LOCK_TIMEOUT_MS,
   POSTGRES_POOL_MAX,
   POSTGRES_STATEMENT_TIMEOUT_MS,
-} from "../settings/index.js";
-import { logWarn } from "../evlog.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { logWarn } from "../evlog.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_MAX): Pool {
   const pool = new Pool({

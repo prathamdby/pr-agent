@@ -1,56 +1,56 @@
-import { decodeProgressComment } from "../../github/prSurfaceResults.js";
-import { emitWorkSpan } from "../../agent/runtime/agentEventSink.js";
-import { publishSpanFromContext } from "../../analytics/workSpan.js";
-import { AppError } from "../../errors/appError.js";
+import { decodeProgressComment } from "../../github/prSurfaceResults.ts";
+import { emitWorkSpan } from "../../agent/runtime/agentEventSink.ts";
+import { publishSpanFromContext } from "../../analytics/workSpan.ts";
+import { AppError } from "../../errors/appError.ts";
 import {
   operationIntentMarker,
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   publishOnce,
-} from "../../agentWork/publishOnce.js";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
+} from "../../agentWork/publishOnce.ts";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
 import {
   closeOutcomeForCoverage,
   reviewVerdict,
   summaryCommentVerdictMeta,
-} from "../../agentWork/reviewVerdict.js";
-import { logDebug, logWarn } from "../../evlog.js";
-import type { PrReviewComment } from "../../github/prSurface.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import { noteListsUnreadFiles } from "../findings/evidenceLedger.js";
+} from "../../agentWork/reviewVerdict.ts";
+import { logDebug, logWarn } from "../../evlog.ts";
+import type { PrReviewComment } from "../../github/prSurface.ts";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
+import { noteListsUnreadFiles } from "../findings/evidenceLedger.ts";
 import {
   carriedReaffirmedFindings,
   type AcceptedPlacement,
   type FindingLedger,
   type ReaffirmedFinding,
   type ReviewCoverage,
-} from "../orchestrator/orchestratorTypes.js";
+} from "../orchestrator/orchestratorTypes.ts";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
   labelsAlreadySynced,
   reviewLabelsFromPayload,
   syncReviewLabels,
-} from "../run/reviewLabels.js";
-import { renderReviewSummaryComment, type SummaryPlacement } from "../run/reviewRender.js";
-import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
-import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
-import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js";
-import { createReviewSummaryComment } from "./reviewSummaryComment.js";
-import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
-import { errorMessage } from "../../errors/errorMessage.js";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
-import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
-import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
-import { createFindingLedger } from "../orchestrator/orchestratorTypes.js";
-import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
-import { fenceForEpoch } from "../../agentWork/writeFence.js";
+} from "../run/reviewLabels.ts";
+import { renderReviewSummaryComment, type SummaryPlacement } from "../run/reviewRender.ts";
+import { resolveReviewWallClockMs } from "../run/reviewRunFooter.ts";
+import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.ts";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.ts";
+import { createReviewSummaryComment } from "./reviewSummaryComment.ts";
+import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
+import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
+import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
+import { createFindingLedger } from "../orchestrator/orchestratorTypes.ts";
+import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
+import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import {
   buildFindingView,
   findingCheck,
   type FindingCheck,
-} from "../findingIdentity/findingLifecycle.js";
+} from "../findingIdentity/findingLifecycle.ts";
 
 export type PublishSummaryOnlyResult =
   | {

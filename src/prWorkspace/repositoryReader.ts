@@ -1,18 +1,18 @@
 import {
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
-} from "../agent/tools/readWorkspaceTextFile.js";
+} from "../agent/tools/readWorkspaceTextFile.ts";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
-import { AppError, isAppError } from "../errors/appError.js";
-import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
-import { runGitProcess, type GitProcessResult } from "./gitProcess.js";
-import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.js";
+import { AppError, isAppError } from "../errors/appError.ts";
+import { redactOutboundSecrets } from "../security/redactOutboundSecrets.ts";
+import { runGitProcess, type GitProcessResult } from "./gitProcess.ts";
+import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.ts";
 import {
   createFffWorkspaceSearch,
   type WorkspaceFileSearchParams,
   type WorkspaceFileSearchResult,
-} from "./fff/workspaceSearch.js";
+} from "./fff/workspaceSearch.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -20,24 +20,24 @@ import {
   LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS,
   LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   querySymbolIndex,
   symbolIndexStatus,
   type SymbolIndex,
   type SymbolIndexEntry,
   type SymbolIndexStatus,
-} from "./symbolIndex.js";
+} from "./symbolIndex.ts";
 import {
   assertPathAllowedForAsk,
   pathAllowedForAsk,
   isSensitivePath,
   type AskPathGate,
-} from "../agent/ask/askSafety.js";
+} from "../agent/ask/askSafety.ts";
 import {
   normalizeRepoRelativePath,
   isTriageControlPath,
-} from "../agent/triage/triageWritePolicy.js";
+} from "../agent/triage/triageWritePolicy.ts";
 export type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 export type LocalPrWorkspaceCheckoutMode = "full" | "sparse";
 

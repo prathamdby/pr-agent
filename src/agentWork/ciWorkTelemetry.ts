@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
-import type { CiWorkTelemetry } from "../analytics/workCompleted.js";
-import { parseCiAuthoredCache, isCheckFactFailing } from "../review/ci/ciFacts.js";
-import { loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
+import type { CiWorkTelemetry } from "../analytics/workCompleted.ts";
+import { parseCiAuthoredCache, isCheckFactFailing } from "../review/ci/ciFacts.ts";
+import { loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.ts";
 
 export function ciWorkTelemetryFromRow(row: PrHeadCiStateRow | null): CiWorkTelemetry {
   if (row == null) {

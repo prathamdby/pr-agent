@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixDoubleEscapedString } from "../src/agent/tools/fixDoubleEscapedString.js";
+import { fixDoubleEscapedString } from "../src/agent/tools/fixDoubleEscapedString.ts";
 
 describe("fixDoubleEscapedString", () => {
   it("unwraps a single JSON-level newline escape", () => {

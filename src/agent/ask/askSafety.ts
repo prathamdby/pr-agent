@@ -1,5 +1,5 @@
-import { AppError } from "../../errors/appError.js";
-import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
+import { AppError } from "../../errors/appError.ts";
+import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index.ts";
 
 export type AskQuestionIntent = "code" | "bot_meta";
 

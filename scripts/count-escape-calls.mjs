@@ -24,7 +24,7 @@ export function countEscapeCalls(root) {
       for (const statement of source.statements) {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
           continue;
-        if (!statement.moduleSpecifier.text.endsWith("/escape.js")) continue;
+        if (!statement.moduleSpecifier.text.endsWith("/escape.ts")) continue;
         const bindings = statement.importClause?.namedBindings;
         if (bindings && ts.isNamedImports(bindings)) {
           for (const binding of bindings.elements) {

@@ -1,9 +1,9 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
-import { AppError } from "../../errors/appError.js";
-import type { AppErrorKind } from "../../errors/appErrorCodes.js";
-import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
-import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
+import { AppError } from "../../errors/appError.ts";
+import type { AppErrorKind } from "../../errors/appErrorCodes.ts";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.ts";
+import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.ts";
 
 export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)\.github(\/|$)/i,
@@ -43,7 +43,7 @@ export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)Makefile$/i,
   /(^|\/)package\.json$/i,
   /(^|\/)\.npmrc$/i,
-  /(^|\/)nub\.jsonc$/i,
+  /\.jsonc$/i,
   /(^|\/)\.yarnrc(?:\.yml)?$/i,
   /(^|\/)\.pnpmfile\.cjs$/i,
   /(^|\/)pnpm-workspace\.ya?ml$/i,

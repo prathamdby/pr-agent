@@ -1,12 +1,12 @@
 import type { Octokit } from "@octokit/core";
 import type { EndpointDefaults } from "@octokit/types";
-import { logDebug } from "../evlog.js";
+import { logDebug } from "../evlog.ts";
 
 import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
-} from "../settings/index.js";
-import { noteRateLimitRetryExhausted } from "./rateLimitCircuit.js";
+} from "../settings/index.ts";
+import { noteRateLimitRetryExhausted } from "./rateLimitCircuit.ts";
 
 export function onRateLimit(
   retryAfter: number,

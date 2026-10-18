@@ -1,4 +1,4 @@
-import { logDebug } from "../../evlog.js";
+import { logDebug } from "../../evlog.ts";
 import {
   createPathPolicy,
   assertContainedWorkspacePath,
@@ -7,8 +7,8 @@ import {
   type PathPolicy,
   type PinnedRepositoryReader,
   type RepositoryReader,
-} from "../../prWorkspace/repositoryReader.js";
-import { normalizeRepoRelativePath } from "../triage/triageWritePolicy.js";
+} from "../../prWorkspace/repositoryReader.ts";
+import { normalizeRepoRelativePath } from "../triage/triageWritePolicy.ts";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import {
@@ -16,24 +16,24 @@ import {
   redactPorcelainBlame,
   sanitizeToolResultForAsk,
   type AskPathGate,
-} from "../ask/askSafety.js";
-import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+} from "../ask/askSafety.ts";
+import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.ts";
+import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
 import {
   MISSING_FROM_CHECKOUT_REASON,
   disposeSpillFile,
   type BudgetedWorkspaceTextFileRead,
   type SpilledWorkspaceTextFileRead,
   type TextSpillScope,
-} from "./readWorkspaceTextFile.js";
-import { capTextOutput } from "./toolOutputBudget.js";
+} from "./readWorkspaceTextFile.ts";
+import { capTextOutput } from "./toolOutputBudget.ts";
 import {
   literalQueryParam,
   maxLinesParam,
   maxResultsParam,
   repoPathParam,
   startLineParam,
-} from "./toolParams.js";
+} from "./toolParams.ts";
 import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -45,7 +45,7 @@ import {
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
   LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   hashNormalizedLineText,
   normalizeEvidencePath,
@@ -53,16 +53,16 @@ import {
   type EvidenceLedger,
   type EvidenceDescriptor,
   type DeliveredFileRead,
-} from "../../review/findings/evidenceLedger.js";
-import type { OpenReviewThread } from "../../review/findingIdentity/findingInventory.js";
-import { neutralizeMarkerEcho } from "../../review/findingIdentity/findingMarker.js";
+} from "../../review/findings/evidenceLedger.ts";
+import type { OpenReviewThread } from "../../review/findingIdentity/findingInventory.ts";
+import { neutralizeMarkerEcho } from "../../review/findingIdentity/findingMarker.ts";
 import {
   neutralizeEvidenceDelimiters,
   neutralizeForgedTrustHeaders,
-} from "../../prompts/shared/safety.js";
-import { AppError } from "../../errors/appError.js";
-import { MAX_TOOL_ROUNDS } from "../../settings/index.js";
-import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
+} from "../../prompts/shared/safety.ts";
+import { AppError } from "../../errors/appError.ts";
+import { MAX_TOOL_ROUNDS } from "../../settings/index.ts";
+import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.ts";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;

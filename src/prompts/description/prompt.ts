@@ -1,15 +1,15 @@
-import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.js";
-import type { DescriptionPayload } from "../../agent/description/descriptionSchema.js";
+import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.ts";
+import type { DescriptionPayload } from "../../agent/description/descriptionSchema.ts";
 import type {
   DescriptionTechnicalDepth,
   DescriptionWritingPolicy,
-} from "../../agent/description/descriptionWritingPolicy.js";
-import { communicationGuidance } from "../shared/communication.js";
-import { wrapUntrustedBlock } from "../shared/safety.js";
+} from "../../agent/description/descriptionWritingPolicy.ts";
+import { communicationGuidance } from "../shared/communication.ts";
+import { wrapUntrustedBlock } from "../shared/safety.ts";
 import {
   nativeToolCallingGuidance,
   unavailableConversationToolsGuidance,
-} from "../shared/tools.js";
+} from "../shared/tools.ts";
 
 export const descriptionNativeTooling = [
   "## Tools",

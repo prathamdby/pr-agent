@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { reactionTargetsForWorkItem } from "../src/agentWork/reactionTargets.js";
-import type { AgentWorkItem } from "../src/agentWork/types.js";
+import { reactionTargetsForWorkItem } from "../src/agentWork/reactionTargets.ts";
+import type { AgentWorkItem } from "../src/agentWork/types.ts";
 
 function baseItem() {
   return {

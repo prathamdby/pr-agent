@@ -1,7 +1,7 @@
 import * as v from "valibot";
-import { fixDoubleEscapedString } from "../tools/fixDoubleEscapedString.js";
-import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../../settings/index.js";
-import { isRecord } from "../../util/typeGuards.js";
+import { fixDoubleEscapedString } from "../tools/fixDoubleEscapedString.ts";
+import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../../settings/index.ts";
+import { isRecord } from "../../util/typeGuards.ts";
 
 const descriptionPrTypeSchema = v.picklist([
   "Bug fix",

@@ -2,7 +2,7 @@ import {
   REVIEW_SIZE_TIER_LARGE_MIN_CHANGES,
   REVIEW_SIZE_TIER_MEDIUM_MAX_FILES,
   REVIEW_SIZE_TIER_SMALL_MAX_FILES,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 
 export type ReviewBudgetTier = "small" | "medium" | "large";
 

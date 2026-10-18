@@ -1,26 +1,26 @@
-import { fencedWrite } from "./fencedWrite.js";
+import { fencedWrite } from "./fencedWrite.ts";
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import * as v from "valibot";
-import { queryOne } from "../db/postgres.js";
-import { withSessionLock } from "../db/sessionLock.js";
-import { AppError } from "../errors/appError.js";
-import { logWarn } from "../evlog.js";
+import { queryOne } from "../db/postgres.ts";
+import { withSessionLock } from "../db/sessionLock.ts";
+import { AppError } from "../errors/appError.ts";
+import { logWarn } from "../evlog.ts";
 import {
   isFindingSource,
   type AcceptedPlacement,
   type FindingSource,
-} from "../review/orchestrator/orchestratorTypes.js";
-import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
-import { reviewFindingPlacementKey } from "../review/placement/reviewDiffPlacement.js";
+} from "../review/orchestrator/orchestratorTypes.ts";
+import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.ts";
+import { reviewFindingPlacementKey } from "../review/placement/reviewDiffPlacement.ts";
 import {
   derivedFindingId,
   isFindingId,
   type FindingId,
-} from "../review/findingIdentity/findingMarker.js";
-import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.js";
-import { isRecord } from "../util/typeGuards.js";
-import type { OperationIntentRow } from "./operationIntentRepository.js";
+} from "../review/findingIdentity/findingMarker.ts";
+import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.ts";
+import { isRecord } from "../util/typeGuards.ts";
+import type { OperationIntentRow } from "./operationIntentRepository.ts";
 
 export async function claimSummaryCommentCreation(
   pool: Pool | PoolClient,

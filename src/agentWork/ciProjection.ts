@@ -1,17 +1,17 @@
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { pgBossDb } from "../db/postgres.js";
-import { AppError } from "../errors/appError.js";
+import { pgBossDb } from "../db/postgres.ts";
+import { AppError } from "../errors/appError.ts";
 import {
   ciSummaryFromFacts,
   headCiFactsAreComplete,
   waitingCiSummary,
   type RenderableHeadCi,
-} from "../review/ci/ciFacts.js";
-import { AUTOMATED_PR_ACTIONS, CI_PROJECTION_QUEUE, DEFERRED_HEAD_SHA } from "../settings/index.js";
-import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
-import { installationGroupId, type CiProjectionJobData, type JobCorrelation } from "./types.js";
-import { loadGithubCiSourceAvailability } from "./githubCapabilityRepository.js";
+} from "../review/ci/ciFacts.ts";
+import { AUTOMATED_PR_ACTIONS, CI_PROJECTION_QUEUE, DEFERRED_HEAD_SHA } from "../settings/index.ts";
+import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.ts";
+import { installationGroupId, type CiProjectionJobData, type JobCorrelation } from "./types.ts";
+import { loadGithubCiSourceAvailability } from "./githubCapabilityRepository.ts";
 
 export async function loadRenderableHeadCi(
   pool: Pool,

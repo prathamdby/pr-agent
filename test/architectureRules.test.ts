@@ -18,7 +18,7 @@ import {
   isCodeRowAllowed,
   sourceMatchesCodeRow,
   type CodeRow,
-} from "./architectureRulesHelpers.js";
+} from "./architectureRulesHelpers.ts";
 
 const SRC_ROOT = join(process.cwd(), "src");
 
@@ -136,9 +136,7 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
       /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
     )) {
       if (options.staticOnly && match[1] == null) continue;
-      let spec = match[1] ?? match[2];
-      if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
-      else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
+      const spec = match[1] ?? match[2];
       const resolved = relative(process.cwd(), join(file, "..", spec)).replace(/\\/g, "/");
       const normalized = resolved.startsWith("src/")
         ? resolved
@@ -293,53 +291,53 @@ const PROMPT_LAYOUT_PROBE: Record<string, string> = {
 
 const PROMPT_IMPORTS_PROBE: Record<string, string> = {
   "src/review/sectionImports.ts": [
-    'import { a } from "../prompts/ask/behavior.js";',
-    'export { b } from "../prompts/shared/context.js";',
-    'export const c = () => import("../prompts/triage/output.js");',
-    'import type { D } from "../prompts/shared/tools.js";',
+    'import { a } from "../prompts/ask/behavior.ts";',
+    'export { b } from "../prompts/shared/context.ts";',
+    'export const c = () => import("../prompts/triage/output.ts");',
+    'import type { D } from "../prompts/shared/tools.ts";',
     "export const e = [a];",
     "",
   ].join("\n"),
   "src/agent/entryImports.ts": [
-    'import { askSystemPrompt } from "../prompts/ask/prompt.js";',
-    'import { envelope } from "../prompts/shared/safety.js";',
-    'import { a } from "./prompts/ask/behavior.js";',
+    'import { askSystemPrompt } from "../prompts/ask/prompt.ts";',
+    'import { envelope } from "../prompts/shared/safety.ts";',
+    'import { a } from "./prompts/ask/behavior.ts";',
     "export const e = [askSystemPrompt, envelope, a];",
     "",
   ].join("\n"),
   "src/review/repairImports.ts":
-    'import { repair } from "../prompts/shared/repair.js";\nexport const e = repair;\n',
+    'import { repair } from "../prompts/shared/repair.ts";\nexport const e = repair;\n',
   "src/prompts/ask/prompt.ts": [
-    'import { loadRepoPolicy } from "../../review/repoPolicy.js";',
+    'import { loadRepoPolicy } from "../../review/repoPolicy.ts";',
     'import { readFileSync } from "node:fs";',
-    'import type { Config } from "../../settings/config.js";',
-    'import { ASK_FAILURE_MESSAGE } from "../../settings/askConstants.js";',
-    'import { MAX_TOOL_ROUNDS } from "../../settings/index.js";',
-    'import { escape } from "../../util/escape.js";',
-    'import { renderGuestCatalogue } from "../../agent/codemode/guestCatalogue.js";',
-    'import { envelope } from "../shared/safety.js";',
-    'import { askOutput } from "./output.js";',
+    'import type { Config } from "../../settings/config.ts";',
+    'import { ASK_FAILURE_MESSAGE } from "../../settings/askConstants.ts";',
+    'import { MAX_TOOL_ROUNDS } from "../../settings/index.ts";',
+    'import { escape } from "../../util/escape.ts";',
+    'import { renderGuestCatalogue } from "../../agent/codemode/guestCatalogue.ts";',
+    'import { envelope } from "../shared/safety.ts";',
+    'import { askOutput } from "./output.ts";',
     "export const e = [loadRepoPolicy, readFileSync, ASK_FAILURE_MESSAGE, MAX_TOOL_ROUNDS];",
     "export const f = [escape, renderGuestCatalogue, envelope, askOutput];",
     "export type G = Config;",
     "",
   ].join("\n"),
   "src/prompts/shared/context.ts": [
-    'import { triageSystemPrompt } from "../triage/prompt.js";',
-    'import type { AskInput } from "../ask/context.js";',
-    'import { envelope } from "./safety.js";',
+    'import { triageSystemPrompt } from "../triage/prompt.ts";',
+    'import type { AskInput } from "../ask/context.ts";',
+    'import { envelope } from "./safety.ts";',
     "export const e = [triageSystemPrompt, envelope];",
     "export type F = AskInput;",
     "",
   ].join("\n"),
-  "test/promptImports.ts": 'import { a } from "../src/prompts/ask/behavior.js";\nexport { a };\n',
+  "test/promptImports.ts": 'import { a } from "../src/prompts/ask/behavior.ts";\nexport { a };\n',
 };
 
 const PROMPT_SINKS_PROBE: Record<string, string> = {
   "src/agent/sinks.ts": [
-    'import { prompt, render } from "../prompts/ask/prompt.js";',
-    'import { foreign } from "./other.js";',
-    'import * as prompts from "../prompts/ask/prompt.js";',
+    'import { prompt, render } from "../prompts/ask/prompt.ts";',
+    'import { foreign } from "./other.ts";',
+    'import * as prompts from "../prompts/ask/prompt.ts";',
     'session.send("inline", { phase: "ask" });',
     "activeSession.send(`inline ${prompt}`);",
     'session.send(prompt + "suffix");',
@@ -395,7 +393,7 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
     "",
   ].join("\n"),
   "src/agent/specs.ts": [
-    'import { prompt, render } from "../prompts/ask/prompt.js";',
+    'import { prompt, render } from "../prompts/ask/prompt.ts";',
     "runFeatureAgent({ userContent: prompt, nudge: prompt, repairPrompt: render }, runtime);",
     'runFeatureAgent({ userContent: "inline", nudge: prompt, repairPrompt: render }, runtime);',
     "runFeatureAgent({ userContent: prompt, nudge: `inline`, repairPrompt: render }, runtime);",
@@ -427,7 +425,7 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
     "",
   ].join("\n"),
   "src/agent/compaction.ts": [
-    'import { prompt, render } from "../prompts/compaction/prompt.js";',
+    'import { prompt, render } from "../prompts/compaction/prompt.ts";',
     "streamFn(model, { messages: [{ role: `user`, content: [{ type: `text`, text: prompt }], timestamp: Date.now() }] }, { cacheRetention: `none` });",
     'streamFn(model, { messages: [{ content: [{ text: "inline" }] }] });',
     "streamFn(model, normalizeContext({ messages: [{ content: [{ text: `inline` }] }] }));",
@@ -437,7 +435,7 @@ const PROMPT_SINKS_PROBE: Record<string, string> = {
     "",
   ].join("\n"),
   "src/agent/stores.ts": [
-    'import { prompt, render } from "../prompts/ask/prompt.js";',
+    'import { prompt, render } from "../prompts/ask/prompt.ts";',
     'spec.userContent = "inline";',
     'spec["nudge"] = `x`;',
     "spec.systemPrompt += prompt;",
@@ -516,8 +514,8 @@ const PROMPT_STYLE_PROBE: Record<string, string> = {
     "",
   ].join("\n"),
   "src/prompts/ask/context.ts": [
-    'export { x } from "./SHOUT.js";',
-    'import { x as importedAlias } from "./SHOUT.js";',
+    'export { x } from "./SHOUT.ts";',
+    'import { x as importedAlias } from "./SHOUT.ts";',
     "export { importedAlias as importedPrompt };",
     "",
   ].join("\n"),
@@ -799,7 +797,7 @@ export function buildThing(
     const commented = `
 // installationOctokit is only used under src/github/
 const label = "installationOctokit";
-import { foo } from "../agent/foo.js";
+import { foo } from "../agent/foo.ts";
 `;
     expect(sourceMatchesCodeRow(ident!, "src/banned/probe.ts", commented)).toBe(false);
     expect(

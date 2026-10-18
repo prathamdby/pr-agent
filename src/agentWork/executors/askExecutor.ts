@@ -1,29 +1,29 @@
-import { decodePostedReply } from "../../github/prSurfaceResults.js";
-import type { BotIdentity } from "../../github/appAuth.js";
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-import { productionInstallationSurface } from "../installationSurface.js";
-import { createPublishContext } from "../publishOnce.js";
+import { decodePostedReply } from "../../github/prSurfaceResults.ts";
+import type { BotIdentity } from "../../github/appAuth.ts";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
+import { productionInstallationSurface } from "../installationSurface.ts";
+import { createPublishContext } from "../publishOnce.ts";
 import type { Pool } from "pg";
 
-import type { PrSurface } from "../../github/prSurface.js";
-import { runAskRun } from "../../agent/ask/askRun.js";
-import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
-import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
+import type { PrSurface } from "../../github/prSurface.ts";
+import { runAskRun } from "../../agent/ask/askRun.ts";
+import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.ts";
+import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.ts";
 import {
   askReplyBodyWithOperationMarker,
   askReplyCommentIdFromIntentDetail,
   findExistingAskReplyComment,
-} from "../../agent/ask/recoverAskReply.js";
-import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import { logWarn } from "../../evlog.js";
-import { ASK_PUBLISH_LENS } from "../../settings/index.js";
-import { getOperationIntent } from "../operationIntentRepository.js";
-import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "../publishOnce.js";
-import { fenceForEpoch } from "../writeFence.js";
-import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
-import type { AskWorkItem } from "../types.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../../agent/ask/recoverAskReply.ts";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { logWarn } from "../../evlog.ts";
+import { ASK_PUBLISH_LENS } from "../../settings/index.ts";
+import { getOperationIntent } from "../operationIntentRepository.ts";
+import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "../publishOnce.ts";
+import { fenceForEpoch } from "../writeFence.ts";
+import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.ts";
+import type { AskWorkItem } from "../types.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 function replyTargetKindFromIntentDetail(
   value: unknown,

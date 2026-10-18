@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { createPostHogAiCapture, type AiCapture } from "../analytics/posthogSink.js";
-import { isAppError } from "../errors/appError.js";
-import { logWarn } from "../evlog.js";
-import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
-import { isPlainObject } from "../util/typeGuards.js";
-import { createTraceRedactor, redactTraceValue } from "./content.js";
+import { createPostHogAiCapture, type AiCapture } from "../analytics/posthogSink.ts";
+import { isAppError } from "../errors/appError.ts";
+import { logWarn } from "../evlog.ts";
+import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.ts";
+import { isPlainObject } from "../util/typeGuards.ts";
+import { createTraceRedactor, redactTraceValue } from "./content.ts";
 
 export const TRACE_EVENT_BYTES = 1024 * 1024;
 const MAX_QUEUED = 400;
@@ -111,11 +111,10 @@ class TraceRecorder {
   private flushing: Promise<void> | undefined;
   private closed = false;
   private readonly timer;
+  private readonly capture: AiCapture;
 
-  constructor(
-    cfg: Config,
-    private readonly capture: AiCapture,
-  ) {
+  constructor(cfg: Config, capture: AiCapture) {
+    this.capture = capture;
     this.redactor = createTraceRedactor(cfg);
     this.timer = setInterval(() => void this.flush(), FLUSH_MS);
     this.timer.unref();

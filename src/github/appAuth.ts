@@ -3,16 +3,16 @@ import { createAppAuth, type InstallationAccessTokenAuthentication } from "@octo
 import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
-import { type Config, INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
-import { AppError } from "../errors/appError.js";
-import { logDebug } from "../evlog.js";
-import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
-import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
-import { errorMessage } from "../errors/errorMessage.js";
+import { type Config, INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.ts";
+import { AppError } from "../errors/appError.ts";
+import { logDebug } from "../evlog.ts";
+import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.ts";
+import { noteGithubRequestSuccess } from "./rateLimitCircuit.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 import {
   parseInstallationPermissions,
   type InstallationPermissions,
-} from "./installationCapabilities.js";
+} from "./installationCapabilities.ts";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;

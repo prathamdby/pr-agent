@@ -3,7 +3,7 @@ import {
   commentsInThread,
   formatThreadTranscript,
   type ThreadComment,
-} from "../src/agent/ask/askThreadContext.js";
+} from "../src/agent/ask/askThreadContext.ts";
 
 function comment(
   id: number,

@@ -1,9 +1,9 @@
-import type { DescriptionPayload, DescriptionVisual } from "./descriptionSchema.js";
+import type { DescriptionPayload, DescriptionVisual } from "./descriptionSchema.ts";
 import {
   extractMermaidDiagramBody,
   sanitizeMermaidDiagram,
   validateSanitizedMermaidFence,
-} from "./mermaidDiagram.js";
+} from "./mermaidDiagram.ts";
 
 const FENCE_BREAKER_RE = /```/g;
 

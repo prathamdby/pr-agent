@@ -1,11 +1,11 @@
-import { AppError } from "../errors/appError.js";
+import { AppError } from "../errors/appError.ts";
 import {
   CONTEXT7_LIBRARY_ID_MAX_CHARS,
   CONTEXT7_LIBRARY_NAME_MAX_CHARS,
   CONTEXT7_QUERY_MAX_CHARS,
   CONTEXT7_TOPIC_MAX_CHARS,
-} from "../settings/index.js";
-import { redactOutboundSecrets } from "./redactOutboundSecrets.js";
+} from "../settings/index.ts";
+import { redactOutboundSecrets } from "./redactOutboundSecrets.ts";
 
 export const CONTEXT7_LIBRARY_NAME_PATTERN =
   /^(?:@[A-Za-z0-9][A-Za-z0-9._-]{0,63}\/)?[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}$/;

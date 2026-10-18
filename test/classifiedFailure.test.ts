@@ -4,20 +4,20 @@ import {
   escalatedVerificationInventory,
   escalationForAttempt,
   retryDispositionFor,
-} from "../src/agentWork/retryPolicy.js";
-import { AppError } from "../src/errors/appError.js";
+} from "../src/agentWork/retryPolicy.ts";
+import { AppError } from "../src/errors/appError.ts";
 import {
   APP_ERROR_KINDS,
   type AppErrorDomain,
   type AppErrorShape,
-} from "../src/errors/appErrorCodes.js";
+} from "../src/errors/appErrorCodes.ts";
 import {
   classifyFailure,
   classifiedFailureLogFields,
   type ClassifiedFailure,
-} from "../src/errors/classifiedFailure.js";
-import { ESCALATED_TOOL_ROUNDS_CAP } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
+} from "../src/errors/classifiedFailure.ts";
+import { ESCALATED_TOOL_ROUNDS_CAP } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 describe("classifyFailure", () => {
   it("classifies provider credit errors as provider/quota with sanitized message", () => {

@@ -3,28 +3,28 @@ import {
   ASK_SHORTEN_NUDGE,
   buildAskSystemPrompt,
   buildAskUserContent,
-} from "../../prompts/ask/prompt.js";
-import { logInfo } from "../../evlog.js";
-import { formatAskReply } from "./formatAskReply.js";
-import { buildContext7Tools } from "../tools/context7Tools.js";
+} from "../../prompts/ask/prompt.ts";
+import { logInfo } from "../../evlog.ts";
+import { formatAskReply } from "./formatAskReply.ts";
+import { buildContext7Tools } from "../tools/context7Tools.ts";
 import {
   ASK_FAILURE_MESSAGE,
   ASK_META_REFUSAL,
   CONTEXT7_RESPONSE_BYTES,
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
-} from "../../settings/index.js";
-import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
-import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.js";
-import type { AskCiState, AskRunParams, AskRunResult } from "./askRunTypes.js";
-import { mergeExactUsage } from "../providers/usageMetadata.js";
-import { classifyAskQuestionIntent } from "./askSafety.js";
-import { buildAskRunSetup } from "./askRunSetup.js";
+} from "../../settings/index.ts";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.ts";
+import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.ts";
+import type { AskCiState, AskRunParams, AskRunResult } from "./askRunTypes.ts";
+import { mergeExactUsage } from "../providers/usageMetadata.ts";
+import { classifyAskQuestionIntent } from "./askSafety.ts";
+import { buildAskRunSetup } from "./askRunSetup.ts";
 import {
   runWithRateLimitCircuit,
   wrapExecutorsWithRateLimitCircuit,
-} from "../../github/rateLimitCircuit.js";
-import { openRunRateLimitCircuit } from "../runtime/rateLimitCircuit.js";
+} from "../../github/rateLimitCircuit.ts";
+import { openRunRateLimitCircuit } from "../runtime/rateLimitCircuit.ts";
 
 async function loadAskCiState(
   pool: AskRunParams["pool"],

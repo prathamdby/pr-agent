@@ -7,18 +7,18 @@ import {
   type LocalPrChangedFile,
   type LocalPrWorkspaceCheckoutMode,
   type PinnedRepositoryReader,
-} from "./repositoryReader.js";
+} from "./repositoryReader.ts";
 import { chmod, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   ListPullRequestFilesResult,
   PullRequestFileEntry,
-} from "../github/listPullRequestFiles.js";
+} from "../github/listPullRequestFiles.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../review/placement/reviewDiffIndex.js";
+} from "../review/placement/reviewDiffIndex.ts";
 import {
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
   LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
@@ -32,9 +32,9 @@ import {
   LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
-} from "../settings/index.js";
-import { AppError, isAppError } from "../errors/appError.js";
-import { logWarn } from "../evlog.js";
+} from "../settings/index.ts";
+import { AppError, isAppError } from "../errors/appError.ts";
+import { logWarn } from "../evlog.ts";
 import {
   failedFetchAttempt,
   succeededFetchAttempt,
@@ -42,7 +42,7 @@ import {
   type WorkspaceCheckoutTelemetry,
   type WorkspaceFallbackReason,
   type WorkspaceFetchAttempt,
-} from "./checkoutTelemetry.js";
+} from "./checkoutTelemetry.ts";
 import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
@@ -53,8 +53,8 @@ import {
   gitCountObjectsStoreBytes,
   statIfPresent,
   type WorkspaceResource,
-} from "./workspaceResource.js";
-import { buildSymbolIndex, isIndexableSourcePath, type SymbolIndex } from "./symbolIndex.js";
+} from "./workspaceResource.ts";
+import { buildSymbolIndex, isIndexableSourcePath, type SymbolIndex } from "./symbolIndex.ts";
 
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";

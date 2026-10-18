@@ -1,6 +1,6 @@
-import type { BoundPolicyJudgePair } from "../../review/publish/boundPolicyJudge.js";
-import { noToolsTurnGuidance } from "../shared/output.js";
-import { wrapUntrustedBlock } from "../shared/safety.js";
+import type { BoundPolicyJudgePair } from "../../review/publish/boundPolicyJudge.ts";
+import { noToolsTurnGuidance } from "../shared/output.ts";
+import { wrapUntrustedBlock } from "../shared/safety.ts";
 
 export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
   "You judge whether a review finding violates a bound same-repo repo policy rule.",

@@ -1,12 +1,12 @@
-import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
-import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
-import { isRecord } from "../util/typeGuards.js";
-import { findCommentIdByMarker, findPublishedThreadBatch } from "./prSurfaceHelpers.js";
+import type { OperationIntentRow } from "../agentWork/operationIntentRepository.ts";
+import type { OperationIntentRecovery } from "../agentWork/publishOnce.ts";
+import { isRecord } from "../util/typeGuards.ts";
+import { findCommentIdByMarker, findPublishedThreadBatch } from "./prSurfaceHelpers.ts";
 import type {
   PrSurface,
   PrSurfaceMutationMethods,
   ProgressCommentUpsert,
-} from "./prSurfaceTypes.js";
+} from "./prSurfaceTypes.ts";
 
 const PR_SURFACE_WIRE_NAMES = {
   setAcknowledgementReaction: "setAcknowledgementReaction",

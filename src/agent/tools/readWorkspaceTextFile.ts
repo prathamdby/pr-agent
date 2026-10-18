@@ -6,13 +6,13 @@ import { join } from "node:path";
 import {
   LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES,
   LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   readTextWithOutputBudget,
   shouldSpillToFile,
   type FileReadOutput,
   type FileReadWindowParams,
-} from "./toolOutputBudget.js";
+} from "./toolOutputBudget.ts";
 
 export const MISSING_FROM_CHECKOUT_REASON = "Path is missing from the checkout.";
 export const BINARY_FILE_REASON = "Binary file cannot be read as text.";

@@ -2,13 +2,13 @@ import {
   type Config,
   INSTALLATION_TOKEN_FALLBACK_TTL_MS,
   TOKEN_FRESHNESS_BUFFER_MS,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 import {
   mintInstallationAuth,
   mintScopedInstallationAuth,
   type InstallationToken,
   type InstallationTokenOptions,
-} from "./appAuth.js";
+} from "./appAuth.ts";
 
 export type { InstallationToken };
 

@@ -9,14 +9,14 @@ import {
   reviewPayloadFromFindings,
   reviewPayloadSchema,
   REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+} from "../src/review/reviewSchema.ts";
 import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_GATE_PROSE_MAX_CHARS,
   REVIEW_GATE_PROSE_UNASSESSED,
-} from "../src/settings/index.js";
-import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+} from "../src/settings/index.ts";
+import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
 function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
   return {

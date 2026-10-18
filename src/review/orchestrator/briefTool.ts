@@ -1,9 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toToolParameters } from "../../agent/tools/toolParams.js";
-import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import { toToolParameters } from "../../agent/tools/toolParams.ts";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
+import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
 
 export const specialistBriefSchema = v.object({
   prIntent: v.pipe(v.string(), v.minLength(1), v.maxLength(2000)),

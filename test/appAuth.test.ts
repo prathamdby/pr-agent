@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createInstallationOctokitCache } from "../src/github/appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/settings/index.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
-import { unfencedSurface } from "../src/agentWork/writeFence.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { createInstallationOctokitCache } from "../src/github/appAuth.ts";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/settings/index.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import { unfencedSurface } from "../src/agentWork/writeFence.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 let installationOctokit = createInstallationOctokitCache();
 
@@ -332,7 +332,7 @@ describe("installationOctokit", () => {
     lookupInstallation.mockResolvedValueOnce(null);
     const result = await adapter.preflight(params);
     const { createReviewCapabilityPolicy } =
-      await import("../src/github/installationCapabilities.js");
+      await import("../src/github/installationCapabilities.ts");
     await adapter.create({
       ...params,
       prNumber: 5,

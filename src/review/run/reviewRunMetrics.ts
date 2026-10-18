@@ -1,7 +1,7 @@
-import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
-import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.js";
-import { logInfo, tryUseLogger, type RequestLogger } from "../../evlog.js";
-import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
+import type { AgentRunnerTurn } from "../../agent/providers/interface.ts";
+import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.ts";
+import { logInfo, tryUseLogger, type RequestLogger } from "../../evlog.ts";
+import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.ts";
 
 const MAX_RECENT_TOOL_ERRORS = 3;
 const metricsByLogger = new WeakMap<RequestLogger, MutableReviewRunMetrics>();

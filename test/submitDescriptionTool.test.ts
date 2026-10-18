@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.ts";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
-} from "../src/agent/description/submitDescriptionTool.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+} from "../src/agent/description/submitDescriptionTool.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
 
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(),
   mergeOperationIntentDetail: vi.fn(),
   reconcileOperationIntent: vi.fn(),
@@ -18,7 +18,7 @@ import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
-} from "../src/agentWork/operationIntentRepository.js";
+} from "../src/agentWork/operationIntentRepository.ts";
 const updatePullRequest = vi.fn();
 
 const pool = {} as Pool;

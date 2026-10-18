@@ -4,12 +4,12 @@ import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { Effect, Fiber, Layer } from "effect";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import type { WebhookHeaders } from "../src/agentWork/types.js";
-import type { Config } from "../src/settings/index.js";
-import { initEvlog } from "../src/evlog.js";
-import { buildEffectWebhookLayer } from "../src/effect/server.js";
-import { makeTestConfig } from "./helpers/config.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.ts";
+import type { WebhookHeaders } from "../src/agentWork/types.ts";
+import type { Config } from "../src/settings/index.ts";
+import { initEvlog } from "../src/evlog.ts";
+import { buildEffectWebhookLayer } from "../src/effect/server.ts";
+import { makeTestConfig } from "./helpers/config.ts";
 
 const testCfg = makeTestConfig({
   webhook: { secret: "secret" },

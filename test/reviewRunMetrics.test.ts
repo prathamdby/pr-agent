@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as evlog from "../src/evlog.js";
+import * as evlog from "../src/evlog.ts";
 import {
   deriveCacheExcellenceMetrics,
   initReviewRunMetrics,
@@ -8,7 +8,7 @@ import {
   recordReviewMetric,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-} from "../src/review/run/reviewRunMetrics.js";
+} from "../src/review/run/reviewRunMetrics.ts";
 
 describe("reviewRunMetrics", () => {
   afterEach(() => {

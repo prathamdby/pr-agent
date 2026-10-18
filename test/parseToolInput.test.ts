@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import * as v from "valibot";
-import * as evlog from "../src/evlog.js";
-import { defineLocalTool, toExecutor } from "../src/agent/tools/defineWorkspaceTool.js";
-import { parseToolInput } from "../src/agent/tools/parseToolInput.js";
+import * as evlog from "../src/evlog.ts";
+import { defineLocalTool, toExecutor } from "../src/agent/tools/defineWorkspaceTool.ts";
+import { parseToolInput } from "../src/agent/tools/parseToolInput.ts";
 
 const schema = v.object({
   path: v.pipe(v.string(), v.minLength(1)),

@@ -1,4 +1,4 @@
-import { wrapUntrustedBlock } from "./safety.js";
+import { wrapUntrustedBlock } from "./safety.ts";
 
 function escapeUntrustedReplyText(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");

@@ -1,9 +1,9 @@
-import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
+import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.ts";
 import {
   CODE_MODE_WORKSPACE_TOOL_NAMES,
   type CodeModeCapabilityExecutors,
   type CodeModeWorkspaceToolName,
-} from "./types.js";
+} from "./types.ts";
 
 export type GuestCapabilitySpec = {
   readonly name: CodeModeWorkspaceToolName;

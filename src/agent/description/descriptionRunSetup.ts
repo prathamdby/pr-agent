@@ -1,22 +1,22 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { AgentToolCallContext, AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { Config } from "../../settings/index.js";
-import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import { createAskPathGate } from "../ask/askSafety.js";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
+import type { AgentToolCallContext, AgentRunnerToolExecutor } from "../providers/interface.ts";
+import type { Config } from "../../settings/index.ts";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import { createAskPathGate } from "../ask/askSafety.ts";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
 import {
   descriptionSystemPrompt,
   buildDescriptionUserContent,
-} from "../../prompts/description/prompt.js";
+} from "../../prompts/description/prompt.ts";
 
-import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
+import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.ts";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
   type SubmitDescriptionState,
-} from "./submitDescriptionTool.js";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
+} from "./submitDescriptionTool.ts";
+import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
 
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;

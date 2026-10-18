@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-vi.mock("../../src/github/ciStatus.js", () => ({
+vi.mock("../../src/github/ciStatus.ts", () => ({
   listLegacyCommitStatusesForHeadDetailed: vi.fn(async () => ({
     legacyStatuses: [],
     truncated: false,

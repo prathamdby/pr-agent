@@ -1,4 +1,4 @@
-import { REPO_URL, SITE_ORIGIN } from "./site.js";
+import { REPO_URL, SITE_ORIGIN } from "./site.ts";
 
 export type AgentResource = {
   readonly path: string;

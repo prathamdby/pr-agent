@@ -1,4 +1,4 @@
-import { AppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.ts";
 
 export function createSendActivity(timeoutMs: number, sendAbort: AbortController) {
   const enabled = typeof timeoutMs === "number" && timeoutMs > 0;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { getReviewQueuePosition } from "../src/agentWork/workItemStateRepository.js";
+import { getReviewQueuePosition } from "../src/agentWork/workItemStateRepository.ts";
 
 describe("getReviewQueuePosition", () => {
   it("returns mid-queue rank from the durable FIFO query", async () => {

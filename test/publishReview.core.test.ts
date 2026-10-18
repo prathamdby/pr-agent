@@ -1,38 +1,38 @@
-import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.js";
+import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
-import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.js";
-import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.ts";
+import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.ts";
+import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.ts";
+import { reconciledFindingKey } from "../src/review/publish/publishFindingBatch.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.ts";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
   completeFindingInventory,
   testPublishState,
-} from "./helpers/reviewPublishTestHelpers.js";
+} from "./helpers/reviewPublishTestHelpers.ts";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
   type PublishReviewTestHarness,
-} from "./helpers/publishReviewTestSetup.js";
+} from "./helpers/publishReviewTestSetup.ts";
 
 type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
 >;
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
 
-vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) => {
   const { createPublishRecordReadMock, createOwnVerdictCloseMock } =
-    await import("./helpers/publishReviewTestSetup.js");
+    await import("./helpers/publishReviewTestSetup.ts");
   return {
-    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.ts")>()),
     ...createPublishRecordReadMock(),
     ...createOwnVerdictCloseMock(),
   };

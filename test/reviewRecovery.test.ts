@@ -1,26 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
-import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
+import { createFakePrSurface } from "../src/github/prSurface.ts";
+import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
+import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.ts";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   parseReviewArtifactEnvelope,
-} from "../src/review/recovery/reviewArtifacts.js";
+} from "../src/review/recovery/reviewArtifacts.ts";
 import {
   openReviewRecovery,
   snapshotFindingLedger,
-} from "../src/review/recovery/reviewRecovery.js";
+} from "../src/review/recovery/reviewRecovery.ts";
 import {
   reviewCoverageSchema,
   type CanonicalReviewDecision,
-} from "../src/review/recovery/reviewRecoverySchema.js";
+} from "../src/review/recovery/reviewRecoverySchema.ts";
 import * as v from "valibot";
-import { makeTestConfig } from "./helpers/config.js";
-import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
-import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.js";
+import { makeTestConfig } from "./helpers/config.ts";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
+import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.ts";
 
 const binding = createReviewArtifactBinding(
   {

@@ -7,13 +7,13 @@ import {
   REVIEW_APPROVED,
   REVIEW_CANCELLED_PR_CLOSED,
   reviewCancelAttributionForClosedPr,
-} from "../../settings/index.js";
-import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
-import { resolveAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
+} from "../../settings/index.ts";
+import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.ts";
+import { resolveAskQuotaConfig, type AskQuotaConfig } from "../askQuota.ts";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { inTransaction } from "../../db/postgres.js";
-import type { ReviewAuthorTrust } from "../../commands/slashAssociation.js";
+import { inTransaction } from "../../db/postgres.ts";
+import type { ReviewAuthorTrust } from "../../commands/slashAssociation.ts";
 import {
   approveAwaiting,
   findAwaitingForHead,
@@ -21,16 +21,16 @@ import {
   insertAwaitingApproval,
   moveAwaitingHead,
   withdrawAwaiting,
-} from "./reviewApprovals.js";
+} from "./reviewApprovals.ts";
 import {
   acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
   type AutoWorkLifecycleChange,
   type AutoWorkSupersedeTarget,
-} from "../autoWorkEnqueue.js";
-import type { RequestLogger, WideEventLevel } from "../../evlog.js";
-import { recordEvent } from "../../evlog.js";
+} from "../autoWorkEnqueue.ts";
+import type { RequestLogger, WideEventLevel } from "../../evlog.ts";
+import { recordEvent } from "../../evlog.ts";
 import {
   type AckJobData,
   type AckTarget,
@@ -38,28 +38,28 @@ import {
   type PrRef,
   type WebhookHeaders,
   prResourceKey,
-} from "../types.js";
+} from "../types.ts";
 import {
   enqueueAck,
   enqueueDescription,
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
-} from "./queueing.js";
+} from "./queueing.ts";
 import {
   captureCiStateChanged,
   captureWorkTerminal,
   installationDistinctId,
-} from "../../analytics/workCompleted.js";
-import { captureEvent } from "../../analytics/index.js";
-import type { CaptureEventInput } from "../../analytics/types.js";
+} from "../../analytics/workCompleted.ts";
+import { captureEvent } from "../../analytics/index.ts";
+import type { CaptureEventInput } from "../../analytics/types.ts";
 import {
   isHeadCiSeedPullRequest,
   requestHeadCiProjection,
   shouldSeedHeadCiFromPullRequest,
-} from "../ciProjection.js";
-import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.js";
-import type { CiCheckFact } from "../../review/ci/ciFacts.js";
+} from "../ciProjection.ts";
+import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.ts";
+import type { CiCheckFact } from "../../review/ci/ciFacts.ts";
 import {
   cancelActiveTriage,
   cancelActiveReviews,
@@ -70,7 +70,7 @@ import {
   reviewLifecycleObservationAccepted,
   recordReviewLifecycleObservation,
   type ReviewLifecycleObservation,
-} from "./workItemRepository.js";
+} from "./workItemRepository.ts";
 
 type AutomatedKindDispatchDescriptor = {
   readonly target: AutoWorkSupersedeTarget;
@@ -933,10 +933,12 @@ export class DeliveryTx {
   readonly events: DeferredIntakeEvent[] = [];
   readonly afterCommit: Array<() => void> = [];
   readonly lifecycleEvents: CaptureEventInput[] = [];
-  constructor(
-    readonly client: PoolClient,
-    readonly headers: WebhookHeaders,
-  ) {}
+  readonly client: PoolClient;
+  readonly headers: WebhookHeaders;
+  constructor(client: PoolClient, headers: WebhookHeaders) {
+    this.client = client;
+    this.headers = headers;
+  }
   deferWorkLifecycle(
     ref: PrRef,
     changes: readonly (Omit<AutoWorkLifecycleChange, "lifecycleStatus"> & {

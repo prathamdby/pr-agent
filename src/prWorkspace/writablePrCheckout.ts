@@ -4,18 +4,18 @@ import {
   formatCoAuthoredByTrailer,
   type GitPerson,
   type TriageCommitAttribution,
-} from "../agent/triage/commitAttribution.js";
+} from "../agent/triage/commitAttribution.ts";
 import {
   createWritableRepositoryReader,
   runWorkspaceGit,
   assertWorkspacePath,
   type RepositoryReader,
-} from "./repositoryReader.js";
+} from "./repositoryReader.ts";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { BotIdentity } from "../github/appAuth.js";
-import { AppError, isAppError } from "../errors/appError.js";
+import type { BotIdentity } from "../github/appAuth.ts";
+import { AppError, isAppError } from "../errors/appError.ts";
 import {
   SENSITIVE_PATH_PATTERNS,
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
@@ -27,9 +27,9 @@ import {
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FETCH_BYTES,
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
-} from "../settings/index.js";
-import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
-import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.js";
+} from "../settings/index.ts";
+import { isTriageControlPath } from "../agent/triage/triageWritePolicy.ts";
+import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.ts";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -37,7 +37,7 @@ import {
   assertGitRepoPart,
   ensureWorkspaceFreeSpaceAfterSweep,
   gitCountObjectsStoreBytes,
-} from "./workspaceResource.js";
+} from "./workspaceResource.ts";
 
 export type CommitArgs = {
   readonly files: readonly string[];

@@ -1,24 +1,24 @@
-import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
-import { AppError, isAppError } from "../../errors/appError.js";
-import type { AppErrorCode, AppErrorKind } from "../../errors/appErrorCodes.js";
+import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.ts";
+import { AppError, isAppError } from "../../errors/appError.ts";
+import type { AppErrorCode, AppErrorKind } from "../../errors/appErrorCodes.ts";
 import {
   idleAbortSignal,
   type HostCallOutcome,
   type HostCallTracer,
-} from "../providers/interface.js";
-import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
-import type { AgentSessionRole } from "../runtime/types.js";
-import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { CodeModeHostHalt, hostCancelHalt } from "../execution/hostHalt.js";
-import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.js";
-import { CODE_MODE_WORKSPACE_TOOL_NAMES, type CodeModeCapabilityExecutors } from "./types.js";
+} from "../providers/interface.ts";
+import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.ts";
+import type { AgentSessionRole } from "../runtime/types.ts";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.ts";
+import { CodeModeHostHalt, hostCancelHalt } from "../execution/hostHalt.ts";
+import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.ts";
+import { CODE_MODE_WORKSPACE_TOOL_NAMES, type CodeModeCapabilityExecutors } from "./types.ts";
 import {
   recordMarshalledEvidence,
   toGuestCapabilityResult,
   boundJsonValue,
-} from "../execution/marshal.js";
-import { utf8ByteLength } from "../execution/json.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../execution/marshal.ts";
+import { utf8ByteLength } from "../execution/json.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type CodeModeCapabilityBridge = {
   readonly invoke: (name: string, args?: Record<string, unknown>) => Promise<unknown>;

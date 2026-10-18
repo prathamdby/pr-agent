@@ -1,9 +1,9 @@
-import { createFeaturePiSession } from "./createFeatureSession.js";
-import type { PiSessionSendOptions } from "./types.js";
+import { createFeaturePiSession } from "./createFeatureSession.ts";
+import type { PiSessionSendOptions } from "./types.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { type Config, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../../settings/index.js";
-import type { AgentRunnerTurn } from "../providers/interface.js";
-import type { PiSession } from "./types.js";
+import { type Config, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../../settings/index.ts";
+import type { AgentRunnerTurn } from "../providers/interface.ts";
+import type { PiSession } from "./types.ts";
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {

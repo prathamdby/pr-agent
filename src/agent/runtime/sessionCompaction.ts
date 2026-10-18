@@ -1,12 +1,12 @@
 import type { AgentLoopConfig, AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import { SESSION_OVERFLOW_COMPACT_MAX } from "../../settings/index.js";
+import { SESSION_OVERFLOW_COMPACT_MAX } from "../../settings/index.ts";
 import {
   compactAgentMessages,
   compactIfNeeded,
   dropTrailingErrorAssistant,
-} from "./transcriptCompaction.js";
-import type { CompactionPolicy, ThinkingLevel } from "./types.js";
-import type { SessionTrace } from "./sessionTrace.js";
+} from "./transcriptCompaction.ts";
+import type { CompactionPolicy, ThinkingLevel } from "./types.ts";
+import type { SessionTrace } from "./sessionTrace.ts";
 
 type SessionCompactionRuntime = {
   readonly model: AgentLoopConfig["model"];

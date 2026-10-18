@@ -3,11 +3,11 @@ import {
   wrapTrustedContext,
   wrapUntrustedBlock,
   wrapUntrustedEvidence,
-} from "../src/prompts/shared/safety.js";
+} from "../src/prompts/shared/safety.ts";
 import {
   securityTripwiresGuidance,
   proseContractGuidance,
-} from "../src/prompts/correctness/prompt.js";
+} from "../src/prompts/correctness/prompt.ts";
 
 function untrustedBlockBody(label: string, block: string): string {
   const open = `<${label} untrusted="true">\n`;

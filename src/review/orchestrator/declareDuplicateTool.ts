@@ -1,13 +1,13 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import { toToolParameters } from "../../agent/tools/toolParams.js";
-import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import { AppError } from "../../errors/appError.js";
-import type { DuplicateCleanupRefusal } from "../findingIdentity/duplicateCleanup.js";
-import { isFindingId } from "../findingIdentity/findingMarker.js";
-import type { DeclaredDuplicate } from "../publish/reviewDuplicateCleanup.js";
-import type { ReviewPublishSession } from "../publish/reviewPublishSession.js";
-import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import { toToolParameters } from "../../agent/tools/toolParams.ts";
+import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
+import { AppError } from "../../errors/appError.ts";
+import type { DuplicateCleanupRefusal } from "../findingIdentity/duplicateCleanup.ts";
+import { isFindingId } from "../findingIdentity/findingMarker.ts";
+import type { DeclaredDuplicate } from "../publish/reviewDuplicateCleanup.ts";
+import type { ReviewPublishSession } from "../publish/reviewPublishSession.ts";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
 
 const declareDuplicateSchema = v.object({
   findingIds: v.pipe(

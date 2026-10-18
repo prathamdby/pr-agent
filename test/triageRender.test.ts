@@ -4,22 +4,22 @@ import {
   classifyTriageBulkOutcomes,
   renderTriagePreview,
   renderTriageReport,
-} from "../src/agent/triage/triageRender.js";
+} from "../src/agent/triage/triageRender.ts";
 import {
   pathsFromUnifiedDiff,
   previewApprovalSets,
   remapBulkPayload,
-} from "../src/agent/triage/previewApproval.js";
-import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
+} from "../src/agent/triage/previewApproval.ts";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 import {
   TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
-} from "../src/settings/index.js";
+} from "../src/settings/index.ts";
 import {
   renderCiRollupMarker,
   replaceCiRollupMarkerIfNewer,
-} from "../src/review/ci/ciSummaryCell.js";
+} from "../src/review/ci/ciSummaryCell.ts";
 
 function thread(
   rootCommentId: number,

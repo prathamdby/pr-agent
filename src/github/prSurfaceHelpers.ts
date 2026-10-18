@@ -1,4 +1,4 @@
-import type { PrConversationComment, PrSurface, PublishedBatch } from "./prSurfaceTypes.js";
+import type { PrConversationComment, PrSurface, PublishedBatch } from "./prSurfaceTypes.ts";
 
 export function findCommentIdByMarker<T extends PrConversationComment>(
   comments: readonly T[],

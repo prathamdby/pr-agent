@@ -1,7 +1,7 @@
-import { posthogSafePhase, type ClassifiedFailure } from "../errors/classifiedFailure.js";
-import type { ReviewRunMetricsSnapshot } from "../review/run/reviewRunMetrics.js";
-import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
-import { captureEvent } from "./index.js";
+import { posthogSafePhase, type ClassifiedFailure } from "../errors/classifiedFailure.ts";
+import type { ReviewRunMetricsSnapshot } from "../review/run/reviewRunMetrics.ts";
+import { MAX_LOG_MESSAGE_LEN } from "../settings/index.ts";
+import { captureEvent } from "./index.ts";
 
 export type TelemetryWorkType = "review" | "ask" | "description" | "triage" | "verification";
 

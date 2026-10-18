@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { assertFindingsHaveEvidence } from "../src/review/findings/evidenceValidator.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.js";
+import { assertFindingsHaveEvidence } from "../src/review/findings/evidenceValidator.ts";
+import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {

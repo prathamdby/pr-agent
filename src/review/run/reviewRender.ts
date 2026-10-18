@@ -8,7 +8,7 @@ import {
   renderTableLink,
   renderTableLocationMeta,
   renderTableStrong,
-} from "../../github/markdownFormat.js";
+} from "../../github/markdownFormat.ts";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   AGENT_FIX_PROMPT_PREAMBLE,
@@ -24,21 +24,21 @@ import {
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
   type AnyReviewLens,
-} from "../../settings/index.js";
-import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
-import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
-import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
+} from "../../settings/index.ts";
+import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
+import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.ts";
+import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.ts";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.ts";
+import type { FindingSource } from "../orchestrator/orchestratorTypes.ts";
+import type { InlinePlacement } from "../placement/reviewDiffPlacement.ts";
 import {
   renderFindingMarker,
   renderFindingRowMarker,
   type FindingId,
   type FindingRowMarker,
-} from "../findingIdentity/findingMarker.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import type { InventoryFinding } from "../findingIdentity/findingInventory.js";
+} from "../findingIdentity/findingMarker.ts";
+import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import type { InventoryFinding } from "../findingIdentity/findingInventory.ts";
 import {
   findingSeverityLabel,
   largestFittingBody,
@@ -46,15 +46,15 @@ import {
   renderResolvedThisRun,
   type FindingView,
   type FindingViewRow,
-} from "../findingIdentity/findingLifecycle.js";
-import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.js";
+} from "../findingIdentity/findingLifecycle.ts";
+import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.ts";
 import {
   normalizeGitHeadSha,
   renderReviewRunFooter,
   type ReviewRunFooterMeta,
-} from "./reviewRunFooter.js";
-import type { CiSummary } from "../ci/ciFacts.js";
-import { wrapUntrustedBlock } from "../../prompts/shared/safety.js";
+} from "./reviewRunFooter.ts";
+import type { CiSummary } from "../ci/ciFacts.ts";
+import { wrapUntrustedBlock } from "../../prompts/shared/safety.ts";
 import {
   formatReviewActionLineCiStatus,
   renderReviewActionLineCiStatus,
@@ -62,7 +62,7 @@ import {
   renderCiSummaryCell,
   shouldIncludeCiInAgentFixPrompt,
   shouldRenderCiSummaryRow,
-} from "../ci/ciSummaryCell.js";
+} from "../ci/ciSummaryCell.ts";
 
 export type RenderContext = ReviewPublishContext;
 

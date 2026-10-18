@@ -4,11 +4,11 @@ import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequ
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { AgentWorkSchedulerRuntimeLive } from "../agentWork/runtime.js";
-import { AgentWorkScheduler } from "../agentWork/scheduler.js";
-import type { Config } from "../settings/index.js";
-import { createOperationLogger } from "../evlog.js";
-import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
+import { AgentWorkSchedulerRuntimeLive } from "../agentWork/runtime.ts";
+import { AgentWorkScheduler } from "../agentWork/scheduler.ts";
+import type { Config } from "../settings/index.ts";
+import { createOperationLogger } from "../evlog.ts";
+import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.ts";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;

@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Pool } from "pg";
-import { logInfo } from "../evlog.js";
+import { logInfo } from "../evlog.ts";
 
 const MIGRATIONS_DIR_NAME = "migrations";
 

@@ -1,6 +1,6 @@
 import type { BeforeToolCallResult, FinishTurn } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
-import type { PiSessionSendOptions } from "./types.js";
+import type { PiSessionSendOptions } from "./types.ts";
 
 type BudgetToolResult = Pick<ToolResultMessage, "toolName" | "isError">;
 

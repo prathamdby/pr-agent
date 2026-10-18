@@ -1,4 +1,4 @@
-import { installationOctokit } from "./appAuth.js";
+import { installationOctokit } from "./appAuth.ts";
 
 const GITHUB_COMPARE_FILES_PAGE_CAP = 300;
 

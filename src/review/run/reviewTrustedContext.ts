@@ -1,7 +1,7 @@
-import type { PrSurface } from "../../github/prSurface.js";
-import type { AnyReviewLens } from "../../settings/index.js";
-import { fetchPriorInlineFeedback } from "./reviewPriorFeedback.js";
-import { formatPriorInlineFeedbackBlock } from "../../prompts/orchestrator/prompt.js";
+import type { PrSurface } from "../../github/prSurface.ts";
+import type { AnyReviewLens } from "../../settings/index.ts";
+import { fetchPriorInlineFeedback } from "./reviewPriorFeedback.ts";
+import { formatPriorInlineFeedbackBlock } from "../../prompts/orchestrator/prompt.ts";
 
 export async function fetchPriorInlineFeedbackBlockForReview(params: {
   prSurface: PrSurface;

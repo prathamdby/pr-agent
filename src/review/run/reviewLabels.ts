@@ -3,13 +3,13 @@ import {
   LABEL_REVIEW_SIZE_PREFIX,
   LABEL_SECURITY_CONCERN,
   REVIEW_SIZES,
-} from "../../settings/index.js";
+} from "../../settings/index.ts";
 import {
   REVIEW_FINDING_CATEGORIES,
   type ReviewFinding,
   type ReviewFindingCategory,
   type ReviewPayload,
-} from "../reviewSchema.js";
+} from "../reviewSchema.ts";
 
 const LEGACY_REVIEW_EFFORT_LABEL = /^Review effort [1-5]\/5$/;
 

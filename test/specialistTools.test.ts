@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { AppError } from "../src/errors/appError.js";
-import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.js";
+import { AppError } from "../src/errors/appError.ts";
+import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   SUBMIT_FINDINGS_REPORT_NAME,
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
-} from "../src/review/orchestrator/specialistTools.js";
+} from "../src/review/orchestrator/specialistTools.ts";
 
 function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
   return JSON.stringify(

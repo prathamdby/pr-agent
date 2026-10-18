@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { logWarn } from "../../evlog.js";
+import { logWarn } from "../../evlog.ts";
 import {
   LOCAL_WORKSPACE_FFF_GREP_PAGE_FILES,
   LOCAL_WORKSPACE_FFF_GREP_TIME_BUDGET_MS,
@@ -10,9 +10,9 @@ import {
   LOCAL_WORKSPACE_FFF_MAX_INDEXED_FILES,
   LOCAL_WORKSPACE_FFF_MAX_LIVE_INDEXES,
   LOCAL_WORKSPACE_FFF_SCAN_TIMEOUT_MS,
-} from "../../settings/index.js";
-import type { GitGrepWorkspaceParams, GitGrepWorkspaceResult } from "../repositoryReader.js";
-import { closeFffIndex, findFffFiles, grepFffIndex, openFffIndex } from "./client.js";
+} from "../../settings/index.ts";
+import type { GitGrepWorkspaceParams, GitGrepWorkspaceResult } from "../repositoryReader.ts";
+import { closeFffIndex, findFffFiles, grepFffIndex, openFffIndex } from "./client.ts";
 
 type WorkspaceSearchMatch = GitGrepWorkspaceResult["matches"][number];
 

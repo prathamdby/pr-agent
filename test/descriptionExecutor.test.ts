@@ -1,15 +1,15 @@
 const publicationWrites = vi.hoisted(() => ({
   write: vi
-    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
     .mockResolvedValue(undefined),
 }));
-vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   return {
     ...actual,
     createPublishContext: (
       client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
     ) =>
       actual.createPublishContext(client, identity, {
         ...actual.postgresPublishRecords,
@@ -18,34 +18,34 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   };
 });
 const recordPublishStep = publicationWrites.write;
-import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
-import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
-import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import * as repo from "../src/agentWork/workItemStateRepository.js";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.ts";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.ts";
+import { makeTestConfig } from "./helpers/config.ts";
+import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import * as repo from "../src/agentWork/workItemStateRepository.ts";
 import {
   fakeDurablePrSurface,
   mockWorkClaim,
   resetDurablePrSurface,
   durablePrSurfaceControls,
   setupDefaultDurableRepositoryMocks,
-} from "./helpers/executorDurableHarness.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
+} from "./helpers/executorDurableHarness.ts";
+import * as prSurfaceModule from "../src/github/prSurface.ts";
 
 const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
   withPrRepositoryView: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>();
   return {
     ...actual,
     shouldSkipWork: vi.fn().mockResolvedValue(false),
@@ -65,12 +65,12 @@ vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agent/description/descriptionRun.js", () => ({
+vi.mock("../src/agent/description/descriptionRun.ts", () => ({
   runFullPrDescription: mocks.runDescriptionRun,
 }));
 
-vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
   return {
     ...actual,
     isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
@@ -78,19 +78,19 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.ts", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.ts", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
 }));
 
-import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
-import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
-import * as prActorLease from "../src/agentWork/prActorLease.js";
-import { AppError } from "../src/errors/appError.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
+import * as prActorLease from "../src/agentWork/prActorLease.ts";
+import { AppError } from "../src/errors/appError.ts";
 
 let runExecution: () => Promise<unknown>;
 function configureExecution(

@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logDebug, logWarn } from "../evlog.js";
+import { logDebug, logWarn } from "../evlog.ts";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
@@ -15,10 +15,10 @@ import {
   STALE_QUEUED_WORK_GRACE_SECONDS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-} from "../settings/index.js";
-import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
-import { lostRunningWorkLivenessSql } from "./workItemTransitions.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { AGENT_DEAD_LETTER_QUEUES } from "./boss.ts";
+import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 export const WORKER_CONSUMER_QUEUES = [
   ACK_QUEUE,

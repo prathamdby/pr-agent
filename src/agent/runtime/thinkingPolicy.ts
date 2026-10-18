@@ -1,5 +1,5 @@
-import type { AgentSessionPhase, ThinkingLevel, ThinkingPolicy } from "./types.js";
-import { DEFAULT_THINKING_POLICY } from "./types.js";
+import type { AgentSessionPhase, ThinkingLevel, ThinkingPolicy } from "./types.ts";
+import { DEFAULT_THINKING_POLICY } from "./types.ts";
 
 const THINKING_ORDER: readonly ThinkingLevel[] = [
   "off",

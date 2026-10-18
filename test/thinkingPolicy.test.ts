@@ -4,7 +4,7 @@ import {
   clampToModelSupportedLevel,
   resolveThinkingLevel,
   thinkingPolicyFromCeiling,
-} from "../src/agent/runtime/thinkingPolicy.js";
+} from "../src/agent/runtime/thinkingPolicy.ts";
 
 describe("thinkingPolicy", () => {
   const policy = thinkingPolicyFromCeiling("high");

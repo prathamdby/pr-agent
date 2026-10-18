@@ -1,4 +1,4 @@
-import { REVIEW_RISK_PATH_PATTERNS } from "../../settings/index.js";
+import { REVIEW_RISK_PATH_PATTERNS } from "../../settings/index.ts";
 
 type ReviewPathRiskCategory = keyof typeof REVIEW_RISK_PATH_PATTERNS;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInstallationPermissions } from "../src/github/installationCapabilities.js";
+import { parseInstallationPermissions } from "../src/github/installationCapabilities.ts";
 
 describe("parseInstallationPermissions", () => {
   it.each(["__proto__", "constructor", "prototype"])(

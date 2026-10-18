@@ -1,21 +1,21 @@
 import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
-} from "../../prompts/judge/prompt.js";
+} from "../../prompts/judge/prompt.ts";
 import * as v from "valibot";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import type { Config } from "../../settings/index.js";
-import { logWarn } from "../../evlog.js";
-import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
+import type { Config } from "../../settings/index.ts";
+import { logWarn } from "../../evlog.ts";
+import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
+import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.ts";
 import {
   candidatePolicyPairs,
   ruleConsidersFile,
   type RepoPolicyResult,
   type RepoPolicyRule,
-} from "../repoPolicy.js";
-import type { ReviewFinding } from "../reviewSchema.js";
-import { errorMessage } from "../../errors/errorMessage.js";
+} from "../repoPolicy.ts";
+import type { ReviewFinding } from "../reviewSchema.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 
 const BOUND_POLICY_JUDGE_TIMEOUT_MS = 20_000;
 const BOUND_POLICY_SNIPPET_MAX_CHARS = 1_500;

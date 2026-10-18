@@ -1,11 +1,11 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../settings/index.js";
-import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
-import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
-import type { PromptCachePolicy } from "./promptCachePolicy.js";
+import type { Config } from "../../settings/index.ts";
+import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.ts";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
+import type { PromptCachePolicy } from "./promptCachePolicy.ts";
 
-export type { AgentLifecycleEvent } from "./lifecycleEvents.js";
-export type { PromptCachePolicy } from "./promptCachePolicy.js";
+export type { AgentLifecycleEvent } from "./lifecycleEvents.ts";
+export type { PromptCachePolicy } from "./promptCachePolicy.ts";
 
 export type AgentSessionRole =
   | "orchestrator"

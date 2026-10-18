@@ -1,12 +1,12 @@
-import type { ReplyTarget } from "../../agentWork/types.js";
-import type { ReviewThreadSnapshot } from "../../github/reviewThreadResolution.js";
+import type { ReplyTarget } from "../../agentWork/types.ts";
+import type { ReviewThreadSnapshot } from "../../github/reviewThreadResolution.ts";
 import {
   hasHumanReplies,
   type FindingInventory,
   type InventoryFinding,
-} from "./findingInventory.js";
-import { parseOwnedReceipts, renderReceipt, type FindingId } from "./findingMarker.js";
-import { overlaps } from "./findingReconcile.js";
+} from "./findingInventory.ts";
+import { parseOwnedReceipts, renderReceipt, type FindingId } from "./findingMarker.ts";
+import { overlaps } from "./findingReconcile.ts";
 
 export type DuplicateCleanupRefusal =
   | "inventory_incomplete"

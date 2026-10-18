@@ -18,11 +18,11 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
   VERIFICATION_QUEUE,
-} from "../settings/index.js";
-import { logDebug, logWarn, logError } from "../evlog.js";
-import type { QueueConfig } from "./types.js";
-import { leasedWorkQueues } from "./writeFence.js";
-import { errorMessage } from "../errors/errorMessage.js";
+} from "../settings/index.ts";
+import { logDebug, logWarn, logError } from "../evlog.ts";
+import type { QueueConfig } from "./types.ts";
+import { leasedWorkQueues } from "./writeFence.ts";
+import { errorMessage } from "../errors/errorMessage.ts";
 
 type BossConfig = Pick<Config, "runtime">;
 

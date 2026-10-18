@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeTestConfig } from "./helpers/config.js";
+import { makeTestConfig } from "./helpers/config.ts";
 const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { createOperationLogger } from "../src/evlog.js";
-import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { createOperationLogger } from "../src/evlog.ts";
+import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.ts";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
   ASK_USAGE_HINT,
   MAX_ASK_QUESTION_CHARS,
-} from "../src/settings/index.js";
-import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
-import * as postgres from "../src/db/postgres.js";
+} from "../src/settings/index.ts";
+import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.ts";
+import * as postgres from "../src/db/postgres.ts";
 
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";

@@ -11,9 +11,9 @@ import {
   REVIEW_GATE_PROSE_UNASSESSED,
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
-} from "../settings/index.js";
+} from "../settings/index.ts";
 
-export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
+export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.ts";
 
 export type ReviewMode = "review";
 

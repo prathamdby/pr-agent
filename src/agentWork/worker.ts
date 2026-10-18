@@ -1,8 +1,8 @@
-import { createWorkDefinitions } from "./workDefinition.js";
+import { createWorkDefinitions } from "./workDefinition.ts";
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
-import type { ExecutionTracker } from "./executionTracker.js";
+import type { ExecutionTracker } from "./executionTracker.ts";
 import {
   AgentWorkBoss,
   AgentWorkBossLive,
@@ -10,7 +10,7 @@ import {
   AgentWorkExecutionsLive,
   AgentWorkPool,
   AgentWorkPoolLive,
-} from "./runtime.js";
+} from "./runtime.ts";
 import {
   type Config,
   ACK_QUEUE,
@@ -18,14 +18,14 @@ import {
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   STALE_QUEUED_WORK_GRACE_SECONDS,
-} from "../settings/index.js";
-import { errorLogFields } from "../errors/appError.js";
-import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
-import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.js";
-import { executeAckJob } from "./executors/ackExecutor.js";
-import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
-import { type AckJobData, type CiProjectionJobData } from "./types.js";
-import { ensureRetentionSchedule, runRetention } from "./retention.js";
+} from "../settings/index.ts";
+import { errorLogFields } from "../errors/appError.ts";
+import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.ts";
+import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.ts";
+import { executeAckJob } from "./executors/ackExecutor.ts";
+import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.ts";
+import { type AckJobData, type CiProjectionJobData } from "./types.ts";
+import { ensureRetentionSchedule, runRetention } from "./retention.ts";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
@@ -35,10 +35,10 @@ import {
   startPeriodicQueueDiagnostics,
   startWorkerHealthServer,
   WORKER_CONSUMER_QUEUES,
-} from "./workerHealth.js";
-import { reconcileLostRunningWork } from "./lostRunningWork.js";
-import { scanProjectionRepairPending } from "./projectionRepair.js";
-import { errorMessage, toError } from "../errors/errorMessage.js";
+} from "./workerHealth.ts";
+import { reconcileLostRunningWork } from "./lostRunningWork.ts";
+import { scanProjectionRepairPending } from "./projectionRepair.ts";
+import { errorMessage, toError } from "../errors/errorMessage.ts";
 
 type JobCorrelation = { workItemId?: string; webhookEventId?: string; delivery?: string };
 

@@ -1,9 +1,9 @@
 import { Data, Effect } from "effect";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { LOG_MAX_WIDE_EVENTS, loadConfig } from "./settings/index.js";
-import { initAnalytics } from "./analytics/index.js";
-import { initEvlog, logInfo } from "./evlog.js";
-import { sanitizeErrorForTelemetry } from "./errors/appError.js";
+import { LOG_MAX_WIDE_EVENTS, loadConfig } from "./settings/index.ts";
+import { initAnalytics } from "./analytics/index.ts";
+import { initEvlog, logInfo } from "./evlog.ts";
+import { sanitizeErrorForTelemetry } from "./errors/appError.ts";
 
 class StartupConfigInvalid extends Data.TaggedError("StartupConfigInvalid")<{
   readonly message: string;
@@ -32,12 +32,12 @@ const boot = Effect.fn("process.boot")(function* () {
     context7_enabled: cfg.context7.apiKey.length > 0,
   });
   if (cfg.runtime.role === "worker") {
-    const { startAgentWorker } = yield* Effect.promise(() => import("./worker.js"));
+    const { startAgentWorker } = yield* Effect.promise(() => import("./worker.ts"));
     yield* startAgentWorker(cfg);
     return;
   }
   const [{ prewarmAppBotIdentity }, { startEffectWebhookServer }] = yield* Effect.promise(() =>
-    Promise.all([import("./github/appAuth.js"), import("./effect/server.js")]),
+    Promise.all([import("./github/appAuth.ts"), import("./effect/server.ts")]),
   );
   prewarmAppBotIdentity(cfg);
   yield* startEffectWebhookServer(cfg);
