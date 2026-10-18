@@ -56,8 +56,9 @@ from an inherited layer is not an image-size or application-RSS optimization.
 
 CI uses setup-node and root-lockfile caching. The trusted guard workflow installs
 and executes only base-branch tooling; PR-head files remain inspection input.
-Vercel explicitly selects Node 24, installs the site from the root lock, and builds
-the workspace. Dashboard overrides need a separate operator check.
+Vercel selects Node 24 from `package.json` engines, installs the site from the root
+lock, and builds the workspace. `site/vercel.json` sets commands; its schema does
+not accept `nodeVersion`. Dashboard overrides need a separate operator check.
 
 Every `.jsonc` file is a control-plane path, at any depth and case. The canonical
 policy blocks triage reads, search, writes, staging, and commits, and verification

@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
-  "nodeVersion": "24.x",
   "installCommand": "cd .. && npm ci --workspace=pr-agent-landing --include-workspace-root=false",
   "buildCommand": "cd .. && npm run --workspace=pr-agent-landing build"
 }
