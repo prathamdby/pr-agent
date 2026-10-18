@@ -9,7 +9,7 @@
   <br>
   <a href="LICENSE"><img src="assets/badges/license.png" alt="MIT license" height="48"></a>
   <a href="#documentation"><img src="assets/badges/docs.png" alt="Documentation" height="48"></a>
-  <a href="#installation"><img src="assets/badges/node.png" alt="Node 22+" height="48"></a>
+  <a href="#installation"><img src="assets/badges/node.png" alt="Node 24 LTS" height="48"></a>
 </p>
 
 </div>

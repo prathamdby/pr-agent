@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22.22.0-bookworm-slim AS deps
+FROM node:24.22.0-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
@@ -23,7 +23,7 @@ COPY src ./src
 COPY migrations ./migrations
 RUN nub run build
 
-FROM node:22.22.0-bookworm-slim AS runtime
+FROM node:24.22.0-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
