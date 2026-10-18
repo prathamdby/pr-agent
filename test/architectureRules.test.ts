@@ -136,7 +136,9 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
       /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
     )) {
       if (options.staticOnly && match[1] == null) continue;
-      const spec = match[1] ?? match[2];
+      let spec = match[1] ?? match[2];
+      if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
+      else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
       const resolved = relative(process.cwd(), join(file, "..", spec)).replace(/\\/g, "/");
       const normalized = resolved.startsWith("src/")
         ? resolved

@@ -139,7 +139,7 @@ unchanged public adapter.
 
 `Config` is nested slices (`runtime`, `github`, `webhook`, `associations`, `features`, `models`, `provider`, `agentEvents`, `codeIndex`, `codeMode`, `review`, `concurrency`, `ask`, `queue`, `retention`, `context7`, `posthog`, `logging`). Each slice reader lives in `src/settings/slices/` and uses the typed readers in `src/settings/envReaders.ts`, the only `NODE_ENV` read. `src/settings/config.ts` composes them and its `loadConfig` stays the single entry; the settings barrel exports it. A module takes the slice it needs (`Config["ask"]`, `Pick<Config, "features">`). Code Mode receives `executorKind` as a parameter from `cfg.codeMode.executorKind`; nothing reads `VITEST`. Tests build slices with `makeTestConfig({ review: { maxInlineComments: 1 } })` and pass them in; settings are never module-mocked. The Pi model catalog (`modelsJson*`) lives in `src/agent/runtime/`; the worker-role models slice loads it with a dynamic import so web never loads the Pi SDK.
 
-Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
+Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). Native `.ts` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
 Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
 the ID-pinned triage payload lookup, plus provider-ordered review lifecycle
