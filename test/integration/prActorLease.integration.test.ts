@@ -46,8 +46,10 @@ import {
 } from "../../src/settings/index.ts";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.ts";
 import { runMigrations } from "../../src/db/migrations.ts";
+import { runDelivery } from "../../src/agentWork/intake/delivery.ts";
 import { inTransaction } from "../../src/db/postgres.ts";
 import * as evlog from "../../src/evlog.ts";
+import { createOperationLogger } from "../../src/evlog.ts";
 import * as leaseRepository from "../../src/agentWork/prActorLease.ts";
 import * as intentRepository from "../../src/agentWork/operationIntentRepository.ts";
 import * as workRepository from "../../src/agentWork/workItemStateRepository.ts";
@@ -75,6 +77,7 @@ import {
 } from "../../src/agentWork/reviewReschedule.ts";
 import {
   installationGroupId,
+  prResourceKey,
   WORK_QUEUES,
   type ReviewWorkItem,
 } from "../../src/agentWork/types.ts";
@@ -4212,5 +4215,84 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       descClient.release();
     }
     expect((await getLeaseRowFor(descKey, "description"))?.work_item_id).toBe(slashDescId);
+  });
+
+  it("every_push synchronize leaves a running slash review and its lease in place", async () => {
+    const repo = "every-push";
+    const prNumber = 77;
+    const reviewKey = prResourceKey(OWNER, repo, prNumber);
+    const slashReviewId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'review', 'slash', 'queued', $2, $3, $4, 1, 'h', 'review', $5,
+         '{"mode":"review","source":"slash"}'::jsonb
+       )`,
+      [slashReviewId, OWNER, repo, prNumber, reviewKey],
+    );
+    await claimWorkForExecution(pool, slashReviewId);
+    const slashAcquisition = await acquireFor(reviewKey, "review", slashReviewId);
+    if (!slashAcquisition.acquired) throw new Error("expected slash acquisition to succeed");
+    await claimWorkForExecution(pool, slashReviewId, slashAcquisition.leaseEpoch);
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) throw new Error("DATABASE_URL is required");
+    const started = await bossModule.createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl, role: "web" } }),
+    );
+    await bossModule.ensureAgentQueues(started, makeTestConfig());
+    try {
+      await runDelivery(
+        pool,
+        started,
+        makeTestConfig({
+          features: {
+            ...makeTestConfig().features,
+            review: "auto",
+            reviewCadence: "every_push",
+            verification: "off",
+            describe: "off",
+          },
+        }),
+        {
+          kind: "pull_request",
+          headers: {
+            event: "pull_request",
+            delivery: `lease-every-push-${slashReviewId}`,
+            rawBody: Buffer.from(`{"delivery":"${slashReviewId}"}`),
+          },
+          ref: {
+            owner: OWNER,
+            repo,
+            prNumber,
+            installationId: 1,
+            headSha: "h2",
+          },
+          action: "synchronize",
+        },
+        createOperationLogger({ method: "POST", path: "/webhooks" }),
+      );
+    } finally {
+      await bossModule.stopBoss(started, 1_000);
+    }
+    const row = await pool.query<{
+      status: string;
+      cancel_requested_at: Date | null;
+      follow_up: string | null;
+    }>(
+      `SELECT status, cancel_requested_at, payload->'pushFollowUp'->>'webhookEventId' AS follow_up
+         FROM agent_work_items WHERE id = $1`,
+      [slashReviewId],
+    );
+    expect(row.rows[0]).toMatchObject({ status: "running", cancel_requested_at: null });
+    expect(row.rows[0]?.follow_up).toEqual(expect.any(String));
+    expect((await getLeaseRowFor(reviewKey, "review"))?.work_item_id).toBe(slashReviewId);
+    const autos = await pool.query(
+      `SELECT id FROM agent_work_items WHERE resource_key = $1 AND source = 'auto'`,
+      [reviewKey],
+    );
+    expect(autos.rows).toEqual([]);
   });
 });

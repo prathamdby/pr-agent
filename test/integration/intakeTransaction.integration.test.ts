@@ -1027,6 +1027,38 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
   });
 
+  it("tells every_push operators that a later push starts a review", async () => {
+    const ref = makePrRef("cadence-help");
+    const h = headers("help", randomUUID());
+    await runDelivery(
+      pool,
+      boss,
+      makeTestConfig({
+        features: { ...intakeCfg.features, reviewCadence: "every_push" },
+      }),
+      {
+        kind: "slash",
+        input: {
+          ...ref,
+          headers: h,
+          command: "help",
+          body: "/help",
+          commentId: 99,
+          commenterId: 7,
+          replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+        },
+      },
+      intakeLog(),
+    );
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === h.delivery,
+    )!;
+    expect(ack.data.reply?.body).toContain(
+      "With `FEATURE_REVIEW_CADENCE=every_push`, each later push to an open admitted pull request starts a review.",
+    );
+    expect(ack.data.reply?.body).not.toContain("later pushes need a manual `/review`");
+  });
+
   it.each(["/triage", "/triage preview", "/triage all exclude 55 66"])(
     "persists triage mode, scope, exclusions and matching queue: %s",
     async (body) => {
@@ -3877,6 +3909,173 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       [OWNER],
     );
     expect(workRows.map((row) => row.status).toSorted()).toEqual(["queued", "superseded"]);
+  });
+
+  it("every_push reviews a quiet synchronize and once does not", async () => {
+    const ref = makePrRef("cadence-quiet");
+    const everyPush = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-quiet"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      everyPush,
+    );
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const { rows } = await pool.query<{ source: string; head_sha: string; status: string }>(
+      `SELECT source, head_sha, status FROM agent_work_items WHERE resource_key = $1 AND type = 'review'`,
+      [key],
+    );
+    expect(rows).toEqual([{ source: "auto", head_sha: "deferred-to-worker", status: "queued" }]);
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    const acks = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+    expect(acks.some((job) => job.data.workItemId === undefined)).toBe(false);
+    expect(acks.filter((job) => rows.length > 0)).not.toHaveLength(0);
+
+    await pool.query("DELETE FROM agent_work_items WHERE resource_key = $1", [key]);
+    const once = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "once" },
+    });
+    const onceRef = makePrRef("cadence-once");
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-once"),
+      onceRef,
+      "synchronize",
+      intakeLog(),
+      once,
+    );
+    const onceKey = prResourceKey(onceRef.owner, onceRef.repo, onceRef.prNumber);
+    const onceRows = await pool.query(
+      `SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'review'`,
+      [onceKey],
+    );
+    expect(onceRows.rows).toEqual([]);
+  });
+
+  it("every_push approval waits while an awaiting row exists, then reviews the next push", async () => {
+    const ref = makePrRef("cadence-approval");
+    const cfg = makeTestConfig({
+      features: {
+        ...intakeCfg.features,
+        review: "approval",
+        reviewCadence: "every_push",
+      },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", "delivery-cadence-approval-open"),
+      ref,
+      "opened",
+      intakeLog(),
+      cfg,
+      { authorTrust: "awaiting_maintainer_approval" },
+    );
+    const pushed = { ...ref, headSha: "sha-cadence-approval-2" };
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-approval-push"),
+      pushed,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const waiting = await pool.query<{ head_sha: string; workflow_start_admits: boolean }>(
+      `SELECT head_sha, workflow_start_admits FROM pr_review_approvals WHERE resource_key = $1`,
+      [key],
+    );
+    expect(waiting.rows).toEqual([{ head_sha: pushed.headSha, workflow_start_admits: false }]);
+    const blocked = await pool.query(
+      `SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'review'`,
+      [key],
+    );
+    expect(blocked.rows).toEqual([]);
+
+    await applyReviewApprovedIntake(
+      boss,
+      pool,
+      headers("submitted", "delivery-cadence-approval-ok"),
+      { kind: "pull_request_review", ref: pushed },
+      intakeLog(),
+    );
+    const admitted = { ...pushed, headSha: "sha-cadence-approval-3" };
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-approval-next"),
+      admitted,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{ status: string; source: string }>(
+      `SELECT status, source FROM agent_work_items WHERE resource_key = $1 AND type = 'review' ORDER BY created_at`,
+      [key],
+    );
+    expect(rows.map((row) => row.source)).toContain("auto");
+    expect(rows.some((row) => row.status === "queued")).toBe(true);
+  });
+
+  it("every_push stamps a running slash review and leaves a queued stale-head child alone", async () => {
+    const ref = makePrRef("cadence-slash");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const childId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, '{"mode":"review","source":"slash"}'::jsonb),
+         ($8, 'review', 'slash', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"slash","staleHeadRescheduled":true}'::jsonb)`,
+      [runningId, ref.owner, ref.repo, ref.prNumber, ref.installationId, ref.headSha, key, childId],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-slash"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{
+      id: string;
+      status: string;
+      cancel_requested_at: Date | null;
+      follow_up: string | null;
+      source: string;
+    }>(
+      `SELECT id, status, cancel_requested_at, payload->'pushFollowUp'->>'webhookEventId' AS follow_up, source
+         FROM agent_work_items WHERE resource_key = $1 ORDER BY status`,
+      [key],
+    );
+    expect(rows).toHaveLength(2);
+    const running = rows.find((row) => row.id === runningId);
+    const child = rows.find((row) => row.id === childId);
+    expect(running).toMatchObject({
+      status: "running",
+      cancel_requested_at: null,
+      source: "slash",
+    });
+    expect(running?.follow_up).toEqual(expect.any(String));
+    expect(child).toMatchObject({ status: "queued", follow_up: null, source: "slash" });
+    const decision = await pool.query<{ processing_decision: string }>(
+      `SELECT processing_decision FROM webhook_events WHERE delivery_id = $1`,
+      ["delivery-cadence-slash"],
+    );
+    expect(decision.rows[0]?.processing_decision).toBe("automated_review_supersede_requested");
   });
 
   it.each([false, true])(

@@ -79,7 +79,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   };
 }
 
-async function supersedeActiveAutoWork(
+export async function supersedeActiveAutoWork(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
 ): Promise<AutoWorkSupersedeResult> {

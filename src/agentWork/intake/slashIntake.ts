@@ -86,6 +86,7 @@ type SlashIntakeContext = {
   };
   readonly events: DeferredIntakeEvent[];
   readonly askQuota: AskQuotaConfig;
+  readonly features: Features;
   readonly reviewRefused?: "closed" | "merged";
 };
 
@@ -102,7 +103,7 @@ async function enqueueSlashAck(
 
 async function handleSlashHelp(ctx: SlashIntakeContext): Promise<void> {
   await enqueueSlashAck(ctx, {
-    reply: { target: ctx.input.replyTarget, body: SLASH_HELP_BODY },
+    reply: { target: ctx.input.replyTarget, body: slashHelpBody(ctx.features.reviewCadence) },
   });
 }
 
@@ -560,6 +561,7 @@ export async function applySlashCommandIntake(
     },
     events,
     askQuota,
+    features,
     reviewRefused,
   };
 
@@ -585,28 +587,42 @@ export async function applySlashCommandIntake(
   return events;
 }
 
-const SLASH_HELP_BODY = [
-  "### PR Agent help",
-  "",
-  "Commands (first line of a **new** comment):",
-  "- `/help` - show this message",
-  "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
-  "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
-  "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
-  "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
-  "- `/cancel` - cancel a queued or in-progress review on this PR",
-  "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
-  "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
-  "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
-  "- `/verify` - verify open findings against the current pull request head",
-  "",
-  "Notes:",
-  "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
-  "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
-  "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
-  "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
-  "- Edited comments are ignored for slash parsing in v1.",
-].join("\n");
+const ONCE_CADENCE_NOTE =
+  "What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.";
+
+const EVERY_PUSH_CADENCE_NOTE =
+  "What runs automatically depends on the `FEATURE_*` settings, see docs/features.md. Review and describe fire on PR open in `auto` mode. With `FEATURE_REVIEW_CADENCE=every_push`, each later push to an open admitted pull request starts a review. A running `/review` finishes, and one follow-up then reviews the newest head.";
+
+function slashHelpBody(reviewCadence: Features["reviewCadence"]): string {
+  return slashHelpLines(
+    reviewCadence === "every_push" ? EVERY_PUSH_CADENCE_NOTE : ONCE_CADENCE_NOTE,
+  );
+}
+
+function slashHelpLines(cadenceNote: string): string {
+  return [
+    "### PR Agent help",
+    "",
+    "Commands (first line of a **new** comment):",
+    "- `/help` - show this message",
+    "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+    "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+    "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+    "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+    "- `/cancel` - cancel a queued or in-progress review on this PR",
+    "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+    "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+    "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+    "- `/verify` - verify open findings against the current pull request head",
+    "",
+    "Notes:",
+    `- ${cadenceNote}`,
+    "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+    "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
+    "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+    "- Edited comments are ignored for slash parsing in v1.",
+  ].join("\n");
+}
 
 const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
   "A `/review` run is already queued or in progress for this pull request.";
