@@ -3,7 +3,9 @@ import {
   MAX_TRIAGE_FINDINGS,
   TRIAGE_SKIP_REASON_MAX_CHARS,
   TRIAGE_VERDICT_EVIDENCE_MAX_CHARS,
+  VERIFICATION_OBJECTION_ANSWER_MAX_CHARS,
 } from "../settings/index.ts";
+import { isUsableReviewTimestamp, type FindingObjection } from "./run/reviewPriorFeedback.ts";
 
 const threadRootCommentIdField = v.pipe(
   v.number(),
@@ -79,6 +81,38 @@ export type TriagePayload = v.InferOutput<typeof TriagePayloadSchema>;
 
 const VerificationVerdictSchema = TriageVerdictSchema;
 
+const objectionCommentIdField = v.pipe(v.number(), v.integer(), v.gtValue(0));
+const objectionUpdatedAtField = v.pipe(
+  v.string(),
+  v.check((value) => isUsableReviewTimestamp(value), "updatedAt must be a UTC timestamp"),
+);
+const objectionAnswerBodyField = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(VERIFICATION_OBJECTION_ANSWER_MAX_CHARS),
+);
+
+const ObjectionDecisionSchema = v.variant("decision", [
+  v.object({
+    decision: v.literal("concede"),
+    commentId: objectionCommentIdField,
+    updatedAt: objectionUpdatedAtField,
+    body: objectionAnswerBodyField,
+  }),
+  v.object({
+    decision: v.literal("hold"),
+    commentId: objectionCommentIdField,
+    updatedAt: objectionUpdatedAtField,
+    body: objectionAnswerBodyField,
+  }),
+  v.object({
+    decision: v.literal("not_objection"),
+    commentId: objectionCommentIdField,
+    updatedAt: objectionUpdatedAtField,
+    reason: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_SKIP_REASON_MAX_CHARS)),
+  }),
+]);
+
 export const VerificationPayloadSchema = v.object({
   verdicts: v.pipe(
     v.array(VerificationVerdictSchema),
@@ -86,15 +120,23 @@ export const VerificationPayloadSchema = v.object({
     v.maxLength(MAX_TRIAGE_FINDINGS),
     v.description("One verdict for every inventory thread."),
   ),
+  objectionDecisions: v.optional(v.array(ObjectionDecisionSchema), []),
 });
 
 export type VerificationVerdict = v.InferOutput<typeof VerificationVerdictSchema>;
-export type VerificationPayload = v.InferOutput<typeof VerificationPayloadSchema>;
+export type VerificationObjectionDecision = v.InferOutput<typeof ObjectionDecisionSchema>;
+type ParsedVerificationPayload = v.InferOutput<typeof VerificationPayloadSchema>;
+export type VerificationPayload = Omit<ParsedVerificationPayload, "objectionDecisions"> & {
+  readonly objectionDecisions?: ParsedVerificationPayload["objectionDecisions"];
+};
 
 type VerificationInventoryItem = {
   readonly threadRootCommentId: number;
   readonly hasAuthorizedMaintainerDecision: boolean;
+  readonly objections?: readonly FindingObjection[];
 };
+
+const OBJECTION_MENTION = /(^|\s)@[A-Za-z0-9]/;
 
 export type VerificationValidationInput = {
   readonly payload: VerificationPayload;
@@ -142,6 +184,71 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
   for (const item of params.inventory) {
     if (!verdictById.has(item.threadRootCommentId)) {
       issues.push(`threadRootCommentId ${item.threadRootCommentId} is missing a verdict`);
+    }
+  }
+
+  const decisions = params.payload.objectionDecisions ?? [];
+  const decisionCounts = new Map<number, number>();
+  for (const decision of decisions) {
+    decisionCounts.set(decision.commentId, (decisionCounts.get(decision.commentId) ?? 0) + 1);
+  }
+  const reportedDuplicates = new Set<number>();
+  const presented = new Map<
+    number,
+    { readonly item: VerificationInventoryItem; readonly objection: FindingObjection }
+  >();
+  for (const item of params.inventory) {
+    for (const objection of item.objections ?? []) {
+      presented.set(objection.commentId, { item, objection });
+    }
+  }
+  for (const decision of decisions) {
+    const match = presented.get(decision.commentId);
+    if (match == null) {
+      issues.push(`objection ${decision.commentId} is not in the verification inventory`);
+      continue;
+    }
+    if (
+      (decisionCounts.get(decision.commentId) ?? 0) > 1 &&
+      !reportedDuplicates.has(decision.commentId)
+    ) {
+      reportedDuplicates.add(decision.commentId);
+      issues.push(`objection ${decision.commentId} has more than one decision`);
+    }
+    if (decision.updatedAt !== match.objection.updatedAt) {
+      issues.push(`objection ${decision.commentId} updatedAt does not match the candidate`);
+    }
+    const verdict = verdictById.get(match.item.threadRootCommentId);
+    if (verdict == null) continue;
+    if (decision.decision === "hold" && verdict.verdict !== "skipped") {
+      issues.push(`hold for ${decision.commentId} requires a skipped verdict`);
+    }
+    if (
+      decision.decision === "concede" &&
+      verdict.verdict !== "dismissed" &&
+      verdict.verdict !== "fixed" &&
+      verdict.verdict !== "already-resolved"
+    ) {
+      issues.push(
+        `concede for ${decision.commentId} requires a dismissed, fixed, or already-resolved verdict`,
+      );
+    }
+    if (
+      decision.decision === "concede" &&
+      verdict.verdict === "dismissed" &&
+      (!match.objection.authorized || !match.item.hasAuthorizedMaintainerDecision)
+    ) {
+      issues.push(
+        `concede for ${decision.commentId} cannot dismiss without that candidate's authorized maintainer decision`,
+      );
+    }
+    if (decision.decision !== "not_objection" && OBJECTION_MENTION.test(decision.body)) {
+      issues.push(`objection ${decision.commentId} addresses the author by handle`);
+    }
+  }
+  for (const [commentId] of presented) {
+    if ((decisionCounts.get(commentId) ?? 0) === 0) {
+      issues.push(`objection ${commentId} is missing a decision`);
     }
   }
 

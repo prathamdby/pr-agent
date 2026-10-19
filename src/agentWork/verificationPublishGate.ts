@@ -5,7 +5,9 @@ export type VerificationDegradationReason =
   | "compare_files_truncated"
   | "verdict_mapping_incomplete"
   | "inventory_narrowed"
-  | "stale_head";
+  | "stale_head"
+  | "objection_answers_capped"
+  | "objection_detection_incomplete";
 
 export type VerificationHeadFreshness =
   | { readonly kind: "fresh" }

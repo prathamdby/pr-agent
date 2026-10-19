@@ -245,12 +245,15 @@ async function resolveInventoryAndScope(params: {
     renames: new Map(),
     deletedPaths: new Set(),
   });
-  const threads = await fetchBotFindingThreads(params.prSurface, {
-    botUserId: botIdentity.userId,
-    inventory: findingInventory,
-    publishRecordLenses: eligibleReviews,
-    maintainerDecisionAssociations: params.cfg.associations.maintainerDecision,
-  });
+  const threads = (
+    await fetchBotFindingThreads(params.prSurface, {
+      botUserId: botIdentity.userId,
+      botLogin: botIdentity.login,
+      inventory: findingInventory,
+      publishRecordLenses: eligibleReviews,
+      maintainerDecisionAssociations: params.cfg.associations.maintainerDecision,
+    })
+  ).threads;
   warnReviewThreadResolutionDegraded(resolutionResult, {
     type: "triage",
     workItemId: params.item.id,

@@ -1,6 +1,7 @@
 import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.ts";
+import { isUsableReviewTimestamp } from "../review/run/reviewPriorFeedback.ts";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.ts";
 import { isRecord } from "../util/typeGuards.ts";
 
@@ -14,12 +15,20 @@ export type VerificationFailureSignal = {
   readonly surface: VerificationFailureSurface;
 };
 
+export type VerificationObjectionJournalEntry = {
+  readonly commentId: number;
+  readonly updatedAt: string;
+  readonly decision: "concede" | "hold" | "not_objection";
+  readonly answerCommentId?: number;
+};
+
 export type VerificationThreadState = {
   readonly stubCommentId?: number;
   readonly lastVerdict: VerificationThreadVerdict;
   readonly lastHeadSha?: string;
   readonly terminal?: boolean;
   readonly completion?: VerificationThreadCompletion;
+  readonly objections?: readonly VerificationObjectionJournalEntry[];
 };
 
 export type VerificationThreadCompletion = {
@@ -80,6 +89,7 @@ function parseThreadState(value: unknown): VerificationThreadState | null {
   const lastHeadSha = record.lastHeadSha;
   const terminal = record.terminal;
   const completion = parseVerificationThreadCompletion(record.completion);
+  const objections = parseObjectionJournal(record.objections);
   return {
     lastVerdict: record.lastVerdict,
     ...(typeof stubCommentId === "number" && Number.isInteger(stubCommentId)
@@ -88,6 +98,50 @@ function parseThreadState(value: unknown): VerificationThreadState | null {
     ...(typeof lastHeadSha === "string" ? { lastHeadSha } : {}),
     ...(terminal === true ? { terminal: true } : {}),
     ...(completion != null ? { completion } : {}),
+    ...(objections != null ? { objections } : {}),
+  };
+}
+
+function parseObjectionJournal(
+  value: unknown,
+): readonly VerificationObjectionJournalEntry[] | null {
+  if (!Array.isArray(value)) return null;
+  const entries: VerificationObjectionJournalEntry[] = [];
+  for (const item of value) {
+    const parsed = parseObjectionEntry(item);
+    if (parsed != null) entries.push(parsed);
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+function parseObjectionEntry(value: unknown): VerificationObjectionJournalEntry | null {
+  if (!isRecord(value)) return null;
+  const decision = value.decision;
+  if (decision !== "concede" && decision !== "hold" && decision !== "not_objection") return null;
+  if (
+    typeof value.commentId !== "number" ||
+    !Number.isSafeInteger(value.commentId) ||
+    value.commentId <= 0
+  ) {
+    return null;
+  }
+  if (typeof value.updatedAt !== "string" || !isUsableReviewTimestamp(value.updatedAt)) return null;
+  const answerCommentId = value.answerCommentId;
+  if (answerCommentId != null) {
+    if (decision === "not_objection") return null;
+    if (
+      typeof answerCommentId !== "number" ||
+      !Number.isSafeInteger(answerCommentId) ||
+      answerCommentId <= 0
+    ) {
+      return null;
+    }
+  }
+  return {
+    commentId: value.commentId,
+    updatedAt: value.updatedAt,
+    decision,
+    ...(typeof answerCommentId === "number" ? { answerCommentId } : {}),
   };
 }
 

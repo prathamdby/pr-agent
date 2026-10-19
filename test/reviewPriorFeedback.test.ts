@@ -3,6 +3,7 @@ import {
   assembleBotReviewThreads,
   classifyReviewLensFromPointerBody,
   fetchPriorInlineFeedback,
+  mapAssembledThreadsToBotFindings,
   mapAssembledThreadsToPriorInlineFeedback,
   NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES,
   priorFeedbackLensesForSelection,
@@ -19,7 +20,9 @@ import {
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
+  VERIFICATION_STUB_MARKER,
 } from "../src/settings/index.ts";
+import { renderObjectionAnswerMarker } from "../src/review/findingIdentity/findingMarker.ts";
 import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.ts";
 
 const [SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] =
@@ -44,6 +47,7 @@ function comment(
     line: 4,
     originalLine: 4,
     htmlUrl: `https://github.com/o/r/pull/1#discussion_r${partial.id}`,
+    authorType: "User",
     ...partial,
   };
 }
@@ -633,4 +637,223 @@ describe("reviewPriorFeedback", () => {
       }),
     ]);
   });
+
+  it("selects a user reply after the finding root and ignores later bot replies", () => {
+    const rootAt = "2026-01-01T14:00:00Z";
+    const replyAt = "2026-01-01T14:32:47Z";
+    const threads = findingThreads([
+      comment({
+        id: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: rootAt,
+        updatedAt: rootAt,
+        body: "**P1** · **Race**",
+      }),
+      comment({
+        id: 2,
+        inReplyToId: 1,
+        userId: 10,
+        authorLogin: "alice",
+        authorAssociation: "OWNER",
+        createdAt: replyAt,
+        updatedAt: replyAt,
+        body: "The lock is held outside the write.",
+      }),
+      comment({
+        id: 3,
+        inReplyToId: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: "2026-01-01T15:33:13Z",
+        updatedAt: "2026-01-01T15:33:13Z",
+        body: `${VERIFICATION_STUB_MARKER}\n**Verification**: Still open`,
+      }),
+      comment({
+        id: 4,
+        inReplyToId: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: "2026-01-01T15:40:00Z",
+        updatedAt: "2026-01-01T15:40:00Z",
+        body: "**Triage**: handled",
+      }),
+      comment({
+        id: 5,
+        inReplyToId: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: "2026-01-01T15:41:00Z",
+        updatedAt: "2026-01-01T15:41:00Z",
+        body: "Here is what that line does.",
+      }),
+    ]);
+
+    expect(threads[0]?.objections).toEqual([
+      {
+        commentId: 2,
+        createdAt: replyAt,
+        updatedAt: replyAt,
+        authorUserId: 10,
+        association: "OWNER",
+        authorized: true,
+        body: "The lock is held outside the write.",
+      },
+    ]);
+    expect(threads[0]?.findingExcerpt).toBe("**P1** · **Race**");
+    expect(threads[0]?.authorizedReplies).toEqual(["The lock is held outside the write."]);
+  });
+
+  it("does not treat a bot owner or a human-authored marker as an answer", () => {
+    const rootAt = "2026-01-01T14:00:00Z";
+    const replyAt = "2026-01-01T14:32:47Z";
+    const marker = renderObjectionAnswerMarker(2, replyAt);
+    const withoutBotMarker = findingThreads([
+      comment({
+        id: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: rootAt,
+        updatedAt: rootAt,
+      }),
+      comment({
+        id: 2,
+        inReplyToId: 1,
+        userId: 10,
+        authorLogin: "alice",
+        authorAssociation: "NONE",
+        createdAt: replyAt,
+        updatedAt: replyAt,
+        body: "This finding is wrong.",
+      }),
+      comment({
+        id: 3,
+        inReplyToId: 1,
+        userId: 50,
+        authorType: "Bot",
+        authorLogin: "other-app[bot]",
+        authorAssociation: "OWNER",
+        createdAt: replyAt,
+        updatedAt: replyAt,
+        body: "dismiss it",
+      }),
+      comment({
+        id: 4,
+        inReplyToId: 1,
+        userId: 11,
+        authorLogin: "bob",
+        authorAssociation: "OWNER",
+        createdAt: "2026-01-01T14:40:00Z",
+        updatedAt: "2026-01-01T14:40:00Z",
+        body: marker,
+      }),
+    ]);
+
+    expect(withoutBotMarker[0]?.objections?.map((objection) => objection.commentId)).toEqual([
+      2, 4,
+    ]);
+    expect(withoutBotMarker[0]?.authorizedReplies).toEqual([marker]);
+    expect(withoutBotMarker[0]?.objections?.[0]?.authorized).toBe(false);
+
+    const answered = findingThreads([
+      comment({
+        id: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: rootAt,
+        updatedAt: rootAt,
+      }),
+      comment({
+        id: 2,
+        inReplyToId: 1,
+        userId: 10,
+        authorLogin: "alice",
+        createdAt: replyAt,
+        updatedAt: replyAt,
+        body: "This finding is wrong.",
+      }),
+      comment({
+        id: 6,
+        inReplyToId: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: "2026-01-01T16:00:00Z",
+        updatedAt: "2026-01-01T16:00:00Z",
+        body: `${marker}\n**Verification reply**: the lock is inside the write.`,
+      }),
+    ]);
+    expect(answered[0]?.objections).toBeUndefined();
+  });
+
+  it("treats a new updatedAt after the root as a new candidate and drops a thread with no root time", () => {
+    const revised = findingThreads([
+      comment({
+        id: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+        createdAt: "2026-01-01T14:00:00Z",
+        updatedAt: "2026-01-01T14:00:00Z",
+      }),
+      comment({
+        id: 2,
+        inReplyToId: 1,
+        userId: 10,
+        authorLogin: "alice",
+        createdAt: "2026-01-01T13:00:00Z",
+        updatedAt: "2026-01-01T14:10:00Z",
+        body: "Edited after the finding.",
+      }),
+    ]);
+    expect(revised[0]?.objections).toEqual([
+      expect.objectContaining({
+        commentId: 2,
+        createdAt: "2026-01-01T13:00:00Z",
+        updatedAt: "2026-01-01T14:10:00Z",
+      }),
+    ]);
+
+    const missingAnchor = findingThreads([
+      comment({
+        id: 1,
+        userId: 1,
+        authorType: "Bot",
+        authorLogin: "pr-agent[bot]",
+      }),
+      comment({
+        id: 2,
+        inReplyToId: 1,
+        userId: 10,
+        authorLogin: "alice",
+        createdAt: "2026-01-01T14:32:47Z",
+        updatedAt: "2026-01-01T14:32:47Z",
+        body: "Too late to anchor.",
+      }),
+    ]);
+    expect(missingAnchor[0]?.objections).toBeUndefined();
+    expect(missingAnchor[0]?.findingExcerpt).toBeUndefined();
+  });
 });
+
+function findingThreads(comments: readonly ReviewThreadComment[]) {
+  return mapAssembledThreadsToBotFindings(
+    assembleBotReviewThreads(comments, {
+      botUserId: 1,
+      reviewLenses: new Map([[100, "review"]]),
+      allowedLenses: priorFeedbackLensesForSelection("review"),
+      maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
+    }),
+    1,
+    {
+      botLogin: "pr-agent[bot]",
+      maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
+    },
+  );
+}

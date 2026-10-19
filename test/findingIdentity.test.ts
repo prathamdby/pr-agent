@@ -197,6 +197,7 @@ function thread(
         authorLogin: rootAuthor === undefined ? "pr-agent" : rootAuthor,
         body: rootBody,
         createdAt,
+        updatedAt: createdAt,
         url: `https://github.com/o/r/pull/1#discussion_r${rootCommentId}`,
       },
       ...(replies ?? []).map((reply, index) => ({
@@ -204,6 +205,7 @@ function thread(
         authorLogin: reply.authorLogin,
         body: reply.body,
         createdAt,
+        updatedAt: createdAt,
         url: `https://github.com/o/r/pull/1#discussion_r${rootCommentId * 1000 + index}`,
       })),
     ],
@@ -1592,6 +1594,7 @@ function cleanupHarness(initial: readonly ReviewThreadSnapshot[]) {
             authorLogin: BOT,
             body,
             createdAt: "2026-01-02T00:00:00Z",
+            updatedAt: "2026-01-02T00:00:00Z",
             url: "",
           },
         ],
@@ -1689,6 +1692,7 @@ describe("duplicate cleanup execution", () => {
             authorLogin: BOT,
             body: renderReceipt({ kind: "duplicate", id: B, canonical: A }),
             createdAt: "2026-01-02T00:00:00Z",
+            updatedAt: "2026-01-02T00:00:00Z",
             url: "",
           },
         ],
@@ -1754,6 +1758,7 @@ describe("duplicate cleanup execution", () => {
       authorLogin: "alice",
       body: "wait, this one differs",
       createdAt: "2026-01-02T00:00:00Z",
+      updatedAt: "2026-01-02T00:00:00Z",
       url: "",
     };
     const repliedBefore = cleanupHarness([

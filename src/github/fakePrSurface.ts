@@ -142,6 +142,7 @@ export type FakePrSurfaceControls = {
     threads: ReadonlyMap<number, ReviewThreadResolution | ReviewThreadSnapshot>,
   ) => void;
   readonly setReviewComments: (comments: readonly PrReviewComment[]) => void;
+  readonly setReviewCommentsTruncated: (truncated: boolean) => void;
   readonly setPullRequestReviews: (reviews: readonly PrReview[]) => void;
   readonly setConversationComments: (comments: readonly PrConversationComment[]) => void;
   readonly setPullRequestBody: (body: string | null) => void;
@@ -255,6 +256,7 @@ export function createFakePrSurface(
   >();
   const jobLogs = new Map<number, string>();
   let reviewComments: PrReviewComment[] = [];
+  let reviewCommentsTruncated = false;
   let seededReviews: PrReview[] = [];
   let conversationComments: PrConversationComment[] = [];
   let pushedCommits: PushedCommitSummary[] = [];
@@ -289,7 +291,8 @@ export function createFakePrSurface(
       databaseId: comment.id,
       authorLogin: comment.authorLogin,
       body: reviewCommentBodies.get(comment.id) ?? comment.body,
-      createdAt: "",
+      createdAt: comment.createdAt ?? "",
+      updatedAt: comment.updatedAt ?? "",
       url: comment.htmlUrl,
     });
     const threadReplies = reviewComments
@@ -396,6 +399,9 @@ export function createFakePrSurface(
     },
     setReviewComments(next) {
       reviewComments = [...next];
+    },
+    setReviewCommentsTruncated(truncated) {
+      reviewCommentsTruncated = truncated;
     },
     setPullRequestReviews(next) {
       seededReviews = [...next];
@@ -576,7 +582,7 @@ export function createFakePrSurface(
 
     async listReviewComments() {
       events.push({ kind: "listReviewComments" });
-      return { comments: [...reviewComments], truncated: false };
+      return { comments: [...reviewComments], truncated: reviewCommentsTruncated };
     },
 
     async listPullRequestReviews() {

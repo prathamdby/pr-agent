@@ -152,6 +152,7 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
         inReplyToId: 1,
         userId: 7,
         authorAssociation: "OWNER",
+        authorType: "User",
         body: "False positive",
       },
       {

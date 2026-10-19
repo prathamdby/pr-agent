@@ -210,6 +210,59 @@ describe("verificationThreadLedger", () => {
     expect(loaded.threads["10"]?.lastVerdict).toBe("skipped");
   });
 
+  it("keeps a thread that has no objections and round-trips one entry", async () => {
+    const withoutObjections = parseVerificationThreadLedger({
+      threads: {
+        "10": { lastVerdict: "skipped", lastHeadSha: "b".repeat(40) },
+      },
+    });
+    expect(withoutObjections.threads["10"]).toEqual({
+      lastVerdict: "skipped",
+      lastHeadSha: "b".repeat(40),
+    });
+    expect(withoutObjections.threads["10"]?.objections).toBeUndefined();
+
+    const entry = {
+      commentId: 50,
+      updatedAt: "2026-01-01T14:32:47Z",
+      decision: "concede" as const,
+      answerCommentId: 80,
+    };
+    const loaded = parseVerificationThreadLedger({
+      threads: {
+        "10": { lastVerdict: "fixed", lastHeadSha: "a".repeat(40), objections: [entry] },
+      },
+    });
+    expect(loaded.threads["10"]).toEqual({
+      lastVerdict: "fixed",
+      lastHeadSha: "a".repeat(40),
+      objections: [entry],
+    });
+  });
+
+  it("drops a malformed objection entry and keeps the rest of the thread", () => {
+    const ledger = parseVerificationThreadLedger({
+      threads: {
+        "10": {
+          stubCommentId: 4,
+          lastVerdict: "skipped",
+          lastHeadSha: "c".repeat(40),
+          objections: [
+            { commentId: 50, updatedAt: "2026-01-01T14:32:47Z", decision: "not_objection" },
+            { commentId: 51, updatedAt: "yesterday", decision: "concede", answerCommentId: 9 },
+            { commentId: 0, updatedAt: "2026-01-01T14:32:47Z", decision: "hold" },
+          ],
+        },
+      },
+    });
+    expect(ledger.threads["10"]).toEqual({
+      stubCommentId: 4,
+      lastVerdict: "skipped",
+      lastHeadSha: "c".repeat(40),
+      objections: [{ commentId: 50, updatedAt: "2026-01-01T14:32:47Z", decision: "not_objection" }],
+    });
+  });
+
   it("loads an empty ledger when no publish record exists", async () => {
     const query = vi.fn(async () => ({ rows: [] }));
     const ledger = await loadVerificationThreadLedger({ query } as unknown as Pool, {

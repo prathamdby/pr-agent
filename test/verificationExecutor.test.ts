@@ -65,6 +65,15 @@ vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) =>
   shouldSkipWork: mocks.shouldSkipWork,
 }));
 
+vi.mock("../src/agentWork/verificationThreadLedger.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/verificationThreadLedger.ts")>();
+  return {
+    ...actual,
+    loadVerificationThreadLedger: vi.fn(async () => ({ threads: {} })),
+  };
+});
+
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
 import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
@@ -140,6 +149,75 @@ function findingThread(
     threadUrl: "https://github.test/thread",
     ...overrides,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function callArgument(fn: {
+  mock: { calls: readonly (readonly unknown[])[] };
+}): Record<string, unknown> {
+  const value = fn.mock.calls[0]?.[0];
+  if (!isRecord(value)) throw new Error("expected an object argument");
+  return value;
+}
+
+function inventoryThreads(argument: Record<string, unknown>): readonly Record<string, unknown>[] {
+  if (!Array.isArray(argument.inventory)) throw new Error("expected an inventory");
+  return argument.inventory.map((thread) => {
+    if (!isRecord(thread)) throw new Error("expected a thread");
+    return thread;
+  });
+}
+
+function objectionCommentIds(thread: Record<string, unknown> | undefined): number[] | undefined {
+  if (thread == null || thread.objections == null) return undefined;
+  if (!Array.isArray(thread.objections)) throw new Error("expected objections");
+  return thread.objections.map((objection) => {
+    if (!isRecord(objection) || typeof objection.commentId !== "number") {
+      throw new Error("expected an objection");
+    }
+    return objection.commentId;
+  });
+}
+
+function rootCommentIds(threads: readonly Record<string, unknown>[]): number[] {
+  return threads.map((thread) => {
+    if (typeof thread.rootCommentId !== "number") throw new Error("expected a root comment id");
+    return thread.rootCommentId;
+  });
+}
+
+async function addUserObjections(
+  rootCommentId: number,
+  replies: readonly { readonly id: number; readonly createdAt: string }[],
+): Promise<void> {
+  const listed = await fakeDurablePrSurface().listReviewComments();
+  const rootAt = "2026-01-01T13:00:00Z";
+  durablePrSurfaceControls().setReviewComments([
+    ...listed.comments.map((comment) =>
+      comment.id === rootCommentId
+        ? { ...comment, authorType: "Bot", createdAt: rootAt, updatedAt: rootAt }
+        : comment,
+    ),
+    ...replies.map((reply) => ({
+      id: reply.id,
+      inReplyToId: rootCommentId,
+      pullRequestReviewId: null,
+      userId: 7,
+      authorLogin: "alice",
+      authorAssociation: "NONE",
+      authorType: "User",
+      createdAt: reply.createdAt,
+      updatedAt: reply.createdAt,
+      body: `Objection ${reply.id}`,
+      path: null,
+      line: null,
+      originalLine: null,
+      htmlUrl: "",
+    })),
+  ]);
 }
 
 function configureVerificationThreads(
@@ -658,6 +736,144 @@ describe("verification work definition", () => {
     expect(publishParams.inventory).toBe(runParams.inventory);
     expect(runParams.escalation).toBe(escalation);
     expect(executeResult).toMatchObject({ kind: "completed", degradation: ["inventory_narrowed"] });
+  });
+
+  it("presents an objection on the prompt inventory and the publish call", async () => {
+    seedBotFindingThreads([findingThread(1)]);
+    configureVerificationThreads([[1, { threadNodeId: "node-1", isResolved: false }]]);
+    await addUserObjections(1, [{ id: 50, createdAt: "2026-01-01T14:32:47Z" }]);
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "open" }] },
+    });
+
+    await runExecution();
+
+    const runArg = callArgument(mocks.runVerification);
+    const publishArg = callArgument(mocks.publishVerification);
+    expect(objectionCommentIds(inventoryThreads(runArg)[0])).toEqual([50]);
+    expect(publishArg.inventory).toBe(runArg.inventory);
+  });
+
+  it("publishes verdicts without answers when the review comment list is truncated", async () => {
+    seedBotFindingThreads([findingThread(1)]);
+    configureVerificationThreads([[1, { threadNodeId: "node-1", isResolved: false }]]);
+    await addUserObjections(1, [{ id: 50, createdAt: "2026-01-01T14:32:47Z" }]);
+    durablePrSurfaceControls().setReviewCommentsTruncated(true);
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "open" }] },
+    });
+
+    let executeResult: unknown;
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
+    });
+    await runExecution();
+
+    const publishThreads = inventoryThreads(callArgument(mocks.publishVerification));
+    expect(mocks.publishVerification).toHaveBeenCalled();
+    expect(publishThreads[0]?.objections).toBeUndefined();
+    expect(executeResult).toMatchObject({
+      degradation: ["objection_detection_incomplete"],
+    });
+  });
+
+  it("presents the eight oldest objections and reports the cap", async () => {
+    seedBotFindingThreads([findingThread(1)]);
+    configureVerificationThreads([[1, { threadNodeId: "node-1", isResolved: false }]]);
+    await addUserObjections(
+      1,
+      [50, 51, 52, 53, 54, 55, 56, 57, 58].map((id, index) => ({
+        id,
+        createdAt: `2026-01-01T14:${String(index).padStart(2, "0")}:00Z`,
+      })),
+    );
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "open" }] },
+    });
+
+    let executeResult: unknown;
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
+    });
+    await runExecution();
+
+    expect(objectionCommentIds(inventoryThreads(callArgument(mocks.runVerification))[0])).toEqual([
+      50, 51, 52, 53, 54, 55, 56, 57,
+    ]);
+    expect(executeResult).toMatchObject({
+      degradation: ["objection_answers_capped"],
+      completion: { objectionsPresented: 8, objectionsDeferredByCap: 1 },
+    });
+  });
+
+  it("drops an objection with its thread when the escalated inventory narrows", async () => {
+    const ids = [12, 3, 8, 1, 10, 5, 2, 11, 7, 4, 9, 6];
+    seedBotFindingThreads(ids.map((id) => findingThread(id)));
+    configureVerificationThreads(
+      ids.map((id) => [id, { threadNodeId: `node-${id}`, isResolved: false }] as const),
+    );
+    await addUserObjections(12, [{ id: 90, createdAt: "2026-01-01T14:32:47Z" }]);
+    mocks.runVerification.mockResolvedValue({ submitted: true, payload: { verdicts: [] } });
+    const escalation = { attempt: 2, kinds: ["tool_rounds"] as const };
+
+    let executeResult: unknown;
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => escalation,
+        }),
+      );
+    });
+    await runExecution();
+
+    const threads = inventoryThreads(callArgument(mocks.runVerification));
+    expect(rootCommentIds(threads)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(threads.some((thread) => thread.objections != null)).toBe(false);
+    expect(executeResult).toMatchObject({ degradation: ["inventory_narrowed"] });
+    expect(executeResult).not.toMatchObject({
+      degradation: expect.arrayContaining(["objection_answers_capped"]),
+    });
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {

@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
+import { neutralizeMarkerEcho } from "../../prompts/shared/safety.ts";
 import { isFindingSource, type FindingSource } from "../orchestrator/orchestratorTypes.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
+
+export { neutralizeMarkerEcho };
 
 export type FindingId = string & { readonly __brand: "FindingId" };
 export type FindingSeverity = ReviewFinding["severity"];
@@ -86,10 +89,16 @@ export function isBotAuthor(authorLogin: string | null, botLogin: string): boole
   return authorLogin != null && normalizedLogin(authorLogin) === normalizedLogin(botLogin);
 }
 
-const MARKER_ECHO = /pr-agent:(?:finding(?:-row)?|receipt)\b[^\n]*/gi;
+export function renderObjectionAnswerMarker(commentId: number, updatedAt: string): string {
+  return `<!-- pr-agent:objection-answer v=1 c=${commentId} u=${updatedAt} -->`;
+}
 
-export function neutralizeMarkerEcho(text: string): string {
-  return text.replace(MARKER_ECHO, "[neutralized marker]");
+export function commentCarriesObjectionAnswer(
+  body: string,
+  commentId: number,
+  updatedAt: string,
+): boolean {
+  return body.includes(renderObjectionAnswerMarker(commentId, updatedAt));
 }
 
 export function renderFindingMarker(marker: FindingMarker): string {

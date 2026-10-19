@@ -149,6 +149,15 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }
 
+export function verificationObjectionAnswerOperationKey(
+  rootCommentId: number,
+  objectionCommentId: number,
+  updatedAt: string,
+): string {
+  const revision = crypto.createHash("sha256").update(updatedAt).digest("hex").slice(0, 16);
+  return `verification:objection:${rootCommentId}:${objectionCommentId}:${revision}`;
+}
+
 export function reviewCheckOperationKey(workItemId: string): string {
   return `review:check_run:${workItemId}`;
 }

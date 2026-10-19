@@ -86,13 +86,13 @@ describe("parseReviewPointerLensMarker", () => {
   });
 });
 
-function fetchBotFindingThreads(
+async function fetchBotFindingThreads(
   botUserId: number,
   publishRecordLenses?: Parameters<
     typeof fetchBotFindingThreadsFromSurface
   >[1]["publishRecordLenses"],
 ) {
-  return fetchBotFindingThreadsFromSurface(
+  const listed = await fetchBotFindingThreadsFromSurface(
     createPrSurface({
       mutationBoundary: unfencedSurface(),
       cfg: makeTestConfig(),
@@ -108,6 +108,7 @@ function fetchBotFindingThreads(
       inventory: unavailableFindingInventory({ renames: new Map(), deletedPaths: new Set() }),
     },
   );
+  return listed.threads;
 }
 
 describe("fetchBotFindingThreads", () => {
