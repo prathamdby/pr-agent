@@ -20,6 +20,12 @@ const serverOwnedEvidenceLabels = [
   "specialist_outcomes",
 ] as const;
 
+const MARKER_ECHO = /pr-agent:(?:finding(?:-row)?|receipt|objection-answer)\b[^\n]*/gi;
+
+export function neutralizeMarkerEcho(text: string): string {
+  return text.replace(MARKER_ECHO, "[neutralized marker]");
+}
+
 export function neutralizeEvidenceDelimiters(text: string): string {
   return serverOwnedEvidenceLabels.reduce(
     (current, label) => neutralizeUntrustedBlockTags(label, current),

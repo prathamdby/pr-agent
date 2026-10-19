@@ -6,7 +6,11 @@ import { logInfo, logWarn } from "../../evlog.ts";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.ts";
 import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.ts";
 import { loadRepoPolicy } from "../../review/repoPolicy.ts";
-import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.ts";
+import {
+  fetchBotFindingThreads,
+  type BotFindingThread,
+  type FindingObjection,
+} from "../../review/run/reviewPriorFeedback.ts";
 import { runVerification } from "../../agent/verification/verificationRun.ts";
 import { publishVerification } from "../../agent/verification/publishVerification.ts";
 import {
@@ -17,17 +21,132 @@ import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
+  VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN,
 } from "../../settings/index.ts";
 import { throwIfExecutionAborted } from "../publishOnce.ts";
 import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
 import { type DurableExecutionResult } from "../durableJob.ts";
 import { escalatedVerificationInventory } from "../retryPolicy.ts";
+import {
+  loadVerificationThreadLedger,
+  type VerificationThreadLedger,
+} from "../verificationThreadLedger.ts";
 
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
   type VerificationDegradationReason,
 } from "../verificationPublishGate.ts";
+
+function withoutFindingObjections(thread: BotFindingThread): BotFindingThread {
+  return {
+    rootCommentId: thread.rootCommentId,
+    ...(thread.findingId !== undefined ? { findingId: thread.findingId } : {}),
+    lens: thread.lens,
+    path: thread.path,
+    line: thread.line,
+    severity: thread.severity,
+    titleSnippet: thread.titleSnippet,
+    humanReplies: thread.humanReplies,
+    ...(thread.authorizedReplies !== undefined
+      ? { authorizedReplies: thread.authorizedReplies }
+      : {}),
+    ...(thread.untrustedReplies !== undefined ? { untrustedReplies: thread.untrustedReplies } : {}),
+    ...(thread.replies !== undefined ? { replies: thread.replies } : {}),
+    ...(thread.hasTriageReply !== undefined ? { hasTriageReply: thread.hasTriageReply } : {}),
+    ...(thread.verificationStubCommentId !== undefined
+      ? { verificationStubCommentId: thread.verificationStubCommentId }
+      : {}),
+    threadUrl: thread.threadUrl,
+  };
+}
+
+function withPresentedObjections(
+  thread: BotFindingThread,
+  objections: readonly FindingObjection[],
+): BotFindingThread {
+  if (objections.length === 0) return withoutFindingObjections(thread);
+  return { ...thread, objections };
+}
+
+function objectionCount(threads: readonly BotFindingThread[]): number {
+  return threads.reduce((sum, thread) => sum + (thread.objections?.length ?? 0), 0);
+}
+
+function dropJournaledNonObjections(
+  threads: readonly BotFindingThread[],
+  ledger: VerificationThreadLedger,
+): readonly BotFindingThread[] {
+  return threads.map((thread) => {
+    const hidden = new Set(
+      (ledger.threads[String(thread.rootCommentId)]?.objections ?? [])
+        .filter((entry) => entry.decision === "not_objection")
+        .map((entry) => `${entry.commentId}:${entry.updatedAt}`),
+    );
+    if (hidden.size === 0 || thread.objections == null) return thread;
+    return withPresentedObjections(
+      thread,
+      thread.objections.filter(
+        (objection) => !hidden.has(`${objection.commentId}:${objection.updatedAt}`),
+      ),
+    );
+  });
+}
+
+function capObjectionAnswers(threads: readonly BotFindingThread[]): {
+  readonly threads: readonly BotFindingThread[];
+  readonly deferred: number;
+} {
+  const ranked = threads
+    .flatMap((thread) => thread.objections ?? [])
+    .toSorted((left, right) => {
+      const created = Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      return created === 0 ? left.commentId - right.commentId : created;
+    });
+  if (ranked.length <= VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN) {
+    return { threads, deferred: 0 };
+  }
+  const kept = new Set(
+    ranked
+      .slice(0, VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN)
+      .map((objection) => objection.commentId),
+  );
+  return {
+    deferred: ranked.length - VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN,
+    threads: threads.map((thread) =>
+      thread.objections == null
+        ? thread
+        : withPresentedObjections(
+            thread,
+            thread.objections.filter((objection) => kept.has(objection.commentId)),
+          ),
+    ),
+  };
+}
+
+function objectionCompletionFields(counts: {
+  readonly presented: number;
+  readonly answered: number;
+  readonly notObjection: number;
+  readonly deferred: number;
+  readonly skippedIncomplete: number;
+}): {
+  readonly objectionsPresented?: number;
+  readonly objectionsAnswered?: number;
+  readonly objectionsNotObjection?: number;
+  readonly objectionsDeferredByCap?: number;
+  readonly objectionsSkippedIncomplete?: number;
+} {
+  return {
+    ...(counts.presented > 0 ? { objectionsPresented: counts.presented } : {}),
+    ...(counts.answered > 0 ? { objectionsAnswered: counts.answered } : {}),
+    ...(counts.notObjection > 0 ? { objectionsNotObjection: counts.notObjection } : {}),
+    ...(counts.deferred > 0 ? { objectionsDeferredByCap: counts.deferred } : {}),
+    ...(counts.skippedIncomplete > 0
+      ? { objectionsSkippedIncomplete: counts.skippedIncomplete }
+      : {}),
+  };
+}
 
 export function createVerificationWorkExecution({
   cfg,
@@ -51,12 +170,15 @@ export function createVerificationWorkExecution({
         renames: new Map(),
         deletedPaths: new Set(),
       });
-      const threads = await fetchBotFindingThreads(prSurface, {
+      const listedThreads = await fetchBotFindingThreads(prSurface, {
         botUserId: botIdentity.userId,
+        botLogin: botIdentity.login,
         inventory: findingInventory,
         publishRecordLenses: eligibleReviews,
         maintainerDecisionAssociations: cfg.associations.maintainerDecision,
       });
+      const threads = listedThreads.threads;
+      const reviewCommentsTruncated = listedThreads.reviewCommentsTruncated;
 
       warnReviewThreadResolutionDegraded(resolutionResult, {
         type: "verification",
@@ -72,9 +194,17 @@ export function createVerificationWorkExecution({
       const unresolvedThreads = threads.filter(
         (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
       );
-      const orderedThreads = unresolvedThreads.toSorted(
-        (a, b) => a.rootCommentId - b.rootCommentId,
-      );
+      let orderedThreads = unresolvedThreads.toSorted((a, b) => a.rootCommentId - b.rootCommentId);
+      let objectionsSkippedIncomplete = 0;
+      if (reviewCommentsTruncated) {
+        objectionsSkippedIncomplete = objectionCount(orderedThreads);
+        orderedThreads = orderedThreads.map(withoutFindingObjections);
+      } else if (objectionCount(orderedThreads) > 0) {
+        const ledger = await loadVerificationThreadLedger(pool, {
+          resourceKey: item.resourceKey,
+        });
+        orderedThreads = [...dropJournaledNonObjections(orderedThreads, ledger)];
+      }
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
         throwIfExecutionAborted(env.signal, { workItemId: item.id });
@@ -132,8 +262,17 @@ export function createVerificationWorkExecution({
       }
 
       await env.beginAttempt();
-      const inventory = escalatedVerificationInventory(orderedThreads, env.escalation);
-      const inventoryNarrowed = inventory.length < orderedThreads.length;
+      const escalated = escalatedVerificationInventory(orderedThreads, env.escalation);
+      const inventoryNarrowed = escalated.length < orderedThreads.length;
+      const capped = capObjectionAnswers(escalated);
+      const inventory = capped.threads;
+      if (capped.deferred > 0) {
+        logInfo("verification_objections_deferred", {
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          deferred: capped.deferred,
+        });
+      }
       const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
         prSurface.listChangedFiles(
           {
@@ -235,7 +374,16 @@ export function createVerificationWorkExecution({
       if (resolutionDegraded) degradation.add("thread_resolution_degraded");
       if (compareFilesTruncated) degradation.add("compare_files_truncated");
       if (inventoryNarrowed) degradation.add("inventory_narrowed");
+      if (reviewCommentsTruncated) degradation.add("objection_detection_incomplete");
+      if (capped.deferred > 0) degradation.add("objection_answers_capped");
       const reasons = [...degradation];
+      const objectionFields = objectionCompletionFields({
+        presented: objectionCount(inventory),
+        answered: publish.objectionsAnswered ?? 0,
+        notObjection: publish.objectionsNotObjection ?? 0,
+        deferred: capped.deferred,
+        skippedIncomplete: objectionsSkippedIncomplete + (publish.objectionsSkippedIncomplete ?? 0),
+      });
       if (reasons.length > 0) {
         logWarn("verification_publish_degraded", {
           owner: item.owner,
@@ -253,12 +401,18 @@ export function createVerificationWorkExecution({
             outcome: "degraded",
             inventoryNarrowed,
             durableDegradation: reasons[0],
+            ...objectionFields,
           },
         };
       }
       return {
         kind: "completed",
-        completion: { kind: "verification", outcome: "published", inventoryNarrowed },
+        completion: {
+          kind: "verification",
+          outcome: "published",
+          inventoryNarrowed,
+          ...objectionFields,
+        },
       };
     },
     onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {

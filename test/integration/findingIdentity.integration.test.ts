@@ -9,6 +9,7 @@ import {
   reviewDuplicateOperationKey,
   reviewInlineBatchOperationKey,
 } from "../../src/agentWork/publishOnce.ts";
+import { renderObjectionAnswerMarker } from "../../src/review/findingIdentity/findingMarker.ts";
 import {
   createFakePrSurface,
   type FakePrSurfaceControls,
@@ -514,11 +515,14 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
           renames: new Map(),
           deletedPaths: new Set(),
         });
-        const found = await fetchBotFindingThreads(surface, {
-          botUserId,
-          inventory,
-          publishRecordLenses: new Map([[reviewId, "review" as const]]),
-        });
+        const found = (
+          await fetchBotFindingThreads(surface, {
+            botUserId,
+            botLogin,
+            inventory,
+            publishRecordLenses: new Map([[reviewId, "review" as const]]),
+          })
+        ).threads;
         return { inventory, threads, found };
       };
 
@@ -1018,11 +1022,13 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       if (copyRoot == null || canonicalRoot == null) throw new Error("expected thread roots");
 
       const listed = await surface.listInlineReviewThreads();
-      const verificationThreads = await fetchBotFindingThreads(surface, {
-        botUserId,
-        inventory,
-        publishRecordLenses: new Map([[reviewId, "review" as const]]),
-      });
+      const verificationThreads = (
+        await fetchBotFindingThreads(surface, {
+          botUserId,
+          inventory,
+          publishRecordLenses: new Map([[reviewId, "review" as const]]),
+        })
+      ).threads;
 
       await Promise.all([
         ...attempts.map((attempt) =>
@@ -1066,6 +1072,258 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       expect(
         controls.replies.filter((reply) => reply.body.includes("kind=duplicate")).length,
       ).toBeLessThanOrEqual(1);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("serializes an objection answer with a concurrent receipt on the same thread", async () => {
+    const seeded = await seedReviewPublication();
+    const { workItemId, resourceKey, surface, controls } = seeded;
+    const botUserId = 4242;
+    const replyAt = "2026-01-02T14:32:47Z";
+    const rootAt = "2026-01-01T14:00:00Z";
+
+    try {
+      const { reviewId, ids } = await publishCopies(seeded, lineTenCopies.slice(0, 2));
+      controls.setReviewComments(
+        (await surface.listReviewComments()).comments.map((comment) => ({
+          ...comment,
+          userId: botUserId,
+          authorType: "Bot",
+          createdAt: comment.createdAt ?? rootAt,
+          updatedAt: comment.updatedAt ?? rootAt,
+        })),
+      );
+      controls.setPullRequestReviews(
+        (await surface.listPullRequestReviews()).map((review) => ({
+          ...review,
+          userId: botUserId,
+        })),
+      );
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      const [olderId, newerId] = ids;
+      if (olderId == null || newerId == null) throw new Error("expected two copies");
+      const attempts = [0, 1].map(() => seeded.attempt(pool, surface, [], inventory));
+      const declared = await Promise.all(
+        attempts.map((attempt) =>
+          declareTool(attempt.session).executor({
+            findingIds: [olderId, newerId],
+            reason: "Both describe the unchecked payload dereference at line 10.",
+          }),
+        ),
+      );
+      const [plan] = declared;
+      if (plan?.kind !== "accepted") throw new Error("expected the duplicate group to be accepted");
+      const [copyId] = plan.resolves;
+      if (copyId == null) throw new Error("expected one copy to resolve");
+      const copyRoot = inventory.findings.get(copyId)?.rootCommentId;
+      if (copyRoot == null) throw new Error("expected the copy root");
+      const objectionCommentId = 880_001;
+      controls.setReviewComments([
+        ...(await surface.listReviewComments()).comments,
+        {
+          id: objectionCommentId,
+          inReplyToId: copyRoot,
+          pullRequestReviewId: null,
+          userId: 7,
+          authorLogin: "maintainer",
+          authorAssociation: "MEMBER",
+          authorType: "User",
+          createdAt: replyAt,
+          updatedAt: replyAt,
+          body: "The null check already exists on this branch.",
+          path: null,
+          line: null,
+          originalLine: null,
+          htmlUrl: "",
+        },
+      ]);
+      const verificationThreads = (
+        await fetchBotFindingThreads(surface, {
+          botUserId,
+          botLogin: await surface.getBotLogin(),
+          inventory,
+          publishRecordLenses: new Map([[reviewId, "review" as const]]),
+        })
+      ).threads;
+      expect(
+        verificationThreads
+          .find((thread) => thread.rootCommentId === copyRoot)
+          ?.objections?.some((candidate) => candidate.commentId === objectionCommentId),
+      ).toBe(true);
+      const listed = await surface.listInlineReviewThreads();
+
+      await Promise.all([
+        ...attempts.map((attempt) =>
+          attempt.session.duplicateCleanup.clean({ ...attempt.session, pool }),
+        ),
+        publishVerification({
+          pool,
+          workItemId,
+          resourceKey,
+          leaseEpoch: LEASE_EPOCH,
+          installationId: 42,
+          owner: "finding-identity-it",
+          repo: surface.repo,
+          prNumber: 1,
+          headSha: HEAD_SHA,
+          prSurface: surface,
+          inventory: verificationThreads,
+          resolutionByRootCommentId: listed.byRootCommentId,
+          payload: {
+            verdicts: [
+              {
+                verdict: "fixed",
+                threadRootCommentId: copyRoot,
+                evidence: "guarded",
+                commitSha: "abcdef1",
+              },
+            ],
+            objectionDecisions: [
+              {
+                decision: "concede",
+                commentId: objectionCommentId,
+                updatedAt: replyAt,
+                body: "The null check is on this branch.",
+              },
+            ],
+          },
+          changedFilePaths: ["src/a.ts"],
+          policyResult: { kind: "absent" },
+        }),
+      ]);
+
+      const threads = await receiptsByThread(surface);
+      const copy = threads.get(copyRoot);
+      expect(copy?.isResolved).toBe(true);
+      const copyKinds = (copy?.receipts ?? []).map((receipt) => receipt.kind);
+      expect(copyKinds.filter((kind) => kind === "fixed")).toHaveLength(1);
+      expect(copyKinds.filter((kind) => kind === "duplicate").length).toBeLessThanOrEqual(1);
+      const answers = controls.replies.filter((reply) =>
+        reply.body.includes(renderObjectionAnswerMarker(objectionCommentId, replyAt)),
+      );
+      expect(answers).toHaveLength(1);
+      expect(answers[0]?.body).toContain("abcdef1");
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("reconciles one objection answer after GitHub accepts it and the journal write does not", async () => {
+    const seeded = await seedReviewPublication();
+    const { workItemId, resourceKey, surface, controls } = seeded;
+    const botUserId = 4242;
+    const replyAt = "2026-01-02T14:32:47Z";
+    const rootAt = "2026-01-01T14:00:00Z";
+
+    try {
+      const { reviewId, ids } = await publishCopies(seeded, lineTenCopies.slice(0, 1));
+      controls.setReviewComments(
+        (await surface.listReviewComments()).comments.map((comment) => ({
+          ...comment,
+          userId: botUserId,
+          authorType: "Bot",
+          createdAt: comment.createdAt ?? rootAt,
+          updatedAt: comment.updatedAt ?? rootAt,
+        })),
+      );
+      controls.setPullRequestReviews(
+        (await surface.listPullRequestReviews()).map((review) => ({
+          ...review,
+          userId: botUserId,
+        })),
+      );
+      const inventory = await loadFindingInventory(surface, noPathChanges);
+      const findingId = ids[0];
+      if (findingId == null) throw new Error("expected one finding");
+      const rootCommentId = inventory.findings.get(findingId)?.rootCommentId;
+      if (rootCommentId == null) throw new Error("expected the finding root");
+      const objectionCommentId = 880_002;
+      controls.setReviewComments([
+        ...(await surface.listReviewComments()).comments,
+        {
+          id: objectionCommentId,
+          inReplyToId: rootCommentId,
+          pullRequestReviewId: null,
+          userId: 7,
+          authorLogin: "maintainer",
+          authorAssociation: "MEMBER",
+          authorType: "User",
+          createdAt: replyAt,
+          updatedAt: replyAt,
+          body: "This was fixed in the latest push.",
+          path: null,
+          line: null,
+          originalLine: null,
+          htmlUrl: "",
+        },
+      ]);
+      const verificationThreads = (
+        await fetchBotFindingThreads(surface, {
+          botUserId,
+          botLogin: await surface.getBotLogin(),
+          inventory,
+          publishRecordLenses: new Map([[reviewId, "review" as const]]),
+        })
+      ).threads;
+      const listed = await surface.listInlineReviewThreads();
+      const publish = {
+        pool,
+        workItemId,
+        resourceKey,
+        leaseEpoch: LEASE_EPOCH,
+        installationId: 42,
+        owner: "finding-identity-it",
+        repo: surface.repo,
+        prNumber: 1,
+        headSha: HEAD_SHA,
+        prSurface: surface,
+        inventory: verificationThreads,
+        resolutionByRootCommentId: listed.byRootCommentId,
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed" as const,
+              threadRootCommentId: rootCommentId,
+              evidence: "guarded",
+              commitSha: "abcdef1",
+            },
+          ],
+          objectionDecisions: [
+            {
+              decision: "concede" as const,
+              commentId: objectionCommentId,
+              updatedAt: replyAt,
+              body: "The null check is on this branch.",
+            },
+          ],
+        },
+        changedFilePaths: ["src/a.ts"],
+        policyResult: { kind: "absent" as const },
+      };
+      controls.acceptThenRejectNextInlineReviewReply(new Error("lost after accept"));
+
+      try {
+        await publishVerification(publish);
+      } catch (error) {
+        expect(error).not.toMatchObject({ code: "agent_work.thread_mutation_lock_timeout" });
+        throw error;
+      }
+      expect(
+        controls.replies.filter((reply) =>
+          reply.body.includes(renderObjectionAnswerMarker(objectionCommentId, replyAt)),
+        ),
+      ).toHaveLength(1);
+
+      await publishVerification(publish);
+
+      expect(
+        controls.replies.filter((reply) =>
+          reply.body.includes(renderObjectionAnswerMarker(objectionCommentId, replyAt)),
+        ),
+      ).toHaveLength(1);
+      expect((await receiptsByThread(surface)).get(rootCommentId)?.isResolved).toBe(true);
     } finally {
       await seeded.cleanup();
     }

@@ -99,10 +99,15 @@ export type WorkCompletion =
       | PublishedCompletion
       | DurableDegradedCompletion
     ))
-  | ({ readonly kind: "verification"; readonly inventoryNarrowed: boolean } & (
-      | PublishedCompletion
-      | DurableDegradedCompletion
-    ))
+  | ({
+      readonly kind: "verification";
+      readonly inventoryNarrowed: boolean;
+      readonly objectionsPresented?: number;
+      readonly objectionsAnswered?: number;
+      readonly objectionsNotObjection?: number;
+      readonly objectionsDeferredByCap?: number;
+      readonly objectionsSkippedIncomplete?: number;
+    } & (PublishedCompletion | DurableDegradedCompletion))
   | ({
       readonly kind: "review-profile";
       readonly durationMs: number;
@@ -220,7 +225,24 @@ function completionProperties(
     case "triage":
       return { scope: completion.scope };
     case "verification":
-      return { inventory_narrowed: completion.inventoryNarrowed };
+      return {
+        inventory_narrowed: completion.inventoryNarrowed,
+        ...(completion.objectionsPresented != null
+          ? { objections_presented: completion.objectionsPresented }
+          : {}),
+        ...(completion.objectionsAnswered != null
+          ? { objections_answered: completion.objectionsAnswered }
+          : {}),
+        ...(completion.objectionsNotObjection != null
+          ? { objections_not_objection: completion.objectionsNotObjection }
+          : {}),
+        ...(completion.objectionsDeferredByCap != null
+          ? { objections_deferred_by_cap: completion.objectionsDeferredByCap }
+          : {}),
+        ...(completion.objectionsSkippedIncomplete != null
+          ? { objections_skipped_incomplete: completion.objectionsSkippedIncomplete }
+          : {}),
+      };
     case "failure":
       return {};
     case "review-profile":

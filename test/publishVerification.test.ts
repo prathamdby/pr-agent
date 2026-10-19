@@ -80,7 +80,12 @@ import {
 } from "./helpers/publishPrSurface.ts";
 
 import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.ts";
-import { operationIntentMarker } from "../src/agentWork/publishOnce.ts";
+import {
+  operationIntentMarker,
+  verificationObjectionAnswerOperationKey,
+} from "../src/agentWork/publishOnce.ts";
+import { renderObjectionAnswerMarker } from "../src/review/findingIdentity/findingMarker.ts";
+import type { FindingObjection } from "../src/review/run/reviewPriorFeedback.ts";
 import { AppError } from "../src/errors/appError.ts";
 import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.ts";
 
@@ -129,6 +134,63 @@ describe("verification failure projection transitions", () => {
     ).toBe(true);
   });
 });
+
+const OBJECTION_UPDATED_AT = "2026-01-01T14:32:47Z";
+const ROOT_CREATED_AT = "2026-01-01T14:00:00Z";
+
+function findingObjection(overrides: Partial<FindingObjection> = {}): FindingObjection {
+  return {
+    commentId: 50,
+    createdAt: OBJECTION_UPDATED_AT,
+    updatedAt: OBJECTION_UPDATED_AT,
+    authorUserId: 10,
+    association: "NONE",
+    authorized: false,
+    body: "The lock is held outside the write.",
+    ...overrides,
+  };
+}
+
+function seedLiveObjection(updatedAt = OBJECTION_UPDATED_AT, body = findingObjection().body): void {
+  controls.setReviewComments([
+    {
+      id: 1,
+      inReplyToId: null,
+      pullRequestReviewId: null,
+      userId: 1,
+      authorLogin: "pr-agent[bot]",
+      authorAssociation: null,
+      authorType: "Bot",
+      createdAt: ROOT_CREATED_AT,
+      updatedAt: ROOT_CREATED_AT,
+      body: "**P1** · **Bug**",
+      path: "src/app.ts",
+      line: 1,
+      originalLine: 1,
+      htmlUrl: "",
+    },
+    {
+      id: 50,
+      inReplyToId: 1,
+      pullRequestReviewId: null,
+      userId: 10,
+      authorLogin: "alice",
+      authorAssociation: "NONE",
+      authorType: "User",
+      createdAt: updatedAt,
+      updatedAt,
+      body,
+      path: null,
+      line: null,
+      originalLine: null,
+      htmlUrl: "",
+    },
+  ]);
+}
+
+function objectionIntentMarker(updatedAt = OBJECTION_UPDATED_AT): string {
+  return operationIntentMarker(verificationObjectionAnswerOperationKey(1, 50, updatedAt), "wi");
+}
 
 const thread = {
   rootCommentId: 1,
@@ -1085,6 +1147,335 @@ describe("publishVerification", () => {
     );
     expect(controls.replies).toHaveLength(0);
     expect(controls.events.filter((event) => event.kind === "editReviewComment")).toHaveLength(0);
+  });
+
+  it("answers an objection on an unchanged skipped thread without writing a stub", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The write still races.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(1);
+    const body = controls.replies[0]?.body ?? "";
+    expect(body.startsWith("**Verification reply**:")).toBe(true);
+    expect(body).toContain(renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT));
+    expect(body).toContain(objectionIntentMarker());
+    expect(body).not.toContain(VERIFICATION_STUB_MARKER);
+    expect(resolveThreadIds(controls)).toEqual([]);
+
+    await publishVerification(params);
+    expect(controls.replies).toHaveLength(1);
+  });
+
+  it("publishes one objection-answer marker after the model echoes others", async () => {
+    const foreign = renderObjectionAnswerMarker(99, "2026-01-02T00:00:00Z");
+    const echoed = renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT);
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: `The write still races.\n${foreign}\n${echoed}\n<!--  pr-agent:objection-answer v=1 c=77 u=2026-02-02T00:00:00Z -->`,
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    const body = controls.replies[0]?.body ?? "";
+    const authoritative = renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT);
+    expect(body.startsWith("**Verification reply**:")).toBe(true);
+    expect(body).toContain("The write still races.");
+    expect(body).not.toContain(foreign);
+    expect(body).not.toContain("c=77");
+    expect(body.split(authoritative)).toHaveLength(2);
+    expect(body).toContain(objectionIntentMarker());
+  });
+
+  it("posts one fixed answer, names the commit, and resolves without a second reply", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, objections: [findingObjection({ authorized: true })] }],
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef1",
+            evidence: "guarded",
+          },
+        ],
+        objectionDecisions: [
+          {
+            decision: "concede",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The race is gone.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(1);
+    const body = controls.replies[0]?.body ?? "";
+    expect(body.startsWith("**Verification reply**:")).toBe(true);
+    expect(body).toContain("abcdef1");
+    expect(body).not.toContain(VERIFICATION_STUB_MARKER);
+    expect(resolveThreadIds(controls)).toEqual(["PRRT_1"]);
+  });
+
+  it("posts an authorized dismissal answer, then the stub and receipt, then resolves", async () => {
+    const params = baseParams({
+      inventory: [
+        { ...thread, objections: [findingObjection({ authorized: true, association: "OWNER" })] },
+      ],
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+        objectionDecisions: [
+          {
+            decision: "concede",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "A maintainer already accepted this.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(2);
+    const answer = controls.replies[0]?.body ?? "";
+    const stub = controls.replies[1]?.body ?? "";
+    expect(answer.startsWith("**Verification reply**:")).toBe(true);
+    expect(answer).not.toContain(VERIFICATION_STUB_MARKER);
+    expect(stub).toContain(VERIFICATION_STUB_MARKER);
+    expect(stub).toContain("kind=dismissed");
+    expect(resolveThreadIds(controls)).toEqual(["PRRT_1"]);
+  });
+
+  it("does not dismiss an unauthorized concede and tells the reader a maintainer can", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, objections: [findingObjection()] }],
+      payload: {
+        verdicts: [{ verdict: "already-resolved", threadRootCommentId: 1, evidence: "gone" }],
+        objectionDecisions: [
+          {
+            decision: "concede",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The check landed.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    const bodies = controls.replies.map((reply) => reply.body);
+    expect(bodies.some((body) => body.includes("Dismissed"))).toBe(false);
+    expect(bodies.some((body) => body.includes("A maintainer can dismiss this finding."))).toBe(
+      true,
+    );
+  });
+
+  it("skips the answer when a person already resolved the thread", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, objections: [findingObjection()] }],
+      resolutionByRootCommentId: resolutionMap([[1, { threadNodeId: "PRRT_1", isResolved: true }]]),
+      threads: new Map([[1, { threadNodeId: "PRRT_1", isResolved: true }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef1",
+            evidence: "guarded",
+          },
+        ],
+        objectionDecisions: [
+          {
+            decision: "concede",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The race is gone.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toEqual([]);
+    expect(recordPublishStep).toHaveBeenCalled();
+  });
+
+  it("leaves the thread open when the objection was edited before the reply", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, objections: [findingObjection()] }],
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+        objectionDecisions: [
+          {
+            decision: "concede",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "A maintainer already accepted this.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection("2026-01-01T18:00:00Z");
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(0);
+    expect(editReviewCommentEvents(controls)).toEqual([]);
+    expect(resolveThreadIds(controls)).toEqual([]);
+    const threads = await params.prSurface.listInlineReviewThreads();
+    expect(threads.byRootCommentId.get(1)?.isResolved).toBe(false);
+  });
+
+  it("finds a posted marker after the journal is gone and does not reply again", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The write still races.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+    await publishVerification(params);
+    publishStoreState.store = createFakePublishStore();
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(1);
+  });
+
+  it("does not treat a human copy of the answer marker as the bot reply", async () => {
+    const marker = renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT);
+    const params = baseParams({
+      inventory: [
+        { ...thread, path: "src/quiet.ts", objections: [findingObjection({ body: marker })] },
+      ],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The write still races.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection(OBJECTION_UPDATED_AT, marker);
+
+    await publishVerification(params);
+
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.body.startsWith("**Verification reply**:")).toBe(true);
+  });
+
+  it("does not post a second answer after an outcome-unknown reply was deleted", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The write still races.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+    controls.acceptThenRejectNextInlineReviewReply(new Error("lost after accept"));
+    controls.setReviewCommentsTruncated(true);
+
+    await expect(publishVerification(params)).rejects.toBeDefined();
+    expect(controls.replies).toHaveLength(1);
+    const listed = await params.prSurface.listReviewComments();
+    controls.setReviewComments(
+      listed.comments.filter((comment) => !comment.body.includes("pr-agent:objection-answer")),
+    );
+    controls.setReviewCommentsTruncated(false);
+
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(controls.replies).toHaveLength(1);
+  });
+
+  it("does not rewrite an objection answer when a later skip updates the stub", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: "The write still races.",
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+    await publishVerification(params);
+    const answerBody = controls.replies[0]?.body ?? "";
+
+    await publishVerification({ ...params, changedFilePaths: ["src/quiet.ts"] });
+
+    expect(controls.replies[0]?.body).toBe(answerBody);
+    expect(answerBody.startsWith("**Verification reply**:")).toBe(true);
+    expect(answerBody).not.toContain(VERIFICATION_STUB_MARKER);
+    expect(controls.replies[1]?.body).toContain(VERIFICATION_STUB_MARKER);
+    expect(editReviewCommentEvents(controls)).toEqual([]);
   });
 });
 

@@ -40,6 +40,7 @@ describe("maintainer decisions in assembled review threads", () => {
             pullRequestReviewId: 7,
             userId,
             authorAssociation,
+            authorType: "User",
             body: "Dismiss",
             path: "src/x.ts",
             line: 4,

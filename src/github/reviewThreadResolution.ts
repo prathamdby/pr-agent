@@ -15,6 +15,7 @@ export type ReviewThreadSnapshotComment = {
   readonly authorLogin: string | null;
   readonly body: string;
   readonly createdAt: string;
+  readonly updatedAt: string;
   readonly url: string;
 };
 
@@ -58,6 +59,7 @@ type ReviewThreadNode = {
       readonly author?: unknown;
       readonly body?: unknown;
       readonly createdAt?: unknown;
+      readonly updatedAt?: unknown;
       readonly url?: unknown;
     }[];
   };
@@ -91,7 +93,7 @@ const REVIEW_THREAD_FIELDS = `
   diffSide
   comments(first: ${REVIEW_THREAD_COMMENT_PAGE}) {
     totalCount
-    nodes { fullDatabaseId author { login } body createdAt url }
+    nodes { fullDatabaseId author { login } body createdAt updatedAt url }
   }
 `;
 
@@ -166,6 +168,7 @@ function threadSnapshot(thread: ReviewThreadNode): ReviewThreadSnapshot | null {
       authorLogin: typeof login === "string" ? login : null,
       body: typeof node.body === "string" ? node.body : "",
       createdAt: typeof node.createdAt === "string" ? node.createdAt : "",
+      updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : "",
       url: typeof node.url === "string" ? node.url : "",
     });
   }

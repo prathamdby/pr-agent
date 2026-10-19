@@ -74,6 +74,9 @@ export function buildSubmitVerificationTool(params: {
       inventory: params.inventory.map((thread) => ({
         threadRootCommentId: thread.rootCommentId,
         hasAuthorizedMaintainerDecision: hasAuthorizedMaintainerDecision(thread),
+        ...(thread.objections != null && thread.objections.length > 0
+          ? { objections: thread.objections }
+          : {}),
       })),
       pushedShas: params.pushedShas,
     });

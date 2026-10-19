@@ -11,6 +11,7 @@ import {
 } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurfaceTypes.ts";
 import type { FindingId } from "../findingIdentity/findingMarker.ts";
+import { commentCarriesObjectionAnswer, isBotAuthor } from "../findingIdentity/findingMarker.ts";
 import {
   loadFindingInventory,
   unavailableFindingInventory,
@@ -30,6 +31,16 @@ export type PriorInlineFeedbackThread = {
   readonly threadUrl: string;
 };
 
+export type FindingObjection = {
+  readonly commentId: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly authorUserId: number;
+  readonly association: string | null;
+  readonly authorized: boolean;
+  readonly body: string;
+};
+
 export type BotFindingThread = {
   readonly rootCommentId: number;
   readonly findingId?: FindingId;
@@ -44,6 +55,8 @@ export type BotFindingThread = {
   readonly replies?: readonly ReviewThreadReply[];
   readonly hasTriageReply?: boolean;
   readonly verificationStubCommentId?: number;
+  readonly objections?: readonly FindingObjection[];
+  readonly findingExcerpt?: string;
   readonly threadUrl: string;
 };
 
@@ -55,7 +68,11 @@ export type ReviewCommentGraphNode = {
 export type ReviewThreadComment = ReviewCommentGraphNode & {
   readonly pullRequestReviewId: number | null;
   readonly userId: number | null;
+  readonly authorLogin?: string | null;
   readonly authorAssociation?: string | null;
+  readonly authorType?: string;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
   readonly body: string;
   readonly path: string | null;
   readonly line: number | null;
@@ -82,7 +99,14 @@ export type ReviewThreadReply = {
   readonly body: string;
   readonly userId: number | null;
   readonly authorAssociation: string | null;
+  readonly authorType?: string;
 };
+
+const USABLE_REVIEW_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+
+export function isUsableReviewTimestamp(value: string | undefined): value is string {
+  return value != null && USABLE_REVIEW_TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value));
+}
 
 export const NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES = [
   "review",
@@ -204,7 +228,10 @@ export function truncatePriorInlineText(text: string, maxChars: number): string 
 }
 
 function extractHumanReplies(
-  comments: readonly Pick<ReviewThreadComment, "userId" | "authorAssociation" | "body">[],
+  comments: readonly Pick<
+    ReviewThreadComment,
+    "userId" | "authorAssociation" | "authorType" | "body"
+  >[],
   botUserId: number,
   maxChars: number = MAX_PRIOR_INLINE_REPLY_CHARS,
 ): ReviewThreadReply[] {
@@ -214,6 +241,7 @@ function extractHumanReplies(
       body: truncatePriorInlineText(comment.body, maxChars),
       userId: comment.userId,
       authorAssociation: comment.authorAssociation ?? null,
+      ...(comment.authorType != null ? { authorType: comment.authorType } : {}),
     }));
 }
 
@@ -285,6 +313,7 @@ export function assembleBotReviewThreads(
         userId: reply.userId,
         botUserId: params.botUserId,
         authorAssociation: reply.authorAssociation,
+        authorType: reply.authorType,
         allowedAssociations: maintainerDecisionAssociations,
       });
       (isAuthorized ? authorizedReplies : untrustedReplies).push(reply.body);
@@ -327,10 +356,66 @@ export function mapAssembledThreadsToPriorInlineFeedback(
     .slice(0, MAX_PRIOR_INLINE_FEEDBACK_THREADS);
 }
 
+export function selectFindingObjections(
+  thread: Pick<AssembledBotReviewThread, "rootCommentId" | "comments">,
+  params: {
+    readonly botUserId: number;
+    readonly botLogin: string;
+    readonly allowedAssociations: ReadonlySet<string>;
+  },
+): FindingObjection[] {
+  const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
+  const anchor = root?.createdAt;
+  if (!isUsableReviewTimestamp(anchor)) return [];
+  const objections: FindingObjection[] = [];
+  for (const comment of thread.comments) {
+    if (comment.id === thread.rootCommentId) continue;
+    if (comment.authorType !== "User") continue;
+    if (typeof comment.userId !== "number" || comment.userId === params.botUserId) continue;
+    const createdAt = comment.createdAt;
+    const updatedAt = comment.updatedAt;
+    if (!isUsableReviewTimestamp(createdAt) || !isUsableReviewTimestamp(updatedAt)) continue;
+    if (!isStrictlyAfter(createdAt, anchor) && !isStrictlyAfter(updatedAt, anchor)) continue;
+    const answered = thread.comments.some(
+      (reply) =>
+        isBotAuthor(reply.authorLogin ?? null, params.botLogin) &&
+        commentCarriesObjectionAnswer(reply.body, comment.id, updatedAt),
+    );
+    if (answered) continue;
+    objections.push({
+      commentId: comment.id,
+      createdAt,
+      updatedAt,
+      authorUserId: comment.userId,
+      association: comment.authorAssociation ?? null,
+      authorized: isAuthorizedMaintainerDecision({
+        userId: comment.userId,
+        botUserId: params.botUserId,
+        authorAssociation: comment.authorAssociation,
+        authorType: comment.authorType,
+        allowedAssociations: params.allowedAssociations,
+      }),
+      body: truncatePriorInlineText(comment.body, MAX_PRIOR_INLINE_REPLY_CHARS),
+    });
+  }
+  return objections;
+}
+
+function isStrictlyAfter(value: string, anchor: string): boolean {
+  return Date.parse(value) > Date.parse(anchor);
+}
+
 export function mapAssembledThreadsToBotFindings(
   threads: readonly AssembledBotReviewThread[],
   botUserId: number,
+  selection?: {
+    readonly botLogin?: string;
+    readonly maintainerDecisionAssociations?: ReadonlySet<string>;
+  },
 ): BotFindingThread[] {
+  const allowedAssociations =
+    selection?.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
+  const botLogin = selection?.botLogin ?? "";
   return threads
     .map((thread) => {
       const hasTriageReply = thread.comments.some(
@@ -344,6 +429,11 @@ export function mapAssembledThreadsToBotFindings(
         botUserId,
         thread.rootCommentId,
       );
+      const objections = selectFindingObjections(thread, {
+        botUserId,
+        botLogin,
+        allowedAssociations,
+      });
       return {
         rootCommentId: thread.rootCommentId,
         ...(thread.findingId != null ? { findingId: thread.findingId } : {}),
@@ -358,6 +448,15 @@ export function mapAssembledThreadsToBotFindings(
         replies: [...thread.replies],
         hasTriageReply,
         ...(verificationStubCommentId != null ? { verificationStubCommentId } : {}),
+        ...(objections.length > 0
+          ? {
+              objections,
+              findingExcerpt: truncatePriorInlineText(
+                thread.rootBody,
+                MAX_PRIOR_INLINE_REPLY_CHARS,
+              ),
+            }
+          : {}),
         threadUrl: thread.htmlUrl,
       };
     })
@@ -372,7 +471,10 @@ async function assembleBotThreadsForPullRequest(
     readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     readonly maintainerDecisionAssociations: ReadonlySet<string>;
   },
-): Promise<AssembledBotReviewThread[]> {
+): Promise<{
+  readonly threads: AssembledBotReviewThread[];
+  readonly reviewCommentsTruncated: boolean;
+}> {
   const [reviews, listed] = await Promise.all([
     prSurface.listPullRequestReviews(),
     prSurface.listReviewComments(),
@@ -387,13 +489,18 @@ async function assembleBotThreadsForPullRequest(
     );
     if (lens && isAnyReviewLens(lens)) reviewLenses.set(review.id, lens);
   }
-  if (reviewLenses.size === 0) return [];
-  return assembleBotReviewThreads(listed.comments, {
-    botUserId: params.botUserId,
-    reviewLenses,
-    allowedLenses: params.allowedLenses,
-    maintainerDecisionAssociations: params.maintainerDecisionAssociations,
-  });
+  if (reviewLenses.size === 0) {
+    return { threads: [], reviewCommentsTruncated: listed.truncated };
+  }
+  return {
+    threads: assembleBotReviewThreads(listed.comments, {
+      botUserId: params.botUserId,
+      reviewLenses,
+      allowedLenses: params.allowedLenses,
+      maintainerDecisionAssociations: params.maintainerDecisionAssociations,
+    }),
+    reviewCommentsTruncated: listed.truncated,
+  };
 }
 
 function selectInventoryFindingThreads(
@@ -438,7 +545,7 @@ export async function fetchPriorInlineFeedback(
     ),
   ]);
   return mapAssembledThreadsToPriorInlineFeedback(
-    selectInventoryFindingThreads(assembled, inventory),
+    selectInventoryFindingThreads(assembled.threads, inventory),
   );
 }
 
@@ -446,22 +553,34 @@ export async function fetchBotFindingThreads(
   prSurface: PrSurface,
   params: {
     readonly botUserId: number;
+    readonly botLogin?: string;
     readonly inventory: FindingInventory;
     readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
-): Promise<BotFindingThread[]> {
+): Promise<{
+  readonly threads: BotFindingThread[];
+  readonly reviewCommentsTruncated: boolean;
+}> {
+  const maintainerDecisionAssociations =
+    params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
   const assembled = await assembleBotThreadsForPullRequest(prSurface, {
     botUserId: params.botUserId,
     allowedLenses: priorFeedbackLensesForSelection("review"),
     publishRecordLenses: params.publishRecordLenses,
-    maintainerDecisionAssociations:
-      params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+    maintainerDecisionAssociations,
   });
-  return mapAssembledThreadsToBotFindings(
-    selectInventoryFindingThreads(assembled, params.inventory),
-    params.botUserId,
-  );
+  return {
+    threads: mapAssembledThreadsToBotFindings(
+      selectInventoryFindingThreads(assembled.threads, params.inventory),
+      params.botUserId,
+      {
+        botLogin: params.botLogin,
+        maintainerDecisionAssociations,
+      },
+    ),
+    reviewCommentsTruncated: assembled.reviewCommentsTruncated,
+  };
 }
 
 export function hasAuthorizedMaintainerDecision(
@@ -474,8 +593,10 @@ function isAuthorizedMaintainerDecision(params: {
   readonly userId: number | null | undefined;
   readonly botUserId: number;
   readonly authorAssociation: string | null | undefined;
+  readonly authorType: string | null | undefined;
   readonly allowedAssociations: ReadonlySet<string>;
 }): boolean {
+  if (params.authorType !== "User") return false;
   if (params.userId == null || params.userId === params.botUserId) return false;
   const association = params.authorAssociation?.trim().toUpperCase();
   if (!association || association === "*") return false;
