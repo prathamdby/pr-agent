@@ -230,6 +230,7 @@ function dumpAll() {
       agentEvents: { enabled: false },
       features: {
         review: "manual",
+        reviewCadence: "once",
         describe: "off",
         verification: "off",
         ask: "off",

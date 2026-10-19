@@ -1,10 +1,12 @@
 export const REVIEW_FEATURE_MODES = ["manual", "auto", "approval"] as const;
+export const REVIEW_CADENCE_MODES = ["once", "every_push"] as const;
 export const DESCRIBE_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const VERIFICATION_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const COMMAND_FEATURE_MODES = ["off", "manual"] as const;
 export const REVIEW_LABELS_MODES = ["off", "size", "size+security"] as const;
 
 type ReviewFeatureMode = (typeof REVIEW_FEATURE_MODES)[number];
+type ReviewCadenceMode = (typeof REVIEW_CADENCE_MODES)[number];
 type DescribeFeatureMode = (typeof DESCRIBE_FEATURE_MODES)[number];
 type VerificationFeatureMode = (typeof VERIFICATION_FEATURE_MODES)[number];
 type CommandFeatureMode = (typeof COMMAND_FEATURE_MODES)[number];
@@ -12,6 +14,7 @@ type ReviewLabelsMode = (typeof REVIEW_LABELS_MODES)[number];
 
 export type Features = {
   readonly review: ReviewFeatureMode;
+  readonly reviewCadence: ReviewCadenceMode;
   readonly describe: DescribeFeatureMode;
   readonly verification: VerificationFeatureMode;
   readonly ask: CommandFeatureMode;
@@ -22,6 +25,7 @@ export type Features = {
 };
 
 export const DEFAULT_FEATURE_REVIEW: ReviewFeatureMode = "approval";
+export const DEFAULT_FEATURE_REVIEW_CADENCE: ReviewCadenceMode = "once";
 export const DEFAULT_FEATURE_DESCRIBE: DescribeFeatureMode = "auto";
 export const DEFAULT_FEATURE_VERIFICATION: VerificationFeatureMode = "auto";
 export const DEFAULT_FEATURE_ASK: CommandFeatureMode = "manual";
