@@ -24,8 +24,9 @@ progress ownership; close sees any replacement committed before it acquires the 
 Approval mode decides trust on open. Trusted authors enter automatic review;
 untrusted forks insert one `pr_review_approvals` awaiting row and acknowledgement
 notice. Synchronize moves its head under the review intake lock. A matching PR
-workflow start, authorized approving PR review, or slash review consumes the
-awaiting row once. Close/merge withdraws it. Delayed notices reread state under
+workflow start consumes the awaiting row except when `workflow_start_admits` is
+false. An authorized approving PR review or slash review consumes the awaiting
+row once. Close/merge withdraws it. Delayed notices reread state under
 the progress-publication lock before writing. Details:
 [ADR 0042](adr/0042-review-approval-mode.md) and
 [review approvals](agent-work-ops.md#review-approvals).

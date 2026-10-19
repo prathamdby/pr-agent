@@ -53,6 +53,7 @@ const EXPECTED_MIGRATIONS = [
   "039_agent_traces.sql",
   "040_drop_agent_traces.sql",
   "041_drop_finding_history.sql",
+  "042_pr_review_approvals_workflow_start_admits.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {

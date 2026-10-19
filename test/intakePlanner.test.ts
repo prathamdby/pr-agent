@@ -114,6 +114,24 @@ describe("pure intake commands", () => {
       input: { command: "triage", triageScope: "all" },
     });
   });
+  it("maps a fork contributor open to maintainer approval", () => {
+    const event = parseGithubPayload("pull_request", {
+      action: "opened",
+      installation: { id: 9 },
+      repository,
+      pull_request: {
+        number: 7,
+        author_association: "CONTRIBUTOR",
+        head: { sha: "head", repo: { id: 2 } },
+        base: { repo: { id: 1 } },
+      },
+    });
+    expect(toIntakeCommand(cfg, headers, event)).toMatchObject({
+      kind: "pull_request",
+      action: "opened",
+      opts: { authorTrust: "awaiting_maintainer_approval" },
+    });
+  });
   it.each([false, true])("maps close evidence without changing merged=%s", (merged) => {
     const event = parseGithubPayload("pull_request", {
       action: "closed",

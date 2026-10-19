@@ -15,8 +15,10 @@ after the first finished.
 ## Decision
 
 Decide trust once, on `pull_request` `opened`. Same-repo heads and authors
-associated as `OWNER`, `MEMBER`, `COLLABORATOR`, or `CONTRIBUTOR` start the normal
-automatic review immediately. Missing association or a deleted fork is untrusted.
+associated as `OWNER`, `MEMBER`, or `COLLABORATOR` start the normal
+automatic review immediately. A fork author associated as `CONTRIBUTOR` waits
+for a maintainer. A workflow start does not admit that row. Missing association
+or a deleted fork is untrusted.
 Untrusted PRs insert one `pr_review_approvals` row with `ON CONFLICT DO NOTHING`.
 Only a new row queues the awaiting NOTE, with no work item or reaction.
 An opened delivery arriving after a retained review work item cannot create
@@ -25,7 +27,7 @@ this check with slash and automatic admission.
 
 An awaiting row can transition once, under the existing review intake lock:
 
-- `workflow_run` `in_progress` with `event=pull_request` and the awaiting head SHA.
+- `workflow_run` `in_progress` with `event=pull_request` and the awaiting head SHA, when `workflow_start_admits` is true.
 - A submitted approving PR review from a non-bot in `SLASH_ALLOWED_ASSOCIATIONS`.
 - An admitted `/review`, including `/review force`.
 
@@ -68,8 +70,7 @@ that a human clicked approval under every Actions policy.
 ## Consequences
 
 Approval remains the default, so trusted opens now spend review tokens.
-`manual` is the opt-out. Trust is independent of Actions policy: a `CONTRIBUTOR`
-fork author is reviewed even if all external workflows require approval.
+`manual` is the opt-out. `auto` reviews every open and does not check trust.
 Describe and verification triggers do not change.
 
 Rows expire by `updated_at` under the existing 30-day work retention setting.
@@ -83,5 +84,42 @@ rule for null or omitted epochs as projector and sweeper repair.
 
 ## Reversal
 
-Revert intake and worker code without dropping the table. This restores the old
-approval behavior, including its lack of one-time approval after completion.
+Revert intake and worker code without dropping the table or
+`workflow_start_admits`. This restores the old approval behavior, including its
+lack of one-time approval after completion. Reverted code trusts a fork
+`CONTRIBUTOR` again, and a workflow start can admit maintainer-only rows again.
+
+## Amendment (2026-10-19): contributor forks
+
+GitHub's default Actions policy is "Require approval for first-time contributors".
+Under that policy, a user who has had any commit or pull request merged into the
+repository does not need a maintainer to approve fork workflows. GitHub documents
+this in
+[Managing GitHub Actions settings for a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository),
+section "Controlling changes from forks to workflows in public repositories".
+A fork author associated as `CONTRIBUTOR` can start a pull request workflow alone.
+Approval mode used to treat that start as admission.
+
+A fork `CONTRIBUTOR` now waits. The awaiting row stores `workflow_start_admits`
+false. A pull request approval or `/review` admits the row. A workflow start does
+not. Other untrusted forks keep the column true, so a matching workflow start
+still admits them.
+
+Migration `042_pr_review_approvals_workflow_start_admits.sql` adds
+`workflow_start_admits boolean NOT NULL DEFAULT true`. Postgres 16 stores that
+constant default as metadata. Old inserts that omit the column stay admissible.
+There is no backfill. Migrate first, then web intake, then workers. Drain old web
+replicas before you rely on the gate. An old web replica still trusts
+`CONTRIBUTOR` and ignores the column. Rollback reverts the code and keeps the
+column.
+
+These exposures remain:
+
+- After a maintainer admits the pull request, prompt-injection exposure and push-supersede spend match any other approved review.
+- An operator who sets `SLASH_ALLOWED_ASSOCIATIONS` to include `CONTRIBUTOR` or `*` lets that author self-admit with `/review`.
+- `MEMBER` and `COLLABORATOR` stay trusted.
+- `FEATURE_DESCRIBE=auto` still runs on every open, including untrusted forks.
+- The "new to GitHub" Actions gap for `NONE`, `FIRST_TIME_CONTRIBUTOR`, and `FIRST_TIMER` remains.
+- Work already in flight is not withdrawn.
+
+Live fork timing on a test GitHub App was not captured for this amendment.

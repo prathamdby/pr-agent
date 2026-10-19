@@ -310,16 +310,21 @@ Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age count
 
 `webhook_events.processing_decision` describes the automated plan in precedence order:
 
-| Plan includes                   | Decision                               |
-| ------------------------------- | -------------------------------------- |
-| `review`                        | `automated_review_enqueued`            |
-| Otherwise `reviewAwaitApproval` | `review_awaiting_approval`             |
-| Otherwise `reviewSupersede`     | `automated_review_supersede_requested` |
-| Otherwise other automated work  | `automated_work_enqueued`              |
+| Plan includes                  | Decision                               |
+| ------------------------------ | -------------------------------------- |
+| Review admission               | `automated_review_enqueued`            |
+| Otherwise await admission      | `review_awaiting_approval`             |
+| Otherwise `reviewSupersede`    | `automated_review_supersede_requested` |
+| Otherwise other automated work | `automated_work_enqueued`              |
 
 A supersede request may create no replacement when no auto review is active.
-Approval signals record `review_approved` only for a committed awaiting-to-approved
-transition; otherwise `ignored_review_approval_not_awaiting`. Signals outside
+Approval signals record `review_approved` when at least one awaiting row is
+admitted. When none are admitted and at least one workflow start is refused
+because `workflow_start_admits` is false, the decision is
+`ignored_review_approval_maintainer_required`. Each refused target logs
+`review_approval_signal_refused` with the resource key, `signal` `workflow_run`,
+and `reason` `maintainer_required`. A refusal does not change the row.
+Otherwise the decision is `ignored_review_approval_not_awaiting`. Signals outside
 approval mode record `ignored_review_approval_not_enabled`.
 Labels describe the effective plan after the review admission gate. A review-only
 refusal records `ignored_review_pr_closed` or `ignored_review_pr_merged`; slash
@@ -372,13 +377,15 @@ one retained `pr_review_approvals` row and one NOTE comment, without a Head tabl
 or eyes reaction. Inspect metadata with a bound resource key:
 
 ```sql
-select resource_key, head_sha, state, approved_by, created_at, updated_at,
-       webhook_event_id
+select resource_key, head_sha, state, approved_by, workflow_start_admits,
+       created_at, updated_at, webhook_event_id
 from pr_review_approvals where resource_key = $1;
 ```
 
-The first matching PR workflow start, authorized approving PR review, or `/review`
-changes `awaiting` to `approved` under the review intake lock. A delayed open
+The first matching PR workflow start changes `awaiting` to `approved` when
+`workflow_start_admits` is true. A fork `CONTRIBUTOR` stores false, so that
+start does not admit the row. An authorized approving PR review or `/review`
+still does. The transition runs under the review intake lock. A delayed open
 cannot create awaiting state after a retained review work item, including a
 completed slash review. Workflow starts must be `in_progress`,
 `event=pull_request`, and match the awaiting head.
@@ -395,12 +402,15 @@ Do not change the state manually to replay approval. Retention removes rows by
 no backfill for already-open PRs and reopen does not recreate waiting.
 
 Install additive migration `035_pr_review_approvals.sql` before upgraded roles
-run. Upgrade web intake first, then workers; old workers ignore the new optional
-notice fields, so waiting notices need upgraded acknowledgement workers.
-Drain old intake before relying on one-time approval across replicas. Rollback
-leaves the unused table intact. Approval is the default: trusted opens now spend
-review tokens; use `manual` to opt out. The trust rule is independent of stricter
-Actions policies that require approval for every external contributor.
+run. Migration `042_pr_review_approvals_workflow_start_admits.sql` adds
+`workflow_start_admits` with default true. Upgrade web intake first, then workers.
+Old workers ignore the new optional notice field, so the past-contributor note
+needs upgraded acknowledgement workers. Drain old web intake before relying on
+the gate. An old replica still trusts `CONTRIBUTOR` and ignores the column.
+Rollback keeps the column. Reverted code trusts `CONTRIBUTOR` again, and a
+workflow start can admit maintainer-only rows again. Approval is the default:
+trusted opens now spend review tokens; use `manual` to opt out. `auto` reviews
+every open and does not check trust.
 
 ## Own-verdict recovery
 

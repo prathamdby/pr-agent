@@ -42,6 +42,9 @@ export const REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS: ReadonlySet<string> = new Set([
   "OWNER",
   "MEMBER",
   "COLLABORATOR",
+]);
+
+export const REVIEW_WORKFLOW_START_UNGATED_ASSOCIATIONS: ReadonlySet<string> = new Set([
   "CONTRIBUTOR",
 ]);
 

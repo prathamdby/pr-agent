@@ -3,6 +3,7 @@ import {
   type Features,
   type Config,
   DEFERRED_HEAD_SHA,
+  IGNORED_REVIEW_APPROVAL_MAINTAINER_REQUIRED,
   IGNORED_REVIEW_APPROVAL_NOT_AWAITING,
   REVIEW_APPROVED,
   REVIEW_CANCELLED_PR_CLOSED,
@@ -130,16 +131,16 @@ async function applyPlannedAutomatedPullRequestIntake(
   const events: DeferredIntakeEvent[] = [];
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   let reviewRefused: "closed" | "merged" | undefined;
-  if (plan.kinds.some((kind) => kind.startsWith("review"))) {
+  if (plan.review != null || plan.kinds.some((kind) => kind.startsWith("review"))) {
     await tx.withReviewIntake(resourceKey, async (lifecycle) => {
       if (lifecycle != null && lifecycle.state !== "open") {
         reviewRefused = lifecycle.state;
-        plan = { ...plan, kinds: plan.kinds.filter((kind) => !kind.startsWith("review")) };
+        plan = { kinds: plan.kinds.filter((kind) => !kind.startsWith("review")) };
       }
     });
   }
   const decision =
-    reviewRefused != null && plan.kinds.length === 0
+    reviewRefused != null && plan.kinds.length === 0 && plan.review == null
       ? `ignored_review_pr_${reviewRefused}`
       : automatedIntakeDecision(plan);
   const event = await tx.insert(decision);
@@ -151,63 +152,21 @@ async function applyPlannedAutomatedPullRequestIntake(
       fields: { resourceKey, reason: reviewRefused, source: "auto", ...correlation },
     });
 
-  if (
-    plan.kinds.includes("reviewAwaitApproval") &&
-    (await insertAwaitingApproval(client, ref, event.id))
-  ) {
-    await enqueueAck(boss, client, {
-      kind: "ack",
-      installationId: ref.installationId,
-      owner: ref.owner,
-      repo: ref.repo,
-      prNumber: ref.prNumber,
-      targets: [],
-      awaitingApproval: true,
-      ...correlation,
-    });
-    events.push({ name: "review_awaiting_approval", fields: { resourceKey, ...correlation } });
+  if (plan.review != null) {
+    events.push(
+      ...(await applyOpenedReviewAdmission(
+        boss,
+        tx,
+        ref,
+        resourceKey,
+        correlation,
+        event.id,
+        plan.review,
+      )),
+    );
   }
   if (plan.kinds.includes("reviewTrackAwaitingHead")) {
     await moveAwaitingHead(client, resourceKey, ref.headSha);
-  }
-
-  if (plan.kinds.includes("review")) {
-    const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    events.push(
-      ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
-        target: {
-          kind: "review",
-          resourceKey,
-        },
-        createWorkItem: () =>
-          createReviewWorkItem(client, {
-            webhookEventId: event.id,
-            ref,
-            source: "auto",
-            ackTargets,
-          }),
-        enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
-        eventType: "review",
-        enqueueAck: async (workItemId) => {
-          const ackData: AckJobData = {
-            kind: "ack",
-            workItemId,
-            installationId: ref.installationId,
-            owner: ref.owner,
-            repo: ref.repo,
-            prNumber: ref.prNumber,
-            targets: ackTargets,
-            progress: {
-              lens: "review",
-              headSha: ref.headSha,
-              source: "auto",
-            },
-            ...correlation,
-          };
-          await enqueueAck(boss, client, ackData);
-        },
-      })),
-    );
   }
 
   if (plan.kinds.includes("reviewSupersede")) {
@@ -484,7 +443,7 @@ async function applyAutomatedPullRequestIntake(
     );
   }
   const plan = planAutomatedPullRequestIntake(action, cfg.features, opts?.authorTrust);
-  if (plan.kinds.length > 0) {
+  if (plan.kinds.length > 0 || plan.review != null) {
     const planned = await applyPlannedAutomatedPullRequestIntake(
       boss,
       tx,
@@ -569,26 +528,41 @@ async function applyReviewApprovedIntake(
     targets.map((ref) => [prResourceKey(ref.owner, ref.repo, ref.prNumber), ref]),
   );
   const admitted: PrRef[] = [];
+  const workflowRefused: string[] = [];
   for (const [resourceKey, ref] of [...refs.entries()].toSorted(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,
   )) {
     await tx.withReviewIntake(resourceKey, async (lifecycle) => {
       if (lifecycle != null && lifecycle.state !== "open") return;
-      if (
-        await loadAwaitingApproval(
-          client,
-          resourceKey,
-          signal.kind === "workflow_run" ? signal.headSha : undefined,
-        )
-      )
-        admitted.push(ref);
+      const awaiting = await loadAwaitingApproval(
+        client,
+        resourceKey,
+        signal.kind === "workflow_run" ? signal.headSha : undefined,
+      );
+      if (awaiting == null) return;
+      if (signal.kind === "workflow_run" && !awaiting.workflow_start_admits) {
+        workflowRefused.push(resourceKey);
+        return;
+      }
+      admitted.push(ref);
     });
   }
-  const decision = admitted.length > 0 ? REVIEW_APPROVED : IGNORED_REVIEW_APPROVAL_NOT_AWAITING;
+  const decision = approvalSignalDecision(admitted.length, workflowRefused.length);
   const event = await tx.insert(decision);
   if (event.duplicate) return [];
   const correlation = jobCorrelation(event.id, tx.headers);
   const events: DeferredIntakeEvent[] = [];
+  for (const resourceKey of workflowRefused) {
+    events.push({
+      name: "review_approval_signal_refused",
+      fields: {
+        resourceKey,
+        signal: "workflow_run",
+        reason: "maintainer_required",
+        ...correlation,
+      },
+    });
+  }
   for (const ref of admitted) {
     const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const approved = await approveAwaiting(
@@ -846,26 +820,57 @@ async function insertWebhookEvent(
 }
 
 type AutomatedPrIntakeKind =
-  | "review"
   | "reviewSupersede"
-  | "reviewAwaitApproval"
   | "reviewTrackAwaitingHead"
   | "description"
   | "verification";
 
+type ReviewAdmission =
+  | { readonly kind: "review" }
+  | { readonly kind: "await"; readonly workflowStartAdmits: boolean };
+
 type AutomatedPrIntakePlan = {
   readonly kinds: readonly AutomatedPrIntakeKind[];
+  readonly review?: ReviewAdmission;
 };
 
+function approvalSignalDecision(admitted: number, workflowRefused: number) {
+  if (admitted > 0) return REVIEW_APPROVED;
+  if (workflowRefused > 0) return IGNORED_REVIEW_APPROVAL_MAINTAINER_REQUIRED;
+  return IGNORED_REVIEW_APPROVAL_NOT_AWAITING;
+}
+
 function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
-  if (plan.kinds.includes("review")) {
-    return "automated_review_enqueued";
+  const admission = plan.review;
+  if (admission != null) {
+    switch (admission.kind) {
+      case "review":
+        return "automated_review_enqueued";
+      case "await":
+        return "review_awaiting_approval";
+      default:
+        admission satisfies never;
+        throw new Error("Unknown review admission");
+    }
   }
-  if (plan.kinds.includes("reviewAwaitApproval")) return "review_awaiting_approval";
   if (plan.kinds.includes("reviewSupersede")) {
     return "automated_review_supersede_requested";
   }
   return "automated_work_enqueued";
+}
+
+function admissionForApprovalOpen(authorTrust: ReviewAuthorTrust): ReviewAdmission {
+  switch (authorTrust) {
+    case "trusted":
+      return { kind: "review" };
+    case "awaiting_maintainer_approval":
+      return { kind: "await", workflowStartAdmits: false };
+    case "awaiting_approval":
+      return { kind: "await", workflowStartAdmits: true };
+    default:
+      authorTrust satisfies never;
+      throw new Error("Unknown review author trust");
+  }
 }
 
 function planAutomatedPullRequestIntake(
@@ -874,16 +879,11 @@ function planAutomatedPullRequestIntake(
   authorTrust: ReviewAuthorTrust = "awaiting_approval",
 ): AutomatedPrIntakePlan {
   const kinds: AutomatedPrIntakeKind[] = [];
+  let review: ReviewAdmission | undefined;
   switch (action) {
     case "opened":
-      if (
-        features.review === "auto" ||
-        (features.review === "approval" && authorTrust === "trusted")
-      ) {
-        kinds.push("review");
-      } else if (features.review === "approval") {
-        kinds.push("reviewAwaitApproval");
-      }
+      if (features.review === "auto") review = { kind: "review" };
+      else if (features.review === "approval") review = admissionForApprovalOpen(authorTrust);
       if (features.describe === "auto") kinds.push("description");
       break;
     case "synchronize":
@@ -892,7 +892,78 @@ function planAutomatedPullRequestIntake(
       if (features.verification === "auto") kinds.push("verification");
       break;
   }
-  return { kinds };
+  return review == null ? { kinds } : { kinds, review };
+}
+
+async function applyOpenedReviewAdmission(
+  boss: PgBoss,
+  tx: DeliveryTx,
+  ref: PrRef,
+  resourceKey: string,
+  correlation: JobCorrelation,
+  eventId: string,
+  admission: ReviewAdmission,
+): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
+  switch (admission.kind) {
+    case "await": {
+      if (!(await insertAwaitingApproval(client, ref, eventId, admission.workflowStartAdmits))) {
+        return [];
+      }
+      await enqueueAck(boss, client, {
+        kind: "ack",
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        prNumber: ref.prNumber,
+        targets: [],
+        awaitingApproval: true,
+        ...(admission.workflowStartAdmits ? {} : { awaitingApprovalMaintainerOnly: true }),
+        ...correlation,
+      });
+      return [
+        {
+          name: "review_awaiting_approval",
+          fields: {
+            resourceKey,
+            workflowStartAdmits: admission.workflowStartAdmits,
+            ...correlation,
+          },
+        },
+      ];
+    }
+    case "review": {
+      const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+      return dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
+        target: { kind: "review", resourceKey },
+        createWorkItem: () =>
+          createReviewWorkItem(client, {
+            webhookEventId: eventId,
+            ref,
+            source: "auto",
+            ackTargets,
+          }),
+        enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
+        eventType: "review",
+        enqueueAck: async (workItemId) => {
+          await enqueueAck(boss, client, {
+            kind: "ack",
+            workItemId,
+            installationId: ref.installationId,
+            owner: ref.owner,
+            repo: ref.repo,
+            prNumber: ref.prNumber,
+            targets: ackTargets,
+            progress: { lens: "review", headSha: ref.headSha, source: "auto" },
+            ...correlation,
+          });
+        },
+      });
+    }
+    default:
+      admission satisfies never;
+      throw new Error("Unknown review admission");
+  }
 }
 
 export type DeferredIntakeEvent = {

@@ -28,6 +28,8 @@ export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
 export const REVIEW_APPROVED = "review_approved";
 export const IGNORED_REVIEW_APPROVAL_NOT_AWAITING = "ignored_review_approval_not_awaiting";
+export const IGNORED_REVIEW_APPROVAL_MAINTAINER_REQUIRED =
+  "ignored_review_approval_maintainer_required";
 export const IGNORED_REVIEW_APPROVAL_NOT_ENABLED = "ignored_review_approval_not_enabled";
 export const REVIEW_CANCELLED_PR_CLOSED = "review_cancelled_pr_closed";
 
