@@ -29,6 +29,7 @@ describe("feature config", () => {
     const cfg = await load({});
     expect(cfg.features).toEqual({
       review: "approval",
+      reviewCadence: "once",
       describe: "auto",
       verification: "auto",
       ask: "manual",
@@ -55,6 +56,10 @@ describe("feature config", () => {
   it("rejects invalid modes", async () => {
     await expect(load({ FEATURE_REVIEW: "off" })).rejects.toThrow(/FEATURE_REVIEW/);
     await expect(load({ FEATURE_TITLE_REWRITE: "yes" })).rejects.toThrow(/FEATURE_TITLE_REWRITE/);
+    await expect(load({ FEATURE_REVIEW_CADENCE: "burst" })).rejects.toThrow(/once.*every_push/);
+    await expect(
+      load({ FEATURE_REVIEW: "manual", FEATURE_REVIEW_CADENCE: "every_push" }),
+    ).rejects.toThrow(/FEATURE_REVIEW_CADENCE[\s\S]*FEATURE_REVIEW/);
   });
 
   it("readStrictBoolean error includes allowed values", async () => {

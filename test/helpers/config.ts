@@ -18,6 +18,7 @@ const baseTestConfig: Config = {
   },
   features: {
     review: "auto",
+    reviewCadence: "once",
     describe: "auto",
     verification: "auto",
     ask: "manual",

@@ -46,13 +46,13 @@ describe("settings inventory", () => {
     expect(envValues).not.toContain("TRACES_MODE");
     expect(envValues).not.toContain("TRACES_RETENTION_SECONDS");
     expect(envValues).not.toContain("TRACES_BUFFER_MAX_SPANS");
-    expect(envValues.length).toBe(71);
+    expect(envValues.length).toBe(72);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {
     const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
     const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
-    expect(featureKeys.length).toBe(8);
+    expect(featureKeys.length).toBe(9);
     for (const key of featureKeys) {
       expect(featuresDoc.includes(key), `missing ${key} in docs/features.md`).toBe(true);
     }

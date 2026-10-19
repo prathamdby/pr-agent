@@ -18,10 +18,11 @@ import {
   type ReviewWorkItem,
   type AckJobData,
   type ReviewJobData,
+  type PushFollowUp,
   type ReviewWorkPayload,
   type StaleHeadReplacement,
 } from "./types.ts";
-import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.ts";
+import { STALE_HEAD_REPLACEMENT_ID_SQL, parseWorkItemPayload } from "./workItemPayloadSchema.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 
 export type StaleReviewRescheduleResult = {
@@ -355,5 +356,265 @@ export async function enqueueReviewReschedule(
     replacementWorkItemId: workItemId,
     previousHeadSha: item.headSha,
     replacementHeadSha,
+  });
+}
+
+const PUSH_FOLLOW_UP_ID_SQL = `payload->'pushFollowUp'->>'replacementWorkItemId'`;
+
+function pushFollowUpChildPayload(payload: ReviewWorkPayload): ReviewWorkPayload {
+  const {
+    pushFollowUp: _followUp,
+    staleHeadReplacement: _replacement,
+    staleHeadRescheduled: _stale,
+    ...rest
+  } = payload;
+  return { ...rest, source: "auto" };
+}
+
+export async function cancelPendingPushFollowUp(
+  pool: Pool,
+  parent: ReviewWorkItem,
+  error: unknown,
+): Promise<void> {
+  let replacementWorkItemId: string | undefined;
+  try {
+    const current = await getWorkItem(pool, parent.id);
+    const followUp = current?.type === "review" ? current.payload.pushFollowUp : undefined;
+    if (!followUp?.replacementWorkItemId || followUp.state === "enqueued") return;
+    replacementWorkItemId = followUp.replacementWorkItemId;
+    if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
+      throw new AppError({
+        domain: "agent_work",
+        kind: "replacement_cancel_rejected",
+        message: "Push follow-up cancellation was not confirmed.",
+        context: { workItemId: parent.id, replacementWorkItemId },
+      });
+    }
+  } catch (cancelError) {
+    logError(
+      "agent_work_replacement_cancel_failed",
+      {
+        type: "review",
+        workItemId: parent.id,
+        replacementWorkItemId,
+        message: sanitizeLogMessage(errorMessage(cancelError)),
+      },
+      cancelError,
+    );
+    throw cancelError;
+  }
+}
+
+export async function schedulePushFollowUp(args: {
+  readonly pool: Pool;
+  readonly item: ReviewWorkItem;
+  readonly payload: ReviewWorkPayload;
+  readonly reviewCadence: "once" | "every_push";
+  readonly prSurface: { getHeadSha(): Promise<string> };
+  readonly boundHeadSha: string;
+  readonly leaseEpoch: number | null;
+  readonly pullRequestClosed: boolean;
+}): Promise<StaleReviewRescheduleResult | null> {
+  if (args.reviewCadence !== "every_push") return null;
+  if (args.payload.source !== "slash") return null;
+  if (args.payload.staleHeadReplacement != null) return null;
+  const leaseEpoch = args.leaseEpoch;
+  if (leaseEpoch == null) return null;
+  if (args.pullRequestClosed) return null;
+  const liveHeadSha = await args.prSurface.getHeadSha();
+  if (liveHeadSha === args.boundHeadSha) return null;
+  const created = await createPushFollowUpWorkItem(args.pool, args.item, leaseEpoch);
+  if (created == null) return null;
+  return {
+    kind: "rescheduled",
+    replacementWorkItemId: created.replacementWorkItemId,
+    afterComplete: (boss) =>
+      enqueuePushFollowUp(
+        args.pool,
+        boss,
+        args.item,
+        created.replacementWorkItemId,
+        created.webhookEventId,
+        leaseEpoch,
+      ),
+  };
+}
+
+async function createPushFollowUpWorkItem(
+  pool: Pool,
+  item: ReviewWorkItem,
+  leaseEpoch: number,
+): Promise<{ replacementWorkItemId: string; webhookEventId: string } | null> {
+  return inTransaction(pool, async (client) => {
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
+    const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
+    if (lifecycle?.state === "closed" || lifecycle?.state === "merged") return null;
+    try {
+      await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
+    } catch (error) {
+      if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") return null;
+      throw error;
+    }
+    const parent = await client.query<{ payload: unknown }>(
+      `SELECT payload FROM agent_work_items
+        WHERE id = $1
+          AND status = 'running'
+          AND cancel_requested_at IS NULL
+        FOR UPDATE`,
+      [item.id],
+    );
+    if ((parent.rowCount ?? 0) === 0) return null;
+    const payload = parseWorkItemPayload("review", parent.rows[0].payload);
+    if (payload.source !== "slash" || payload.staleHeadReplacement != null) return null;
+    const followUp = payload.pushFollowUp;
+    if (followUp == null) return null;
+
+    let replacementWorkItemId = followUp.replacementWorkItemId;
+    if (!replacementWorkItemId) {
+      replacementWorkItemId = crypto.randomUUID();
+      const marker = JSON.stringify({
+        pushFollowUp: {
+          webhookEventId: followUp.webhookEventId,
+          replacementWorkItemId,
+          state: "pending-enqueue",
+        } satisfies PushFollowUp,
+      });
+      const updateResult = await client.query<{ replacement_id: string }>(
+        `UPDATE agent_work_items
+            SET payload = payload || $2::jsonb, updated_at = now()
+          WHERE id = $1
+            AND ${PUSH_FOLLOW_UP_ID_SQL} IS NULL
+        RETURNING ${PUSH_FOLLOW_UP_ID_SQL} AS replacement_id`,
+        [item.id, marker],
+      );
+      if ((updateResult.rowCount ?? 0) === 0) {
+        const refreshed = await getWorkItem(client, item.id);
+        const persistedId =
+          refreshed?.type === "review"
+            ? refreshed.payload.pushFollowUp?.replacementWorkItemId
+            : undefined;
+        if (!persistedId) return null;
+        replacementWorkItemId = persistedId;
+      } else {
+        replacementWorkItemId = updateResult.rows[0].replacement_id;
+      }
+    }
+
+    const childPayload = pushFollowUpChildPayload(payload);
+    await client.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       )
+       VALUES ($1, $2, 'review', 'auto', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
+       ON CONFLICT (id) DO UPDATE SET
+         payload = EXCLUDED.payload,
+         head_sha = EXCLUDED.head_sha,
+         source = EXCLUDED.source,
+         updated_at = now()`,
+      [
+        replacementWorkItemId,
+        followUp.webhookEventId,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        item.installationId,
+        DEFERRED_HEAD_SHA,
+        item.reviewLens,
+        item.resourceKey,
+        JSON.stringify(childPayload),
+      ],
+    );
+    await transferProgressCommentOwnership(client, {
+      workItemId: replacementWorkItemId,
+      resourceKey: item.resourceKey,
+      reviewLens: item.reviewLens,
+    });
+    return { replacementWorkItemId, webhookEventId: followUp.webhookEventId };
+  });
+}
+
+async function markPushFollowUpEnqueued(
+  client: PoolClient,
+  parentId: string,
+  replacementWorkItemId: string,
+  webhookEventId: string,
+): Promise<void> {
+  const enqueued: PushFollowUp = {
+    webhookEventId,
+    replacementWorkItemId,
+    state: "enqueued",
+  };
+  await client.query(
+    `UPDATE agent_work_items
+        SET payload = payload || $2::jsonb, updated_at = now()
+      WHERE id = $1
+        AND ${PUSH_FOLLOW_UP_ID_SQL} = $3`,
+    [parentId, JSON.stringify({ pushFollowUp: enqueued }), replacementWorkItemId],
+  );
+}
+
+async function enqueuePushFollowUp(
+  pool: Pool,
+  boss: PgBoss,
+  item: ReviewWorkItem,
+  workItemId: string,
+  webhookEventId: string,
+  leaseEpoch: number,
+): Promise<void> {
+  const reviewLens = item.reviewLens;
+  await inTransaction(pool, async (client) => {
+    await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
+    const db = pgBossDb(client);
+    const reviewData: ReviewJobData = {
+      kind: "review",
+      workItemId,
+      webhookEventId,
+    };
+    await ensureDeterministicJob(
+      boss,
+      REVIEW_QUEUE,
+      reviewData,
+      {
+        db,
+        id: workItemId,
+        group: { id: installationGroupId(item.installationId) },
+      },
+      db,
+    );
+    const ackData: AckJobData = {
+      kind: "ack",
+      workItemId,
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      targets: [],
+      progress: { lens: reviewLens, headSha: DEFERRED_HEAD_SHA, source: "auto" },
+      webhookEventId,
+    };
+    await ensureDeterministicJob(
+      boss,
+      ACK_QUEUE,
+      ackData,
+      {
+        db,
+        id: workItemId,
+        priority: 100,
+        group: { id: installationGroupId(item.installationId) },
+      },
+      db,
+    );
+    await markPushFollowUpEnqueued(client, item.id, workItemId, webhookEventId);
+  });
+  logInfo("review_push_follow_up_scheduled", {
+    owner: item.owner,
+    repo: item.repo,
+    pr: item.prNumber,
+    reviewLens,
+    previousWorkItemId: item.id,
+    replacementWorkItemId: workItemId,
+    previousHeadSha: item.headSha,
+    replacementHeadSha: DEFERRED_HEAD_SHA,
   });
 }

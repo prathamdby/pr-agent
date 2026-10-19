@@ -82,6 +82,7 @@ import {
 import { getWorkItem, shouldSkipWork } from "../agentWork/workItemStateRepository.ts";
 
 import {
+  schedulePushFollowUp,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
   type StaleReviewRescheduleResult,
@@ -1140,7 +1141,24 @@ export async function runReviewForWorkItem(
     profile,
   });
   const completion = profile.capture();
-  return result.kind === "completed" && completion ? { ...result, completion } : result;
+  const finished = result.kind === "completed" && completion ? { ...result, completion } : result;
+  if (result.kind !== "completed") return finished;
+  const followUp = await schedulePushFollowUp({
+    pool,
+    item,
+    payload,
+    reviewCadence: cfg.features.reviewCadence,
+    prSurface: env.prSurface,
+    boundHeadSha: env.headSha,
+    leaseEpoch: env.leaseEpoch,
+    pullRequestClosed: pullRequestClosed(env.pullRequest),
+  });
+  return followUp ?? finished;
+}
+
+function pullRequestClosed(pullRequest: PullRequestForFileList | undefined): boolean {
+  if (pullRequest == null) return false;
+  return pullRequest.merged === true || pullRequest.state === "closed";
 }
 
 type ReviewWorkClaim = {

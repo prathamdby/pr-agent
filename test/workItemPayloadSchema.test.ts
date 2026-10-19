@@ -365,6 +365,17 @@ describe("parseWorkItemPayload", () => {
   ])("rejects $type payload missing required $missing", ({ type, payload }) => {
     expect(() => parseWorkItemPayload(type, payload)).toThrow(WorkItemPayloadValidationError);
   });
+
+  it("keeps a push follow-up marker through a review payload parse", () => {
+    const parsed = parseWorkItemPayload("review", {
+      mode: "review",
+      source: "slash",
+      pushFollowUp: { webhookEventId: "delivery-1" },
+      unknownLater: true,
+    });
+    expect(parsed.pushFollowUp).toEqual({ webhookEventId: "delivery-1" });
+    expect(parsed).toMatchObject({ unknownLater: true, source: "slash" });
+  });
 });
 
 describe("attachWorkItemPayload", () => {

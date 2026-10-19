@@ -34,18 +34,18 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 
 ## Features
 
-| Feature             | When it runs                                                                     | Command                         |
-| ------------------- | -------------------------------------------------------------------------------- | ------------------------------- |
-| Orchestrated review | PR opens in `auto`; trusted opens or maintainer approval for forks in `approval` | `/review` on open PRs           |
-| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                         | `/describe`                     |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                                | `/verify`                       |
-| Ask                 | On demand when `FEATURE_ASK=manual`                                              | `/ask …` or mention the App bot |
-| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                           | `/triage`                       |
-| Cancel review       | On demand                                                                        | `/cancel`                       |
-| Restart review      | On demand (cancels the active run, latest commit)                                | `/review force`                 |
-| Help                | On demand                                                                        | `/help`                         |
+| Feature             | When it runs                                                                                                                                                | Command                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| Orchestrated review | PR opens in `auto`; trusted opens or maintainer approval for forks in `approval`. `FEATURE_REVIEW_CADENCE=every_push` also reviews each later admitted push | `/review` on open PRs           |
+| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                                                                                                    | `/describe`                     |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                                                                                                           | `/verify`                       |
+| Ask                 | On demand when `FEATURE_ASK=manual`                                                                                                                         | `/ask …` or mention the App bot |
+| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                                                                                                      | `/triage`                       |
+| Cancel review       | On demand                                                                                                                                                   | `/cancel`                       |
+| Restart review      | On demand (cancels the active run, latest commit)                                                                                                           | `/review force`                 |
+| Help                | On demand                                                                                                                                                   | `/help`                         |
 
-Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
+Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup. `FEATURE_REVIEW_CADENCE` accepts `once` or `every_push`. `every_push` together with `FEATURE_REVIEW=manual` crashes startup.
 
 With no open findings, verification skips the agent. It checks the live head first. An older-head run completes degraded instead of clean and leaves any existing verification failure signal in place.
 

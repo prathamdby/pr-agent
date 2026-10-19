@@ -1,6 +1,6 @@
 # Features
 
-The eight `FEATURE_*` settings are pr-agent's entire user-facing configuration.
+The nine `FEATURE_*` settings are pr-agent's entire user-facing configuration.
 Everything else is deployment wiring or operator tuning (see
 [configuration.md](configuration.md)).
 
@@ -11,7 +11,7 @@ commands reply with a notice, nothing runs), `manual` = slash command only,
 startup. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` is
 invalid and crashes startup.
 `/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
-a PR is `opened`; verification fires on `synchronize` (every push). With
+a PR is `opened`; verification fires on `synchronize` (every push). `FEATURE_REVIEW_CADENCE` accepts `once` or `every_push`. `every_push` together with `FEATURE_REVIEW=manual` crashes startup. With
 `FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened`. Trust means
 a same-repo head or an author associated as `OWNER`, `MEMBER`, or
 `COLLABORATOR`. A fork author associated as `CONTRIBUTOR` waits for a pull
@@ -24,9 +24,11 @@ a non-bot reviewer in `SLASH_ALLOWED_ASSOCIATIONS`, or `/review`, approves that
 record once. Completed runs never approve it. Later signals do nothing.
 Already-open PRs are not backfilled; use `/review`.
 Approval is the default, so trusted opens now spend review tokens; use `manual`
-to opt out. `auto` reviews every open and does not check trust. A push
+to opt out. `auto` reviews every open and does not check trust. `once` is the default. A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
+`every_push` also starts a review for each later push to an open admitted pull request. A running `/review` finishes, and one follow-up then reviews the newest head. A push never cancels a slash review.
+An audit of this repository's last 60 merged pull requests counted 74 reviewed heads and 154 distinct CI-run head SHAs, about 2.1 times the `once` review volume. That audit was not remeasured for this change. The push count misses a push whose CI did not run, so 2.1 is a slight undercount of pushes and an upper bound on reviews only before supersede collapse and approval gating. Supersede still collapses a burst of pushes onto one surviving head. `FEATURE_VERIFICATION=off` never auto-resolves fixed threads, and a later review can still fail the check on findings that are already fixed.
 Custom trigger sets are intentionally not supported.
 
 `/cancel` blocks new review output when the worker's final publication check sees
@@ -62,16 +64,17 @@ A new comment is a new question, even with identical text in the same
 thread. The join lasts until the work item is purged by
 `AGENT_WORK_RETENTION_SECONDS`.
 
-| Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                                                                        |
-| ----------------------- | ---------------------------------- | ---------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                                                                       |
-| `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                                                              |
-| `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                                                                |
-| `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                                                                        |
-| `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual`   | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                                                                                                                                         |
-| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`     | no             | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.                                                                                                                 |
-| `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`    | no             | Posts `pr-agent/review` on the PR head. `pending` when admitted review work starts, independently of Checks access. `success` or `failure` from published findings. `error` on cancel, supersede, stale head, crash, unpublished, or partial coverage. Usable in branch protection. |
-| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `true`     | no             | Allows `/describe` to rewrite the PR title using make-pr default title rules (imperative sentence case, no type prefix, no trailing period, at most 60 characters). Set `false` to keep the existing title.                                                                         |
+| Setting                  | Values                             | Default    | Spends tokens?         | What it does                                                                                                                                                                                                                                                                        |
+| ------------------------ | ---------------------------------- | ---------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FEATURE_REVIEW`         | `manual` \| `auto` \| `approval`   | `approval` | yes                    | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                                                                       |
+| `FEATURE_REVIEW_CADENCE` | `once` \| `every_push`             | `once`     | yes, when `every_push` | `once` reviews an admitted open and replaces an active automatic review on later pushes. `every_push` also starts a review for each later push to an open admitted pull request. `every_push` with `FEATURE_REVIEW=manual` crashes startup.                                         |
+| `FEATURE_DESCRIBE`       | `off` \| `manual` \| `auto`        | `auto`     | yes                    | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                                                              |
+| `FEATURE_VERIFICATION`   | `off` \| `manual` \| `auto`        | `auto`     | yes                    | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                                                                |
+| `FEATURE_ASK`            | `off` \| `manual`                  | `manual`   | yes                    | `/ask` and App-bot mention question threads.                                                                                                                                                                                                                                        |
+| `FEATURE_TRIAGE`         | `off` \| `manual`                  | `manual`   | yes                    | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                                                                                                                                         |
+| `FEATURE_REVIEW_LABELS`  | `off` \| `size` \| `size+security` | `size`     | no                     | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.                                                                                                                 |
+| `FEATURE_COMMIT_STATUS`  | `false` \| `true`                  | `false`    | no                     | Posts `pr-agent/review` on the PR head. `pending` when admitted review work starts, independently of Checks access. `success` or `failure` from published findings. `error` on cancel, supersede, stale head, crash, unpublished, or partial coverage. Usable in branch protection. |
+| `FEATURE_TITLE_REWRITE`  | `false` \| `true`                  | `true`     | no                     | Allows `/describe` to rewrite the PR title using make-pr default title rules (imperative sentence case, no type prefix, no trailing period, at most 60 characters). Set `false` to keep the existing title.                                                                         |
 
 Notes:
 

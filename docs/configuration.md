@@ -1,7 +1,7 @@
 # Configuration catalog
 
 Deployment wiring (infra) and operator tuning (ops) for **pr-agent**. The
-user-facing settings are the eight `FEATURE_*` vars — see
+user-facing settings are the nine `FEATURE_*` vars — see
 [features.md](features.md); they are not repeated here. Shared code defaults live in
 [`src/settings/`](../src/settings/); env vars are loaded in
 [`src/settings/config.ts`](../src/settings/config.ts), which composes the slice readers under `src/settings/slices/`.

@@ -19,6 +19,7 @@ import {
   approveAwaiting,
   findAwaitingForHead,
   loadAwaitingApproval,
+  reviewPushAdmitted,
   insertAwaitingApproval,
   moveAwaitingHead,
   withdrawAwaiting,
@@ -27,6 +28,7 @@ import {
   acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
+  supersedeActiveAutoWork,
   type AutoWorkLifecycleChange,
   type AutoWorkSupersedeTarget,
 } from "../autoWorkEnqueue.ts";
@@ -119,12 +121,190 @@ type PlannedAutomatedIntakeResult = {
   readonly events: DeferredIntakeEvent[];
 };
 
+type ActiveSlashReview = {
+  readonly id: string;
+  readonly status: "queued" | "running";
+  readonly hasFollowUp: boolean;
+};
+
+async function lockActiveSlashReviews(
+  client: PoolClient,
+  resourceKey: string,
+): Promise<readonly ActiveSlashReview[]> {
+  const result = await client.query<{
+    id: string;
+    status: "queued" | "running";
+    has_follow_up: boolean;
+  }>(
+    `SELECT id, status, (payload ? 'pushFollowUp') AS has_follow_up
+       FROM agent_work_items
+      WHERE resource_key = $1
+        AND source = 'slash'
+        AND type = 'review'
+        AND review_lens = 'review'
+        AND status IN ('queued', 'running')
+      FOR UPDATE`,
+    [resourceKey],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    hasFollowUp: row.has_follow_up,
+  }));
+}
+
+async function publishAutoReviewReplacement(
+  boss: PgBoss,
+  tx: DeliveryTx,
+  ref: PrRef,
+  resourceKey: string,
+  correlation: JobCorrelation,
+  replaced: {
+    readonly workItemId: string;
+    readonly supersededIds: readonly string[];
+    readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
+  },
+): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
+  const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+  tx.deferWorkLifecycle(ref, replaced.lifecycleChanges, "auto_replacement", correlation);
+  await enqueueAck(boss, client, {
+    kind: "ack",
+    workItemId: replaced.workItemId,
+    installationId: ref.installationId,
+    owner: ref.owner,
+    repo: ref.repo,
+    prNumber: ref.prNumber,
+    targets: ackTargets,
+    progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
+    ...correlation,
+  });
+  await enqueueReview(boss, client, ref, replaced.workItemId, correlation);
+  const events: DeferredIntakeEvent[] = [];
+  if (replaced.supersededIds.length > 0) {
+    events.push({
+      name: "agent_work_cancel_requested",
+      fields: {
+        type: "review",
+        source: "auto",
+        workItemId: replaced.supersededIds[0],
+        resourceKey,
+        cancelledCount: replaced.supersededIds.length,
+        cancelledIds: replaced.supersededIds,
+        ...correlation,
+      },
+    });
+  }
+  events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "review",
+      source: "auto",
+      workItemId: replaced.workItemId,
+      resourceKey,
+      ...correlation,
+    },
+  });
+  return events;
+}
+
+async function insertEveryPushReview(
+  boss: PgBoss,
+  tx: DeliveryTx,
+  ref: PrRef,
+  resourceKey: string,
+  correlation: JobCorrelation,
+  eventId: string,
+): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
+  const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+  const replaced = await replaceAutoWorkItem({
+    client,
+    target: { kind: "review", resourceKey },
+    createWorkItem: () =>
+      createReviewWorkItem(client, {
+        webhookEventId: eventId,
+        ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
+        source: "auto",
+        ackTargets,
+      }),
+  });
+  return publishAutoReviewReplacement(boss, tx, ref, resourceKey, correlation, replaced);
+}
+
+async function everyPushReviewAdmitted(
+  client: PoolClient,
+  resourceKey: string,
+  review: Features["review"],
+): Promise<boolean> {
+  if (review !== "approval") return true;
+  if ((await loadAwaitingApproval(client, resourceKey)) != null) return false;
+  return reviewPushAdmitted(client, resourceKey);
+}
+
+async function applyEveryPushReviewSupersede(
+  boss: PgBoss,
+  tx: DeliveryTx,
+  ref: PrRef,
+  resourceKey: string,
+  correlation: JobCorrelation,
+  eventId: string,
+): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
+  const slashRows = await lockActiveSlashReviews(client, resourceKey);
+  if (slashRows.length === 0) {
+    return insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId);
+  }
+  const superseded = await supersedeActiveAutoWork(client, { kind: "review", resourceKey });
+  tx.deferWorkLifecycle(ref, superseded.lifecycleChanges, "auto_replacement", correlation);
+  const events: DeferredIntakeEvent[] = [];
+  if (superseded.supersededIds.length > 0) {
+    events.push({
+      name: "agent_work_cancel_requested",
+      fields: {
+        type: "review",
+        source: "auto",
+        workItemId: superseded.supersededIds[0],
+        resourceKey,
+        cancelledCount: superseded.supersededIds.length,
+        cancelledIds: superseded.supersededIds,
+        ...correlation,
+      },
+    });
+  }
+  const runningIds = slashRows
+    .filter((row) => row.status === "running" && !row.hasFollowUp)
+    .map((row) => row.id);
+  if (runningIds.length === 0) return events;
+  const stamped = await client.query(
+    `UPDATE agent_work_items
+        SET payload = payload || $2::jsonb, updated_at = now()
+      WHERE id = ANY($1::uuid[])
+        AND status = 'running'
+        AND NOT (payload ? 'pushFollowUp')`,
+    [runningIds, JSON.stringify({ pushFollowUp: { webhookEventId: eventId } })],
+  );
+  if ((stamped.rowCount ?? 0) > 0) return events;
+  if ((await lockActiveSlashReviews(client, resourceKey)).length > 0) return events;
+  const finished = await client.query<{ status: string }>(
+    `SELECT status FROM agent_work_items WHERE id = ANY($1::uuid[])`,
+    [runningIds],
+  );
+  if (!finished.rows.some((row) => row.status === "completed")) return events;
+  return [
+    ...events,
+    ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),
+  ];
+}
+
 async function applyPlannedAutomatedPullRequestIntake(
   boss: PgBoss,
   tx: DeliveryTx,
   headers: WebhookHeaders,
   ref: PrRef,
   plan: AutomatedPrIntakePlan,
+  reviewCadence: Features["reviewCadence"],
+  reviewMode: Features["review"],
   pushBeforeSha?: string,
 ): Promise<PlannedAutomatedIntakeResult> {
   const client = tx.client;
@@ -170,50 +350,59 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
 
   if (plan.kinds.includes("reviewSupersede")) {
-    const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    const { workItemId, supersededIds, lifecycleChanges } = await replaceActiveAutoWorkItem({
-      client,
-      target: { kind: "review", resourceKey },
-      createWorkItem: () =>
-        createReviewWorkItem(client, {
-          webhookEventId: event.id,
-          ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
-          source: "auto",
-          ackTargets,
-        }),
-    });
-    tx.deferWorkLifecycle(ref, lifecycleChanges, "auto_replacement", correlation);
-    if (workItemId != null) {
-      await enqueueAck(boss, client, {
-        kind: "ack",
-        workItemId,
-        installationId: ref.installationId,
-        owner: ref.owner,
-        repo: ref.repo,
-        prNumber: ref.prNumber,
-        targets: ackTargets,
-        progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
-        ...correlation,
-      });
-      await enqueueReview(boss, client, ref, workItemId, correlation);
+    if (
+      reviewCadence === "every_push" &&
+      (await everyPushReviewAdmitted(client, resourceKey, reviewMode))
+    ) {
       events.push(
-        {
-          name: "agent_work_cancel_requested",
-          fields: {
-            type: "review",
-            source: "auto",
-            workItemId: supersededIds[0],
-            resourceKey,
-            cancelledCount: supersededIds.length,
-            cancelledIds: supersededIds,
-            ...correlation,
-          },
-        },
-        {
-          name: "agent_work_enqueued",
-          fields: { type: "review", source: "auto", workItemId, resourceKey, ...correlation },
-        },
+        ...(await applyEveryPushReviewSupersede(boss, tx, ref, resourceKey, correlation, event.id)),
       );
+    } else {
+      const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+      const { workItemId, supersededIds, lifecycleChanges } = await replaceActiveAutoWorkItem({
+        client,
+        target: { kind: "review", resourceKey },
+        createWorkItem: () =>
+          createReviewWorkItem(client, {
+            webhookEventId: event.id,
+            ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
+            source: "auto",
+            ackTargets,
+          }),
+      });
+      tx.deferWorkLifecycle(ref, lifecycleChanges, "auto_replacement", correlation);
+      if (workItemId != null) {
+        await enqueueAck(boss, client, {
+          kind: "ack",
+          workItemId,
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          prNumber: ref.prNumber,
+          targets: ackTargets,
+          progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
+          ...correlation,
+        });
+        await enqueueReview(boss, client, ref, workItemId, correlation);
+        events.push(
+          {
+            name: "agent_work_cancel_requested",
+            fields: {
+              type: "review",
+              source: "auto",
+              workItemId: supersededIds[0],
+              resourceKey,
+              cancelledCount: supersededIds.length,
+              cancelledIds: supersededIds,
+              ...correlation,
+            },
+          },
+          {
+            name: "agent_work_enqueued",
+            fields: { type: "review", source: "auto", workItemId, resourceKey, ...correlation },
+          },
+        );
+      }
     }
   }
 
@@ -450,6 +639,8 @@ async function applyAutomatedPullRequestIntake(
       headers,
       ref,
       plan,
+      cfg.features.reviewCadence,
+      cfg.features.review,
       opts?.pushBeforeSha,
     );
     if (planned.duplicate) return planned.events;
@@ -875,7 +1066,7 @@ function admissionForApprovalOpen(authorTrust: ReviewAuthorTrust): ReviewAdmissi
 
 function planAutomatedPullRequestIntake(
   action: string,
-  features: Pick<Features, "review" | "describe" | "verification">,
+  features: Pick<Features, "review" | "reviewCadence" | "describe" | "verification">,
   authorTrust: ReviewAuthorTrust = "awaiting_approval",
 ): AutomatedPrIntakePlan {
   const kinds: AutomatedPrIntakeKind[] = [];
