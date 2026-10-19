@@ -57,6 +57,10 @@ import * as evlog from "../src/evlog.ts";
 
 const LEASE_EPOCH = 7;
 
+function fakePool(query: ReturnType<typeof vi.fn> = vi.fn()): Pool {
+  return { query } as unknown as Pool;
+}
+
 function pendingReplacement(replacementWorkItemId: string) {
   return {
     staleHeadReplacement: {
@@ -105,7 +109,7 @@ describe("createReviewRescheduleWorkItem", () => {
       rowCount: 1,
       rows: [{ id: "parent-wi", head_sha: DEFERRED_HEAD_SHA }],
     });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const item = makeItem({
       payload: {
         mode: "review",
@@ -125,7 +129,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     const replacement = await createReviewRescheduleWorkItem(
       pool,
@@ -154,7 +158,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     const replacement = await createReviewRescheduleWorkItem(
       pool,
@@ -182,7 +186,7 @@ describe("createReviewRescheduleWorkItem", () => {
       })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH);
 
@@ -208,7 +212,7 @@ describe("createReviewRescheduleWorkItem", () => {
 
   it("refuses to create a replacement when the parent is already cancel-requested", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     await expect(
       createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH),
@@ -224,7 +228,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -267,7 +271,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH);
 
@@ -281,7 +285,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -310,7 +314,7 @@ describe("createReviewRescheduleWorkItem", () => {
 describe("stale-head shared helpers", () => {
   it("tryBuild returns null when the parent is not reschedulable", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     await expect(
       tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH),
@@ -327,7 +331,7 @@ describe("stale-head shared helpers", () => {
       })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
 
     const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH);
     expect(result).toMatchObject({
@@ -355,7 +359,7 @@ describe("enqueueReviewReschedule", () => {
     });
     mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
     const boss = { send, findJobs } as unknown as PgBoss;
@@ -379,7 +383,7 @@ describe("enqueueReviewReschedule", () => {
       }
       return { rowCount: 1, rows: [] };
     });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([
       {
@@ -405,7 +409,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("repairs a stale enqueue marker when replacement jobs are absent", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -438,7 +442,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("sends the replacement review job before the ack job", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -461,7 +465,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("reuses an existing replacement review job after a partial enqueue", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("ack-job");
     const existingReplacement = {
       id: "review-job",
@@ -484,7 +488,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("accepts a deterministic review job id that is already terminal", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue("ack-job");
     const existingReview = {
       id: "replacement-wi",
@@ -508,7 +512,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("fails when a missing deterministic job returns null", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValue(null);
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -525,7 +529,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("does not mark replacement enqueued when the ack job is missing", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockResolvedValueOnce("review-job").mockResolvedValueOnce(null);
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -543,7 +547,7 @@ describe("enqueueReviewReschedule", () => {
 
   it("does not mark or send an ack when replacement review enqueue throws", async () => {
     const query = vi.fn();
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const send = vi.fn().mockRejectedValueOnce(new Error("review queue unavailable"));
     const findJobs = vi.fn().mockResolvedValue([]);
     const cancel = vi.fn();
@@ -718,7 +722,7 @@ describe("schedulePushFollowUp", () => {
   }
 
   it("returns the original skip for once, auto source, a stale replacement, a closed pull request, an equal head, and a missing lease", async () => {
-    const pool = { query: vi.fn() } as unknown as Pool;
+    const pool = fakePool();
     const slash = parent();
     await expect(schedule(slash, pool, { reviewCadence: "once" })).resolves.toMatchObject({
       result: null,
@@ -759,7 +763,7 @@ describe("schedulePushFollowUp", () => {
       })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ replacement_id: "child-1" }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const { result, calls } = await schedule(parent(), pool);
 
     expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-1" });
@@ -767,7 +771,7 @@ describe("schedulePushFollowUp", () => {
     const insert = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),
     );
-    const params = insert?.[1] as unknown[];
+    const params = insert?.[1];
     expect(params?.[0]).toEqual(expect.any(String));
     expect(params?.[1]).toBe("evt-1");
     expect(params?.[6]).toBe(DEFERRED_HEAD_SHA);
@@ -798,7 +802,7 @@ describe("schedulePushFollowUp", () => {
         ],
       })
       .mockResolvedValue({ rowCount: 1, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const { result } = await schedule(parent(), pool);
     expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-kept" });
     const insert = query.mock.calls.find((call) =>
@@ -809,7 +813,7 @@ describe("schedulePushFollowUp", () => {
 
   it("returns no child when the parent is no longer running", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const { result } = await schedule(parent(), pool);
     expect(result).toBeNull();
   });
@@ -817,7 +821,7 @@ describe("schedulePushFollowUp", () => {
   it("returns no child when the pull request is closed under the intake lock", async () => {
     mocks.loadReviewLifecycle.mockResolvedValue({ state: "closed" });
     const query = vi.fn();
-    const pool = { query } as unknown as Pool;
+    const pool = fakePool(query);
     const { result, calls } = await schedule(parent(), pool);
     expect(result).toBeNull();
     expect(calls).toEqual(["head", "lock"]);
@@ -826,7 +830,7 @@ describe("schedulePushFollowUp", () => {
 });
 
 describe("cancelPendingPushFollowUp", () => {
-  const pool = {} as Pool;
+  const pool = fakePool();
 
   it("cancels a pending-enqueue follow-up and keeps an enqueued one", async () => {
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
