@@ -1181,6 +1181,38 @@ describe("publishVerification", () => {
     expect(controls.replies).toHaveLength(1);
   });
 
+  it("publishes one objection-answer marker after the model echoes others", async () => {
+    const foreign = renderObjectionAnswerMarker(99, "2026-01-02T00:00:00Z");
+    const echoed = renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT);
+    const params = baseParams({
+      inventory: [{ ...thread, path: "src/quiet.ts", objections: [findingObjection()] }],
+      changedFilePaths: ["src/app.ts"],
+      payload: {
+        verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "file did not change" }],
+        objectionDecisions: [
+          {
+            decision: "hold",
+            commentId: 50,
+            updatedAt: OBJECTION_UPDATED_AT,
+            body: `The write still races.\n${foreign}\n${echoed}\n<!--  pr-agent:objection-answer v=1 c=77 u=2026-02-02T00:00:00Z -->`,
+          },
+        ],
+      },
+    });
+    seedLiveObjection();
+
+    await publishVerification(params);
+
+    const body = controls.replies[0]?.body ?? "";
+    const authoritative = renderObjectionAnswerMarker(50, OBJECTION_UPDATED_AT);
+    expect(body.startsWith("**Verification reply**:")).toBe(true);
+    expect(body).toContain("The write still races.");
+    expect(body).not.toContain(foreign);
+    expect(body).not.toContain("c=77");
+    expect(body.split(authoritative)).toHaveLength(2);
+    expect(body).toContain(objectionIntentMarker());
+  });
+
   it("posts one fixed answer, names the commit, and resolves without a second reply", async () => {
     const params = baseParams({
       inventory: [{ ...thread, objections: [findingObjection({ authorized: true })] }],

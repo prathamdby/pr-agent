@@ -89,8 +89,14 @@ export function isBotAuthor(authorLogin: string | null, botLogin: string): boole
   return authorLogin != null && normalizedLogin(authorLogin) === normalizedLogin(botLogin);
 }
 
+const OBJECTION_ANSWER_MARKER = /<!--\s*pr-agent:objection-answer\b[\s\S]*?-->/gi;
+
 export function renderObjectionAnswerMarker(commentId: number, updatedAt: string): string {
   return `<!-- pr-agent:objection-answer v=1 c=${commentId} u=${updatedAt} -->`;
+}
+
+export function withoutObjectionAnswerMarkers(body: string): string {
+  return body.replace(OBJECTION_ANSWER_MARKER, "");
 }
 
 export function commentCarriesObjectionAnswer(

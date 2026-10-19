@@ -23,6 +23,7 @@ import {
   commentCarriesObjectionAnswer,
   isBotAuthor,
   renderObjectionAnswerMarker,
+  withoutObjectionAnswerMarkers,
 } from "../../review/findingIdentity/findingMarker.ts";
 import type {
   VerificationObjectionDecision,
@@ -555,9 +556,11 @@ function objectionAnswerBody(
   objection: FindingObjection,
   operationMarker: string,
 ): string {
-  const redacted = redactReviewText(objectionAnswerProse(decision, verdict, objection));
+  const redacted = withoutObjectionAnswerMarkers(
+    redactReviewText(objectionAnswerProse(decision, verdict, objection)),
+  ).trimEnd();
   const answerMarker = renderObjectionAnswerMarker(decision.commentId, decision.updatedAt);
-  const withAnswer = redacted.includes(answerMarker) ? redacted : `${redacted}\n${answerMarker}`;
+  const withAnswer = `${redacted}\n${answerMarker}`;
   return withAnswer.includes(operationMarker) ? withAnswer : `${withAnswer}\n${operationMarker}`;
 }
 
