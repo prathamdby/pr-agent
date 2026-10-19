@@ -23,7 +23,7 @@ The concept already existed in the product under another name: a triage run veri
 ## Consequences
 
 - Does not reverse PR #164: a verification run never opens new findings, so push-time cost stays bounded by the number of open findings.
-- Amended 2026-09: a `synchronize` push now also cancels an in-flight auto review and enqueues one deferred-head replacement (`reviewSupersede` intake kind). This still does not reverse PR #164 — a push never _starts_ a review; it only redirects work that is already spending, and a push after the review finishes schedules verification only.
+- Amended 2026-09: a `synchronize` push now also cancels an in-flight auto review and enqueues one deferred-head replacement (`reviewSupersede` intake kind). This still does not reverse PR #164 — a push never _starts_ a review; it only redirects work that is already spending, and a push after the review finishes schedules verification only. Amended 2026-10: [ADR 0056](0056-review-cadence.md) can make a push start a review when the operator sets `FEATURE_REVIEW_CADENCE=every_push`. The default `once` keeps the cost reasoning in this bullet.
 - A `/triage` push fires `synchronize`, so triage fixes get independently confirmed by a verification run. Not a loop: verification never pushes.
 - Needs its own queue lane and work-item type; finding open/closed state must be readable from stored publish records and thread replies.
 - Amended 2026-09: a stale-head skip at the verification completion gate is a degraded completion (`publishDegraded`), including when the finding inventory is empty or all threads are resolved. Clean empty completion requires matching bound/live heads at that check. The non-empty path keeps its existing late pre-publish check.

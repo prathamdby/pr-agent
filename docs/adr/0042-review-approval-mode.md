@@ -123,3 +123,5 @@ These exposures remain:
 - Work already in flight is not withdrawn.
 
 Live fork timing on a test GitHub App was not captured for this amendment.
+
+The same admission evidence gates `FEATURE_REVIEW_CADENCE=every_push` pushes ([ADR 0056](0056-review-cadence.md)).
