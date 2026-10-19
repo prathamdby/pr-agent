@@ -102,7 +102,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
 4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
 5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
-6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Add `pull_request_review` when `FEATURE_REVIEW=approval` for approving PR reviews. A `pull_request` workflow starting on an awaiting fork's head is also an approval signal.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Add `pull_request_review` when `FEATURE_REVIEW=approval` for approving PR reviews. A `pull_request` workflow starting on an awaiting fork's head is also an approval signal. A fork from a past contributor is the exception.
 7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
 

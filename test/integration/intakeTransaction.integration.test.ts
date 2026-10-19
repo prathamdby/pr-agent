@@ -3671,6 +3671,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await executeAckJob(approvalCfg, pool, notice, boss);
     const waiting = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
     expect(waiting.body).toContain("> [!NOTE]\n> Review waiting for maintainer approval.");
+    expect(waiting.body).toContain("approve the workflow runs");
     expect(waiting.body).not.toContain("| Head");
     expect(fake.controls.reactions).toEqual([]);
     expect(
@@ -3975,6 +3976,496 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       );
     },
   );
+
+  it("signed fork contributor waits, and only a maintainer admits the row", async () => {
+    const ref = makePrRef("fork-contributor");
+    const cfg = approvalCfg();
+    const openDelivery = deliveryId();
+    const opened = await postSigned(
+      cfg,
+      "pull_request",
+      openDelivery,
+      openedPull(ref, "CONTRIBUTOR", 2, 1),
+    );
+    expect(opened.response).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(openDelivery)).toBe("review_awaiting_approval");
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "awaiting",
+      workflow_start_admits: false,
+      approved_by: null,
+    });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    const waiting = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+      (job) => job.data.awaitingApproval && job.data.prNumber === ref.prNumber,
+    );
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]?.data.awaitingApprovalMaintainerOnly).toBe(true);
+    const before = await approvalRow(ref);
+    initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const workflowDelivery = deliveryId();
+    const workflowLog = intakeLog();
+    const refused = await postSigned(
+      cfg,
+      "workflow_run",
+      workflowDelivery,
+      workflowStart(ref),
+      workflowLog,
+    );
+    expect(refused.response).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(workflowDelivery)).toBe(
+      "ignored_review_approval_maintainer_required",
+    );
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "awaiting",
+      workflow_start_admits: false,
+    });
+    expect(new Date((await approvalRow(ref)).updated_at).getTime()).toBe(
+      new Date(before.updated_at).getTime(),
+    );
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const events = workflowLog.getContext().events;
+    expect(Array.isArray(events)).toBe(true);
+    expect(
+      Array.isArray(events) &&
+        events.some((entry) => {
+          if (typeof entry !== "object" || entry === null) return false;
+          return (
+            "event" in entry &&
+            entry.event === "review_approval_signal_refused" &&
+            "resourceKey" in entry &&
+            entry.resourceKey === resourceKey &&
+            "signal" in entry &&
+            entry.signal === "workflow_run" &&
+            "reason" in entry &&
+            entry.reason === "maintainer_required"
+          );
+        }),
+    ).toBe(true);
+    const replay = await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(ref));
+    expect(replay.response).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(workflowDelivery)).toBe(
+      "ignored_review_approval_maintainer_required",
+    );
+    expect(new Date((await approvalRow(ref)).updated_at).getTime()).toBe(
+      new Date(before.updated_at).getTime(),
+    );
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    });
+    const memberDelivery = deliveryId();
+    const approved = await postSigned(
+      cfg,
+      "pull_request_review",
+      memberDelivery,
+      memberApproval(ref),
+    );
+    expect(approved.response).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(memberDelivery)).toBe("review_approved");
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "approved",
+      approved_by: "pull_request_review",
+    });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    const repeatReview = deliveryId();
+    expect(
+      (await postSigned(cfg, "pull_request_review", repeatReview, memberApproval(ref, 100)))
+        .response,
+    ).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(repeatReview)).toBe("ignored_review_approval_not_awaiting");
+    const repeatWorkflow = deliveryId();
+    expect(
+      (await postSigned(cfg, "workflow_run", repeatWorkflow, workflowStart(ref, 56))).response,
+    ).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(repeatWorkflow)).toBe("ignored_review_approval_not_awaiting");
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+  });
+
+  it.each(["/review", "/review force"] as const)(
+    "signed %s admits a still-awaiting maintainer-only row",
+    async (body) => {
+      const ref = makePrRef("fork-slash");
+      const cfg = approvalCfg();
+      expect(
+        (await postSigned(cfg, "pull_request", deliveryId(), openedPull(ref, "CONTRIBUTOR", 2, 1)))
+          .response.status,
+      ).toBe(200);
+      vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+        userId: 999,
+        login: "pr-agent[bot]",
+      });
+      const slashDelivery = deliveryId();
+      const posted = await postSigned(
+        cfg,
+        "issue_comment",
+        slashDelivery,
+        reviewComment(ref, body),
+      );
+      expect(posted.response).toEqual({ status: 200, body: "ok" });
+      expect(await processingDecision(slashDelivery)).toBe("slash_review");
+      expect(await approvalRow(ref)).toMatchObject({ state: "approved", approved_by: "slash" });
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["CONTRIBUTOR", 1, 1],
+    ["NONE", 1, 1],
+    ["COLLABORATOR", 2, 1],
+    ["MEMBER", 2, 1],
+    ["OWNER", 2, 1],
+  ] as const)(
+    "signed %s open on head %s base %s enqueues a review",
+    async (association, headRepoId, baseRepoId) => {
+      const ref = makePrRef("trusted-open");
+      const cfg = approvalCfg();
+      const id = deliveryId();
+      expect(
+        (
+          await postSigned(
+            cfg,
+            "pull_request",
+            id,
+            openedPull(ref, association, headRepoId, baseRepoId),
+          )
+        ).response,
+      ).toEqual({ status: 200, body: "ok" });
+      expect(await processingDecision(id)).toBe("automated_review_enqueued");
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+      expect(
+        (
+          await pool.query("SELECT resource_key FROM pr_review_approvals WHERE resource_key = $1", [
+            prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          ])
+        ).rows,
+      ).toEqual([]);
+    },
+  );
+
+  it("signed first-time fork still accepts a workflow start", async () => {
+    const ref = makePrRef("first-time");
+    const cfg = approvalCfg();
+    const openDelivery = deliveryId();
+    expect(
+      (
+        await postSigned(
+          cfg,
+          "pull_request",
+          openDelivery,
+          openedPull(ref, "FIRST_TIME_CONTRIBUTOR", 2, 1),
+        )
+      ).response,
+    ).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(openDelivery)).toBe("review_awaiting_approval");
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "awaiting",
+      workflow_start_admits: true,
+    });
+    const waiting = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.awaitingApproval && job.data.prNumber === ref.prNumber,
+    );
+    expect(waiting?.data.awaitingApprovalMaintainerOnly).toBeUndefined();
+    const workflowDelivery = deliveryId();
+    expect(
+      (await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(ref))).response,
+    ).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(workflowDelivery)).toBe("review_approved");
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "approved",
+      approved_by: "workflow_run",
+    });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+  });
+
+  it("a refused workflow start leaves an admissible same-head row approved", async () => {
+    const held = makePrRef("mixed-held");
+    const admitted = { ...held, prNumber: held.prNumber + 1 };
+    const cfg = approvalCfg();
+    expect(
+      (await postSigned(cfg, "pull_request", deliveryId(), openedPull(held, "CONTRIBUTOR", 2, 1)))
+        .response.status,
+    ).toBe(200);
+    expect(
+      (
+        await postSigned(
+          cfg,
+          "pull_request",
+          deliveryId(),
+          openedPull(admitted, "FIRST_TIME_CONTRIBUTOR", 2, 1),
+        )
+      ).response.status,
+    ).toBe(200);
+    const before = await approvalRow(held);
+    const workflowDelivery = deliveryId();
+    const posted = await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(held));
+    expect(posted.response).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(workflowDelivery)).toBe("review_approved");
+    expect(await approvalRow(held)).toMatchObject({
+      state: "awaiting",
+      workflow_start_admits: false,
+    });
+    expect(new Date((await approvalRow(held)).updated_at).getTime()).toBe(
+      new Date(before.updated_at).getTime(),
+    );
+    expect(await approvalRow(admitted)).toMatchObject({
+      state: "approved",
+      approved_by: "workflow_run",
+    });
+    await expect(reviewJobsFor(held)).resolves.toHaveLength(0);
+    await expect(reviewJobsFor(admitted)).resolves.toHaveLength(1);
+  });
+
+  it("a pre-upgrade awaiting row still accepts a workflow start", async () => {
+    const ref = makePrRef("pre-upgrade");
+    const cfg = approvalCfg();
+    await pool.query(
+      `INSERT INTO pr_review_approvals (resource_key, owner, repo, pr_number, head_sha, state)
+       VALUES ($1, $2, $3, $4, $5, 'awaiting')`,
+      [
+        prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.headSha,
+      ],
+    );
+    expect(await approvalRow(ref)).toMatchObject({ workflow_start_admits: true });
+    const workflowDelivery = deliveryId();
+    expect(
+      (await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(ref))).response,
+    ).toEqual({ status: 200, body: "ok" });
+    expect(await processingDecision(workflowDelivery)).toBe("review_approved");
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "approved",
+      approved_by: "workflow_run",
+    });
+  });
+
+  it("push keeps maintainer-only admission, and close then reopen adds no review", async () => {
+    const ref = makePrRef("hold-life");
+    const cfg = approvalCfg();
+    expect(
+      (await postSigned(cfg, "pull_request", deliveryId(), openedPull(ref, "CONTRIBUTOR", 2, 1)))
+        .response.status,
+    ).toBe(200);
+    const next = { ...ref, headSha: `sha-next-${randomUUID().slice(0, 8)}` };
+    expect(
+      (
+        await postSigned(cfg, "pull_request", deliveryId(), {
+          ...openedPull(next, "CONTRIBUTOR", 2, 1),
+          action: "synchronize",
+          before: ref.headSha,
+        })
+      ).response.status,
+    ).toBe(200);
+    expect(await approvalRow(ref)).toMatchObject({
+      state: "awaiting",
+      head_sha: next.headSha,
+      workflow_start_admits: false,
+    });
+    expect(
+      (
+        await postSigned(cfg, "pull_request", deliveryId(), {
+          ...openedPull(next, "CONTRIBUTOR", 2, 1),
+          action: "closed",
+          pull_request: {
+            ...openedPull(next, "CONTRIBUTOR", 2, 1).pull_request,
+            state: "closed",
+            merged: false,
+            updated_at: "2026-10-19T00:00:01Z",
+          },
+        })
+      ).response.status,
+    ).toBe(200);
+    expect(await approvalRow(ref)).toMatchObject({ state: "withdrawn", head_sha: next.headSha });
+    expect(
+      (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).some(
+        (job) => job.data.closedApproval && job.data.prNumber === ref.prNumber,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await postSigned(cfg, "pull_request", deliveryId(), {
+          action: "reopened",
+          installation: { id: ref.installationId },
+          repository: { owner: { login: ref.owner }, name: ref.repo },
+          pull_request: {
+            number: ref.prNumber,
+            author_association: "CONTRIBUTOR",
+            head: { sha: next.headSha, repo: { id: 2 } },
+            base: { repo: { id: 1 } },
+            state: "open",
+            merged: false,
+            updated_at: "2026-10-19T00:00:02Z",
+          },
+        })
+      ).response.status,
+    ).toBe(200);
+    expect(await approvalRow(ref)).toMatchObject({ state: "withdrawn" });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+  });
+
+  it("publishes the maintainer-only waiting note and lets the queued stub replace it", async () => {
+    const ref = makePrRef("maintainer-note");
+    const cfg = approvalCfg();
+    expect(
+      (await postSigned(cfg, "pull_request", deliveryId(), openedPull(ref, "CONTRIBUTOR", 2, 1)))
+        .response.status,
+    ).toBe(200);
+    vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+      token: "test-token",
+      expiresAtTs: Date.now() + 3_600_000,
+      ttlMs: 3_600_000,
+    });
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({ userId: 999, login: "test-bot" });
+    const fake = prSurface.createFakePrSurface(ref, { headSha: ref.headSha });
+    vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+    const notice = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.awaitingApproval && job.data.prNumber === ref.prNumber,
+    )!.data;
+    await executeAckJob(cfg, pool, notice, boss);
+    const waiting = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
+    expect(waiting.body).toContain(
+      "Review waiting for maintainer approval. A maintainer can approve this pull request or comment `/review`.",
+    );
+    expect(waiting.body).not.toContain("approve the workflow runs");
+    expect(fake.controls.reactions).toEqual([]);
+    const member = await postSigned(cfg, "pull_request_review", deliveryId(), memberApproval(ref));
+    expect(member.response).toEqual({ status: 200, body: "ok" });
+    const queuedAck = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.progress && job.data.prNumber === ref.prNumber,
+    )!.data;
+    await executeAckJob(cfg, pool, queuedAck, boss);
+    const queued = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
+    expect(queued.id).toBe(waiting.id);
+    expect(queued.body).toContain("Review queued");
+    expect(queued.body).not.toContain("waiting for maintainer approval");
+    console.log("approval-notice-evidence", JSON.stringify({ maintainerOnly: waiting.body }));
+  });
+
+  function approvalCfg() {
+    return makeTestConfig({
+      features: { ...intakeCfg.features, review: "approval" as const },
+    });
+  }
+
+  function deliveryId() {
+    return `${OWNER}-approval-${randomUUID()}`;
+  }
+
+  function openedPull(ref: PrRef, association: string, headRepoId: number, baseRepoId: number) {
+    return {
+      action: "opened" as const,
+      installation: { id: ref.installationId },
+      repository: { owner: { login: ref.owner }, name: ref.repo, size: 1 },
+      pull_request: {
+        number: ref.prNumber,
+        author_association: association,
+        head: { sha: ref.headSha, repo: { id: headRepoId } },
+        base: { repo: { id: baseRepoId } },
+      },
+    };
+  }
+
+  function workflowStart(ref: PrRef, runId = 55) {
+    return {
+      action: "in_progress" as const,
+      installation: { id: ref.installationId },
+      repository: { owner: { login: ref.owner }, name: ref.repo },
+      workflow_run: {
+        id: runId,
+        event: "pull_request",
+        head_sha: ref.headSha,
+        status: "in_progress",
+        conclusion: null,
+        pull_requests: [],
+      },
+    };
+  }
+
+  function memberApproval(ref: PrRef, reviewId = 99) {
+    return {
+      action: "submitted" as const,
+      installation: { id: ref.installationId },
+      repository: { owner: { login: ref.owner }, name: ref.repo },
+      pull_request: { number: ref.prNumber, head: { sha: ref.headSha } },
+      review: {
+        id: reviewId,
+        state: "approved",
+        author_association: "MEMBER",
+        user: { id: 7, type: "User" },
+      },
+    };
+  }
+
+  function reviewComment(ref: PrRef, body: string) {
+    return {
+      action: "created" as const,
+      installation: { id: ref.installationId },
+      repository: { owner: { login: ref.owner }, name: ref.repo },
+      issue: { number: ref.prNumber, pull_request: {} },
+      comment: {
+        id: 100,
+        user: { id: 7, login: "maintainer" },
+        author_association: "MEMBER",
+        body,
+      },
+    };
+  }
+
+  async function processingDecision(delivery: string) {
+    const { rows } = await pool.query<{ processing_decision: string }>(
+      "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+      [delivery],
+    );
+    return rows[0]?.processing_decision;
+  }
+
+  async function approvalRow(ref: PrRef) {
+    const { rows } = await pool.query<{
+      state: string;
+      approved_by: string | null;
+      head_sha: string;
+      workflow_start_admits: boolean;
+      updated_at: Date;
+    }>(
+      `SELECT state, approved_by, head_sha, workflow_start_admits, updated_at
+       FROM pr_review_approvals WHERE resource_key = $1`,
+      [prResourceKey(ref.owner, ref.repo, ref.prNumber)],
+    );
+    const row = rows[0];
+    if (row == null) throw new Error(`missing approval row for ${ref.prNumber}`);
+    return row;
+  }
+
+  async function postSigned(
+    cfg: Config,
+    event: string,
+    delivery: string,
+    payload: unknown,
+    log: RequestLogger = intakeLog(),
+  ) {
+    const rawBody = Buffer.from(JSON.stringify(payload));
+    const response = await Effect.runPromise(
+      processWebhookPostRequestEffect({
+        cfg,
+        request: {
+          rawBody,
+          headers: {
+            "x-github-event": event,
+            "x-github-delivery": delivery,
+            "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
+          },
+        },
+        intakeLog: log,
+      }).pipe(
+        Effect.provide(Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg))),
+      ),
+    );
+    return { response, log };
+  }
 });
 
 function applyAutomatedPullRequestIntake(

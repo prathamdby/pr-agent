@@ -296,7 +296,7 @@ export async function executeAckJob(
     }).tick({
       body: data.closedApproval
         ? renderReviewCancelledNotice({ attribution: data.closedApproval, progressRevision: 1 })
-        : renderReviewAwaitingApprovalNotice(),
+        : renderReviewAwaitingApprovalNotice(data.awaitingApprovalMaintainerOnly === true),
       progressRevision: data.closedApproval ? 1 : 0,
       shouldPublish: (client) =>
         canPublishApprovalNotice(

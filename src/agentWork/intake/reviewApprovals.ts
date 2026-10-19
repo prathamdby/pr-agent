@@ -10,11 +10,16 @@ type ApprovalTarget = {
   head_sha: string;
 };
 
-export async function insertAwaitingApproval(client: PoolClient, ref: PrRef, eventId: string) {
+export async function insertAwaitingApproval(
+  client: PoolClient,
+  ref: PrRef,
+  eventId: string,
+  workflowStartAdmits: boolean,
+) {
   const result = await client.query(
     `INSERT INTO pr_review_approvals
-       (resource_key, owner, repo, pr_number, head_sha, state, webhook_event_id)
-     SELECT $1, $2, $3, $4, $5, 'awaiting', $6
+       (resource_key, owner, repo, pr_number, head_sha, state, webhook_event_id, workflow_start_admits)
+     SELECT $1, $2, $3, $4, $5, 'awaiting', $6, $7
      WHERE NOT EXISTS (
        SELECT 1 FROM agent_work_items WHERE resource_key = $1 AND type = 'review'
      )
@@ -26,6 +31,7 @@ export async function insertAwaitingApproval(client: PoolClient, ref: PrRef, eve
       ref.prNumber,
       ref.headSha,
       eventId,
+      workflowStartAdmits,
     ],
   );
   return result.rows.length > 0;
@@ -45,13 +51,18 @@ export async function approveAwaiting(
   by: "workflow_run" | "pull_request_review" | "slash",
   headSha?: string,
 ) {
-  const result = await client.query<ApprovalTarget>(
-    `UPDATE pr_review_approvals SET state = 'approved', approved_by = $2, updated_at = now()
-     WHERE resource_key = $1 AND state = 'awaiting'
-       AND ($3::text IS NULL OR head_sha = $3)
-     RETURNING resource_key, owner, repo, pr_number, head_sha`,
-    [resourceKey, by, headSha ?? null],
-  );
+  const sql =
+    by === "workflow_run"
+      ? `UPDATE pr_review_approvals SET state = 'approved', approved_by = $2, updated_at = now()
+         WHERE resource_key = $1 AND state = 'awaiting'
+           AND ($3::text IS NULL OR head_sha = $3)
+           AND workflow_start_admits
+         RETURNING resource_key, owner, repo, pr_number, head_sha`
+      : `UPDATE pr_review_approvals SET state = 'approved', approved_by = $2, updated_at = now()
+         WHERE resource_key = $1 AND state = 'awaiting'
+           AND ($3::text IS NULL OR head_sha = $3)
+         RETURNING resource_key, owner, repo, pr_number, head_sha`;
+  const result = await client.query<ApprovalTarget>(sql, [resourceKey, by, headSha ?? null]);
   return result.rows[0] ?? null;
 }
 
@@ -60,8 +71,9 @@ export async function loadAwaitingApproval(
   resourceKey: string,
   headSha?: string,
 ) {
-  const result = await client.query<ApprovalTarget>(
-    `SELECT resource_key, owner, repo, pr_number, head_sha FROM pr_review_approvals
+  const result = await client.query<ApprovalTarget & { workflow_start_admits: boolean }>(
+    `SELECT resource_key, owner, repo, pr_number, head_sha, workflow_start_admits
+     FROM pr_review_approvals
      WHERE resource_key = $1 AND state = 'awaiting'
        AND ($2::text IS NULL OR head_sha = $2)
      FOR UPDATE`,

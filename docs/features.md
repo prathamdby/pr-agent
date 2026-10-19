@@ -13,16 +13,18 @@ invalid and crashes startup.
 `/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). With
 `FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened`. Trust means
-a same-repo head or an author associated as `OWNER`, `MEMBER`, `COLLABORATOR`,
-or `CONTRIBUTOR`. Missing association or a deleted fork is untrusted.
+a same-repo head or an author associated as `OWNER`, `MEMBER`, or
+`COLLABORATOR`. A fork author associated as `CONTRIBUTOR` waits for a pull
+request approval or `/review`. A workflow start does not admit that fork.
+Missing association or a deleted fork is untrusted.
 Untrusted forks get one awaiting notice. The first `workflow_run` `in_progress`
-with `event=pull_request` on the awaiting head, submitted approving review from
-a non-bot reviewer in `SLASH_ALLOWED_ASSOCIATIONS`, or `/review` approves that
+with `event=pull_request` on the awaiting head admits the row when
+`workflow_start_admits` is true. A submitted approving review from
+a non-bot reviewer in `SLASH_ALLOWED_ASSOCIATIONS`, or `/review`, approves that
 record once. Completed runs never approve it. Later signals do nothing.
 Already-open PRs are not backfilled; use `/review`.
 Approval is the default, so trusted opens now spend review tokens; use `manual`
-to opt out. `CONTRIBUTOR` authors remain trusted even when your Actions policy
-requires workflow approval for all external contributors. A push
+to opt out. `auto` reviews every open and does not check trust. A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.

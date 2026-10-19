@@ -74,6 +74,7 @@ import { createOperationLogger } from "../../src/evlog.ts";
 import { createFakePrSurface } from "../../src/github/prSurface.ts";
 import { isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
 import {
+  ACK_QUEUE,
   CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
@@ -85,7 +86,9 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DESCRIPTION_QUEUE,
   REVIEW_CI_SUMMARY_INCOMPLETE,
+  REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,
   VERIFICATION_PUBLISH_LENS,
@@ -253,6 +256,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
     await deleteQueueJobs(boss, VERIFICATION_QUEUE);
+    await deleteQueueJobs(boss, DESCRIPTION_QUEUE);
+    await deleteQueueJobs(boss, REVIEW_QUEUE);
+    await deleteQueueJobs(boss, ACK_QUEUE);
   });
 
   it("persists projector runtime denial and makes the next caller skip denied publication", async () => {
@@ -803,7 +809,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
-  it.each(["trusted", "awaiting_approval"] as const)(
+  it.each(["trusted", "awaiting_approval", "awaiting_maintainer_approval"] as const)(
     "records approval-mode opened work for %s authors",
     async (authorTrust) => {
       const delivery = `ci-pr-approval-open-${randomUUID().slice(0, 8)}`;
