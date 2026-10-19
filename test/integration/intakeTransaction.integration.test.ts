@@ -3926,15 +3926,24 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       everyPush,
     );
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-    const { rows } = await pool.query<{ source: string; head_sha: string; status: string }>(
-      `SELECT source, head_sha, status FROM agent_work_items WHERE resource_key = $1 AND type = 'review'`,
+    const { rows } = await pool.query<{
+      id: string;
+      source: string;
+      head_sha: string;
+      status: string;
+    }>(
+      `SELECT id, source, head_sha, status FROM agent_work_items WHERE resource_key = $1 AND type = 'review'`,
       [key],
     );
-    expect(rows).toEqual([{ source: "auto", head_sha: "deferred-to-worker", status: "queued" }]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      source: "auto",
+      head_sha: "deferred-to-worker",
+      status: "queued",
+    });
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
     const acks = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
-    expect(acks.some((job) => job.data.workItemId === undefined)).toBe(false);
-    expect(acks.filter((job) => rows.length > 0)).not.toHaveLength(0);
+    expect(acks.some((job) => job.data.workItemId === rows[0]?.id)).toBe(true);
 
     await pool.query("DELETE FROM agent_work_items WHERE resource_key = $1", [key]);
     const once = makeTestConfig({
