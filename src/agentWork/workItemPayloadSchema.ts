@@ -101,6 +101,13 @@ const ReviewWorkPayloadFieldsSchema = v.looseObject({
   staleHeadReplacement: v.optional(v.unknown()),
   staleHeadReplacementWorkItemId: v.optional(v.unknown()),
   staleHeadReplacementEnqueued: v.optional(v.unknown()),
+  pushFollowUp: v.optional(
+    v.object({
+      webhookEventId: v.pipe(v.string(), v.minLength(1)),
+      replacementWorkItemId: v.optional(v.pipe(v.string(), v.minLength(1))),
+      state: v.optional(v.picklist(["pending-enqueue", "enqueued"])),
+    }),
+  ),
   cancelAttribution: v.optional(
     v.variant("kind", [
       v.object({ kind: v.literal("user"), login: v.pipe(v.string(), v.minLength(1)) }),

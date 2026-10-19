@@ -9,7 +9,10 @@ import { buildFindingView } from "../../review/findingIdentity/findingLifecycle.
 import { runReviewForWorkItem } from "../../review/runReviewForWorkItem.ts";
 import { isOwnCheckOpen, ownVerdictFromSummaryDetail, reviewVerdict } from "../reviewVerdict.ts";
 import { getProgressCommentOwner } from "../publishRecordRepository.ts";
-import { cancelPendingStaleHeadReplacement } from "../reviewReschedule.ts";
+import {
+  cancelPendingPushFollowUp,
+  cancelPendingStaleHeadReplacement,
+} from "../reviewReschedule.ts";
 import { isAppError } from "../../errors/appError.ts";
 
 export function createReviewWorkExecution({
@@ -43,6 +46,9 @@ export function createReviewWorkExecution({
     onTerminalFailure: async (item, prSurface, error, leaseEpoch) => {
       try {
         await cancelPendingStaleHeadReplacement(pool, item, error);
+      } catch {}
+      try {
+        await cancelPendingPushFollowUp(pool, item, error);
       } catch {}
       if (!prSurface) return;
       const reviewLens = item.reviewLens;

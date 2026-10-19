@@ -5,8 +5,10 @@ import { AppError } from "../src/errors/appError.ts";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.ts";
 import {
   buildStaleReviewRescheduleResult,
+  cancelPendingPushFollowUp,
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
+  schedulePushFollowUp,
   enqueueReviewReschedule,
   isStaleHeadReplacementExhausted,
   staleHeadReplacementExhaustedError,
@@ -667,6 +669,199 @@ describe("cancelPendingStaleHeadReplacement", () => {
       expect.objectContaining({ workItemId: "parent-wi", replacementWorkItemId: undefined }),
       failure,
     );
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+  });
+});
+
+describe("schedulePushFollowUp", () => {
+  const boundHeadSha = "bound-head";
+
+  function parent(payload: Record<string, unknown> = {}) {
+    return makeItem({
+      source: "slash",
+      payload: { mode: "review", source: "slash", ...payload },
+    });
+  }
+
+  async function schedule(
+    item: ReturnType<typeof parent>,
+    pool: Pool,
+    overrides: Partial<{
+      reviewCadence: "once" | "every_push";
+      boundHeadSha: string;
+      leaseEpoch: number | null;
+      pullRequestClosed: boolean;
+      liveHeadSha: string;
+    }> = {},
+  ) {
+    const calls: string[] = [];
+    const prSurface = {
+      getHeadSha: vi.fn(async () => {
+        calls.push("head");
+        return overrides.liveHeadSha ?? "new-head";
+      }),
+    };
+    mocks.acquireAutoWorkIntakeLock.mockImplementation(async () => {
+      calls.push("lock");
+    });
+    const result = await schedulePushFollowUp({
+      pool,
+      item,
+      payload: item.payload,
+      reviewCadence: overrides.reviewCadence ?? "every_push",
+      prSurface,
+      boundHeadSha: overrides.boundHeadSha ?? boundHeadSha,
+      leaseEpoch: overrides.leaseEpoch === undefined ? LEASE_EPOCH : overrides.leaseEpoch,
+      pullRequestClosed: overrides.pullRequestClosed ?? false,
+    });
+    return { result, calls, prSurface };
+  }
+
+  it("returns the original skip for once, auto source, a stale replacement, a closed pull request, an equal head, and a missing lease", async () => {
+    const pool = { query: vi.fn() } as unknown as Pool;
+    const slash = parent();
+    await expect(schedule(slash, pool, { reviewCadence: "once" })).resolves.toMatchObject({
+      result: null,
+      calls: [],
+    });
+    await expect(schedule(parent({ source: "auto" }), pool)).resolves.toMatchObject({
+      result: null,
+      calls: [],
+    });
+    await expect(
+      schedule(
+        parent({ staleHeadReplacement: { replacementWorkItemId: "r", state: "pending-enqueue" } }),
+        pool,
+      ),
+    ).resolves.toMatchObject({ result: null, calls: [] });
+    await expect(schedule(slash, pool, { pullRequestClosed: true })).resolves.toMatchObject({
+      result: null,
+      calls: [],
+    });
+    await expect(schedule(slash, pool, { leaseEpoch: null })).resolves.toMatchObject({
+      result: null,
+      calls: [],
+    });
+    await expect(schedule(slash, pool, { liveHeadSha: boundHeadSha })).resolves.toMatchObject({
+      result: null,
+      calls: ["head"],
+    });
+    expect(mocks.acquireAutoWorkIntakeLock).not.toHaveBeenCalled();
+  });
+
+  it("stores an automatic deferred-head child and reads the live head before the intake lock", async () => {
+    const followUp = { webhookEventId: "evt-1" };
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ payload: { mode: "review", source: "slash", pushFollowUp: followUp } }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ replacement_id: "child-1" }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const { result, calls } = await schedule(parent(), pool);
+
+    expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-1" });
+    expect(calls).toEqual(["head", "lock"]);
+    const insert = query.mock.calls.find((call) =>
+      String(call[0]).includes("INSERT INTO agent_work_items"),
+    );
+    const params = insert?.[1] as unknown[];
+    expect(params?.[0]).toEqual(expect.any(String));
+    expect(params?.[1]).toBe("evt-1");
+    expect(params?.[6]).toBe(DEFERRED_HEAD_SHA);
+    const stored = JSON.parse(String(params?.[9]));
+    expect(stored).toMatchObject({ source: "auto", mode: "review" });
+    expect(stored.pushFollowUp).toBeUndefined();
+    expect(stored.staleHeadRescheduled).toBeUndefined();
+    expect(stored.staleHeadReplacement).toBeUndefined();
+  });
+
+  it("reuses the child id already stored on the marker", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            payload: {
+              mode: "review",
+              source: "slash",
+              pushFollowUp: {
+                webhookEventId: "evt-1",
+                replacementWorkItemId: "child-kept",
+                state: "pending-enqueue",
+              },
+            },
+          },
+        ],
+      })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const { result } = await schedule(parent(), pool);
+    expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-kept" });
+    const insert = query.mock.calls.find((call) =>
+      String(call[0]).includes("INSERT INTO agent_work_items"),
+    );
+    expect(insert?.[1]?.[0]).toBe("child-kept");
+  });
+
+  it("returns no child when the parent is no longer running", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const { result } = await schedule(parent(), pool);
+    expect(result).toBeNull();
+  });
+
+  it("returns no child when the pull request is closed under the intake lock", async () => {
+    mocks.loadReviewLifecycle.mockResolvedValue({ state: "closed" });
+    const query = vi.fn();
+    const pool = { query } as unknown as Pool;
+    const { result, calls } = await schedule(parent(), pool);
+    expect(result).toBeNull();
+    expect(calls).toEqual(["head", "lock"]);
+    expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelPendingPushFollowUp", () => {
+  const pool = {} as Pool;
+
+  it("cancels a pending-enqueue follow-up and keeps an enqueued one", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    vi.mocked(getWorkItem).mockResolvedValue(
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: "evt-1",
+            replacementWorkItemId: "child-1",
+            state: "pending-enqueue",
+          },
+        },
+      }),
+    );
+    const boom = new Error("terminal");
+    await cancelPendingPushFollowUp(pool, makeItem(), boom);
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "child-1", boom);
+
+    vi.mocked(markQueuedWorkCancelled).mockClear();
+    vi.mocked(getWorkItem).mockResolvedValue(
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: "evt-1",
+            replacementWorkItemId: "child-1",
+            state: "enqueued",
+          },
+        },
+      }),
+    );
+    await cancelPendingPushFollowUp(pool, makeItem(), boom);
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 });

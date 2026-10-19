@@ -142,6 +142,14 @@ export type StaleHeadReplacement = {
   readonly state: StaleHeadReplacementState;
 };
 
+export type PushFollowUpState = "pending-enqueue" | "enqueued";
+
+export type PushFollowUp = {
+  readonly webhookEventId: string;
+  readonly replacementWorkItemId?: string;
+  readonly state?: PushFollowUpState;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
@@ -152,6 +160,7 @@ export type ReviewWorkPayload = {
   readonly publishDegraded?: boolean;
   readonly staleHeadRescheduled?: boolean;
   readonly staleHeadReplacement?: StaleHeadReplacement;
+  readonly pushFollowUp?: PushFollowUp;
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
