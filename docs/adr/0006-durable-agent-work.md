@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Operator-facing summary: [README.md](../../README.md) Installation. Runtime topology: [AGENTS.md](../../AGENTS.md#how-it-works). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Operator-facing summary: [README.md](../../README.md) Installation. Runtime topology: [docs/topology.md](../topology.md). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
