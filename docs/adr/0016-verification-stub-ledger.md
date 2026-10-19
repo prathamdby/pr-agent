@@ -24,6 +24,8 @@ Policy suggestions always rendered a from-scratch `.pr-agent.yml` snippet, even 
 
 5. **Silent resolve for fixed / already-resolved stays as ADR 0015.**
 
+**Amendment ([ADR 0057](0057-verification-answers-finding-objections.md)):** the stub remains the single per-thread verdict signal. Objection answers are separate replies and are never stub edits.
+
 ## Consequences
 
 - Stops stacked verification spam across pushes without requiring maintainers to manually resolve dismissed threads.

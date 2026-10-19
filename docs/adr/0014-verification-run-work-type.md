@@ -16,6 +16,8 @@ The concept already existed in the product under another name: a triage run veri
 
 2. **Strictly read-only.** No writable PR checkout, no code edits, no new findings, no full review. It re-checks each open finding against the new head and emits a triage verdict per finding (shared vocabulary with `/triage`: fixed, already-resolved, skipped, dismissed). A dismissed verdict requires an authorized non-bot maintainer decision matching that finding thread; reply text and unauthorized replies are untrusted evidence. Publish policy is refined in [ADR 0015](0015-verification-silent-resolve.md): silent resolve for fixed/already-resolved; thread replies only for still-open and dismissed.
 
+**Amendment ([ADR 0057](0057-verification-answers-finding-objections.md)):** an unanswered finding objection gets one reply about that existing finding, including when the verdict is fixed or already-resolved. The run still opens no new findings and still does not edit code.
+
 3. **Superseded like auto-reviews.** Rapid pushes collapse to the newest head; a stale verification run must not publish. If the publish-gate head check still sees inequality (slash `/verify`, or an auto run that finished before cancel landed), the executor completes degraded rather than as clean success. Auto `synchronize` already enqueues a replacement; this decision does not add a verification reschedule chain.
 
 4. **Distinct name and type.** Not a "re-review" (would inherit review run cost and publish machinery) and not a triage mode (triage is human-initiated and writable). The boundary: review runs find, verification runs verify, triage runs fix.
