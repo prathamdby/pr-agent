@@ -261,6 +261,7 @@ const { publishOnce } = await load("agentWork/publishOnce.js");
 const { fenceForEpoch } = await load("agentWork/writeFence.js");
 const { withPrSurfaceMutationBoundary } = await load("github/prSurfaceMutation.js");
 const { reviewPayloadFromFindings } = await load("review/reviewSchema.js");
+const { candidateFindingId } = await load("review/orchestrator/judgmentDisposition.js");
 const { AppError } = await load("errors/appError.js");
 const { initEvlog } = await load("evlog.js");
 initEvlog("error", { silent: true, suppressDrainWarning: true });
@@ -326,7 +327,10 @@ const surface = withPrSurfaceMutationBoundary(raw.surface, {
   },
 });
 const finding = (source) => ({
-  severity: source === "correctness" ? "P1" : "P2", file: "src/a.ts",
+  suggestedSeverity: source === "correctness" ? "P1" : "P2",
+  severity: source === "correctness" ? "P1" : "P2",
+  severityRationale: "Judgment kept the suggestion.",
+  file: "src/a.ts",
   startLine: source === "correctness" ? 2 : 3, endLine: source === "correctness" ? 2 : 3,
   title: source === "correctness" ? "Null input dereference" : "Unhandled stale input",
   detail: source === "correctness" ? "A null request dereferences its missing value before validation." :
@@ -354,7 +358,23 @@ const createSession = (params) => createFeaturePiSession({
       });
     } else if (opts.phase === "judgment") {
       const source = prompt.match(/Judge the (correctness|security|quality|tests) specialist/)[1];
-      await sessionParams.executors.publish_thread({ findings: [finding(source)] });
+      const row = finding(source);
+      const candidateId = candidateFindingId({
+        specialist: source,
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        title: row.title,
+      });
+      const reported = source === "correctness" || source === "quality";
+      await sessionParams.executors.publish_thread(
+        reported
+          ? {
+              findings: [row],
+              dispositions: [{ candidateId, verdict: "accepted", reason: "confirmed" }],
+            }
+          : { findings: [], dispositions: [] },
+      );
     } else if (opts.phase === "synthesis") {
       await sessionParams.executors.publish_summary({ ...reviewPayloadFromFindings([]), size: "S" });
     }
@@ -403,7 +423,8 @@ const env = {
       patchByPath: new Map([["src/a.ts", files.files[0].patch]]), patchOmittedByCapPaths: new Set(), symbolIndex: null,
     });
     const workspace = { rootDir: join(dir, "workspace"), agentCwd: join(dir, "workspace"),
-      privateGitDir: join(dir, "workspace/.git"), reader: pinned.reader, cleanup: async () => pinned.dispose() };
+      privateGitDir: join(dir, "workspace/.git"), reader: pinned.reader, cleanup: async () => pinned.dispose(),
+      policySnapshot: { kind: "absent", baseSha: input.base } };
     try { return await run({ workspace, agentCwd: workspace.agentCwd, preflight: buildReviewPreflightMetadataFromWorkspace(workspace) }); }
     finally { pinned.dispose(); }
   },

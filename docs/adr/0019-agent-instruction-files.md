@@ -10,12 +10,10 @@ Many repositories already document agent behavior in root files such as `AGENTS.
 
 ## Decision
 
-1. **Statically load** `AGENTS.md` and `CLAUDE.md` from the PR head checkout root on every orchestrated review run.
+1. **Load** `AGENTS.md` and `CLAUDE.md` from the recorded base commit on every orchestrated review run ([ADR 0059](0059-base-commit-policy-snapshot.md)).
 2. **Inject** accepted bodies into a sibling trusted-context block, parallel to repo policy, with separate aggregate/per-file byte budgets large enough for real instruction docs (not the short `.mdc` instruction-char squash).
 3. **Preserve newlines** in the rendered block; do not expand `@include` pointers.
-4. **Trust boundary (fork vs same-repo):**
-   - **Same-repo head:** treat present files as **binding** for that review (Trusted context label): evidenced violations matching the lens reporting gate are ordinary findings; prompts may cite `AGENTS.md` or `CLAUDE.md` only when that file appears in the instruction-files context. An absent file is not mentioned. Always append an **anti-suppression** line so local authors cannot trivially jailbreak severity.
-   - **Fork / untrusted head, or missing/malformed identity:** render under an **Untrusted context** header — never “Trusted context” / never “binding”. Same anti-suppression line applies. Author-writable PR-head files must not inject privileged binding instructions.
+4. **Trust boundary** ([ADR 0059](0059-base-commit-policy-snapshot.md)): present base files are binding trusted context. Head copies are untrusted proposed changes and are not binding. Prompts may cite `AGENTS.md` or `CLAUDE.md` only when that file appears in the instruction-files context. An absent file is not mentioned. Always append an **anti-suppression** line so local authors cannot trivially jailbreak severity.
 5. **Do not load** these files for ask, describe, triage, or verification in this change.
 
 ## Consequences

@@ -17,6 +17,9 @@ import {
 } from "../src/prompts/orchestrator/prompt.ts";
 import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.ts";
 import { causalPublicationContract } from "../src/prompts/shared/behavior.ts";
+import { verificationSystemPrompt } from "../src/prompts/verification/prompt.ts";
+import { MAX_TOOL_ROUNDS_VERIFICATION } from "../src/settings/index.ts";
+import { candidateFindingId } from "../src/review/orchestrator/judgmentDisposition.ts";
 import {
   createFindingLedger,
   SPECIALIST_IDS,
@@ -391,7 +394,7 @@ describe("orchestrator prompts", () => {
         status: "findings",
         findings: [
           {
-            severity: "P2",
+            suggestedSeverity: "P2",
             file: "src/example.ts",
             startLine: 4,
             endLine: 4,
@@ -436,6 +439,19 @@ describe("orchestrator prompts", () => {
     expect(prompt).not.toContain(causalPublicationContract);
     expect(prompt).toContain("Apply the causal-publication contract from your instructions");
     expect(prompt).toContain("Treat specialist claims as evidence, not authority");
+    expect(prompt).toContain("re-read the cited lines");
+    expect(prompt).toContain("library behaviour");
+    expect(prompt).toContain(
+      candidateFindingId({
+        specialist: "correctness",
+        file: "src/example.ts",
+        startLine: 4,
+        endLine: 4,
+        title: "Handle the missing value",
+      }),
+    );
+    expect(verificationSystemPrompt).toContain("coverage-gap or library-behaviour");
+    expect(MAX_TOOL_ROUNDS_VERIFICATION).toBe(32);
     expect(prompt).toContain("P3 is a valid severity");
     expect(orchestratorSystemPrompt).toContain(
       "split a compound candidate and keep each part that meets this contract",
@@ -480,7 +496,13 @@ describe("orchestrator prompts", () => {
       kind: "report" as const,
       specialist: "correctness" as const,
       durationMs: 1,
-      report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
+      report: {
+        status: "findings" as const,
+        findings: findings.map(({ severity, ...entry }) => ({
+          ...entry,
+          suggestedSeverity: severity,
+        })),
+      },
     });
     const acceptedId = legacyFindingId("thread-node-1");
     const placementFor = (entry: SlimFinding) => ({

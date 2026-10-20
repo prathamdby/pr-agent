@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted.
+Accepted. Decision 3 is amended by
+[ADR 0058](0058-judgment-owned-severity.md).
 
 ## Context
 
@@ -14,7 +15,7 @@ P3 findings were summary-only by design ([ADR 0003](0003-structured-review-outpu
 
 2. **`fixPrompt` required for P3.** Same field contract as P0–P2 so the accordion and triage agent have a concrete fix direction.
 
-3. **Check runs stay P0–P2.** Introduce `isCheckFailingSeverity` for review check-run failure. Empty or P3-only payloads still conclude `success`; P3 remains advisory for branch protection.
+3. **Check runs follow the configured threshold.** `isCheckFailingSeverity` fails a finding at or above `REVIEW_CHECK_FAIL_SEVERITY`. The default is `P2`, which keeps the previous P0–P2 gate. Empty payloads and findings below the threshold conclude `success`. `P3` fails only when the threshold is `P3`. See [ADR 0058](0058-judgment-owned-severity.md).
 
 4. **Triage and verification unchanged in shape.** They continue to discover inventory from eligible inline threads; P3 threads become eligible automatically once posted.
 

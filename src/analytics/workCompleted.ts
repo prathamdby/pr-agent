@@ -14,6 +14,7 @@ export type WorkCompletedOutcome =
 
 export type DegradedReason =
   | "publish_retry"
+  | "judgment_degraded"
   | "brief_fallback"
   | "rate_limit_circuit"
   | "validation_failure"
@@ -178,6 +179,7 @@ export function degradedReasonFromReviewFlags(input: {
   if (input.publishAttempts > 0) return "publish_retry";
   const snapshot = input.snapshot;
   if (!snapshot) return null;
+  if (snapshot.judgmentDegraded) return "judgment_degraded";
   if (snapshot.briefFallback) return "brief_fallback";
   if (snapshot.rateLimitCircuitOpened) return "rate_limit_circuit";
   if (snapshot.validationFailureCount > 0) return "validation_failure";

@@ -76,9 +76,11 @@ import {
   parseReviewArtifactEnvelope,
 } from "../src/review/recovery/reviewArtifacts.ts";
 import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.ts";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
 import {
   legacyFindingId,
   renderFindingMarker,
+  type FindingId,
 } from "../src/review/findingIdentity/findingMarker.ts";
 import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReconcile.ts";
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.ts";
@@ -173,6 +175,45 @@ function reconciledAs(target: ReviewFinding, outcome: ReconcileOutcome) {
   };
 }
 
+function heldInventory(id: FindingId, severity: ReviewFinding["severity"], path: string) {
+  const createdAt = "2026-01-01T00:00:00Z";
+  return buildFindingInventory({
+    threads: {
+      status: "ok",
+      threads: [
+        {
+          threadNodeId: `PRRT_${id}`,
+          isResolved: false,
+          rootCommentId: 42,
+          path,
+          line: 10,
+          startLine: null,
+          originalLine: 10,
+          originalStartLine: null,
+          isOutdated: false,
+          diffSide: "RIGHT",
+          commentsComplete: true,
+          comments: [
+            {
+              databaseId: 42,
+              authorLogin: "pr-agent",
+              body: `**${severity}** · **Held**\n\ndetail\n\n${renderFindingMarker({ id, lens: "correctness", severity })}`,
+              createdAt,
+              updatedAt: createdAt,
+              url: "https://github.com/o/r/pull/1#discussion_r42",
+            },
+          ],
+        },
+      ],
+    },
+    summary: null,
+    summaryComplete: true,
+    botLogin: "pr-agent",
+    renames: new Map(),
+    deletedPaths: new Set(),
+  });
+}
+
 let harness: PublishReviewTestHarness;
 
 type BatchOverrides = Partial<Omit<ReviewPublishSessionInput, "ctx" | "findingInventory">> &
@@ -192,10 +233,10 @@ function batchContext(
     checkoutCoverage,
     isPathInCheckout,
     repoPolicy,
-    sameRepo,
     boundPolicyJudge,
     readCheckoutFile,
     reconciled,
+    judged,
     ...sessionOverrides
   } = overrides;
   const evidenceLedger = evidenceOverride ?? createTestEvidenceLedger("abc1234");
@@ -228,10 +269,10 @@ function batchContext(
       checkoutCoverage,
       isPathInCheckout,
       repoPolicy,
-      sameRepo,
       boundPolicyJudge,
       readCheckoutFile,
       reconciled,
+      ...(judged === undefined ? {} : { judged }),
     },
   ];
 }
@@ -579,6 +620,77 @@ describe("publishFindingBatch", () => {
     expect(result.delta.threadCallCount).toBe(1);
   });
 
+  it("caps a reaffirmed merge at the test-path, tests-lens, and unjudged ceilings", async () => {
+    const id = legacyFindingId("held-p0");
+    const capped: ReviewFinding = { ...finding, severity: "P2" };
+    const onTestPath = await publishFindingBatch(
+      [capped],
+      ...batchContext(createFindingLedger(), undefined, {
+        reconciled: {
+          inventory: heldInventory(id, "P0", "src/foo.test.ts"),
+          outcomes: new Map([
+            [reconciledFindingKey(capped), { kind: "reaffirm", id, severity: "P2" }],
+          ]),
+        },
+      }),
+    );
+    expect(onTestPath.kind).toBe("empty");
+    if (onTestPath.kind !== "empty") return;
+    expect(onTestPath.delta.reaffirmed).toEqual([expect.objectContaining({ id, severity: "P2" })]);
+
+    const testsLens = await publishFindingBatch(
+      [capped],
+      ...batchContext(createFindingLedger(), undefined, {
+        source: "tests",
+        reconciled: {
+          inventory: heldInventory(id, "P0", "src/a.ts"),
+          outcomes: new Map([
+            [reconciledFindingKey(capped), { kind: "reaffirm", id, severity: "P2" }],
+          ]),
+        },
+      }),
+    );
+    expect(testsLens.kind).toBe("empty");
+    if (testsLens.kind !== "empty") return;
+    expect(testsLens.delta.reaffirmed).toEqual([expect.objectContaining({ id, severity: "P2" })]);
+
+    const unjudgedFinding: ReviewFinding = { ...finding, severity: "P0" };
+    const unjudged = await publishFindingBatch(
+      [unjudgedFinding],
+      ...batchContext(createFindingLedger(), undefined, {
+        judged: false,
+        reconciled: {
+          inventory: heldInventory(id, "P0", "src/a.ts"),
+          outcomes: new Map([
+            [reconciledFindingKey(unjudgedFinding), { kind: "reaffirm", id, severity: "P0" }],
+          ]),
+        },
+      }),
+    );
+    expect(unjudged.kind).toBe("empty");
+    if (unjudged.kind !== "empty") return;
+    expect(unjudged.delta.reaffirmed).toEqual([
+      expect.objectContaining({ id, severity: "P1", judged: false }),
+    ]);
+
+    const raised: ReviewFinding = { ...finding, severity: "P0" };
+    const judgedRaise = await publishFindingBatch(
+      [raised],
+      ...batchContext(createFindingLedger(), undefined, {
+        reconciled: {
+          inventory: heldInventory(id, "P2", "src/a.ts"),
+          outcomes: new Map([
+            [reconciledFindingKey(raised), { kind: "reaffirm", id, severity: "P0" }],
+          ]),
+        },
+      }),
+    );
+    expect(judgedRaise.kind).toBe("empty");
+    if (judgedRaise.kind !== "empty") return;
+    expect(judgedRaise.delta.reaffirmed).toEqual([expect.objectContaining({ id, severity: "P0" })]);
+    expect(judgedRaise.delta.reaffirmed[0]).not.toHaveProperty("judged");
+  });
+
   it("keeps a finding reconciled to an earlier batch out of a second review", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const initialLedger = createFindingLedger();
@@ -669,7 +781,7 @@ describe("publishFindingBatch", () => {
     expect(commentBody).not.toContain(".pr-agent/testing.mdc");
   });
 
-  it("prints Bound only for judged-yes same-repo rules", async () => {
+  it("prints Bound only for judged-yes rules", async () => {
     const findings = Array.from({ length: 10 }, (_, index) => findingAt(10 + index));
     const judge = vi.fn(async (_pairs: readonly BoundPolicyJudgePair[]) => ["p1", "p7"]);
     const result = await publishFindingBatch(
@@ -680,7 +792,6 @@ describe("publishFindingBatch", () => {
           "src/a.ts",
           findings.map((item) => item.startLine),
         ),
-        sameRepo: true,
         boundPolicyJudge: judge,
         repoPolicy: {
           kind: "ok",
@@ -726,7 +837,6 @@ describe("publishFindingBatch", () => {
     const result = await publishFindingBatch(
       [finding],
       ...batchContext(createFindingLedger(), undefined, {
-        sameRepo: true,
         repoPolicy: {
           kind: "ok",
           policy: {

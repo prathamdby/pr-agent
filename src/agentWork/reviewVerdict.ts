@@ -15,7 +15,10 @@ import type {
   FindingCheck,
   FindingCheckConclusion,
 } from "../review/findingIdentity/findingLifecycle.ts";
-import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.ts";
+import {
+  decidingCoverageReason,
+  type ReviewCoverage,
+} from "../review/orchestrator/orchestratorTypes.ts";
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
@@ -883,15 +886,17 @@ export function summaryCommentVerdictMeta(params: {
   readonly kind: "published" | "partial";
   readonly note?: string;
   readonly conclusion: FindingCheckConclusion;
-  readonly partialReason?: "specialists" | "unread";
+  readonly partialReason?: "unjudged" | "specialists" | "unread";
   readonly blockingCount?: number;
+  readonly checkFailSeverity: "P0" | "P1" | "P2" | "P3";
 }): {
   readonly ownVerdictKind: "published" | "partial";
   readonly ownVerdictNote?: string;
-  readonly ownPartialReason?: "specialists" | "unread";
+  readonly ownPartialReason?: "unjudged" | "specialists" | "unread";
   readonly ownCheckFailing: boolean;
   readonly ownCheckIncomplete?: true;
   readonly ownBlockingCount?: number;
+  readonly ownCheckFailSeverity: "P0" | "P1" | "P2" | "P3";
 } {
   const check = {
     ownCheckFailing: params.conclusion === "failure",
@@ -902,18 +907,19 @@ export function summaryCommentVerdictMeta(params: {
       ? { ownBlockingCount: params.blockingCount }
       : {}),
   };
+  const recorded = { ...check, ownCheckFailSeverity: params.checkFailSeverity };
   if (params.kind === "partial") {
     return {
       ownVerdictKind: "partial",
       ...(params.note != null && params.note.length > 0 ? { ownVerdictNote: params.note } : {}),
       ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
-      ...check,
+      ...recorded,
     };
   }
   return {
     ownVerdictKind: "published",
     ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
-    ...check,
+    ...recorded,
   };
 }
 
@@ -921,17 +927,15 @@ export function closeOutcomeForCoverage(
   coverage: ReviewCoverage | undefined,
   check: FindingCheck | undefined,
 ): OwnVerdictOutcome {
-  if (coverage?.kind === "partial" && coverage.reason === "unread") {
-    if (check?.conclusion === "failure") {
+  if (coverage?.kind === "partial") {
+    const reason = decidingCoverageReason(coverage);
+    if ((reason === "unjudged" || reason === "unread") && check?.conclusion === "failure") {
       return {
         kind: "published",
         conclusion: "failure",
         blockingCount: check.blockingCount,
       };
     }
-    return { kind: "partial", note: coverage.note };
-  }
-  if (coverage?.kind === "partial") {
     return { kind: "partial", note: coverage.note };
   }
   if (check != null) return { kind: "published", ...check };
@@ -942,7 +946,10 @@ export function ownVerdictFromSummaryDetail(
   detail: Record<string, unknown> | null,
 ): OwnVerdictOutcome {
   if (detail == null) return { kind: "not_published" };
-  if (detail.ownPartialReason === "unread" && detail.ownCheckFailing === true) {
+  if (
+    (detail.ownPartialReason === "unjudged" || detail.ownPartialReason === "unread") &&
+    detail.ownCheckFailing === true
+  ) {
     return {
       kind: "published",
       conclusion: "failure",

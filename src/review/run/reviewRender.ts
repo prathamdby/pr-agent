@@ -412,6 +412,7 @@ export type ReviewActionLineCoverage = {
   readonly kind: "full" | "partial" | "none";
   readonly failed: readonly string[];
   readonly unread?: boolean;
+  readonly unjudged?: readonly string[];
 };
 
 type ReviewSummaryRenderCtx = RenderContext & {
@@ -425,6 +426,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   ciSummary?: CiSummary | null;
   ciVersion?: number;
   coverage?: ReviewActionLineCoverage;
+  policyAlert?: string;
 };
 
 type CarriedSummaryRow = readonly [FindingViewRow, InventoryFinding];
@@ -442,13 +444,23 @@ function isDurableCarriedRow([, held]: CarriedSummaryRow): boolean {
 export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
   const failed = coverage.failed.length > 0;
   const names = failed ? formatFailedSpecialistNames(coverage.failed) : "";
-  if (coverage.unread && failed && coverage.kind === "partial") {
-    return `except ${names}, with unread files`;
+  const unjudged = coverage.unjudged ?? [];
+  const unjudgedText =
+    unjudged.length > 0 ? `not judged: ${formatFailedSpecialistNames(unjudged)}` : "";
+  if (unjudgedText.length > 0 && !failed && coverage.unread !== true && coverage.kind !== "none") {
+    return unjudgedText;
   }
-  if (coverage.unread) return "with unread files";
-  if (coverage.kind === "full" || !failed) return "with full coverage";
-  if (coverage.kind === "none") return `with no coverage (${names} failed)`;
-  return `except ${names}`;
+  let base = "with full coverage";
+  if (coverage.unread && failed && coverage.kind === "partial") {
+    base = `except ${names}, with unread files`;
+  } else if (coverage.unread) {
+    base = "with unread files";
+  } else if (coverage.kind !== "full" && failed && coverage.kind === "none") {
+    base = `with no coverage (${names} failed)`;
+  } else if (coverage.kind !== "full" && failed) {
+    base = `except ${names}`;
+  }
+  return unjudgedText.length > 0 ? `${base}, ${unjudgedText}` : base;
 }
 
 export { formatReviewActionLineCiStatus };
@@ -460,15 +472,18 @@ export function renderReviewActionLine(input: {
   ciStatusText: string;
   coverageStatusText: string;
   suppressReadyToMerge?: boolean;
+  unjudged?: boolean;
 }): string {
   const followUpSegment =
     input.openCount > 0 && input.followUpCount > 0
       ? ` ${formatFollowUpCountClause(input.followUpCount)}.`
       : "";
   const findingClause =
-    input.suppressReadyToMerge && input.openCount === 0
-      ? "No findings"
-      : formatFindingCountClause(input.openCount, input.blockingCount);
+    input.unjudged === true && input.openCount === 0
+      ? "Review not fully judged"
+      : input.suppressReadyToMerge && input.openCount === 0
+        ? "No findings"
+        : formatFindingCountClause(input.openCount, input.blockingCount);
   return `${findingClause}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
 }
 
@@ -526,6 +541,7 @@ function buildReviewSummaryBody(
       ? `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`
       : null;
   const coverage = ctx.coverage ?? { kind: "full", failed: [] };
+  const unjudgedLenses = coverage.unjudged ?? [];
   const actionLine = renderReviewActionLine({
     openCount: ctx.placements.length + carriedRows.length,
     blockingCount: ctx.findingView.blockingCount,
@@ -533,6 +549,7 @@ function buildReviewSummaryBody(
     coverageStatusText: formatReviewCoverageStatus(coverage),
     followUpCount: payload.followUps.length,
     suppressReadyToMerge: coverage.unread === true,
+    unjudged: unjudgedLenses.length > 0,
   });
 
   const rows: string[] = [];
@@ -540,6 +557,14 @@ function buildReviewSummaryBody(
   rows.push("");
   rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, actionLine));
   rows.push("");
+  if (unjudgedLenses.length > 0) {
+    rows.push(`Judgment did not finish for ${formatFailedSpecialistNames(unjudgedLenses)}.`);
+    rows.push("");
+  }
+  if (ctx.policyAlert) {
+    rows.push(renderGitHubAlert("WARNING", ctx.policyAlert));
+    rows.push("");
+  }
 
   const tableRows: Array<[string, string]> = [
     [renderTableStrong("Size"), renderTableCode(payload.size)],

@@ -5,8 +5,12 @@ import {
   renderTableLocationMeta,
   renderTableStrong,
 } from "../../github/markdownFormat.ts";
-import type { FindingLedger } from "../orchestrator/orchestratorTypes.ts";
-import { isCheckFailingSeverity } from "../reviewSchema.ts";
+import type { FindingLedger, ReaffirmedFinding } from "../orchestrator/orchestratorTypes.ts";
+import {
+  cappedFindingSeverity,
+  isCheckFailingSeverity,
+  type ReviewFinding,
+} from "../reviewSchema.ts";
 import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.ts";
 import type {
   FindingInventory,
@@ -74,11 +78,49 @@ function severityRank(severity: FindingSeverity | "unknown"): number {
   return SEVERITY_ORDER.indexOf(severity);
 }
 
-function higherSeverity(
+export function higherSeverity(
   left: FindingSeverity | "unknown",
   right: FindingSeverity | "unknown",
 ): FindingSeverity | "unknown" {
   return severityRank(left) <= severityRank(right) ? left : right;
+}
+
+export function severityWithinRunCap(
+  severity: ReviewFinding["severity"],
+  params: {
+    readonly testsLens: boolean;
+    readonly anchorPath: string;
+    readonly heldPath?: string;
+    readonly judged: boolean;
+  },
+): ReviewFinding["severity"] {
+  const capped = cappedFindingSeverity({
+    severity,
+    testsLens: params.testsLens,
+    anchorPath: params.anchorPath,
+    judged: params.judged,
+  });
+  if (params.heldPath == null || params.heldPath === params.anchorPath) return capped;
+  return cappedFindingSeverity({
+    severity: capped,
+    testsLens: params.testsLens,
+    anchorPath: params.heldPath,
+    judged: params.judged,
+  });
+}
+
+export function cappedReaffirmedSeverity(params: {
+  readonly held: FindingSeverity | "unknown" | undefined;
+  readonly observed: ReviewFinding["severity"];
+  readonly testsLens: boolean;
+  readonly anchorPath: string;
+  readonly heldPath?: string;
+  readonly judged: boolean;
+}): ReviewFinding["severity"] {
+  const merged =
+    params.held == null ? params.observed : higherSeverity(params.held, params.observed);
+  const severity = merged === "unknown" ? params.observed : merged;
+  return severityWithinRunCap(severity, params);
 }
 
 function viewRow(
@@ -87,12 +129,13 @@ function viewRow(
   severity: FindingSeverity | "unknown",
   held: InventoryFinding | null,
   observedThisRun: boolean,
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingViewRow {
   return {
     id,
     status,
     severity,
-    blocking: severity !== "unknown" && isCheckFailingSeverity(severity),
+    blocking: severity !== "unknown" && isCheckFailingSeverity(severity, checkFailSeverity),
     held,
     observedThisRun,
   };
@@ -101,6 +144,7 @@ function viewRow(
 function runRows(
   inventory: FindingInventory,
   ledger: Extract<FindingRunOutcomes, { kind: "reviewed" }>["ledger"],
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingViewRow[] {
   const rows = new Map<FindingId, FindingViewRow>();
   for (const accepted of ledger.accepted) {
@@ -113,6 +157,7 @@ function runRows(
         accepted.placement.finding.severity,
         null,
         true,
+        checkFailSeverity,
       ),
     );
   }
@@ -127,6 +172,7 @@ function runRows(
         higherSeverity(held.severity, entry.severity),
         held,
         true,
+        checkFailSeverity,
       ),
     );
   }
@@ -188,6 +234,7 @@ function openCopySeverities(
 export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingView {
   const duplicates = outcomes.kind === "reviewed" ? outcomes.duplicates : [];
   const cleaned = duplicates.filter(
@@ -195,9 +242,15 @@ export function buildFindingView(
   );
   const cleanedIds = new Set(cleaned.map((duplicate) => duplicate.id));
   const copySeverities = openCopySeverities(inventory, cleaned);
-  const observed = (outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger) : []).filter(
-    (row) => !cleanedIds.has(row.id),
-  );
+  const reaffirmedById = new Map<FindingId, ReaffirmedFinding>();
+  const acceptedIds = new Set<FindingId>();
+  if (outcomes.kind === "reviewed") {
+    for (const entry of outcomes.ledger.reaffirmed) reaffirmedById.set(entry.id, entry);
+    for (const entry of outcomes.ledger.accepted) acceptedIds.add(entry.findingId);
+  }
+  const observed = (
+    outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger, checkFailSeverity) : []
+  ).filter((row) => !cleanedIds.has(row.id));
   const observedIds = new Set(observed.map((row) => row.id));
   const carried = [...inventory.findings.values()]
     .filter(
@@ -210,19 +263,31 @@ export function buildFindingView(
     )
     .toSorted(compareCarried)
     .map((finding) =>
-      viewRow(finding.id, carriedStatus(finding), finding.severity, finding, false),
+      viewRow(
+        finding.id,
+        carriedStatus(finding),
+        finding.severity,
+        finding,
+        false,
+        checkFailSeverity,
+      ),
     );
   const rows = [...observed, ...carried].map((row) => {
     const copySeverity = copySeverities.get(row.id);
-    return copySeverity == null
+    const merged = copySeverity == null ? row.severity : higherSeverity(row.severity, copySeverity);
+    const entry = acceptedIds.has(row.id) ? undefined : reaffirmedById.get(row.id);
+    const severity =
+      entry == null || merged === "unknown"
+        ? merged
+        : severityWithinRunCap(merged, {
+            testsLens: entry.source === "tests",
+            anchorPath: entry.placement.finding.file,
+            ...(row.held == null ? {} : { heldPath: row.held.path }),
+            judged: entry.judged !== false,
+          });
+    return severity === row.severity
       ? row
-      : viewRow(
-          row.id,
-          row.status,
-          higherSeverity(row.severity, copySeverity),
-          row.held,
-          row.observedThisRun,
-        );
+      : viewRow(row.id, row.status, severity, row.held, row.observedThisRun, checkFailSeverity);
   });
   return {
     completeness: inventory.completeness,

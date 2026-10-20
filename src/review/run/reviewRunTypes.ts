@@ -43,7 +43,6 @@ export type ReviewRunParams = {
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly severityFloor?: number;
-  readonly sameRepo?: boolean;
   readonly repoPolicy?: RepoPolicyResult;
   readonly signal?: AbortSignal;
 };

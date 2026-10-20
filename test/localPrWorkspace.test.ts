@@ -7,12 +7,16 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.ts";
-import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.ts";
+import {
+  isAllowlistedPolicyPath,
+  LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
+} from "../src/settings/index.ts";
 import { type AppError, isAppError, serializeAppError } from "../src/errors/appError.ts";
 import { classifyFailure } from "../src/errors/classifiedFailure.ts";
 import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
 import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
+import { readBasePolicySnapshot } from "../src/prWorkspace/policySnapshot.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
 const credentialHooks = { failAfterWrite: false };
@@ -190,22 +194,54 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const mappedFiles = {
+          ...prFiles,
+          files: [
+            ...prFiles.files,
+            {
+              filename: ".pr-agent/from-rename.mdc",
+              status: "renamed",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+            {
+              filename: ".pr-agent/from-copy.mdc",
+              status: "copied",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+          ],
+        };
         const fullWorkspace = await prepareLocalPrWorkspace({
           owner: "owner",
           repo: "repo",
           prNumber: 1,
           headSha,
           installationToken: "unused",
-          prFiles,
+          prFiles: mappedFiles,
           repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
           remoteUrlOverride: remote,
         });
         try {
           expect(fullWorkspace.reader.checkoutMode).toBe("full");
           expect(fullWorkspace.reader.changedFiles.map((file) => file.path).toSorted()).toEqual([
+            ".pr-agent/from-copy.mdc",
+            ".pr-agent/from-rename.mdc",
             "renamed.txt",
             "src.txt",
           ]);
+          expect(
+            fullWorkspace.reader.changedFiles.find(
+              (file) => file.path === ".pr-agent/from-rename.mdc",
+            ),
+          ).toEqual({ path: ".pr-agent/from-rename.mdc", status: "renamed" });
+          expect(
+            fullWorkspace.reader.changedFiles.find(
+              (file) => file.path === ".pr-agent/from-copy.mdc",
+            ),
+          ).toEqual({ path: ".pr-agent/from-copy.mdc", status: "copied" });
           expect(
             fullWorkspace.reader.changedFiles.find((file) => file.path === "renamed.txt"),
           ).toMatchObject({
@@ -495,6 +531,200 @@ describe("local PR workspace", () => {
       }),
     ).rejects.toThrow(/injected credential setup failure/);
     await expectAllocatedWorkspaceRootsRemoved();
+  });
+
+  it("binds policy files from the base commit and drops paths that are not regular allowlisted files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-policy-snapshot-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await mkdir(join(repo, ".pr-agent"));
+      await mkdir(join(repo, ".PR-AGENT"));
+      await writeFile(join(repo, ".pr-agent", "ok.mdc"), "base rule\n");
+      await writeFile(join(repo, ".pr-agent", "big.mdc"), "b".repeat(8193));
+      await writeFile(join(repo, "AGENTS.md"), "a".repeat(8973));
+      await writeFile(join(repo, "secret-target.txt"), "secret-target-body\n");
+      await symlink("../secret-target.txt", join(repo, ".pr-agent", "link.mdc"));
+      await writeFile(join(repo, ".PR-AGENT", "x.mdc"), "wrong-case\n");
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await writeFile(join(root, "odd.txt"), "odd\n");
+      const oddBlob = await git(repo, ["hash-object", "-w", join(root, "odd.txt")]);
+      await git(repo, ["add", "."]);
+      await git(repo, [
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${oddBlob},.pr-agent//x.mdc`,
+      ]).catch(() => "");
+      await git(repo, [
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${oddBlob},.pr-agent\\x.mdc`,
+      ]).catch(() => "");
+      await git(repo, ["commit", "-m", "base"]);
+      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await writeFile(join(repo, ".pr-agent", "ok.mdc"), "head rule\n");
+      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(remote, ["config", "uploadpack.allowReachableSHA1InWant", "true"]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        baseSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(workspace.policySnapshot.kind).toBe("ok");
+        if (workspace.policySnapshot.kind !== "ok") return;
+        expect(workspace.policySnapshot.baseSha).toBe(baseSha);
+        const byPath = new Map(
+          workspace.policySnapshot.files.map((file) => [file.path, file.body]),
+        );
+        expect(byPath.get(".pr-agent/ok.mdc")).toBe("base rule\n");
+        expect(byPath.get("AGENTS.md")).toHaveLength(8973);
+        expect([...byPath.values()].join("\n")).not.toContain("head rule");
+        expect([...byPath.values()].join("\n")).not.toContain("secret-target-body");
+        expect([...byPath.values()].join("\n")).not.toContain("wrong-case");
+        expect(byPath.has(".pr-agent/big.mdc")).toBe(false);
+        expect(byPath.has(".pr-agent/link.mdc")).toBe(false);
+        expect(byPath.has(".PR-AGENT/x.mdc")).toBe(false);
+        expect(byPath.has(".pr-agent//x.mdc")).toBe(false);
+        expect(byPath.has(".pr-agent\\x.mdc")).toBe(false);
+        expect(workspace.policySnapshot.drops).toEqual(
+          expect.arrayContaining([
+            { path: ".pr-agent/big.mdc", reason: "over_cap" },
+            { path: ".pr-agent/link.mdc", reason: "non_regular_mode" },
+          ]),
+        );
+        expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+      } finally {
+        await workspace.cleanup();
+      }
+
+      const missing = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        baseSha: "f".repeat(40),
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(missing.policySnapshot).toEqual({
+          kind: "unavailable",
+          reason: "fetch_failed",
+          baseSha: "f".repeat(40),
+        });
+        expect(JSON.stringify(missing.policySnapshot)).not.toContain("head rule");
+        expect(await readFile(join(missing.agentCwd, ".pr-agent", "ok.mdc"), "utf8")).toBe(
+          "head rule\n",
+        );
+      } finally {
+        await missing.cleanup();
+      }
+
+      const omitted = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(omitted.policySnapshot).toEqual({
+          kind: "unavailable",
+          reason: "missing_base_sha",
+        });
+      } finally {
+        await omitted.cleanup();
+      }
+
+      expect(isAllowlistedPolicyPath(".PR-AGENT/x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent//x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent\\x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/sub/x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/.hidden.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/x.MDC")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/x.mdc ")).toBe(false);
+      expect(isAllowlistedPolicyPath("agENTS.md")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/ok.mdc")).toBe(true);
+      expect(isAllowlistedPolicyPath("AGENTS.md")).toBe(true);
+      expect(isAllowlistedPolicyPath("CLAUDE.md")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("marks an over-cap object store, an empty allowlist, and a failed blob read", async () => {
+    const baseSha = "a".repeat(40);
+    const blobSha = "b".repeat(40);
+    const tree = `100644 blob ${blobSha}\t.pr-agent/ok.mdc\0`;
+    const git = (script: (command: string) => { readonly stdout: string } | Promise<never>) => {
+      return async (args: readonly string[]) => {
+        const command = args.includes("fetch") ? "fetch" : (args[0] ?? "");
+        return script(command);
+      };
+    };
+
+    const overCap = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch" || command === "ls-tree") {
+          return { stdout: command === "ls-tree" ? tree : "" };
+        }
+        if (command === "cat-file") return { stdout: "4\n" };
+        if (command === "count-objects") return { stdout: "size: 2\nsize-pack: 0\n" };
+        throw new Error(command);
+      }),
+    });
+    expect(overCap).toEqual({ kind: "unavailable", reason: "object_store_cap", baseSha });
+
+    const absent = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch" || command === "ls-tree") return { stdout: "" };
+        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
+        throw new Error(command);
+      }),
+    });
+    expect(absent).toEqual({ kind: "absent", baseSha });
+
+    const failed = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch") return { stdout: "" };
+        if (command === "ls-tree") return { stdout: tree };
+        throw new Error("cat-file failed");
+      }),
+    });
+    expect(failed).toEqual({ kind: "unavailable", reason: "blob_read_failed", baseSha });
   });
 });
 

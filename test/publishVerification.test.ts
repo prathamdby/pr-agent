@@ -867,6 +867,32 @@ describe("publishVerification", () => {
     );
   });
 
+  it("proposes a new starter when the policy snapshot is absent", async () => {
+    const published = await publishVerification(
+      baseParams({
+        inventory: [
+          { ...thread, humanReplies: ["false positive"], verificationStubCommentId: 555 },
+        ],
+        policyResult: { kind: "absent" },
+        payload: {
+          verdicts: [
+            {
+              verdict: "dismissed",
+              threadRootCommentId: 1,
+              evidence: "maintainer marked false positive",
+            },
+          ],
+        },
+      }),
+    );
+
+    const event = controls.events.find((e) => e.kind === "editReviewComment");
+    const body = event?.kind === "editReviewComment" ? event.body : "";
+    expect(body).toContain("Create `.pr-agent/src-app.mdc` with:");
+    expect(body).not.toContain("Append this to");
+    expect(published.degradation).toEqual([]);
+  });
+
   it("creates then resolves when dismissing without an existing stub", async () => {
     await publishVerification(
       baseParams({

@@ -60,6 +60,12 @@ export function reviewRecoveryInputDigest(input: {
   readonly prBody: string | null;
   readonly escalation?: EscalationPlan;
   readonly modelApis?: Readonly<Record<string, string | null>>;
+  readonly policyProvenance?: {
+    readonly kind: string;
+    readonly baseSha: string | null;
+    readonly reason: string | null;
+    readonly blobs: readonly { readonly path: string; readonly blobSha: string }[];
+  };
   readonly effectivePublicationCapabilities?: Readonly<{
     checksWrite: boolean;
     statusesWrite: boolean;
@@ -105,6 +111,7 @@ export function reviewRecoveryInputDigest(input: {
           specialists: SPECIALIST_SYSTEM_PROMPTS,
         },
         contract: REVIEW_CONTRACT_VERSION,
+        policyProvenance: input.policyProvenance ?? null,
       }),
     )
     .digest("hex");

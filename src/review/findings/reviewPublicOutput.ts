@@ -21,6 +21,9 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
         finding.suggestedCode == null
           ? finding.suggestedCode
           : redactReviewText(finding.suggestedCode),
+      ...(finding.severityRationale == null
+        ? {}
+        : { severityRationale: redactReviewText(finding.severityRationale) }),
     })),
   };
 }

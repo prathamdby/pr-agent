@@ -482,24 +482,90 @@ describe("review check run lifecycle", () => {
     });
     expect(
       ownVerdictFromSummaryDetail(
-        summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" }),
+        summaryCommentVerdictMeta({
+          kind: "published",
+          conclusion: "neutral",
+          checkFailSeverity: "P2",
+        }),
       ),
     ).toEqual({ kind: "published", conclusion: "neutral", blockingCount: 0 });
-    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "failure" })).toEqual({
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: "failure",
+        checkFailSeverity: "P2",
+      }),
+    ).toEqual({
       ownVerdictKind: "published",
       ownCheckFailing: true,
+      ownCheckFailSeverity: "P2",
     });
-    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" })).toEqual({
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: "neutral",
+        checkFailSeverity: "P1",
+      }),
+    ).toEqual({
       ownVerdictKind: "published",
       ownCheckFailing: false,
       ownCheckIncomplete: true,
+      ownCheckFailSeverity: "P1",
     });
+  });
+
+  it("promotes a failing check for unjudged coverage and keeps specialists partial", () => {
+    const unjudged = {
+      kind: "partial" as const,
+      unjudged: ["tests"] as const,
+      note: "Not judged: tests.",
+    };
+    expect(closeOutcomeForCoverage(unjudged, { conclusion: "failure", blockingCount: 2 })).toEqual({
+      kind: "published",
+      conclusion: "failure",
+      blockingCount: 2,
+    });
+    expect(closeOutcomeForCoverage(unjudged, { conclusion: "success", blockingCount: 0 })).toEqual({
+      kind: "partial",
+      note: unjudged.note,
+    });
+    const specialistsAndUnread = {
+      kind: "partial" as const,
+      failed: ["security"] as const,
+      paths: ["src/a.ts"],
+      note: "Coverage partial: security specialist failed. Unread changed files: src/a.ts.",
+    };
+    expect(
+      closeOutcomeForCoverage(specialistsAndUnread, { conclusion: "failure", blockingCount: 2 }),
+    ).toEqual({ kind: "partial", note: specialistsAndUnread.note });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownPartialReason: "unjudged",
+        ownCheckFailing: true,
+        ownBlockingCount: 2,
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 2 });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownPartialReason: "specialists",
+        ownCheckFailing: true,
+        ownVerdictNote: "Coverage partial: security specialist failed.",
+      }),
+    ).toEqual({ kind: "partial", note: "Coverage partial: security specialist failed." });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownPartialReason: "mystery",
+        ownCheckFailing: true,
+      }),
+    ).toEqual({ kind: "partial", note: "Partial specialist coverage." });
   });
 
   it("publishes failure when unread files coincide with a failing check", () => {
     const unread = {
       kind: "partial" as const,
-      reason: "unread" as const,
       paths: ["src/a.ts"],
       note: "Unread changed files: src/a.ts.",
     };
@@ -525,13 +591,24 @@ describe("review check run lifecycle", () => {
         conclusion: "failure",
         partialReason: "unread",
         blockingCount: 4,
+        checkFailSeverity: "P0",
       }),
     ).toEqual({
       ownVerdictKind: "published",
       ownPartialReason: "unread",
       ownCheckFailing: true,
       ownBlockingCount: 4,
+      ownCheckFailSeverity: "P0",
     });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "published",
+        ownCheckFailing: true,
+        ownCheckIncomplete: false,
+        ownBlockingCount: 2,
+        ownCheckFailSeverity: "P0",
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 2 });
   });
 
   it("creates and records an in-progress check run", async () => {

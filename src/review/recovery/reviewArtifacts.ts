@@ -15,8 +15,8 @@ import {
   UNREAD_COVERAGE_PATH_LIMIT,
 } from "./reviewRecoverySchema.ts";
 
-export const REVIEW_CONTRACT_VERSION = "review-1";
-export const REVIEW_ARTIFACT_SCHEMA_VERSION = 5;
+export const REVIEW_CONTRACT_VERSION = "review-3";
+export const REVIEW_ARTIFACT_SCHEMA_VERSION = 7;
 
 const hashSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/));
 const identityText = (max: number) =>
@@ -232,28 +232,28 @@ type ArtifactCanonical = NonNullable<
   Extract<ReviewArtifact, { kind: "publication_prepared" }>["canonical"]
 >;
 
+function boundPartialCoverage<T extends { readonly paths?: readonly string[] }>(coverage: T): T {
+  if (coverage.paths == null) return coverage;
+  return { ...coverage, paths: boundUnreadPaths(coverage.paths) };
+}
+
 function sanitizeCanonical(canonical: ArtifactCanonical): ArtifactCanonical {
   if (canonical.kind === "summary") {
-    if (canonical.coverage.kind !== "partial" || canonical.coverage.reason !== "unread") {
-      return canonical;
-    }
-    return {
-      ...canonical,
-      coverage: { ...canonical.coverage, paths: boundUnreadPaths(canonical.coverage.paths) },
-    };
+    if (canonical.coverage.kind !== "partial") return canonical;
+    return { ...canonical, coverage: boundPartialCoverage(canonical.coverage) };
   }
   const coverage = canonical.coverage;
   const openedPaths =
     canonical.openedPaths == null
       ? canonical.openedPaths
       : persistedOpenedPaths(canonical.openedPaths);
-  if (coverage == null || coverage.kind !== "partial" || coverage.reason !== "unread") {
+  if (coverage == null || coverage.kind !== "partial") {
     if (openedPaths === canonical.openedPaths) return canonical;
     return { ...canonical, openedPaths };
   }
   return {
     ...canonical,
-    coverage: { ...coverage, paths: boundUnreadPaths(coverage.paths) },
+    coverage: boundPartialCoverage(coverage),
     ...(openedPaths == null ? {} : { openedPaths }),
   };
 }

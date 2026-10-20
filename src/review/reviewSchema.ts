@@ -1,14 +1,18 @@
 import * as v from "valibot";
+import { severityDefinitionText } from "../prompts/shared/safety.ts";
 import {
   MAX_REVIEW_FOLLOW_UPS,
   MAX_REVIEW_PAYLOAD_FINDINGS,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
+  REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS,
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_GATE_PROSE_MAX_CHARS,
   REVIEW_GATE_PROSE_UNASSESSED,
+  REVIEW_RISK_PATH_PATTERNS,
+  REVIEW_SEVERITY_RANK,
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
 } from "../settings/index.ts";
@@ -25,10 +29,16 @@ export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "sty
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
 export const reviewFindingEntries = {
-  severity: v.pipe(
-    severitySchema,
-    v.description(
-      "P0 near-certain crash or exploit; P1 clear-path correctness or security defect; P2 plausible bug with real impact; P3 real low-impact defect.",
+  severity: v.pipe(severitySchema, v.description(`Final severity. ${severityDefinitionText()}`)),
+  severityRationale: v.optional(
+    v.pipe(
+      v.string(),
+      v.trim(),
+      v.minLength(1),
+      v.maxLength(REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS),
+      v.description(
+        "One short private sentence for the final severity. Stored with the finding and never rendered.",
+      ),
     ),
   ),
   file: v.pipe(
@@ -190,8 +200,38 @@ export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2" || severity === "P3";
 }
 
-export function isCheckFailingSeverity(severity: ReviewFinding["severity"]): boolean {
-  return severity === "P0" || severity === "P1" || severity === "P2";
+const REVIEW_SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
+
+type SeverityRank = (typeof REVIEW_SEVERITY_RANK)[ReviewFinding["severity"]];
+
+function looserRank(left: SeverityRank, right: SeverityRank): SeverityRank {
+  return left > right ? left : right;
+}
+
+export function cappedFindingSeverity(params: {
+  readonly severity: ReviewFinding["severity"];
+  readonly testsLens: boolean;
+  readonly anchorPath: string;
+  readonly judged: boolean;
+  readonly coverageGap?: boolean;
+}): ReviewFinding["severity"] {
+  let rank: SeverityRank = REVIEW_SEVERITY_RANK[params.severity];
+  if (!params.coverageGap && params.testsLens) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
+  if (
+    !params.coverageGap &&
+    REVIEW_RISK_PATH_PATTERNS.test.some((pattern) => pattern.test(params.anchorPath))
+  ) {
+    rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
+  }
+  if (!params.judged) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P1);
+  return REVIEW_SEVERITIES[rank] ?? params.severity;
+}
+
+export function isCheckFailingSeverity(
+  severity: ReviewFinding["severity"],
+  threshold: ReviewFinding["severity"],
+): boolean {
+  return REVIEW_SEVERITY_RANK[severity] <= REVIEW_SEVERITY_RANK[threshold];
 }
 
 export function reviewPayloadFromFindings(

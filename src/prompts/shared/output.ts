@@ -20,6 +20,7 @@ export const specialistFindingsReportContract = [
   "Findings must cite lines that a read in this session returned. When a submitted finding cites unread lines, the tool result lists it as dropped. Read those lines and submit the complete report again, or leave the finding out if the lines do not support it.",
   "Anchor each finding's `file` and line range on a commentable line of a changed path when possible, so the server can open an inline review thread. A coverage or missing-test finding names the changed test, or the new test path the diff should add.",
   "Report every finding that meets this review's reporting gate, including lower-confidence ones with their confidence set honestly. The orchestrator re-judges every finding, so a missing real finding costs more than one that judgment drops.",
+  "The report field is suggestedSeverity, and judgment assigns the published severity.",
   'With at least one finding, use `status: "findings"`. With none, use `status: "no_findings"` and `findings: []`; that explicit empty report is a successful result.',
   "`notes` is optional context for orchestrator judgment, such as investigation limits. Findings belong in `findings`, because notes are never published.",
 ].join("\n");

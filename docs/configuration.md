@@ -70,6 +70,20 @@ installed first. Keep it off until local crash/restart proof and rollout approva
 See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
 [rollout](operations.md#review-reliability-rollout).
 
+`REVIEW_TESTS_EVIDENCE` defaults to `false` and maps to `cfg.review.testsEvidence`.
+It accepts only `true` or `false`. Empty uses the default, and `1`, `yes`, or
+`TRUE` fail startup with `config.invalid_enum`. It is not a `FEATURE_*` mode.
+When it is `true`, each tests coverage-gap `read` path must have a content
+read in the run ledger. Path checks apply either way. A sensitive path is
+rejected even when the pull request changes it.
+
+`REVIEW_CHECK_FAIL_SEVERITY` defaults to `P2` and maps to
+`cfg.review.checkFailSeverity`. Allowed values are `P0`, `P1`, `P2`, and `P3`.
+Open findings at that rank or stricter fail the check. `P3` fails only when
+the threshold is `P3`. An empty string is not the default. It throws
+`config.invalid_enum`. There is no `off` value. See
+[ADR 0058](adr/0058-judgment-owned-severity.md).
+
 Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
 `REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
 `REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
@@ -392,8 +406,10 @@ independently starts `pr-agent/review` as `pending` when status write is availab
 A remote check belongs to `(owner, repo, head SHA, name, external ID)`, with the
 work-item ID as external ID. Duplicate recovery requires exactly one full-identity
 match. Every terminal path uses `reviewVerdict(...).close`.
-Full coverage concludes `failure` for P0–P2 and `success` for empty/P3-only
-findings. Partial coverage uses check `neutral` and status `error`.
+Full coverage concludes `failure` for open findings at or above
+`REVIEW_CHECK_FAIL_SEVERITY` (default `P2`) and `success` when none block.
+`P3` fails only when the threshold is `P3`. Partial coverage uses check
+`neutral` and status `error`.
 Cancellation, supersession, and stale-head replacement use check `cancelled`;
 crash/unpublished uses `action_required`. Their statuses use `error`.
 Commit-status keys remain per state (`review:commit_status:<resource>:<head>:<state>`).
@@ -455,6 +471,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS`                                                                                                          | 2000                                                                                               |
 | `REVIEW_FOLLOW_UP_MAX_CHARS`                                                                                                                       | 2000                                                                                               |
 | `REVIEW_GATE_PROSE_MAX_CHARS`                                                                                                                      | 280 — shared Mergeability and Blast Radius line cap                                                |
+| `REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS`                                                                                                      | 280 — published severity rationale cap, same length as gate prose                                  |
 | `REVIEW_GATE_PROSE_UNASSESSED`                                                                                                                     | `Not assessed.` — deterministic fallback copy when synthesis cannot run                            |
 | `REVIEW_SUMMARY_BODY_MAX_CHARS`                                                                                                                    | 60000                                                                                              |
 | `REVIEW_SUMMARY_COMPACTION_NOTE`                                                                                                                   | Public note when summary is compacted                                                              |
@@ -498,19 +515,19 @@ setting or polling interval.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
-Flat directory of `.mdc` rule files, read from the PR head checkout at review preflight. Parsing, matching, file-count limits, and byte caps apply before the trust decision. When the PR head and base `repo.full_name` values match, matching rules are binding in `Trusted context (repo policy)`. A fork, missing identity, or malformed identity renders matching rules in `Untrusted context (repo policy from PR head)` inside an untrusted wrapper; those bodies are evidence only and cannot define binding review instructions. Forged trusted/binding headers and policy delimiters are neutralized. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
+Reviews bind `.pr-agent/*.mdc` from the pull request's recorded base commit. The workspace snapshot is `ok` when the base blobs passed the per-file cap, `absent` when the read succeeded and the allowlist was empty, or `unavailable` when the base sha was missing or the read failed. The `.mdc` per-file cap is 8192 bytes. The aggregate cap stays 32 KiB, with the existing file-count and frontmatter limits. Head copies are untrusted proposed changes. An over-cap blob is a drop, not a failed snapshot. Invalid policy warns and the review proceeds without binding rules. A failed base read binds nothing.
 
 | Frontmatter / body | Type               | Cap                   | Role                                                                                              |
 | ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `globs`            | string or string[] | 200 chars per pattern | Include rule when a changed file matches; omit with no `alwaysApply` to always apply              |
 | `alwaysApply`      | boolean            | optional              | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
-| body               | markdown           | 1000 chars            | Rule prose injected as trusted same-repo policy or untrusted fork evidence when the rule applies  |
+| body               | markdown           | 1000 chars            | Rule prose from the base snapshot, injected as trusted policy when the rule applies               |
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas. No policy body may suppress, omit, or downgrade findings.
 
 #### Root agent instruction files (`AGENTS.md` / `CLAUDE.md`)
 
-On each review run, the worker statically checks the PR head checkout root for `AGENTS.md` and `CLAUDE.md` (in that order). Present regular files from a same-repository head are loaded into a sibling trusted-context block (`Trusted context (agent instruction files):`); fork, missing, or malformed repository identity uses an untrusted wrapper instead. Separate caps apply from repo policy. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, triage, and verification do not load these files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
+On each review run, the worker loads `AGENTS.md` and `CLAUDE.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
 
 Example:
 

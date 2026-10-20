@@ -8,7 +8,9 @@ history). Amends [ADR 0020](0020-orchestrated-review.md) and
 [ADR 0003](0003-structured-review-output.md) (observations carry `relation`;
 the `declare_duplicate` tool) and
 [ADR 0037](0037-inherit-summary-copy-from-ledger.md) (the findings section and
-the check come from the inventory plus the ledger). Keeps
+the check come from the inventory plus the ledger). Amended by
+[ADR 0058](0058-judgment-owned-severity.md) for the check threshold and the
+upward severity merge. Keeps
 [ADR 0029](0029-triage-resolve-completed-threads.md) and
 [ADR 0015](0015-verification-silent-resolve.md): triage and verification close fixed
 findings; review closes only proven duplicates. Keeps
@@ -61,8 +63,11 @@ the database lost identity.
    and the same normalized title and detail) is dropped before reconciliation.
 4. **The summary and the check cover every open finding.** The lifecycle view
    (`findingLifecycle.ts`) lists this run's findings and carries open threads
-   from earlier runs. The check fails while any open P0–P2 finding exists and
-   is never `success` while the inventory is incomplete. Summary-only rows are
+   from earlier runs. The check fails while any open finding is at or above
+   `REVIEW_CHECK_FAIL_SEVERITY` (default `P2`) and is never `success` while the
+   inventory is incomplete and a finding blocks. Reaffirmation stores the
+   higher of the held severity and this run's capped severity
+   ([ADR 0058](0058-judgment-owned-severity.md)). Summary-only rows are
    carried only until a completed model review does not observe them again.
 5. **Review closes only proven duplicates.** The orchestrator proposes a group
    with `declare_duplicate`; same-ID copies need no proposal. The server

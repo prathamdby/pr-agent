@@ -27,7 +27,7 @@ import {
   type DuplicateCleanupStep,
 } from "../src/review/findingIdentity/duplicateCleanup.ts";
 import {
-  buildFindingView,
+  buildFindingView as buildFindingViewWithThreshold,
   checkConclusion,
   renderFindingsSection,
   renderResolvedThisRun,
@@ -42,6 +42,14 @@ import type {
   ReaffirmedFinding,
 } from "../src/review/orchestrator/orchestratorTypes.ts";
 import type { ReviewFinding } from "../src/review/reviewSchema.ts";
+
+function buildFindingView(
+  inventory: Parameters<typeof buildFindingViewWithThreshold>[0],
+  outcomes: Parameters<typeof buildFindingViewWithThreshold>[1],
+  threshold: ReviewFinding["severity"] = "P2",
+) {
+  return buildFindingViewWithThreshold(inventory, outcomes, threshold);
+}
 
 const BOT = "pr-agent[bot]";
 
@@ -987,6 +995,66 @@ describe("finding lifecycle view", () => {
     expect(lowered.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
   });
 
+  it("keeps a reaffirmed row inside the test-path, tests-lens, and unjudged caps", () => {
+    const testPath = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.test.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+    );
+    expect(testPath.rows).toMatchObject([{ id: A, severity: "P2", blocking: true }]);
+
+    const heldMoved = buildFindingView(
+      inventoryOf([
+        thread({ rootBody: markedBody(A, "P0"), path: "src/a.test.ts", rootCommentId: 11 }),
+        thread({
+          rootBody: markedBody(B, "P0"),
+          path: "src/other.ts",
+          rootCommentId: 12,
+          replies: [
+            {
+              body: renderReceipt({ kind: "duplicate", id: B, canonical: A }),
+              authorLogin: BOT,
+            },
+          ],
+        }),
+      ]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P2", "thread")] }),
+    );
+    expect(heldMoved.rows).toMatchObject([{ id: A, severity: "P2", blocking: true }]);
+
+    const testsLens = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [{ ...reaffirmedThisRun(A, "P0", "thread"), source: "tests" }],
+      }),
+    );
+    expect(testsLens.rows).toMatchObject([{ id: A, severity: "P2" }]);
+
+    const unjudged = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [{ ...reaffirmedThisRun(A, "P0", "thread"), judged: false }],
+      }),
+    );
+    expect(unjudged.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+
+    const raised = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P2") })]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P0", "thread")] }),
+    );
+    expect(raised.rows).toMatchObject([{ id: A, severity: "P0", blocking: true }]);
+  });
+
   it("never counts an unknown severity as blocking", () => {
     const known = heldFinding(inventoryOf([thread({ rootBody: markedBody(A) })]), A);
     const view = buildFindingView(
@@ -995,6 +1063,46 @@ describe("finding lifecycle view", () => {
     );
     expect(view.rows).toMatchObject([{ id: A, severity: "unknown", blocking: false }]);
     expect(checkConclusion(view)).toBe("success");
+    const atP3 = buildFindingView(
+      { ...inventoryOf([]), findings: new Map([[A, { ...known, severity: "unknown" }]]) },
+      reviewed(),
+      "P3",
+    );
+    expect(atP3.rows).toMatchObject([{ id: A, severity: "unknown", blocking: false }]);
+    expect(atP3.blockingCount).toBe(0);
+  });
+
+  it("blocks only severities at or above the configured threshold", () => {
+    const inventory = inventoryOf([
+      thread({ rootBody: markedBody(A, "P2") }),
+      thread({ rootBody: markedBody(B, "P0") }),
+    ]);
+    const atP1 = buildFindingView(inventory, reviewed(), "P1");
+    expect(atP1.rows).toMatchObject([
+      { id: B, severity: "P0", blocking: true },
+      { id: A, severity: "P2", blocking: false },
+    ]);
+    expect(atP1.blockingCount).toBe(1);
+    expect(checkConclusion(atP1)).toBe("failure");
+    const onlyP2 = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P2") })]),
+      reviewed(),
+      "P1",
+    );
+    expect(onlyP2.blockingCount).toBe(0);
+    expect(checkConclusion(onlyP2)).toBe("success");
+    const incompleteP2 = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P2") })], { status: "partial" }),
+      { kind: "not_reviewed" },
+      "P1",
+    );
+    expect(checkConclusion(incompleteP2)).toBe("neutral");
+    const incompleteP0 = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })], { status: "partial" }),
+      { kind: "not_reviewed" },
+      "P1",
+    );
+    expect(checkConclusion(incompleteP0)).toBe("failure");
   });
 
   it("does not list fixed, dismissed, or duplicate threads", () => {

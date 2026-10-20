@@ -106,11 +106,17 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
         currentCoverage = value;
         return;
       }
-      if (value.kind === "partial" && value.reason === "unread") {
-        currentCoverage = { ...value, paths: [...value.paths] };
+      if (value.kind === "none") {
+        currentCoverage = { kind: "none", failed: [...value.failed] };
         return;
       }
-      currentCoverage = { ...value, failed: [...value.failed] };
+      currentCoverage = {
+        kind: "partial",
+        note: value.note,
+        ...(value.failed != null ? { failed: [...value.failed] } : {}),
+        ...(value.paths != null ? { paths: [...value.paths] } : {}),
+        ...(value.unjudged != null ? { unjudged: [...value.unjudged] } : {}),
+      };
     },
     getCoverage: () => currentCoverage,
     setJudgmentDegraded: (value: boolean) => {

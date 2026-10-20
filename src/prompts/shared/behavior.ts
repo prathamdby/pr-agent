@@ -6,6 +6,23 @@ export const outOfScopeFilesGuidance = [
   "Findings belong on files this pull request changes. Generated and vendored trees (`dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs) are not reviewed, because nobody edits them by hand.",
 ].join("\n");
 
+export const SEVERITY_DEFINITIONS = [
+  'P0: a demonstrated, reachable path to a consequential production failure: data loss or corruption, a security breach, a crash or outage, or money movement. The trigger is identified in code read this session, at adequate certainty. A sensitive file name, a missing test, a style or policy issue, or a "could in theory" chain is never P0.',
+  "P1: a high-confidence defect with a concrete trigger and a consequence a caller, user, persisted record, security boundary, or operator can observe.",
+  "P2: a plausible defect with real impact; the trigger path is plausible and the detail states what remains uncertain. P2 is the ceiling for test-gap findings.",
+  "P3: a real, bounded, low-impact defect that meets the causal-publication contract.",
+] as const;
+
+export const severityRubric = [
+  "## Severity",
+  ...SEVERITY_DEFINITIONS.map((line) => `- ${line}`),
+  "An inflated P0 or P1 burns the check's meaning and the author's trust exactly as a missed one loses a defect.",
+].join("\n");
+
+export function severityDefinitionText(): string {
+  return SEVERITY_DEFINITIONS.join(" ");
+}
+
 export const causalPublicationContract = [
   "## Causal-publication contract",
   "A finding describes one atomic problem and contains all of these:",

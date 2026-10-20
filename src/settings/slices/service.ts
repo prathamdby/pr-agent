@@ -41,6 +41,8 @@ export type CodeModeSlice = {
 export type ReviewSlice = {
   readonly specialistTimeoutMs: number;
   readonly recoveryEnabled: boolean;
+  readonly testsEvidence: boolean;
+  readonly checkFailSeverity: "P0" | "P1" | "P2" | "P3";
   readonly maxInlineComments: number;
   readonly maxThreadPublishCalls: number;
 };
@@ -84,6 +86,12 @@ export function readCodeModeSlice(): CodeModeSlice {
 export function readReviewSlice(): ReviewSlice {
   return {
     recoveryEnabled: readStrictBoolean(ENV.REVIEW_RECOVERY_ENABLED, false),
+    testsEvidence: readStrictBoolean(ENV.REVIEW_TESTS_EVIDENCE, false),
+    checkFailSeverity: readEnum(
+      ENV.REVIEW_CHECK_FAIL_SEVERITY,
+      ["P0", "P1", "P2", "P3"] as const,
+      "P2",
+    ),
     specialistTimeoutMs: readPositiveNumber(
       ENV.REVIEW_SPECIALIST_TIMEOUT_MS,
       DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,

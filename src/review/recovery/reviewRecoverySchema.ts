@@ -36,6 +36,7 @@ const reaffirmed = v.strictObject({
   id: findingIdSchema,
   source,
   severity: reviewFindingEntries.severity,
+  judged: v.optional(v.boolean()),
   heldBy: v.picklist(["thread", "summary", "run"]),
   placement,
 });
@@ -52,20 +53,24 @@ export const findingLedgerSnapshotSchema = v.strictObject({
 const coverageSpecialistId = v.picklist(["correctness", "security", "quality", "tests"]);
 const openedPath = v.pipe(v.string(), v.minLength(1), v.maxLength(OPENED_PATH_MAX_CHARS));
 export const UNREAD_COVERAGE_PATH_LIMIT = 500;
+const coverageLensList = v.pipe(v.array(coverageSpecialistId), v.minLength(1));
 export const reviewCoverageSchema = v.union([
   v.strictObject({ kind: v.literal("full") }),
-  v.strictObject({
-    kind: v.literal("partial"),
-    reason: v.literal("specialists"),
-    failed: v.array(coverageSpecialistId),
-    note: v.string(),
-  }),
-  v.strictObject({
-    kind: v.literal("partial"),
-    reason: v.literal("unread"),
-    paths: v.pipe(v.array(openedPath), v.minLength(1), v.maxLength(UNREAD_COVERAGE_PATH_LIMIT)),
-    note: v.string(),
-  }),
+  v.pipe(
+    v.strictObject({
+      kind: v.literal("partial"),
+      failed: v.optional(coverageLensList),
+      paths: v.optional(
+        v.pipe(v.array(openedPath), v.minLength(1), v.maxLength(UNREAD_COVERAGE_PATH_LIMIT)),
+      ),
+      unjudged: v.optional(coverageLensList),
+      note: v.string(),
+    }),
+    v.check(
+      (coverage) => coverage.failed != null || coverage.paths != null || coverage.unjudged != null,
+      "A partial coverage names a failed specialist, an unread path, or an unjudged lens",
+    ),
+  ),
   v.strictObject({
     kind: v.literal("none"),
     failed: v.array(coverageSpecialistId),
@@ -87,6 +92,7 @@ export const canonicalReviewDecisionSchema = v.variant("kind", [
       }),
     ),
     footers: v.array(v.tuple([v.string(), v.array(v.string())])),
+    baseSha: v.optional(v.nullable(v.pipe(v.string(), v.regex(/^[0-9a-f]{40,64}$/)))),
     counts: v.strictObject({ suppressed: count, capDowngraded: count }),
     resultKind: v.picklist(["empty", "budget_exhausted", "remote"]),
     evidence: v.array(evidenceDescriptorSchema),
