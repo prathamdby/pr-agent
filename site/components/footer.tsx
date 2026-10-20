@@ -31,26 +31,28 @@ const AGENT_FILES = AGENT_RESOURCES.filter(
 const linkClassName =
   "inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text";
 
+const legalLinkClassName = "hit-area rounded-xs focus-visible:outline-on-accent hover:underline";
+
 export function UsefulShelfBadge() {
   return (
     <a
       href="https://usefulshelf.co/?utm_source=pr-agent-site.vercel.app&utm_medium=referral&utm_campaign=badge&utm_content=text"
       target="_blank"
       rel="noopener"
-      className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
+      className={legalLinkClassName}
     >
       Featured on UsefulShelf
     </a>
   );
 }
 
-export function Footer() {
+export function Footer({ continuesSky = false }: { continuesSky?: boolean }) {
   const year = new Date().getFullYear();
   return (
-    <footer>
-      <div className="container-x pt-16 pb-6 sm:pt-20">
-        <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
-          <div className="flex flex-col items-start">
+    <footer className={continuesSky ? "sky-fold sky-fold-continued" : "sky-fold"}>
+      <div className="container-x pt-12 pb-5 sm:pt-16 sm:pb-6">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-[minmax(0,4fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
+          <div className="col-span-2 pb-2 sm:col-span-3 lg:col-span-1 lg:pb-0">
             <a href="/" className="inline-flex items-center gap-2.5 rounded-sm text-text">
               <img
                 src="/logo.png"
@@ -61,89 +63,90 @@ export function Footer() {
               />
               <span className="text-ui font-semibold tracking-[-0.01em]">{PRODUCT_NAME}</span>
             </a>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-text-secondary">
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-text-secondary lg:max-w-xs">
               AI pull request reviews on servers you run. MIT licensed, no per-seat fee, your GitHub
               credentials and model keys stay with you.
             </p>
+          </div>
 
-            <ul className="mt-auto flex items-center gap-2 pt-6">
-              {SOCIAL_LINKS.map(({ href, label, Icon }) => (
-                <li key={href}>
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={label}
-                    title={label}
-                    className="grid size-10 place-items-center rounded-sm bg-surface-raised text-text-secondary shadow-ring transition-[color,background-color,scale] duration-[150ms,150ms,200ms] ease-out hover:bg-surface-hover hover:text-text active:scale-[0.97] motion-reduce:transition-none"
-                  >
-                    <Icon className="size-4.5" />
+          <div>
+            <p className="text-sm font-medium text-text">Product</p>
+            <ul className="mt-2 flex flex-col">
+              {PRODUCT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <a href={link.href} className={linkClassName}>
+                    {link.label}
                   </a>
                 </li>
               ))}
             </ul>
           </div>
-
-          <div className="grid gap-10 sm:grid-cols-3">
-            <div>
-              <p className="text-sm font-medium text-text">Product</p>
-              <ul className="mt-3 flex flex-col gap-1">
-                {PRODUCT_LINKS.map((link) => (
-                  <li key={link.href}>
-                    <a href={link.href} className={linkClassName}>
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-text">Documentation</p>
-              <ul className="mt-3 flex flex-col gap-1">
-                {DOC_LINKS.map((doc) => (
-                  <li key={doc.url}>
-                    <a
-                      href={doc.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={linkClassName}
-                    >
-                      {shortTitle(doc.title)}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-text">For agents</p>
-              <ul className="mt-3 flex flex-col gap-1">
-                {AGENT_FILES.map((resource) => (
-                  <li key={resource.path}>
-                    <a
-                      href={resource.path}
-                      title={resource.description}
-                      className={`${linkClassName} font-mono text-label`}
-                    >
-                      {resource.path}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          <div>
+            <p className="text-sm font-medium text-text">For agents</p>
+            <ul className="mt-2 flex flex-col">
+              {AGENT_FILES.map((resource) => (
+                <li key={resource.path}>
+                  <a
+                    href={resource.path}
+                    title={resource.description}
+                    className={`${linkClassName} font-mono text-label`}
+                  >
+                    {resource.path}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="col-span-2 sm:col-span-1">
+            <p className="text-sm font-medium text-text">Documentation</p>
+            <ul className="mt-2 flex flex-col">
+              {DOC_LINKS.map((doc) => (
+                <li key={doc.url}>
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={linkClassName}
+                  >
+                    {shortTitle(doc.title)}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
 
-        <div className="mt-14 flex flex-col gap-4 border-t border-line pt-6 text-label text-text-tertiary sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-24 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-t border-on-accent/40 pt-5 text-label text-on-accent sm:mt-28 lg:justify-start">
           <p className="tabular">
             © {year} {PRODUCT_NAME}. MIT licensed.
           </p>
-          <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span
+            aria-hidden="true"
+            className="hidden h-4 w-px bg-on-accent/40 lg:order-last lg:block"
+          />
+          <ul className="flex items-center gap-3 lg:order-last lg:gap-2.5">
+            {SOCIAL_LINKS.map(({ href, label, Icon }) => (
+              <li key={href}>
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={label}
+                  title={label}
+                  className="grid size-6 place-items-center rounded-xs transition-opacity duration-150 focus-visible:outline-on-accent hover:opacity-75"
+                >
+                  <Icon className="size-5 lg:size-4.5" />
+                </a>
+              </li>
+            ))}
+          </ul>
+          <ul className="flex w-full flex-wrap items-center gap-x-5 gap-y-2 lg:ml-auto lg:w-auto lg:gap-x-6">
             <li>
               <a
                 href={LICENSE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
+                className={legalLinkClassName}
               >
                 License
               </a>
@@ -153,17 +156,13 @@ export function Footer() {
                 href={REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
+                className={legalLinkClassName}
               >
                 GitHub
               </a>
             </li>
             <li>
-              <a
-                href="/llms.txt"
-                title={llmsNudgeTitle()}
-                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
-              >
+              <a href="/llms.txt" title={llmsNudgeTitle()} className={legalLinkClassName}>
                 llms.txt
               </a>
             </li>

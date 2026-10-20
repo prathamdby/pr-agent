@@ -34,7 +34,7 @@ function Home() {
         <Quickstart />
         <CtaBanner />
       </main>
-      <Footer />
+      <Footer continuesSky />
     </>
   );
 }
