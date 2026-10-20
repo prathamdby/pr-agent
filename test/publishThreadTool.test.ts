@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const decisionRows = vi.hoisted(() => ({
-  rows: [] as Array<{ detail?: { severityRaised?: number; severityLowered?: number } }>,
-}));
+const decisionRows = vi.hoisted(() => {
+  const rows: Array<{ detail?: { severityRaised?: number; severityLowered?: number } }> = [];
+  return { rows };
+});
 
 vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
@@ -34,6 +36,7 @@ import {
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import type { PrSurface } from "../src/github/prSurface.ts";
 const emptyInventory = completeFindingInventory();
+const eventPool = new Pool();
 
 let nextReviewId = 100;
 
@@ -72,7 +75,7 @@ function threadSession(
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
     agentEvents: {
-      pool: {} as never,
+      pool: eventPool,
       workItemId: "wi-1",
       installationId: 1,
       owner: "o",
@@ -105,6 +108,10 @@ function buildTool(
 }
 
 describe("buildPublishThreadTool", () => {
+  afterAll(async () => {
+    await eventPool.end();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     nextReviewId = 100;
