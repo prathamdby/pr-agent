@@ -6,6 +6,7 @@ import {
   DISCUSSION_OMISSION_MARKER,
   formatPullRequestDiscussion,
 } from "../src/prompts/shared/context.ts";
+import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../src/settings/index.ts";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.ts";
 import {
   emptyPullRequestDiscussion,
@@ -285,6 +286,111 @@ describe("formatPullRequestDiscussion", () => {
     expect(text).not.toContain("R".repeat(100));
   });
 
+  it("marks the inline or conversation group that contains the triggering comment", () => {
+    const inline = discussionFrom([
+      snapshot({
+        rootCommentId: 11,
+        body: "open finding",
+        author: "bot",
+        path: "a.ts",
+        line: 1,
+        isResolved: false,
+      }),
+      snapshot({
+        rootCommentId: 21,
+        body: "asked here",
+        author: "ada",
+        path: "b.ts",
+        line: 2,
+        isResolved: false,
+        extra: [
+          {
+            databaseId: 22,
+            authorLogin: "ada",
+            body: "follow-up on the inline thread",
+            createdAt: "2026-01-02T00:00:00Z",
+            updatedAt: "2026-01-02T00:00:00Z",
+            url: "https://github.test/thread/22",
+          },
+        ],
+      }),
+    ]);
+    const markedInline = formatPullRequestDiscussion(inline, {
+      kind: "inline",
+      commentId: 22,
+    });
+    expect(markedInline).toMatch(/root=21 .* trigger/);
+    expect(markedInline).not.toMatch(/root=11 .* trigger/);
+    const otherInline = formatPullRequestDiscussion(inline, { kind: "inline", commentId: 99 });
+    expect(otherInline).not.toContain(" trigger");
+
+    const conversation: PullRequestDiscussion = {
+      reviewThreads: { byRootCommentId: new Map(), threads: [], status: "ok" },
+      conversation: {
+        loaded: true,
+        truncated: false,
+        comments: [],
+        groups: [
+          [{ id: 80, inReplyToId: null, authorLogin: "ada", body: "unrelated note" }],
+          [
+            { id: 90, inReplyToId: null, authorLogin: "ada", body: "question root" },
+            { id: 91, inReplyToId: 90, authorLogin: "ada", body: "question follow-up" },
+          ],
+        ],
+      },
+    };
+    const markedConversation = formatPullRequestDiscussion(conversation, {
+      kind: "conversation",
+      commentId: 91,
+    });
+    expect(markedConversation).toMatch(/root=90 .* trigger/);
+    expect(markedConversation).not.toMatch(/root=80 .* trigger/);
+    const otherConversation = formatPullRequestDiscussion(conversation, {
+      kind: "conversation",
+      commentId: 1,
+    });
+    expect(otherConversation).not.toContain(" trigger");
+  });
+
+  it("stops identity lines in read order when the next line would pass the ceiling", () => {
+    const discussion = discussionFrom([
+      snapshot({
+        rootCommentId: 11,
+        body: "earlier thread",
+        author: "ada",
+        path: "a.ts",
+        line: 1,
+        isResolved: true,
+      }),
+      snapshot({
+        rootCommentId: 91,
+        body: "trigger thread",
+        author: "ada",
+        path: "b.ts",
+        line: 2,
+        isResolved: false,
+      }),
+    ]);
+    const roomy = formatPullRequestDiscussion(
+      discussion,
+      { kind: "inline", commentId: 91 },
+      MAX_ASK_THREAD_TRANSCRIPT_CHARS,
+    );
+    const earlier = roomy.split("\n").find((line) => line.startsWith("root=11 ")) ?? "";
+    const trigger = roomy.split("\n").find((line) => line.startsWith("root=91 ")) ?? "";
+    expect(earlier.length).toBeGreaterThan(0);
+    expect(trigger).toContain("trigger");
+    const text = formatPullRequestDiscussion(
+      discussion,
+      { kind: "inline", commentId: 91 },
+      earlier.length + trigger.length,
+    );
+    expect(text).toContain("root=11 ");
+    expect(text).toContain(DISCUSSION_INCOMPLETE_NOTICE);
+    expect(text).not.toContain("root=91 ");
+    expect(text).not.toContain(" trigger");
+  });
+
   it("prints a review-thread warning and the incomplete notice without dropping the snapshot", () => {
     const warning = "GitHub App lacks review thread permission.";
     const text = formatPullRequestDiscussion({
@@ -308,6 +414,23 @@ describe("formatPullRequestDiscussion", () => {
     expect(text).toContain(warning);
     expect(text).toContain(DISCUSSION_INCOMPLETE_NOTICE);
     expect(text).toContain("Partial snapshot body");
+  });
+
+  it("does not describe a denied empty review-thread read as an empty list", () => {
+    const warning = "reviewThreads GraphQL failed; continuing without thread-resolution data.";
+    const text = formatPullRequestDiscussion({
+      reviewThreads: {
+        byRootCommentId: new Map(),
+        threads: [],
+        status: "permission_denied",
+        warning,
+      },
+      conversation: { loaded: true, comments: [], groups: [], truncated: false },
+    });
+    expect(text).toContain(warning);
+    expect(text).toContain(DISCUSSION_INCOMPLETE_NOTICE);
+    expect(text).not.toContain("Inline review threads:\nnone");
+    expect(text).toContain("Conversation:\nnone");
   });
 
   it("says the conversation was not loaded and still renders review threads", () => {

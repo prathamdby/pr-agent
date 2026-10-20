@@ -210,10 +210,9 @@ export function formatPullRequestDiscussion(
   if (maxChars <= 0) return "";
   const review = discussion.reviewThreads;
   const conversation = discussion.conversation;
+  const reviewFailed = review.status !== "ok";
   const knownIncomplete =
-    review.truncated === true ||
-    review.status === "partial" ||
-    (conversation.loaded && conversation.truncated);
+    review.truncated === true || reviewFailed || (conversation.loaded && conversation.truncated);
   const prefix: string[] = [];
   if (review.status !== "ok" && review.warning != null && review.warning.length > 0) {
     prefix.push(review.warning);
@@ -225,7 +224,7 @@ export function formatPullRequestDiscussion(
     const lines = [...prefix];
     if (showNotice) lines.push(DISCUSSION_INCOMPLETE_NOTICE);
     lines.push(INLINE_HEADER);
-    if (review.threads.length === 0) lines.push("none");
+    if (review.threads.length === 0 && !reviewFailed) lines.push("none");
     lines.push(CONVERSATION_HEADER);
     if (conversation.loaded && conversation.groups.length === 0) lines.push("none");
     return lines;
@@ -272,7 +271,7 @@ export function formatPullRequestDiscussion(
   const lines = [...prefix];
   if (showNotice) lines.push(DISCUSSION_INCOMPLETE_NOTICE);
   lines.push(INLINE_HEADER);
-  if (review.threads.length === 0) lines.push("none");
+  if (review.threads.length === 0 && !reviewFailed) lines.push("none");
   else {
     for (const item of namedInline) {
       lines.push(item.identity);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  commentThreadGroups,
   commentsInThread,
   type ThreadComment,
 } from "../src/agent/discussion/pullRequestDiscussion.ts";
@@ -32,5 +33,22 @@ describe("commentsInThread", () => {
   it("treats self-referencing inReplyToId as the thread root", () => {
     const all = [comment(5, 5, "x", "self-ref"), comment(6, 5, "y", "child")];
     expect(commentsInThread(all, 6).map((entry) => entry.id)).toEqual([5, 6]);
+  });
+});
+
+describe("commentThreadGroups", () => {
+  it("groups a reply cycle, a self-reply, and a missing parent by root id", () => {
+    const all = [
+      comment(1, 2, "a", "cycle"),
+      comment(2, 1, "b", "cycle back"),
+      comment(5, 5, "x", "self-ref"),
+      comment(6, 5, "y", "child"),
+      comment(8, 99, "z", "missing parent"),
+    ];
+    expect(commentThreadGroups(all).map((group) => group.map((entry) => entry.id))).toEqual([
+      [1, 2],
+      [5, 6],
+      [8],
+    ]);
   });
 });
