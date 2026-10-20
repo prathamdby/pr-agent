@@ -17,6 +17,7 @@ import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.ts";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.ts";
+import { testsFindingError } from "./testsEvidence.ts";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.ts";
 import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
@@ -168,6 +169,18 @@ function buildSubmitTool(
     if (!parsed.ok) {
       state.validationError = parsed.error;
       return { accepted: false, error: state.validationError };
+    }
+
+    const testsError = testsFindingError({
+      specialist: params.specialist,
+      findings: parsed.value.findings,
+      cwd: params.cwd,
+      ledger: evidence?.ledger,
+      requireContentRead: params.cfg.review.testsEvidence,
+    });
+    if (testsError != null) {
+      state.validationError = testsError;
+      return { accepted: false, error: testsError };
     }
 
     let report = parsed.value;

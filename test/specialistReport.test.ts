@@ -49,6 +49,51 @@ describe("specialistReportSchema", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("accepts a finding that omits testsClaim and testEvidence", () => {
+    const parsed = v.safeParse(specialistReportSchema, {
+      status: "findings",
+      findings: [
+        {
+          suggestedSeverity: "P2",
+          file: "src/app.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Handle the failed request",
+          detail: "The request failure reaches this path without recovery.",
+          fixPrompt: "Handle the failure before returning.",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects a testEvidence object with an unknown field", () => {
+    const parsed = v.safeParse(specialistReportSchema, {
+      status: "findings",
+      findings: [
+        {
+          suggestedSeverity: "P1",
+          file: "src/app.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Cover the empty cart",
+          detail: "An empty cart skips the total check.",
+          fixPrompt: "Assert the empty cart total stays zero.",
+          testsClaim: "coverage_gap",
+          testEvidence: {
+            searched: ["cart total"],
+            read: [],
+            gap: "No candidate test was found.",
+            extra: true,
+          },
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
   it("rejects more than 20 findings", () => {
     const findings = Array.from({ length: 21 }, (_, index) => ({
       suggestedSeverity: "P2",

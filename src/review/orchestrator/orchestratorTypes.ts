@@ -87,6 +87,7 @@ export type OrchestratedRunState = {
   readonly outcomes: Partial<Record<SpecialistId, SpecialistOutcome>>;
   readonly completionOrder: SpecialistId[];
   readonly failedSpecialists: SpecialistId[];
+  readonly unjudgedSpecialists: SpecialistId[];
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;
@@ -156,17 +157,20 @@ export type ReviewCoverage =
   | { readonly kind: "full" }
   | {
       readonly kind: "partial";
-      readonly reason: "specialists";
-      readonly failed: readonly SpecialistId[];
-      readonly note: string;
-    }
-  | {
-      readonly kind: "partial";
-      readonly reason: "unread";
-      readonly paths: readonly string[];
+      readonly failed?: readonly SpecialistId[];
+      readonly paths?: readonly string[];
+      readonly unjudged?: readonly SpecialistId[];
       readonly note: string;
     }
   | { readonly kind: "none"; readonly failed: readonly SpecialistId[] };
+
+export function decidingCoverageReason(
+  coverage: Extract<ReviewCoverage, { readonly kind: "partial" }>,
+): "unjudged" | "specialists" | "unread" {
+  if ((coverage.unjudged?.length ?? 0) > 0) return "unjudged";
+  if ((coverage.failed?.length ?? 0) > 0) return "specialists";
+  return "unread";
+}
 
 export function createFindingLedger(initial?: {
   readonly accepted?: readonly AcceptedPlacement[];

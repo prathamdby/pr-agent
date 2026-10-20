@@ -9,7 +9,8 @@ import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
-import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.ts";
+import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
+import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 type AttemptBehavior =
   | { readonly kind: "report"; readonly report: Record<string, unknown> }
@@ -85,7 +86,30 @@ const agentEventsContext = {
 };
 
 const findingsReport = { status: "findings", findings: [finding] } as const;
+const testsFindingsReport = {
+  status: "findings",
+  findings: [{ ...finding, testsClaim: "invalidated_test" }],
+} as const;
 const emptyReport = { status: "no_findings", findings: [] } as const;
+
+function coverageGapReport(overrides: Record<string, unknown> = {}) {
+  return {
+    status: "findings",
+    findings: [
+      {
+        ...finding,
+        suggestedSeverity: "P1",
+        testsClaim: "coverage_gap",
+        testEvidence: {
+          searched: ["payment total"],
+          read: [] as string[],
+          gap: NO_CANDIDATE_TEST_GAP,
+        },
+        ...overrides,
+      },
+    ],
+  };
+}
 
 function specialistArgs(overrides: Partial<Parameters<typeof runSpecialist>[0]> = {}) {
   return {
@@ -164,7 +188,8 @@ describe("runSpecialist", () => {
   ] as const)(
     "returns a valid %s findings report with its prompt",
     async (specialist, systemPrompt) => {
-      runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+      const report = specialist === "tests" ? testsFindingsReport : findingsReport;
+      runnerMocks.behaviors.push({ kind: "report", report });
 
       const outcome = await runSpecialist(specialistArgs({ specialist }));
       expect(runnerMocks.createSession).toHaveBeenCalledWith(
@@ -174,7 +199,7 @@ describe("runSpecialist", () => {
       expect(outcome).toMatchObject({
         kind: "report",
         specialist,
-        report: findingsReport,
+        report,
         durationMs: expect.any(Number),
       });
       expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
@@ -338,6 +363,187 @@ describe("runSpecialist", () => {
       specialist: "correctness",
       durationMs: expect.any(Number),
     });
+  });
+
+  it("keeps the tests prompt on the coverage-gap ceiling and the vacuous exclusions", () => {
+    expect(automatedReviewTestsSystemPrompt).toContain(NO_CANDIDATE_TEST_GAP);
+    expect(automatedReviewTestsSystemPrompt).toContain("coverage_gap");
+    expect(automatedReviewTestsSystemPrompt).toContain("invalidated_test");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "still passes if every imported function returned undefined",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain("P2 is the ceiling for test-gap findings");
+    expect(automatedReviewTestsSystemPrompt).toContain("criticalPath");
+  });
+
+  async function rejectedTestsReport(report: Record<string, unknown>, cfg = makeTestConfig()) {
+    runnerMocks.behaviors.push({ kind: "report", report }, { kind: "report", report });
+    const outcome = await runSpecialist(
+      specialistArgs({
+        specialist: "tests",
+        cfg,
+        evidenceLedger: cfg.review.testsEvidence ? createTestEvidenceLedger() : undefined,
+        headSha: cfg.review.testsEvidence ? "abc1234" : undefined,
+      }),
+    );
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind !== "error") return outcome;
+    expect(outcome.error.cause).toMatchObject({ kind: "specialist_invalid_report" });
+    const repairPrompt = String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0]);
+    expect(repairPrompt).toContain("Fix the report and call submit_findings_report");
+    expect(repairPrompt).not.toContain("were dropped");
+    return outcome;
+  }
+
+  it("rejects a coverage gap whose read path was only opened", async () => {
+    const ledger = createTestEvidenceLedger();
+    ledger.noteOpened("test/pay.test.ts");
+    seedEvidenceForFinding(ledger, finding);
+    const report = coverageGapReport({
+      testEvidence: {
+        searched: ["payment total"],
+        read: ["test/pay.test.ts"],
+        gap: "The zero-total branch is unread.",
+        criticalPath: "money",
+      },
+    });
+    runnerMocks.behaviors.push({ kind: "report", report }, { kind: "report", report });
+
+    const outcome = await runSpecialist(
+      specialistArgs({
+        specialist: "tests",
+        cfg: makeTestConfig({ review: { testsEvidence: true } }),
+        evidenceLedger: ledger,
+        headSha: ledger.headSha,
+      }),
+    );
+
+    expect(outcome.kind).toBe("error");
+    if (outcome.kind !== "error") return;
+    expect(outcome.error.cause).toMatchObject({ kind: "specialist_invalid_report" });
+    expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain("no content read");
+    expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).not.toContain("were dropped");
+  });
+
+  it("rejects a coverage-gap path outside the workspace and a sensitive path", async () => {
+    const outside = await rejectedTestsReport(
+      coverageGapReport({
+        testEvidence: {
+          searched: ["payment total"],
+          read: ["../secret.txt"],
+          gap: "The neighbor is outside the checkout.",
+        },
+      }),
+    );
+    expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain(
+      "outside the workspace",
+    );
+    expect(outside.kind).toBe("error");
+
+    runnerMocks.behaviors.length = 0;
+    runnerMocks.sessions.length = 0;
+    const sensitive = await rejectedTestsReport(
+      coverageGapReport({
+        testEvidence: {
+          searched: ["payment total"],
+          read: [".env"],
+          gap: "The neighbor is a secret file.",
+        },
+      }),
+    );
+    expect(String(runnerMocks.sessions.at(-1)?.send.mock.calls[1]?.[0])).toContain("sensitive");
+    expect(sensitive.kind).toBe("error");
+  });
+
+  it("rejects a pure coverage-gap P0 and accepts the two P0 shapes", async () => {
+    const illegal = await rejectedTestsReport(
+      coverageGapReport({
+        suggestedSeverity: "P0",
+        testEvidence: {
+          searched: ["payment total"],
+          read: [],
+          gap: NO_CANDIDATE_TEST_GAP,
+        },
+      }),
+    );
+    expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain("ceiling P1");
+    expect(illegal.kind).toBe("error");
+
+    runnerMocks.behaviors.length = 0;
+    runnerMocks.sessions.length = 0;
+    const emptyRead = coverageGapReport({
+      suggestedSeverity: "P0",
+      testEvidence: {
+        searched: ["payment total"],
+        read: [],
+        gap: NO_CANDIDATE_TEST_GAP,
+        criticalPath: "money",
+      },
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: emptyRead });
+    await expect(runSpecialist(specialistArgs({ specialist: "tests" }))).resolves.toMatchObject({
+      kind: "report",
+      specialist: "tests",
+      report: emptyRead,
+    });
+
+    const ledger = createTestEvidenceLedger();
+    seedEvidenceForFinding(ledger, finding);
+    seedEvidenceForFinding(ledger, {
+      file: "test/pay.test.ts",
+      startLine: 1,
+      endLine: 1,
+    });
+    const neighbor = coverageGapReport({
+      suggestedSeverity: "P0",
+      testEvidence: {
+        searched: ["payment total"],
+        read: ["test/pay.test.ts"],
+        gap: "The zero-total branch has no assertion.",
+        criticalPath: "data_integrity",
+      },
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: neighbor });
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          specialist: "tests",
+          cfg: makeTestConfig({ review: { testsEvidence: true } }),
+          evidenceLedger: ledger,
+          headSha: ledger.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "report", report: neighbor });
+  });
+
+  it("accepts an invalidated test without testEvidence and a never-read path when the flag is off", async () => {
+    runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
+    await expect(runSpecialist(specialistArgs({ specialist: "tests" }))).resolves.toMatchObject({
+      kind: "report",
+      report: testsFindingsReport,
+    });
+
+    const ledger = createTestEvidenceLedger();
+    seedEvidenceForFinding(ledger, finding);
+    ledger.noteOpened("test/pay.test.ts");
+    const unread = coverageGapReport({
+      suggestedSeverity: "P1",
+      testEvidence: {
+        searched: ["payment total"],
+        read: ["test/pay.test.ts"],
+        gap: "The zero-total branch has no assertion.",
+      },
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: unread });
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          specialist: "tests",
+          evidenceLedger: ledger,
+          headSha: ledger.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "report", report: unread });
   });
 
   it("keeps the evidence gate authoritative over an otherwise valid report", async () => {

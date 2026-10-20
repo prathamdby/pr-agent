@@ -5,6 +5,7 @@ import type {
 } from "./orchestratorTypes.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
 import type { SpecialistReport } from "./specialistReport.ts";
+import { candidateFindingId, type AwaitingCandidate } from "./judgmentDisposition.ts";
 
 type ReportOutcome = {
   readonly specialist: SpecialistId;
@@ -27,9 +28,16 @@ function samePublishedFinding(
 export function slimAcceptedFindings(
   outcome: ReportOutcome,
   ledger: FindingLedger,
-): { readonly json: string; readonly count: number } {
+): {
+  readonly json: string;
+  readonly count: number;
+  readonly awaiting: readonly AwaitingCandidate[];
+} {
   const findings = outcome.report.findings;
-  if (findings.length === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
+  const awaiting: AwaitingCandidate[] = [];
+  if (findings.length === 0) {
+    return { json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting };
+  }
   const published = ledger.accepted.filter(
     (placement) => placement.kind === "posted" || placement.kind === "resumed",
   );
@@ -39,7 +47,10 @@ export function slimAcceptedFindings(
       const match = published.find((placement) =>
         samePublishedFinding(placement.placement.finding, finding),
       );
-      if (match == null) return finding;
+      if (match == null) {
+        awaiting.push(candidateFindingIdStamp(outcome.specialist, finding));
+        return finding;
+      }
       count += 1;
       return {
         findingId: match.findingId,
@@ -49,6 +60,23 @@ export function slimAcceptedFindings(
         title: finding.title,
       };
     });
-  if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
-  return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
+  if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting };
+  return {
+    json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2),
+    count,
+    awaiting,
+  };
+}
+
+function candidateFindingIdStamp(
+  specialist: SpecialistId,
+  finding: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title">,
+): AwaitingCandidate {
+  return {
+    candidateId: candidateFindingId({ specialist, ...finding }),
+    file: finding.file,
+    startLine: finding.startLine,
+    endLine: finding.endLine,
+    title: finding.title,
+  };
 }

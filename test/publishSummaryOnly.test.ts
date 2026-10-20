@@ -219,8 +219,8 @@ describe("publishReviewSummaryOnly", () => {
         ledger,
         coverage: {
           kind: "partial",
-          reason: "specialists",
           failed: ["tests"],
+          unjudged: ["quality"],
           note: "Partial coverage",
         },
       }),
@@ -237,12 +237,15 @@ describe("publishReviewSummaryOnly", () => {
           threadBudgetExhausted: true,
           accepted: [expect.objectContaining({ reason: "budget" })],
         },
-        coverage: { kind: "partial", failed: ["tests"] },
+        coverage: { kind: "partial", failed: ["tests"], unjudged: ["quality"] },
       },
     });
     expect(parseReviewArtifactEnvelope(rows.get("decision/0/settled"))?.artifact).toMatchObject({
       remote: { githubId: 2 },
     });
+    const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
+    expect(summaryBody).toContain("Judgment did not finish for quality.");
+    expect(summaryBody).toContain("All specialists ran except tests, not judged: quality.");
   });
 
   it("links placements to comments from every inline review batch", async () => {
@@ -297,7 +300,6 @@ describe("publishReviewSummaryOnly", () => {
       ledger,
       coverage: {
         kind: "partial",
-        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },
@@ -413,7 +415,6 @@ describe("publishReviewSummaryOnly", () => {
       recordPublishStep,
       coverage: {
         kind: "partial",
-        reason: "specialists",
         failed: ["security"],
         note: "Coverage partial: security specialist failed.",
       },

@@ -23,6 +23,8 @@ import {
 import { specialistInvestigationHarness } from "../shared/tools.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 
+export const NO_CANDIDATE_TEST_GAP = "No candidate test was found.";
+
 export const automatedReviewTestsSystemPrompt = [
   "You are the tests specialist investigator for this pull request. Think in failure modes: for each changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it. The testing posture below decides whether this project wants test suggestions at all.",
   "",
@@ -75,7 +77,24 @@ export const automatedReviewTestsSystemPrompt = [
   "- Existing tests the change silently invalidates or weakens (project-tests posture only).",
   "- A regression test for any bug the PR claims to fix.",
   "",
+  "## Coverage claims",
+  "",
+  "Search the checkout, then read the candidate test, before a coverage-gap finding.",
+  "Set testsClaim on every finding.",
+  "- coverage_gap names a missing test and includes testEvidence.",
+  "- invalidated_test names an existing test the change silently invalidates or weakens. It may omit testEvidence. A present testEvidence object does not make it a coverage gap and does not use the coverage-gap ceiling.",
+  "testEvidence is closed:",
+  "- searched is one to eight queries from this session.",
+  "- read is zero to sixteen workspace-relative paths. Leave it empty only when no candidate test exists.",
+  `- When read is empty, gap is exactly "${NO_CANDIDATE_TEST_GAP}"`,
+  "- When read is not empty, gap names the input, state, or branch those reads miss, and it is not that sentence.",
+  "- criticalPath is optional and is money, data_integrity, or correctness when the untested neighbor is on that path.",
+  "suggestedSeverity P0 is valid only for a coverage gap that sets criticalPath and uses one of those two evidence shapes. A coverage gap without criticalPath uses P1, P2, or P3.",
+  "A coverage-gap detail states the queries, the paths read, and the missed neighbor.",
+  "",
   severityRubric,
+  "",
+  "For a coverage_gap finding, the shared line that a missing test is never P0 does not apply, and the shared P2 test-gap ceiling does not apply. P0 is allowed only for the two evidence shapes above when criticalPath is set. A coverage gap without criticalPath stays at P1 or below. Other tests findings stay at the shared P2 ceiling.",
   "",
   "Correctness bugs, security vulnerabilities, and maintainability issues belong to the correctness, security, and quality specialists, which review the same pull request in parallel.",
   "",

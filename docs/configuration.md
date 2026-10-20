@@ -70,6 +70,13 @@ installed first. Keep it off until local crash/restart proof and rollout approva
 See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
 [rollout](operations.md#review-reliability-rollout).
 
+`REVIEW_TESTS_EVIDENCE` defaults to `false` and maps to `cfg.review.testsEvidence`.
+It accepts only `true` or `false`. Empty uses the default, and `1`, `yes`, or
+`TRUE` fail startup with `config.invalid_enum`. It is not a `FEATURE_*` mode.
+When it is `true`, each tests coverage-gap `read` path must have a content
+read in the run ledger. Path checks apply either way. A sensitive path is
+rejected even when the pull request changes it.
+
 `REVIEW_CHECK_FAIL_SEVERITY` defaults to `P2` and maps to
 `cfg.review.checkFailSeverity`. Allowed values are `P0`, `P1`, `P2`, and `P3`.
 Open findings at that rank or stricter fail the check. `P3` fails only when

@@ -17,6 +17,7 @@ import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceL
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
+  readonly trustedContext: string;
   readonly workspaceTools: {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
@@ -123,6 +124,7 @@ export function buildReviewRunSetup(params: {
       userSupplement,
       trustedContext,
     }),
+    trustedContext: trustedContext ?? "",
     workspaceTools,
     disposeSpillFiles: localTools.disposeSpillFiles,
     cachedDiffIndex,

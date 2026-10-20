@@ -213,10 +213,14 @@ export function cappedFindingSeverity(params: {
   readonly testsLens: boolean;
   readonly anchorPath: string;
   readonly judged: boolean;
+  readonly coverageGap?: boolean;
 }): ReviewFinding["severity"] {
   let rank: SeverityRank = REVIEW_SEVERITY_RANK[params.severity];
-  if (params.testsLens) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
-  if (REVIEW_RISK_PATH_PATTERNS.test.some((pattern) => pattern.test(params.anchorPath))) {
+  if (!params.coverageGap && params.testsLens) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
+  if (
+    !params.coverageGap &&
+    REVIEW_RISK_PATH_PATTERNS.test.some((pattern) => pattern.test(params.anchorPath))
+  ) {
     rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
   }
   if (!params.judged) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P1);

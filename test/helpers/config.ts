@@ -45,6 +45,7 @@ const baseTestConfig: Config = {
   review: {
     specialistTimeoutMs: 900_000,
     recoveryEnabled: false,
+    testsEvidence: false,
     checkFailSeverity: "P2",
     maxInlineComments: 50,
     maxThreadPublishCalls: 8,

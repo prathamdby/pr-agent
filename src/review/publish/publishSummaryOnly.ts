@@ -18,9 +18,10 @@ import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrReviewComment } from "../../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
-import { noteListsUnreadFiles } from "../findings/evidenceLedger.ts";
 import {
   carriedReaffirmedFindings,
+  createFindingLedger,
+  decidingCoverageReason,
   type AcceptedPlacement,
   type FindingLedger,
   type ReaffirmedFinding,
@@ -33,7 +34,11 @@ import {
   reviewLabelsFromPayload,
   syncReviewLabels,
 } from "../run/reviewLabels.ts";
-import { renderReviewSummaryComment, type SummaryPlacement } from "../run/reviewRender.ts";
+import {
+  renderReviewSummaryComment,
+  type ReviewActionLineCoverage,
+  type SummaryPlacement,
+} from "../run/reviewRender.ts";
 import { resolveReviewWallClockMs } from "../run/reviewRunFooter.ts";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.ts";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.ts";
@@ -43,7 +48,6 @@ import { errorMessage } from "../../errors/errorMessage.ts";
 import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
-import { createFindingLedger } from "../orchestrator/orchestratorTypes.ts";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
 import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 import {
@@ -59,6 +63,32 @@ export type PublishSummaryOnlyResult =
       readonly check: FindingCheck;
     }
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
+
+function persistedCoverage(coverage: ReviewCoverage) {
+  if (coverage.kind === "full") return { kind: "full" as const };
+  if (coverage.kind === "none") return { kind: "none" as const, failed: [...coverage.failed] };
+  return {
+    kind: "partial" as const,
+    note: coverage.note,
+    ...(coverage.failed != null ? { failed: [...coverage.failed] } : {}),
+    ...(coverage.paths != null ? { paths: [...coverage.paths] } : {}),
+    ...(coverage.unjudged != null ? { unjudged: [...coverage.unjudged] } : {}),
+  };
+}
+
+function actionLineCoverage(
+  coverage: Exclude<ReviewCoverage, { readonly kind: "none" }>,
+): ReviewActionLineCoverage {
+  if (coverage.kind === "full") return { kind: "full", failed: [] };
+  return {
+    kind: "partial",
+    failed: coverage.failed ?? [],
+    ...((coverage.paths?.length ?? 0) > 0 ? { unread: true as const } : {}),
+    ...(coverage.unjudged != null && coverage.unjudged.length > 0
+      ? { unjudged: [...coverage.unjudged] }
+      : {}),
+  };
+}
 
 export async function publishReviewSummaryOnly(
   session: ReviewPublishSession,
@@ -116,9 +146,9 @@ export async function publishReviewSummaryOnly(
   const check = findingCheck(findingView);
   const startedAt = Date.now();
   const closeOutcome = closeOutcomeForCoverage(coverage, check);
-  if (coverage.kind === "partial" && coverage.reason === "unread") {
+  if (coverage.kind === "partial" && (coverage.paths?.length ?? 0) > 0) {
     logWarn("review_unread_changed_files", {
-      count: coverage.paths.length,
+      count: coverage.paths?.length ?? 0,
       owner: session.ctx.owner,
       repo: session.ctx.repo,
       pr: session.ctx.prNumber,
@@ -200,18 +230,7 @@ export async function publishReviewSummaryOnly(
     cachedDiffIndex: session.cachedDiffIndex,
     ciSummary,
     ciVersion: renderedCi.version,
-    coverage:
-      coverage.kind === "partial" && coverage.reason === "unread"
-        ? { kind: "partial", failed: [], unread: true }
-        : coverage.kind === "full"
-          ? { kind: "full", failed: [] }
-          : {
-              kind: coverage.kind,
-              failed: coverage.failed,
-              ...(coverage.kind === "partial" && noteListsUnreadFiles(coverage.note)
-                ? { unread: true as const }
-                : {}),
-            },
+    coverage: actionLineCoverage(coverage),
     runFooter: {
       durationMs,
       model: session.cfg.models.model,
@@ -252,22 +271,7 @@ export async function publishReviewSummaryOnly(
   const inputs = saved?.inputs ?? {
     kind: "summary" as const,
     ledger: snapshotFindingLedger(input.ledger),
-    coverage:
-      coverage.kind === "full"
-        ? coverage
-        : coverage.reason === "unread"
-          ? {
-              kind: "partial" as const,
-              reason: "unread" as const,
-              paths: [...coverage.paths],
-              note: coverage.note,
-            }
-          : {
-              kind: "partial" as const,
-              reason: "specialists" as const,
-              failed: [...coverage.failed],
-              note: coverage.note,
-            },
+    coverage: persistedCoverage(coverage),
     staleReview: input.staleReview ?? false,
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
     briefFallback: session.recovery?.getBriefFallback() ?? false,
@@ -350,7 +354,7 @@ export async function publishReviewSummaryOnly(
         kind: closeOutcome.kind === "partial" ? "partial" : "published",
         note: closeOutcome.kind === "partial" ? closeOutcome.note : undefined,
         conclusion: check.conclusion,
-        partialReason: coverage.kind === "partial" ? coverage.reason : undefined,
+        partialReason: coverage.kind === "partial" ? decidingCoverageReason(coverage) : undefined,
         blockingCount: check.blockingCount,
         checkFailSeverity: session.cfg.review.checkFailSeverity,
       }),

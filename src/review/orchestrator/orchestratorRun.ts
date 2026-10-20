@@ -33,7 +33,7 @@ import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.ts";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.ts";
 import { recordedPolicyBaseSha, reviewPolicySummaryAlert } from "../policySnapshotUse.ts";
 import { createReviewPublishSession } from "../publish/reviewPublishSession.ts";
-import { cappedFindingSeverity, reviewPayloadFromFindings } from "../reviewSchema.ts";
+import { reviewPayloadFromFindings } from "../reviewSchema.ts";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.ts";
 import {
   initReviewRunMetrics,
@@ -47,6 +47,7 @@ import { buildReviewRunSetup } from "../run/reviewRunSetup.ts";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.ts";
 import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.ts";
 import {
+  appendTrustedSpecialistContext,
   renderBriefMessage,
   orchestratorSystemPrompt,
   renderJudgmentTurn,
@@ -61,6 +62,7 @@ import {
 } from "../../prompts/orchestrator/prompt.ts";
 import { pumpSpecialistCompletions } from "./completionPump.ts";
 import {
+  countAcceptedForSource,
   createFindingLedger,
   ledgerFindings,
   SPECIALIST_IDS,
@@ -183,6 +185,7 @@ function initialState(): OrchestratedRunState {
     outcomes: {},
     completionOrder: [],
     failedSpecialists: [],
+    unjudgedSpecialists: [],
     briefFallback: false,
     judgment: "model",
     lifecycle: { kind: "running" },
@@ -243,35 +246,35 @@ function loadReviewFindingInventory(
 export function reviewRunCoverage(
   failedSpecialists: readonly SpecialistId[],
   unreadPaths: readonly string[],
+  unjudgedSpecialists: readonly SpecialistId[] = [],
 ): ReviewCoverage {
   const failed = [...failedSpecialists];
   if (failed.length === SPECIALIST_IDS.length) return { kind: "none", failed };
+  const paths: string[] = [];
+  for (const path of unreadPaths) {
+    const bounded = path.slice(0, OPENED_PATH_MAX_CHARS);
+    if (bounded.length === 0) continue;
+    paths.push(bounded);
+    if (paths.length === UNREAD_COVERAGE_PATH_LIMIT) break;
+  }
+  const unjudged = [...unjudgedSpecialists];
+  if (failed.length === 0 && paths.length === 0 && unjudged.length === 0) return { kind: "full" };
+  const sentences: string[] = [];
   if (failed.length > 0) {
     const names = failed.join(", ");
-    const unread = unreadPaths.length > 0 ? ` ${unreadChangedFilesNote(unreadPaths)}` : "";
-    return {
-      kind: "partial",
-      reason: "specialists",
-      failed,
-      note: `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.${unread}`,
-    };
+    sentences.push(
+      `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
+    );
   }
-  if (unreadPaths.length > 0) {
-    const paths: string[] = [];
-    for (const path of unreadPaths) {
-      const bounded = path.slice(0, OPENED_PATH_MAX_CHARS);
-      if (bounded.length === 0) continue;
-      paths.push(bounded);
-      if (paths.length === UNREAD_COVERAGE_PATH_LIMIT) break;
-    }
-    return {
-      kind: "partial",
-      reason: "unread",
-      paths,
-      note: unreadChangedFilesNote(unreadPaths),
-    };
-  }
-  return { kind: "full" };
+  if (paths.length > 0) sentences.push(unreadChangedFilesNote(unreadPaths));
+  if (unjudged.length > 0) sentences.push(`Not judged: ${unjudged.join(", ")}.`);
+  return {
+    kind: "partial",
+    note: sentences.join(" "),
+    ...(failed.length > 0 ? { failed } : {}),
+    ...(paths.length > 0 ? { paths } : {}),
+    ...(unjudged.length > 0 ? { unjudged } : {}),
+  };
 }
 
 function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
@@ -453,6 +456,16 @@ export async function runOrchestratedPrReview(
       : undefined,
   });
   const state = initialState();
+  const coverageNow = (): ReviewCoverage =>
+    reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), state.unjudgedSpecialists);
+  const restoreCoverageLists = (coverage: ReviewCoverage): void => {
+    if (coverage.kind !== "partial") return;
+    if (coverage.failed != null) state.failedSpecialists.push(...coverage.failed);
+    for (const specialist of coverage.unjudged ?? []) {
+      if (!state.unjudgedSpecialists.includes(specialist))
+        state.unjudgedSpecialists.push(specialist);
+    }
+  };
   const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
@@ -571,8 +584,7 @@ export async function runOrchestratedPrReview(
       });
       recoveredSummary = result.kind === "published";
       recoveredCheck = result.kind === "published" ? result.check : null;
-      if (canonical.coverage.kind === "partial" && canonical.coverage.reason === "specialists")
-        state.failedSpecialists.push(...canonical.coverage.failed);
+      restoreCoverageLists(canonical.coverage);
     }
   }
   const savedFinalSummary =
@@ -590,8 +602,7 @@ export async function runOrchestratedPrReview(
     });
     recoveredSummary = result.kind === "published";
     recoveredCheck = result.kind === "published" ? result.check : null;
-    if (inputs.coverage.kind === "partial" && inputs.coverage.reason === "specialists")
-      state.failedSpecialists.push(...inputs.coverage.failed);
+    restoreCoverageLists(inputs.coverage);
   }
   if (recovery?.getJudgmentDegraded()) state.judgment = "degraded";
   state.briefFallback = recovery?.getBriefFallback() ?? false;
@@ -604,7 +615,7 @@ export async function runOrchestratedPrReview(
     session: publishSession,
     state: summaryState,
     getLedger: publishThread.getLedger,
-    getCoverage: () => reviewRunCoverage(state.failedSpecialists, unreadPathsNow()),
+    getCoverage: () => coverageNow(),
   });
   const declareDuplicate = buildDeclareDuplicateTool({ phaseRef, session: publishSession });
   const allTools = [
@@ -715,8 +726,6 @@ export async function runOrchestratedPrReview(
   let lastText = "";
   let publishAttempts = 0;
   let publishStepCount = 0;
-  let fatalError: AppError | null = null;
-
   const retireSession = async (): Promise<void> => {
     if (sessionRetired) return;
     sessionRetired = true;
@@ -1047,77 +1056,38 @@ export async function runOrchestratedPrReview(
       });
       await writeTick();
     }
-    recovery?.setCoverage(reviewRunCoverage(state.failedSpecialists, unreadPathsNow()));
+    recovery?.setCoverage(coverageNow());
   };
 
-  const publishReportDeterministically = async (
-    outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
-  ): Promise<void> => {
-    phaseRef.current = "judgment";
-    publishThread.setSource(outcome.specialist);
-    publishThread.setReport(outcome.report);
-    const ledgerBefore = publishThread.getLedger();
-
-    let result: Awaited<ReturnType<typeof publishThread.executor>>;
-    try {
-      result = await publishThread.publishWithoutModel(
-        outcome.report.findings.map((finding) => ({
-          file: finding.file,
-          startLine: finding.startLine,
-          endLine: finding.endLine,
-          title: finding.title,
-          detail: finding.detail,
-          fixPrompt: finding.fixPrompt,
-          ...(finding.suggestedCode != null ? { suggestedCode: finding.suggestedCode } : {}),
-          ...(finding.confidence != null ? { confidence: finding.confidence } : {}),
-          ...(finding.category != null ? { category: finding.category } : {}),
-          severity: cappedFindingSeverity({
-            severity: finding.suggestedSeverity,
-            testsLens: outcome.specialist === "tests",
-            anchorPath: finding.file,
-            judged: false,
-          }),
-        })),
-      );
-    } catch (error) {
-      publishAttempts += 1;
-      throw error;
-    }
-    if (result.kind === "wrong_phase") {
-      publishAttempts += 1;
-      throw new AppError({
-        domain: "review",
-        kind: "tool_wrong_phase",
-        message: result.error,
-        context: { phase: result.phase, allowed: result.allowed },
-      });
-    }
-    if (result.kind === "stopped") {
-      await applyPublishStop();
-      return;
-    }
-    state.specialists[outcome.specialist] = specialistDonePhase(
-      ledgerBefore,
-      publishThread.getLedger(),
-      outcome.specialist,
-    );
-    await writeTick();
-  };
-
-  const degradeReport = async (
+  const recordUnjudgedReport = async (
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
     cause: JudgmentDegradeCause,
   ): Promise<void> => {
+    if (state.lifecycle.kind === "stopped") return;
+    const publishStop = await publishSession.stopReason();
+    if (publishStop != null) {
+      state.lifecycle = { kind: "stopped", reason: publishStop };
+      abortSpecialists();
+      await retireSession();
+      return;
+    }
     state.judgment = "degraded";
     recovery?.setJudgmentDegraded(true);
+    if (!state.unjudgedSpecialists.includes(outcome.specialist)) {
+      state.unjudgedSpecialists.push(outcome.specialist);
+    }
+    setReviewRunMetricFields({ judgmentDegraded: true });
+    recovery?.setCoverage(coverageNow());
     if (agentEvents) {
       const submittedCount = outcome.report.findings.length;
+      const alreadyAccepted = countAcceptedForSource(publishThread.getLedger(), outcome.specialist);
       safeEmitDecisionEvent(agentEvents, params.cfg, {
         specialist: outcome.specialist,
         phase: "judgment",
         submittedCount,
         acceptedCount: 0,
-        rejectedCount: submittedCount,
+        rejectedCount: 0,
+        unjudgedCount: Math.max(0, submittedCount - alreadyAccepted),
         degradedReason: cause.reason,
         severityRaised: 0,
         severityLowered: 0,
@@ -1135,19 +1105,12 @@ export async function runOrchestratedPrReview(
         ...errorLogFields(appError),
       });
     }
-    if (cause.reason === "judgment_unavailable") {
-      await retireSession();
-    }
-    try {
-      await publishReportDeterministically(outcome);
-    } catch (publishError) {
-      fatalError = toAppError(publishError, {
-        domain: "review",
-        kind: "deterministic_finding_publish_failed",
-        context: { specialist: outcome.specialist },
-      });
-      abortSpecialists();
-    }
+    if (cause.reason === "judgment_unavailable") await retireSession();
+    state.specialists[outcome.specialist] = {
+      phase: "done",
+      findingsAccepted: countAcceptedForSource(publishThread.getLedger(), outcome.specialist),
+    };
+    await writeTick();
   };
 
   const publishDeterministicSummary = async (): Promise<void> => {
@@ -1160,7 +1123,7 @@ export async function runOrchestratedPrReview(
       result = await publishReviewSummaryOnly(publishSession, {
         payload,
         ledger,
-        coverage: reviewRunCoverage(state.failedSpecialists, unreadPathsNow()),
+        coverage: coverageNow(),
       });
     } catch (error) {
       publishAttempts += 1;
@@ -1282,14 +1245,17 @@ export async function runOrchestratedPrReview(
               cfg: params.cfg,
               cwd: sessionCwd,
               specialist,
-              briefMessage: renderBriefMessage(
-                brief,
-                specialist,
-                submittedBrief == null
-                  ? {
-                      pullRequestMetadata: { title: params.prTitle, body: params.prBody },
-                    }
-                  : undefined,
+              briefMessage: appendTrustedSpecialistContext(
+                renderBriefMessage(
+                  brief,
+                  specialist,
+                  submittedBrief == null
+                    ? {
+                        pullRequestMetadata: { title: params.prTitle, body: params.prBody },
+                      }
+                    : undefined,
+                ),
+                setup.trustedContext,
               ),
               workspaceTools: setup.workspaceTools,
               timeoutMs: Math.max(
@@ -1349,7 +1315,7 @@ export async function runOrchestratedPrReview(
               }
               const judgmentSession = session;
               if (sessionRetired || !judgmentSession) {
-                await degradeReport(outcome, { reason: "judgment_unavailable" });
+                await recordUnjudgedReport(outcome, { reason: "judgment_unavailable" });
                 return;
               }
 
@@ -1377,7 +1343,10 @@ export async function runOrchestratedPrReview(
                 },
               );
               if (judgment.kind === "failed") {
-                await degradeReport(outcome, { reason: "judgment_failed", error: judgment.error });
+                await recordUnjudgedReport(outcome, {
+                  reason: "judgment_failed",
+                  error: judgment.error,
+                });
                 return;
               }
               lastText = judgment.text;
@@ -1394,7 +1363,7 @@ export async function runOrchestratedPrReview(
                   findings: outcome.report.findings.length,
                   turnEnd: judgment.end,
                 });
-                await degradeReport(outcome, {
+                await recordUnjudgedReport(outcome, {
                   reason: "judgment_unpublished",
                   turnEnd: judgment.end,
                 });
@@ -1410,7 +1379,7 @@ export async function runOrchestratedPrReview(
               recovery?.throwIfFailed();
               await recordOutcome(outcome);
               if (outcome.kind === "report") {
-                await degradeReport(outcome, { reason: "judgment_failed", error });
+                await recordUnjudgedReport(outcome, { reason: "judgment_failed", error });
                 return;
               }
               throw error;
@@ -1424,9 +1393,9 @@ export async function runOrchestratedPrReview(
             await recordOutcome(outcome);
             if (outcome.kind === "report") {
               if (sessionRetired || !session) {
-                await degradeReport(outcome, { reason: "judgment_unavailable" });
+                await recordUnjudgedReport(outcome, { reason: "judgment_unavailable" });
               } else {
-                await degradeReport(outcome, {
+                await recordUnjudgedReport(outcome, {
                   reason: "judgment_failed",
                   error: new AppError({
                     domain: "review",
@@ -1440,7 +1409,6 @@ export async function runOrchestratedPrReview(
           }
         }
 
-        if (fatalError != null) throw fatalError;
         break;
       }
       case "terminal_tick": {
@@ -1454,7 +1422,7 @@ export async function runOrchestratedPrReview(
             outcome.kind === "report" &&
             state.specialists[outcome.specialist].phase === "running"
           ) {
-            await publishReportDeterministically(outcome);
+            await recordUnjudgedReport(outcome, { reason: "judgment_unavailable" });
           }
         }
         state.judgment = "degraded";
@@ -1634,7 +1602,7 @@ export async function runOrchestratedPrReview(
     params.cfg.models.provider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-  const runCoverage = reviewRunCoverage(state.failedSpecialists, unreadPathsNow());
+  const runCoverage = coverageNow();
   return {
     lastAssistant,
     published: summaryState.published,

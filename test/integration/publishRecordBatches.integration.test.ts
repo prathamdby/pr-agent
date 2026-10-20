@@ -261,6 +261,7 @@ const { publishOnce } = await load("agentWork/publishOnce.js");
 const { fenceForEpoch } = await load("agentWork/writeFence.js");
 const { withPrSurfaceMutationBoundary } = await load("github/prSurfaceMutation.js");
 const { reviewPayloadFromFindings } = await load("review/reviewSchema.js");
+const { candidateFindingId } = await load("review/orchestrator/judgmentDisposition.js");
 const { AppError } = await load("errors/appError.js");
 const { initEvlog } = await load("evlog.js");
 initEvlog("error", { silent: true, suppressDrainWarning: true });
@@ -357,7 +358,23 @@ const createSession = (params) => createFeaturePiSession({
       });
     } else if (opts.phase === "judgment") {
       const source = prompt.match(/Judge the (correctness|security|quality|tests) specialist/)[1];
-      await sessionParams.executors.publish_thread({ findings: [finding(source)] });
+      const row = finding(source);
+      const candidateId = candidateFindingId({
+        specialist: source,
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        title: row.title,
+      });
+      const reported = source === "correctness" || source === "quality";
+      await sessionParams.executors.publish_thread(
+        reported
+          ? {
+              findings: [row],
+              dispositions: [{ candidateId, verdict: "accepted", reason: "confirmed" }],
+            }
+          : { findings: [], dispositions: [] },
+      );
     } else if (opts.phase === "synthesis") {
       await sessionParams.executors.publish_summary({ ...reviewPayloadFromFindings([]), size: "S" });
     }

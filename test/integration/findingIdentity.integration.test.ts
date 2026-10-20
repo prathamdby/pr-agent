@@ -31,6 +31,8 @@ import {
 import { AppError } from "../../src/errors/appError.ts";
 import { createOrchestratorPhaseRef } from "../../src/review/orchestrator/phaseToolPolicy.ts";
 import { buildPublishThreadTool } from "../../src/review/orchestrator/publishThreadTool.ts";
+import { candidateFindingId } from "../../src/review/orchestrator/judgmentDisposition.ts";
+import type { SpecialistReport } from "../../src/review/orchestrator/specialistReport.ts";
 import { buildDeclareDuplicateTool } from "../../src/review/orchestrator/declareDuplicateTool.ts";
 import { fetchBotFindingThreads } from "../../src/review/run/reviewPriorFeedback.ts";
 import { recordDeliveredFileRead } from "../../src/review/findings/evidenceLedger.ts";
@@ -255,6 +257,42 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     return match.id;
   }
 
+  function judgmentPayload(source: "correctness" | "security", rows: readonly ReviewFinding[]) {
+    const byId = new Map<
+      string,
+      { candidateId: string; verdict: "accepted"; reason: "confirmed" }
+    >();
+    for (const row of rows) {
+      const candidateId = candidateFindingId({
+        specialist: source,
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        title: row.title,
+      });
+      byId.set(candidateId, { candidateId, verdict: "accepted", reason: "confirmed" });
+    }
+    return { findings: rows, dispositions: [...byId.values()] };
+  }
+
+  function armReport(
+    tool: { setReport: (report: SpecialistReport) => void },
+    rows: readonly ReviewFinding[],
+  ) {
+    tool.setReport({
+      status: "findings",
+      findings: rows.map((row) => ({
+        suggestedSeverity: row.severity,
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        title: row.title,
+        detail: row.detail,
+        fixPrompt: row.fixPrompt,
+      })),
+    });
+  }
+
   function observed(line: number, extras: Partial<ReviewFinding> = {}): ReviewFinding {
     return {
       severity: "P1",
@@ -466,12 +504,12 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
 
       const batchesBefore = controls.threadBatches.length;
       const tool = threadTool(await rerun(surface), inventory);
-      const result = await tool.executor({
-        findings: findings.map((finding) => ({
-          ...finding,
-          relation: { kind: "continues", findingId: openIdAt(inventory, finding.startLine) },
-        })),
-      });
+      const continued = findings.map((finding) => ({
+        ...finding,
+        relation: { kind: "continues" as const, findingId: openIdAt(inventory, finding.startLine) },
+      }));
+      armReport(tool, continued);
+      const result = await tool.executor(judgmentPayload("correctness", continued));
       expect(controls.threadBatches).toHaveLength(batchesBefore);
       expect(result.kind).toBe("empty");
       if (result.kind !== "empty") return;
@@ -660,16 +698,18 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const otherLens = observed(10, { title: "Unchecked payload is a crash vector" });
       const tool = threadTool(await rerun(surface, [reworded, moved, otherLens]), inventory);
 
-      const sameLens = await tool.executor({
-        findings: [
-          { ...reworded, relation: { kind: "continues", findingId: lineTen } },
-          { ...moved, relation: { kind: "continues", findingId: lineEleven } },
-        ],
-      });
+      const sameRows = [
+        { ...reworded, relation: { kind: "continues" as const, findingId: lineTen } },
+        { ...moved, relation: { kind: "continues" as const, findingId: lineEleven } },
+      ];
+      armReport(tool, sameRows);
+      const sameLens = await tool.executor(judgmentPayload("correctness", sameRows));
       tool.setSource("security");
-      const crossLens = await tool.executor({
-        findings: [{ ...otherLens, relation: { kind: "continues", findingId: lineTen } }],
-      });
+      const crossRows = [
+        { ...otherLens, relation: { kind: "continues" as const, findingId: lineTen } },
+      ];
+      armReport(tool, crossRows);
+      const crossLens = await tool.executor(judgmentPayload("security", crossRows));
 
       const renamed = observed(10, { file: "src/b.ts" });
       const renamedInventory = await loadFindingInventory(surface, {
@@ -677,9 +717,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         deletedPaths: new Set(),
       });
       const renamedTool = threadTool(await rerun(surface, [renamed]), renamedInventory);
-      const afterRename = await renamedTool.executor({
-        findings: [{ ...renamed, relation: { kind: "continues", findingId: lineTen } }],
-      });
+      const renamedRows = [
+        { ...renamed, relation: { kind: "continues" as const, findingId: lineTen } },
+      ];
+      armReport(renamedTool, renamedRows);
+      const afterRename = await renamedTool.executor(judgmentPayload("correctness", renamedRows));
 
       expect(controls.threadBatches).toHaveLength(batchesBefore);
       const reaffirmed = [sameLens, crossLens, afterRename].flatMap((result) =>
@@ -714,7 +756,8 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const nearby = observed(12, { title: "Retry loop never terminates" });
       const tool = threadTool(await rerun(surface, [nearby]), inventory);
 
-      const asked = await tool.executor({ findings: [nearby] }).then(
+      armReport(tool, [nearby]);
+      const asked = await tool.executor(judgmentPayload("correctness", [nearby])).then(
         () => null,
         (error: unknown) => error,
       );
@@ -724,7 +767,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       expect(asked.message).toContain(lineTen);
       expect(controls.threadBatches).toHaveLength(batchesBefore);
 
-      const held = await tool.executor({ findings: [nearby] });
+      const held = await tool.executor(judgmentPayload("correctness", [nearby]));
       expect(controls.threadBatches).toHaveLength(batchesBefore);
       expect(held.kind).toBe("empty");
       if (held.kind !== "empty") return;
@@ -765,12 +808,12 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const repeated = observed(11);
       const tool = threadTool(await rerun(surface, [regressed, repeated]), inventory);
 
-      const result = await tool.executor({
-        findings: [
-          { ...regressed, relation: { kind: "continues", findingId: fixedId } },
-          { ...repeated, relation: { kind: "continues", findingId: dismissedId } },
-        ],
-      });
+      const reopenedRows = [
+        { ...regressed, relation: { kind: "continues" as const, findingId: fixedId } },
+        { ...repeated, relation: { kind: "continues" as const, findingId: dismissedId } },
+      ];
+      armReport(tool, reopenedRows);
+      const result = await tool.executor(judgmentPayload("correctness", reopenedRows));
 
       expect(controls.threadBatches).toHaveLength(batchesBefore + 1);
       expect(controls.threadBatches.at(-1)?.comments).toHaveLength(1);
@@ -825,9 +868,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       const reaffirmed = observed(10);
       const partialRun = await rerun(surface, [reaffirmed], inventory);
       const tool = threadTool(partialRun, inventory);
-      await tool.executor({
-        findings: [{ ...reaffirmed, relation: { kind: "continues", findingId: lineTen } }],
-      });
+      const reaffirmedRows = [
+        { ...reaffirmed, relation: { kind: "continues" as const, findingId: lineTen } },
+      ];
+      armReport(tool, reaffirmedRows);
+      await tool.executor(judgmentPayload("correctness", reaffirmedRows));
       const partialResult = await publishSummaryWithVerdict(surface, partialRun, tool.getLedger());
       expect(partialResult).toMatchObject({
         kind: "published",
@@ -979,7 +1024,6 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
           ledger: partialRun.input.ledger,
           coverage: {
             kind: "partial",
-            reason: "specialists",
             failed: ["tests"],
             note: "The tests specialist did not finish.",
           },

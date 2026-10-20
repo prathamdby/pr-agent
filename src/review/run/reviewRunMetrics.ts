@@ -120,6 +120,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly specialistOutcomes: Record<string, number>;
   readonly threadBatches: number;
   readonly briefFallback: boolean;
+  readonly judgmentDegraded: boolean;
   readonly providerSendMs: number;
   readonly toolMs: number;
   readonly generationMs: number;
@@ -171,6 +172,7 @@ type MutableReviewRunMetrics = {
   specialistOutcomes: Record<string, number>;
   threadBatches: number;
   briefFallback: boolean;
+  judgmentDegraded: boolean;
   toolMs: number;
   providerSendMs: number;
   specialistTokensRecorded: boolean;
@@ -228,6 +230,7 @@ function createEmptyMetrics(meta: {
     specialistOutcomes: {},
     threadBatches: 0,
     briefFallback: false,
+    judgmentDegraded: false,
     toolMs: 0,
     providerSendMs: 0,
     specialistTokensRecorded: false,
@@ -458,6 +461,7 @@ export function setReviewRunMetricFields(
       | "specialistOutcomes"
       | "threadBatches"
       | "briefFallback"
+      | "judgmentDegraded"
       | "findingsCount"
       | "submitCallCount"
       | "severities"
@@ -475,6 +479,7 @@ export function setReviewRunMetricFields(
   }
   if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
   if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
+  if (fields.judgmentDegraded !== undefined) metrics.judgmentDegraded = fields.judgmentDegraded;
   if (fields.findingsCount !== undefined) metrics.findingsCount = fields.findingsCount;
   if (fields.submitCallCount !== undefined) metrics.submitCallCount = fields.submitCallCount;
   if (fields.severities !== undefined) metrics.severities = [...fields.severities];
@@ -536,6 +541,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     specialistOutcomes: { ...metrics.specialistOutcomes },
     threadBatches: metrics.threadBatches,
     briefFallback: metrics.briefFallback,
+    judgmentDegraded: metrics.judgmentDegraded,
     providerSendMs: metrics.providerSendMs,
     toolMs: metrics.toolMs,
     generationMs,

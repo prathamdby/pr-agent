@@ -655,6 +655,19 @@ describe("durableJob analytics forwarding", () => {
       findingsCount: 1,
       publish: { publishAttempts: 0, publishStepCount: 5 },
     },
+    {
+      kind: "review-profile",
+      outcome: "degraded",
+      degradedReason: "judgment_degraded",
+      reviewLens: "review",
+      source: "slash",
+      provider: "openai",
+      model: "test",
+      durationMs: 32,
+      attemptCount: 1,
+      findingsCount: 0,
+      publish: { publishAttempts: 0, publishStepCount: 5 },
+    },
   ] satisfies WorkCompletion[])(
     "renders a closed $kind completion after the mark ($outcome)",
     async (completion) => {
@@ -714,7 +727,7 @@ describe("durableJob analytics forwarding", () => {
               ? {
                   degraded_reason:
                     completion.kind === "review-profile"
-                      ? "tool_call_error"
+                      ? completion.degradedReason
                       : "durable_degradation",
                   ...(completion.kind !== "review-profile"
                     ? { durable_degradation: completion.durableDegradation }

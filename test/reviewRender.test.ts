@@ -1017,6 +1017,35 @@ describe("review action line helpers", () => {
     expect(formatReviewCoverageStatus({ kind: "partial", failed: ["quality"], unread: true })).toBe(
       "except quality, with unread files",
     );
+    expect(
+      formatReviewCoverageStatus({ kind: "partial", failed: [], unjudged: ["tests", "quality"] }),
+    ).toBe("not judged: tests and quality");
+    expect(
+      formatReviewCoverageStatus({
+        kind: "partial",
+        failed: ["security"],
+        unjudged: ["tests"],
+      }),
+    ).toBe("except security, not judged: tests");
+  });
+
+  it("says the review was not fully judged when a lens never finished", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: [],
+      coverage: { kind: "partial", failed: [], unjudged: ["tests", "quality"] },
+    });
+    expect(body).toContain(
+      "Review not fully judged. <!-- pr-agent:ci-action fmt=1 -->CI has not started<!-- /pr-agent:ci-action -->. All specialists ran not judged: tests and quality.",
+    );
+    expect(body).toContain("Judgment did not finish for tests and quality.");
+    const marker = body.slice(
+      body.indexOf("<!-- pr-agent:ci-action"),
+      body.indexOf("<!-- /pr-agent:ci-action -->"),
+    );
+    expect(marker).toContain("CI has not started");
+    expect(marker).not.toContain("Review not fully judged");
+    expect(marker).not.toContain("not judged");
   });
 
   it("does not say ready to merge when changed files were not opened", () => {

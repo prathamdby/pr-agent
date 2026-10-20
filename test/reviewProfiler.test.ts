@@ -53,6 +53,7 @@ function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunM
     specialistOutcomes: { report: 4 },
     threadBatches: 0,
     briefFallback: false,
+    judgmentDegraded: false,
     providerSendMs: 0,
     toolMs: 0,
     generationMs: 0,
@@ -93,6 +94,29 @@ describe("reviewWorkOutcome", () => {
         snapshot: snapshot({ publishStepCount: 5 }),
       }),
     ).toBeNull();
+  });
+
+  it("ranks judgment_degraded after publish_retry and before brief_fallback", () => {
+    const both = snapshot({ judgmentDegraded: true, briefFallback: true });
+    expect(degradedReasonFromReviewFlags({ publishAttempts: 0, snapshot: both })).toBe(
+      "judgment_degraded",
+    );
+    expect(degradedReasonFromReviewFlags({ publishAttempts: 1, snapshot: both })).toBe(
+      "publish_retry",
+    );
+    expect(
+      degradedReasonFromReviewFlags({
+        publishAttempts: 0,
+        snapshot: snapshot({ briefFallback: true }),
+      }),
+    ).toBe("brief_fallback");
+    expect(
+      reviewWorkOutcome({
+        published: true,
+        publishAttempts: 0,
+        snapshot: snapshot({ judgmentDegraded: true }),
+      }),
+    ).toBe("degraded");
   });
 
   it("treats recovery publishes as publish_retry", () => {

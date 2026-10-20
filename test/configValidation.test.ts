@@ -145,6 +145,7 @@ describe("loadConfig validation", () => {
     ["AGENT_EVENTS_ENABLED", (c: Config) => c.agentEvents.enabled] as const,
     ["RETENTION_ENABLED", (c: Config) => c.retention.enabled] as const,
     ["REVIEW_RECOVERY_ENABLED", (c: Config) => c.review.recoveryEnabled] as const,
+    ["REVIEW_TESTS_EVIDENCE", (c: Config) => c.review.testsEvidence] as const,
   ])("parses boolean knob %s as strict true/false", async (name, field) => {
     expect(field(await load({ [name]: "false" }))).toBe(false);
     expect(field(await load({ [name]: "true" }))).toBe(true);

@@ -20,7 +20,13 @@ vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
     },
   };
 });
-import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
+import { candidateFindingId } from "../src/review/orchestrator/judgmentDisposition.ts";
+import type { SpecialistReport } from "../src/review/orchestrator/specialistReport.ts";
+import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
+import {
+  createFindingLedger,
+  type SpecialistId,
+} from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   createOrchestratorPhaseRef,
   WRONG_PHASE_TOOL_CODE,
@@ -51,6 +57,46 @@ function finding(line: number): ReviewFinding {
     detail: `The changed path at line ${line} returns the wrong value.`,
     fixPrompt: `Correct the path at line ${line}.`,
   };
+}
+
+function acceptedDispositions(source: SpecialistId, findings: readonly ReviewFinding[]) {
+  const byId = new Map<string, { candidateId: string; verdict: "accepted"; reason: "confirmed" }>();
+  for (const row of findings) {
+    const candidateId = candidateFindingId({
+      specialist: source,
+      file: row.file,
+      startLine: row.startLine,
+      endLine: row.endLine,
+      title: row.title,
+    });
+    byId.set(candidateId, { candidateId, verdict: "accepted", reason: "confirmed" });
+  }
+  return [...byId.values()];
+}
+
+function remember(
+  tool: {
+    setReport: (report: SpecialistReport) => void;
+  },
+  findings: readonly ReviewFinding[],
+) {
+  tool.setReport({
+    status: findings.length === 0 ? "no_findings" : "findings",
+    findings: findings.map((row) => ({
+      suggestedSeverity: row.severity,
+      file: row.file,
+      startLine: row.startLine,
+      endLine: row.endLine,
+      title: row.title,
+      detail: row.detail,
+      fixPrompt: row.fixPrompt,
+    })),
+  });
+}
+
+function judged(source: SpecialistId, findings: ReviewFinding | readonly ReviewFinding[]) {
+  const rows = Array.isArray(findings) ? findings : [findings];
+  return { findings, dispositions: acceptedDispositions(source, rows) };
 }
 
 function threadSession(
@@ -121,14 +167,16 @@ describe("buildPublishThreadTool", () => {
   it("asks one overlap round against earlier accepted findings, then publishes the answered batch", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
+    remember(tool, [finding(10)]);
 
-    const first = await tool.executor({ findings: [finding(10)] });
+    const first = await tool.executor(judged("correctness", [finding(10)]));
     expect(first.kind).toBe("published");
     const [accepted] = tool.getLedger().accepted;
     if (accepted == null) throw new Error("expected an accepted finding");
     tool.setSource("security");
+    remember(tool, [finding(10), finding(20)]);
 
-    const asked = await tool.executor({ findings: [finding(10), finding(20)] }).then(
+    const asked = await tool.executor(judged("security", [finding(10), finding(20)])).then(
       () => null,
       (error: unknown) => error,
     );
@@ -138,19 +186,19 @@ describe("buildPublishThreadTool", () => {
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
     expect(tool.getLedger().threadCallCount).toBe(1);
 
-    const second = await tool.executor({
-      findings: [
-        { ...finding(10), relation: { kind: "continues", findingId: accepted.findingId } },
-        {
-          ...finding(20),
-          relation: {
-            kind: "distinct_from",
-            findingIds: [accepted.findingId],
-            reason: "Different return path.",
-          },
+    const answered = [
+      { ...finding(10), relation: { kind: "continues" as const, findingId: accepted.findingId } },
+      {
+        ...finding(20),
+        relation: {
+          kind: "distinct_from" as const,
+          findingIds: [accepted.findingId],
+          reason: "Different return path.",
         },
-      ],
-    });
+      },
+    ];
+    remember(tool, answered);
+    const second = await tool.executor(judged("security", answered));
 
     expect(tool.piTool.name).toBe("publish_thread");
     expect(second.kind).toBe("published");
@@ -171,13 +219,15 @@ describe("buildPublishThreadTool", () => {
   it("lands still-unanswered overlaps summary-only once the round is spent", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
-    await tool.executor({ findings: [finding(10)] });
+    remember(tool, [finding(10)]);
+    await tool.executor(judged("correctness", [finding(10)]));
     tool.setSource("security");
+    remember(tool, [finding(12)]);
 
-    await expect(tool.executor({ findings: [finding(12)] })).rejects.toMatchObject({
+    await expect(tool.executor(judged("security", [finding(12)]))).rejects.toMatchObject({
       code: "review.publish_thread_overlap_unanswered",
     });
-    const result = await tool.executor({ findings: [finding(12)] });
+    const result = await tool.executor(judged("security", [finding(12)]));
 
     expect(result.kind).toBe("empty");
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
@@ -191,14 +241,14 @@ describe("buildPublishThreadTool", () => {
   it("publishes one thread for repeated findings within one batch", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
+    const repeated = [
+      finding(10),
+      { ...finding(10), severity: "P0" as const, startLine: 9, title: "BUG at line 10!" },
+      { ...finding(10), detail: "Same location and title, reworded detail." },
+    ];
+    remember(tool, repeated);
 
-    const result = await tool.executor({
-      findings: [
-        finding(10),
-        { ...finding(10), severity: "P0", startLine: 9, title: "BUG at line 10!" },
-        { ...finding(10), detail: "Same location and title, reworded detail." },
-      ],
-    });
+    const result = await tool.executor(judged("correctness", repeated));
 
     expect(result.kind).toBe("published");
     expect(publishThreadBatch.mock.calls[0]?.[0].comments).toHaveLength(1);
@@ -215,8 +265,10 @@ describe("buildPublishThreadTool", () => {
     );
     tool.setSource("security");
 
-    await tool.executor({ findings: [finding(10)] });
-    const result = await tool.executor({ findings: [finding(40)] });
+    remember(tool, [finding(10)]);
+    await tool.executor(judged("security", [finding(10)]));
+    remember(tool, [finding(40)]);
+    const result = await tool.executor(judged("security", [finding(40)]));
 
     expect(result.kind).toBe("budget_exhausted");
     expect(tool.getLedger().accepted).toEqual([
@@ -234,8 +286,9 @@ describe("buildPublishThreadTool", () => {
   it("repairs a single-object findings payload at the parse seam", async () => {
     const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
+    remember(tool, [finding(10)]);
 
-    const result = await tool.executor({ findings: finding(10) });
+    const result = await tool.executor(judged("correctness", finding(10)));
 
     expect(result.kind).toBe("published");
     expect(publishThreadBatch).toHaveBeenCalledTimes(1);
@@ -248,7 +301,7 @@ describe("buildPublishThreadTool", () => {
     await expect(tool.executor({ findings: "not-an-array" })).rejects.toMatchObject({
       code: "review.publish_thread_validation_failed",
     });
-    await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
+    await expect(tool.executor(judged("correctness", [finding(10)]))).rejects.toMatchObject({
       code: "review.publish_thread_source_required",
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
@@ -282,8 +335,9 @@ describe("buildPublishThreadTool", () => {
   it("leaves the ledger unchanged when the publish gate stops the call", async () => {
     const { tool, publishThreadBatch } = buildTool(async () => true);
     tool.setSource("tests");
+    remember(tool, [finding(10)]);
 
-    const result = await tool.executor({ findings: [finding(10)] });
+    const result = await tool.executor(judged("tests", [finding(10)]));
 
     expect(result.kind).toBe("stopped");
     expect(tool.getLedger()).toEqual(createFindingLedger());
@@ -295,8 +349,9 @@ describe("buildPublishThreadTool", () => {
       throw new Error("GitHub unavailable");
     });
     tool.setSource("quality");
+    remember(tool, [finding(10)]);
 
-    await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
+    await expect(tool.executor(judged("quality", [finding(10)]))).rejects.toMatchObject({
       code: "review.publish_thread_failed",
     });
 
@@ -313,11 +368,12 @@ describe("buildPublishThreadTool", () => {
       return { reviewId: 200, reviewUrl: "https://example.com/reviews/200" };
     });
     tool.setSource("quality");
+    remember(tool, [finding(10)]);
 
-    await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
+    await expect(tool.executor(judged("quality", [finding(10)]))).rejects.toMatchObject({
       code: "review.publish_thread_failed",
     });
-    const result = await tool.executor({ findings: [finding(10)] });
+    const result = await tool.executor(judged("quality", [finding(10)]));
 
     expect(result.kind).toBe("published");
     const bodies = publishThreadBatch.mock.calls.map((call) =>
@@ -345,16 +401,15 @@ describe("buildPublishThreadTool", () => {
       ],
     });
 
-    const result = await tool.executor({
-      findings: [
-        {
-          ...finding(10),
-          severity: "P0",
-          severityRationale: "RATIONALE_TOKEN_786",
-          suggestedSeverity: "SUGGESTED_P0_TOKEN",
-        },
-      ],
-    });
+    const published = [
+      {
+        ...finding(10),
+        severity: "P0" as const,
+        severityRationale: "RATIONALE_TOKEN_786",
+        suggestedSeverity: "SUGGESTED_P0_TOKEN",
+      },
+    ];
+    const result = await tool.executor(judged("tests", published));
 
     expect(result.kind).toBe("published");
     const stored = tool.getLedger().accepted[0]?.placement.finding;
@@ -371,18 +426,13 @@ describe("buildPublishThreadTool", () => {
     });
   });
 
-  it("caps a judged finding on a test path at P2 and an unjudged correctness P0 at P1", async () => {
-    const judged = buildTool();
-    judged.tool.setSource("correctness");
-    await judged.tool.executor({
-      findings: [{ ...finding(10), severity: "P0", file: "src/widget.test.ts" }],
-    });
-    expect(judged.tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P2");
-
-    const degraded = buildTool();
-    degraded.tool.setSource("correctness");
-    await degraded.tool.publishWithoutModel([{ ...finding(10), severity: "P0" }]);
-    expect(degraded.tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P1");
+  it("caps a judged finding on a test path at P2", async () => {
+    const pathTool = buildTool();
+    const rows = [{ ...finding(10), severity: "P0" as const, file: "src/widget.test.ts" }];
+    pathTool.tool.setSource("correctness");
+    remember(pathTool.tool, rows);
+    await pathTool.tool.executor(judged("correctness", rows));
+    expect(pathTool.tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P2");
   });
 
   it("rejects a publish_thread call that omits the severity rationale", async () => {
@@ -412,10 +462,91 @@ describe("buildPublishThreadTool", () => {
       status: "findings",
       findings: [row, { ...row, detail: "A second report row." }],
     });
-    await tool.executor({ findings: [{ ...finding(10), severity: "P0" }] });
+    await tool.executor(judged("correctness", [{ ...finding(10), severity: "P0" }]));
     expect(decisionRows.rows.at(-1)?.detail).toMatchObject({
       severityRaised: 0,
       severityLowered: 0,
     });
+  });
+
+  it("stores one disposition per candidate and drops a secret note", async () => {
+    const { tool } = buildTool();
+    tool.setSource("correctness");
+    const kept = finding(10);
+    const dropped = finding(20);
+    tool.setReport({
+      status: "findings",
+      findings: [kept, dropped].map((row) => ({
+        suggestedSeverity: row.severity,
+        file: row.file,
+        startLine: row.startLine,
+        endLine: row.endLine,
+        title: row.title,
+        detail: row.detail,
+        fixPrompt: row.fixPrompt,
+      })),
+    });
+    const keptId = candidateFindingId({ specialist: "correctness", ...kept });
+    const droppedId = candidateFindingId({ specialist: "correctness", ...dropped });
+    const result = await tool.executor({
+      findings: [kept],
+      dispositions: [
+        { candidateId: keptId, verdict: "accepted", reason: "confirmed", note: "Empty cart." },
+        {
+          candidateId: droppedId,
+          verdict: "rejected",
+          reason: "guarded",
+          note: "sk_live_abcdefghij",
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    const minted = tool.getLedger().accepted[0]?.findingId;
+    expect(decisionRows.rows.at(-1)?.detail).toMatchObject({
+      dispositions: [
+        { id: minted, verdict: "accepted", reason: "confirmed", note: "Empty cart." },
+        { id: droppedId, verdict: "rejected", reason: "guarded" },
+      ],
+    });
+    expect(JSON.stringify(decisionRows.rows.at(-1)?.detail)).not.toContain("sk_live_");
+  });
+
+  it("rejects a coverage gap above its evidence ceiling and keeps a legal raise", async () => {
+    const { tool } = buildTool();
+    tool.setSource("tests");
+    const row = {
+      suggestedSeverity: "P2" as const,
+      file: "src/a.ts",
+      startLine: 10,
+      endLine: 10,
+      title: "Bug at line 10",
+      detail: "The changed path at line 10 returns the wrong value.",
+      fixPrompt: "Correct the path at line 10.",
+      testsClaim: "coverage_gap" as const,
+      testEvidence: {
+        searched: ["payment total"],
+        read: [] as string[],
+        gap: NO_CANDIDATE_TEST_GAP,
+      },
+    };
+    tool.setReport({ status: "findings", findings: [row] });
+    await expect(
+      tool.executor(judged("tests", [{ ...finding(10), severity: "P0" }])),
+    ).rejects.toMatchObject({ code: "review.publish_thread_validation_failed" });
+    expect(tool.getLedger().accepted).toEqual([]);
+
+    tool.setReport({
+      status: "findings",
+      findings: [
+        {
+          ...row,
+          testEvidence: { ...row.testEvidence, criticalPath: "money" as const },
+        },
+      ],
+    });
+    const raised = await tool.executor(judged("tests", [{ ...finding(10), severity: "P0" }]));
+    expect(raised.kind).toBe("published");
+    expect(tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P0");
   });
 });

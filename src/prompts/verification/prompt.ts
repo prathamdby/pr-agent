@@ -40,6 +40,7 @@ export const verificationSystemPrompt = [
   "",
   "## Discipline",
   "- Compare the finding's original concern against the current code at the new head.",
+  "- Before confirming a coverage-gap or library-behaviour finding, search the checkout and read the cited lines or the dependency's shipped source. An unread claim stays unconfirmed.",
   maintainerDecisionEvidenceGuidance,
   "",
   "## Done when",

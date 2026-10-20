@@ -30,6 +30,13 @@ import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.ts";
 import { capFindingDetail, type FindingInventory } from "../findingIdentity/findingInventory.ts";
 import { derivedFindingId, isFindingId, mintFindingId } from "../findingIdentity/findingMarker.ts";
 import {
+  awaitingCandidates,
+  dispositionMismatch,
+  storedDispositions,
+  type JudgmentDisposition,
+} from "./judgmentDisposition.ts";
+import { coverageGapPublishError, isCoverageGapRow } from "./testsEvidence.ts";
+import {
   MAX_OVERLAP_ROUNDS,
   reconcileObservation,
   type AcceptedThisRun,
@@ -71,6 +78,29 @@ const relationSchema = v.pipe(
   ),
 );
 
+const dispositionSchema = v.variant("verdict", [
+  v.strictObject({
+    candidateId: v.pipe(v.string(), v.minLength(1)),
+    verdict: v.literal("accepted"),
+    reason: v.literal("confirmed"),
+    note: v.optional(v.pipe(v.string(), v.minLength(1))),
+  }),
+  v.strictObject({
+    candidateId: v.pipe(v.string(), v.minLength(1)),
+    verdict: v.literal("rejected"),
+    reason: v.picklist([
+      "unconfirmed_trigger",
+      "already_covered",
+      "guarded",
+      "unreachable",
+      "out_of_contract",
+      "wrong_anchor",
+      "library_misread",
+    ]),
+    note: v.optional(v.pipe(v.string(), v.minLength(1))),
+  }),
+]);
+
 const publishThreadSchema = v.object({
   findings: v.array(
     v.object({
@@ -87,6 +117,7 @@ const publishThreadSchema = v.object({
       relation: v.optional(relationSchema),
     }),
   ),
+  dispositions: v.array(dispositionSchema),
 });
 
 const checkedFindingsSchema = v.object({ findings: v.array(reviewFindingSchema) });
@@ -251,9 +282,6 @@ function overlapUnanswered(
 export function buildPublishThreadTool(params: PublishThreadToolParams): {
   readonly piTool: PiTool;
   readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
-  readonly publishWithoutModel: (
-    findings: readonly ReviewFinding[],
-  ) => Promise<PublishThreadToolResult>;
   readonly setSource: (source: SpecialistId) => void;
   readonly setReport: (report: SpecialistReport) => void;
   readonly getLedger: () => FindingLedger;
@@ -271,7 +299,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   const piTool: PiTool = {
     name: "publish_thread",
     description:
-      "Publish the judged findings for the active specialist as one batch. Pass only the candidates that survive judgment, each with its relation to existing findings; an empty findings array is valid and records that none did. A batch whose findings sit near existing findings without a matching relation fails once with overlap questions to answer.",
+      "Publish the judged findings for the active specialist as one batch. Pass only the candidates that survive judgment, each with its relation to existing findings, and a dispositions array covering every candidate still awaiting judgment. An empty findings array is valid when every awaiting candidate is rejected. A batch whose findings sit near existing findings without a matching relation fails once with overlap questions to answer.",
     parameters: toToolParameters(publishThreadSchema),
   };
 
@@ -345,6 +373,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     submitted: readonly SubmittedFinding[],
     overlapRoundsLeft: number,
     judged: boolean,
+    dispositions: readonly JudgmentDisposition[],
   ): Promise<PublishThreadToolResult> => {
     if (source == null) {
       throw new AppError({
@@ -353,6 +382,16 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         message: "Select the active specialist before calling publish_thread",
       });
     }
+    for (const entry of submitted) {
+      const ceilingError = coverageGapPublishError({
+        specialist: source,
+        reportFindings: specialistReport?.findings ?? [],
+        finding: entry.finding,
+      });
+      if (ceilingError != null) throw validationFailed(ceilingError);
+    }
+    const specialist = source;
+    const awaiting = awaitingCandidates(source, specialistReport, ledger);
     const redacted = redactReviewPayloadSecrets(
       reviewPayloadFromFindings(submitted.map((entry) => entry.finding)),
     ).findings.map((finding) => ({
@@ -362,6 +401,11 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         testsLens: source === "tests",
         anchorPath: finding.file,
         judged,
+        coverageGap: isCoverageGapRow({
+          specialist,
+          reportFindings: specialistReport?.findings ?? [],
+          finding,
+        }),
       }),
     }));
     const prepared = submitted.map((entry, index) => ({
@@ -406,6 +450,12 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
           acceptedCount,
           rejectedCount: Math.max(0, submittedCount - acceptedCount),
           ...severityMovement(specialistReport, findings),
+          dispositions: storedDispositions({
+            specialist: source,
+            dispositions,
+            awaiting,
+            ledger,
+          }),
         });
       }
     } else {
@@ -430,33 +480,36 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     if (!parsed.ok) throw validationFailed(parsed.error);
     const checked = parseToolInput(checkedFindingsSchema, args, options);
     if (!checked.ok) throw validationFailed(checked.error);
+    if (source == null) {
+      throw new AppError({
+        domain: "review",
+        kind: "publish_thread_source_required",
+        message: "Select the active specialist before calling publish_thread",
+      });
+    }
     const submitted = checked.value.findings.map((finding, index) => ({
       finding,
       relation: observationRelation(parsed.value.findings[index]?.relation),
     }));
-    return publish(submitted, Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed), true);
+    const mismatch = dispositionMismatch({
+      specialist: source,
+      report: specialistReport,
+      ledger,
+      findings: submitted.map((entry) => entry.finding),
+      dispositions: parsed.value.dispositions,
+    });
+    if (mismatch != null) throw validationFailed(mismatch);
+    return publish(
+      submitted,
+      Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed),
+      true,
+      parsed.value.dispositions,
+    );
   };
 
   return {
     piTool,
     executor,
-    publishWithoutModel: async (findings) => {
-      const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");
-      if (!gate.ok) {
-        return {
-          kind: "wrong_phase",
-          code: gate.code,
-          phase: gate.phase,
-          allowed: gate.allowed,
-          error: gate.error,
-        };
-      }
-      return publish(
-        findings.map((finding) => ({ finding, relation: { kind: "new" } })),
-        0,
-        false,
-      );
-    },
     setSource: (nextSource) => {
       source = nextSource;
       overlapRoundsUsed = 0;

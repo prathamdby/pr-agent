@@ -90,6 +90,9 @@ Notes:
   Accepted or acceptance-uncertain pending surfaces remain applicable for repair
   after restoration. Restoring grants and requesting a new review refreshes
   eligible CI sources and repair; retained failures are not automatically reopened.
+- `REVIEW_TESTS_EVIDENCE` is separate operator tuning, default off, not a
+  `FEATURE_*` mode. When it is true, a tests coverage gap must name read paths
+  that have a content read in the run ledger. Path checks apply either way.
 - `REVIEW_RECOVERY_ENABLED` is separate operator tuning, default off, not a
   ninth feature. Validated review artifacts can reduce repeated computation
   after a restart; they never restore a transcript or bypass evidence and

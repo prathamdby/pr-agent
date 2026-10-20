@@ -97,6 +97,13 @@ export function decisionEventRow(
     readonly turnEnd?: TurnEnd;
     readonly severityRaised: number;
     readonly severityLowered: number;
+    readonly unjudgedCount?: number;
+    readonly dispositions?: readonly {
+      readonly id: string;
+      readonly verdict: "accepted" | "rejected";
+      readonly reason: string;
+      readonly note?: string;
+    }[];
   },
 ): AgentEventInsertRow {
   const detail: Record<string, unknown> = {
@@ -107,6 +114,8 @@ export function decisionEventRow(
     severityRaised: params.severityRaised,
     severityLowered: params.severityLowered,
   };
+  if (params.unjudgedCount != null) detail.unjudgedCount = params.unjudgedCount;
+  if (params.dispositions != null) detail.dispositions = params.dispositions;
   if (params.degradedReason != null) detail.degradedReason = params.degradedReason;
   if (params.turnEnd != null) detail.turnEnd = params.turnEnd;
 
