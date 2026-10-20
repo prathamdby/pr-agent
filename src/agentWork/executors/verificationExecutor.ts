@@ -12,6 +12,7 @@ import {
   type BotFindingThread,
   type FindingObjection,
 } from "../../review/run/reviewPriorFeedback.ts";
+import { loadPullRequestDiscussion } from "../../agent/discussion/pullRequestDiscussion.ts";
 import { runVerification } from "../../agent/verification/verificationRun.ts";
 import { publishVerification } from "../../agent/verification/publishVerification.ts";
 import {
@@ -164,7 +165,8 @@ export function createVerificationWorkExecution({
       const botIdentity = await getBotIdentity();
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
-      const resolutionResult = await prSurface.listInlineReviewThreads();
+      const discussion = await loadPullRequestDiscussion(prSurface);
+      const resolutionResult = discussion.reviewThreads;
       const findingInventory = await loadFindingInventoryFromThreads(prSurface, {
         threads: resolutionResult,
         botLogin: botIdentity.login,
@@ -360,6 +362,7 @@ export function createVerificationWorkExecution({
             workspace: view.workspace,
             inventory,
             pushedCommits,
+            discussion,
             compareFilesTruncated: changedMembershipTruncated,
             escalation: env.escalation,
             sessionContext: env.durability,

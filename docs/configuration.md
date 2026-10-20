@@ -628,6 +628,8 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Ask safety
 
+`MAX_ASK_THREAD_TRANSCRIPT_CHARS` is the character ceiling for the shared ask and verification discussion block.
+
 | Symbol                            | Default                                                                                                                                                                                                                          |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MAX_ASK_QUESTION_CHARS`          | 8192                                                                                                                                                                                                                             |

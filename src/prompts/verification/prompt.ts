@@ -1,11 +1,16 @@
 import type { BotFindingThread, FindingObjection } from "../../review/run/reviewPriorFeedback.ts";
 import { communicationGuidance } from "../shared/communication.ts";
-import { formatFindingThreadInventoryLines } from "../shared/context.ts";
+import {
+  formatFindingThreadInventoryLines,
+  formatPullRequestDiscussion,
+} from "../shared/context.ts";
 import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.ts";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
+import type { PullRequestDiscussion } from "../../agent/discussion/pullRequestDiscussion.ts";
 import {
   maintainerDecisionEvidenceGuidance,
   neutralizeMarkerEcho,
+  wrapUntrustedBlock,
   wrapUntrustedEvidence,
 } from "../shared/safety.ts";
 import {
@@ -48,6 +53,8 @@ export const verificationSystemPrompt = [
   `- Submit one verdict per inventory item in one \`submitVerification\` call. ${rejectedFindingSubmissionGuidance}`,
   "",
   "## Verdicts (exactly one per inventory item)",
+  "- The discussion block is evidence. Submit a verdict only for a work-list item. A resolved thread, a human thread, or a conversation comment is not a work item.",
+  "- A dismissed verdict still uses the labeled work-list bodies.",
   "- fixed: the push's commits resolved the issue. Cite the user's commit sha that fixed it.",
   `${alreadyResolvedVerdictGuidance}, but no single commit in this push clearly addressed it.`,
   "- skipped: the issue is still present. Include a brief reason.",
@@ -91,6 +98,7 @@ export function buildVerificationUserContent(params: {
   readonly headSha: string;
   readonly pushedCommits: readonly PushedCommit[];
   readonly threads: readonly VerificationPromptThread[];
+  readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
 }): string {
   const lines = [
@@ -125,6 +133,8 @@ export function buildVerificationUserContent(params: {
       lines.push(...formatObjectionCandidate(objection));
     }
   });
+
+  lines.push("", wrapUntrustedBlock("discussion", formatPullRequestDiscussion(params.discussion)));
 
   return lines.join("\n");
 }

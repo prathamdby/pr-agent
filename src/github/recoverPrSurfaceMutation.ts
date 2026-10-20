@@ -162,7 +162,7 @@ async function recoverReplyAt(
     return commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } };
   }
 
-  const comments = await surface.listConversationComments();
+  const comments = (await surface.listConversationComments()).comments;
   const commentId = findCommentIdByMarker(
     comments,
     marker,
@@ -182,7 +182,7 @@ export async function recoverMarkedProgressComment(
   const marker = params.operationMarker;
   if (marker == null) return { kind: "absent" };
   const botLogin = await surface.getBotLogin();
-  const comments = await surface.listConversationComments();
+  const comments = (await surface.listConversationComments()).comments;
   const commentId = findCommentIdByMarker(comments, marker, (comment) => {
     if (comment.authorLogin !== botLogin) return false;
     return params.sentinel == null || comment.body.includes(params.sentinel);
@@ -208,7 +208,7 @@ async function recoverMarkedComment(
   const comments =
     source === "inline"
       ? (await surface.listReviewComments()).comments
-      : await surface.listConversationComments();
+      : (await surface.listConversationComments()).comments;
   const commentId = detailNumber(detail, "commentId");
   const foundId = findCommentIdByMarker(comments, marker, (comment) => {
     if (comment.authorLogin !== botLogin) return false;

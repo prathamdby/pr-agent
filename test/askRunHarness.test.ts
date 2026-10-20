@@ -22,6 +22,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.ts";
+import { emptyPullRequestDiscussion } from "../src/agent/discussion/pullRequestDiscussion.ts";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 
@@ -41,6 +42,7 @@ const askParams = {
   question: "Explain changes and provide a testing checklist.",
   replyTarget: { kind: "prConversation" as const, prNumber: 459 },
   workspace: mockLocalPrWorkspace(),
+  discussion: emptyPullRequestDiscussion(),
 };
 
 describe("runAskRun finalize", () => {

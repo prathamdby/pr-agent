@@ -53,7 +53,7 @@ export async function findExistingAskReplyComment(params: {
   const comments =
     replyTarget.kind === "inlineReviewThread"
       ? (await prSurface.listReviewComments()).comments
-      : await prSurface.listConversationComments();
+      : (await prSurface.listConversationComments()).comments;
 
   const marker =
     operationKey != null && operationInstance != null

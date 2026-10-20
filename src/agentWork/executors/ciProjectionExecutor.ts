@@ -314,7 +314,7 @@ async function projectOnePr(params: {
 
   let comments: readonly PrConversationComment[];
   try {
-    comments = await params.prSurface.listConversationComments();
+    comments = (await params.prSurface.listConversationComments()).comments;
   } catch (error) {
     logWarn("ci_projection_list_comments_failed", {
       owner: params.data.owner,
@@ -389,7 +389,7 @@ async function projectOnePr(params: {
 
     let latest: PrConversationComment | undefined;
     try {
-      const reread = await params.prSurface.listConversationComments();
+      const reread = (await params.prSurface.listConversationComments()).comments;
       latest = reread.find((entry) => entry.id === comment.id);
     } catch (error) {
       logWarn("ci_projection_reread_failed", {

@@ -3651,7 +3651,7 @@ try {
         } else {
           await Promise.all([noticeWritten, tick(2)]);
         }
-        const comments = (await surface.listConversationComments()).filter((comment) =>
+        const comments = (await surface.listConversationComments()).comments.filter((comment) =>
           comment.body.includes(REVIEW_SUMMARY_SENTINEL),
         );
         expect(comments).toHaveLength(1);

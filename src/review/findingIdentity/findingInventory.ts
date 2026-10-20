@@ -338,7 +338,7 @@ async function readSummaryComment(
   botLogin: string,
 ): Promise<{ readonly summary: InventorySummaryComment | null; readonly complete: boolean }> {
   try {
-    const comments = await surface.listConversationComments();
+    const comments = (await surface.listConversationComments()).comments;
     const summary = comments.findLast(
       (comment) =>
         comment.body.startsWith(REVIEW_SUMMARY_SENTINEL) &&

@@ -8,6 +8,7 @@ import {
 } from "../../settings/index.ts";
 import { logInfo } from "../../evlog.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { PullRequestDiscussion } from "../discussion/pullRequestDiscussion.ts";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import type { VerificationPayload } from "../../review/triageSchema.ts";
 import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
@@ -37,6 +38,7 @@ export async function runVerification(params: {
   readonly workspace: LocalPrWorkspace;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
   readonly sessionContext?: FeatureSessionContext;
   readonly escalation?: EscalationPlan;

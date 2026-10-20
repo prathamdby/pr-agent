@@ -47,7 +47,7 @@ import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
   ListReviewCommentsResult,
-  PrConversationComment,
+  ListConversationCommentsResult,
   PrReview,
   PrSurface,
   ReviewCheckOutcome,
@@ -66,7 +66,7 @@ async function listConversationCommentsForPr(
   repo: string,
   prNumber: number,
   expiresAtTs?: number,
-): Promise<readonly PrConversationComment[]> {
+): Promise<ListConversationCommentsResult> {
   const octokit = installationOctokit(token, expiresAtTs);
   const commentPage = { page: 0, truncated: false };
   const rows = await octokit.paginate(
@@ -81,15 +81,18 @@ async function listConversationCommentsForPr(
         done,
       ),
   );
-  return rows.map((comment) => ({
-    id: comment.id,
-    inReplyToId:
-      "in_reply_to_id" in comment && typeof comment.in_reply_to_id === "number"
-        ? comment.in_reply_to_id
-        : null,
-    authorLogin: comment.user?.login ?? "unknown",
-    body: comment.body ?? "",
-  }));
+  return {
+    comments: rows.map((comment) => ({
+      id: comment.id,
+      inReplyToId:
+        "in_reply_to_id" in comment && typeof comment.in_reply_to_id === "number"
+          ? comment.in_reply_to_id
+          : null,
+      authorLogin: comment.user?.login ?? "unknown",
+      body: comment.body ?? "",
+    })),
+    truncated: commentPage.truncated,
+  };
 }
 
 async function listPushedCommitsForPr(
