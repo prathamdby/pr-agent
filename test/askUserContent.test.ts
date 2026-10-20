@@ -15,8 +15,8 @@ import {
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import type { ReviewThreadSnapshot } from "../src/github/reviewThreadResolution.ts";
 import { buildVerificationRunSetup } from "../src/agent/verification/verificationRunSetup.ts";
-import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
 import { makeTestConfig } from "./helpers/config.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 
 function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -177,7 +177,7 @@ describe("buildAskUserContent discussion", () => {
       repo: "r",
       prNumber: 1,
       headSha: "abc",
-      workspace: { reader: { agentCwd: process.cwd() } } as LocalPrWorkspace,
+      workspace: mockLocalPrWorkspace(),
       inventory: [
         {
           rootCommentId: 11,
