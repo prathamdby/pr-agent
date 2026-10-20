@@ -119,9 +119,15 @@ These exposures remain:
 - An operator who sets `SLASH_ALLOWED_ASSOCIATIONS` to include `CONTRIBUTOR` or `*` lets that author self-admit with `/review`.
 - `MEMBER` and `COLLABORATOR` stay trusted.
 - `FEATURE_DESCRIBE=auto` still runs on every open, including untrusted forks.
-- The "new to GitHub" Actions gap for `NONE`, `FIRST_TIME_CONTRIBUTOR`, and `FIRST_TIMER` remains.
+- The "new to GitHub" Actions gap for `NONE`, `FIRST_TIME_CONTRIBUTOR`, and `FIRST_TIMER` remained until the 2026-10-20 amendment.
 - Work already in flight is not withdrawn.
 
 Live fork timing on a test GitHub App was not captured for this amendment.
 
 The same admission evidence gates `FEATURE_REVIEW_CADENCE=every_push` pushes ([ADR 0056](0056-review-cadence.md)).
+
+## Amendment (2026-10-20): untrusted fork associations
+
+GitHub's setting "Require approval for first-time contributors who are new to GitHub" does not hold every first-time fork author. A user who has had any commit or pull request merged into any public repository can be `FIRST_TIME_CONTRIBUTOR` or `NONE` on this repository, and that setting still asks a maintainer to approve a `FIRST_TIMER`. This App does not read the repository Actions policy, so approval mode cannot treat a workflow start as maintainer approval for those authors.
+
+A fork author associated as `NONE`, `FIRST_TIME_CONTRIBUTOR`, or `FIRST_TIMER` now waits the same way as a fork `CONTRIBUTOR`. The awaiting row stores `workflow_start_admits` false. A pull request approval or `/review` admits the row. A workflow start does not. `OWNER`, `MEMBER`, and `COLLABORATOR`, and every same-repo open, stay trusted. Describe and verification do not change. Missing association, a deleted fork, and `MANNEQUIN` stay on the workflow-start path.

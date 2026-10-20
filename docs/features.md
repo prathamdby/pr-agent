@@ -14,8 +14,9 @@ invalid and crashes startup.
 a PR is `opened`; verification fires on `synchronize` (every push). `FEATURE_REVIEW_CADENCE` accepts `once` or `every_push`. `every_push` together with `FEATURE_REVIEW=manual` crashes startup. With
 `FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened`. Trust means
 a same-repo head or an author associated as `OWNER`, `MEMBER`, or
-`COLLABORATOR`. A fork author associated as `CONTRIBUTOR` waits for a pull
-request approval or `/review`. A workflow start does not admit that fork.
+`COLLABORATOR`. A fork author associated as `CONTRIBUTOR`, `NONE`,
+`FIRST_TIME_CONTRIBUTOR`, or `FIRST_TIMER` waits for a pull request approval
+or `/review`. A workflow start does not admit that fork.
 Missing association or a deleted fork is untrusted.
 Untrusted forks get one awaiting notice. The first `workflow_run` `in_progress`
 with `event=pull_request` on the awaiting head admits the row when

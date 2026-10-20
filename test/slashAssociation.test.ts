@@ -14,18 +14,24 @@ describe("reviewAuthorTrust", () => {
       ).toBe("trusted");
     },
   );
-  it.each(["CONTRIBUTOR", "contributor"])(
-    "holds a fork %s for maintainer approval",
-    (author_association) => {
-      expect(
-        reviewAuthorTrust({
-          author_association,
-          head: { repo: { id: 2 } },
-          base: { repo: { id: 1 } },
-        }),
-      ).toBe("awaiting_maintainer_approval");
-    },
-  );
+  it.each([
+    "CONTRIBUTOR",
+    "contributor",
+    "NONE",
+    "none",
+    "FIRST_TIME_CONTRIBUTOR",
+    "first_time_contributor",
+    "FIRST_TIMER",
+    "first_timer",
+  ])("holds a fork %s for maintainer approval", (author_association) => {
+    expect(
+      reviewAuthorTrust({
+        author_association,
+        head: { repo: { id: 2 } },
+        base: { repo: { id: 1 } },
+      }),
+    ).toBe("awaiting_maintainer_approval");
+  });
   it.each(["NONE", "CONTRIBUTOR"])("trusts same-repo heads with %s", (author_association) => {
     expect(
       reviewAuthorTrust({
@@ -38,14 +44,8 @@ describe("reviewAuthorTrust", () => {
   it.each([
     { author_association: undefined, head: { repo: { id: 1 } }, base: { repo: { id: 1 } } },
     { author_association: "OWNER", head: { repo: null }, base: { repo: { id: 1 } } },
-    { author_association: "NONE", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
     { author_association: "", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
-    {
-      author_association: "FIRST_TIME_CONTRIBUTOR",
-      head: { repo: { id: 2 } },
-      base: { repo: { id: 1 } },
-    },
-    { author_association: "FIRST_TIMER", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
+    { author_association: "MANNEQUIN", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
   ])("fails closed for untrusted/missing metadata: %j", (pr) => {
     expect(reviewAuthorTrust(pr)).toBe("awaiting_approval");
   });

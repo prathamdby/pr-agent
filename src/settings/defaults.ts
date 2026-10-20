@@ -46,6 +46,9 @@ export const REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS: ReadonlySet<string> = new Set([
 
 export const REVIEW_WORKFLOW_START_UNGATED_ASSOCIATIONS: ReadonlySet<string> = new Set([
   "CONTRIBUTOR",
+  "FIRST_TIME_CONTRIBUTOR",
+  "FIRST_TIMER",
+  "NONE",
 ]);
 
 export const DEFAULT_QUEUE_RETRY_LIMIT = 3;

@@ -383,8 +383,9 @@ from pr_review_approvals where resource_key = $1;
 ```
 
 The first matching PR workflow start changes `awaiting` to `approved` when
-`workflow_start_admits` is true. A fork `CONTRIBUTOR` stores false, so that
-start does not admit the row. An authorized approving PR review or `/review`
+`workflow_start_admits` is true. A fork `CONTRIBUTOR`, `NONE`,
+`FIRST_TIME_CONTRIBUTOR`, or `FIRST_TIMER` stores false, so that start does
+not admit the row. An authorized approving PR review or `/review`
 still does. The transition runs under the review intake lock. A delayed open
 cannot create awaiting state after a retained review work item, including a
 completed slash review. Workflow starts must be `in_progress`,
