@@ -14,18 +14,24 @@ describe("reviewAuthorTrust", () => {
       ).toBe("trusted");
     },
   );
-  it.each(["CONTRIBUTOR", "contributor", "NONE", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER"])(
-    "holds a fork %s for maintainer approval",
-    (author_association) => {
-      expect(
-        reviewAuthorTrust({
-          author_association,
-          head: { repo: { id: 2 } },
-          base: { repo: { id: 1 } },
-        }),
-      ).toBe("awaiting_maintainer_approval");
-    },
-  );
+  it.each([
+    "CONTRIBUTOR",
+    "contributor",
+    "NONE",
+    "none",
+    "FIRST_TIME_CONTRIBUTOR",
+    "first_time_contributor",
+    "FIRST_TIMER",
+    "first_timer",
+  ])("holds a fork %s for maintainer approval", (author_association) => {
+    expect(
+      reviewAuthorTrust({
+        author_association,
+        head: { repo: { id: 2 } },
+        base: { repo: { id: 1 } },
+      }),
+    ).toBe("awaiting_maintainer_approval");
+  });
   it.each(["NONE", "CONTRIBUTOR"])("trusts same-repo heads with %s", (author_association) => {
     expect(
       reviewAuthorTrust({
