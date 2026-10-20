@@ -57,7 +57,7 @@ function findHeadReviewComment(
 
 async function botOwnedComments(prSurface: PrSurface): Promise<readonly PrConversationComment[]> {
   const botLogin = await prSurface.getBotLogin();
-  const comments = await prSurface.listConversationComments();
+  const comments = (await prSurface.listConversationComments()).comments;
   return comments.filter((comment) => comment.authorLogin === botLogin);
 }
 

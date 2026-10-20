@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0031](0031-ask-admission-quotas.md). Amended for #658: intake admits one run per triggering mention (decision 9).
+Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0031](0031-ask-admission-quotas.md). Amended for #658: intake admits one run per triggering mention (decision 9). Amended for #793: decision 3 is the shared discussion block.
 
 ## Context
 
@@ -16,7 +16,7 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 
 2. **Tool-loop investigation** — Ask runs investigate through `execute({ code })` cells. Scripts call the installed workspace capabilities as `tools.*`. Context7 (`resolveLibraryId`, `getLibraryDocs`) and `searchCodeIndex` stay native siblings. The model does not receive the full PR diff upfront. When the webhook includes a **code anchor** (inline review comment), path, line range, and `diff_hunk` are injected into the user message as the starting point.
 
-3. **Thread transcript** — Before the LLM turn, the ask worker loads the containing comment thread (inline review comments grouped by root, or PR conversation thread when `in_reply_to_id` is available) and injects it as untrusted `thread_transcript` context. Fetch failures soft-degrade to question-only. A char cap keeps oversized threads bounded (root + newest tail).
+3. **Shared discussion** — Before the model turn, ask and verification load one pull request discussion. The block holds the inline review threads and the conversation comments those reads returned, under one character ceiling (`MAX_ASK_THREAD_TRANSCRIPT_CHARS`). Identity lines are spent first, in read order, which does not prefer open bot threads. A review-thread status other than ok prints the existing warning and still renders the snapshots that read returned. A thrown conversation read says the conversation was not loaded and still renders those snapshots. A partial review-thread page, a truncated conversation page, and an identity list stopped by the ceiling print one incomplete-list notice. Ask stays explain-only. Verification still verdicts only open bot findings.
 
 4. **Separate ask lane** — Ask runs enqueue on pg-boss `agent-work-ask` with worker `localConcurrency` from `ASK_CONCURRENCY` (default **1**), not the review queue, so interactive Q&A does not share review worker slots.
 
@@ -40,9 +40,9 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 
 ## Current implementation
 
-- Production routing: [`AgentWorkScheduler.submit`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/ask/askRun.ts) in the worker (thread load in [`askExecutor`](../../src/agentWork/executors/askExecutor.ts)).
+- Production routing: [`AgentWorkScheduler.submit`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/ask/askRun.ts) in the worker (discussion load in [`askExecutor`](../../src/agentWork/executors/askExecutor.ts) and [`verificationExecutor`](../../src/agentWork/executors/verificationExecutor.ts)).
 - Mention detection: [`parseBotMention`](../../src/commands/parseBotMention.ts) + [`toIntakeCommand`](../../src/webhook/intakeCommand.ts), with explicitly resolved bot identity.
 
 ## Reversal
 
-Remove mention handling from [`intakeCommand.ts`](../../src/webhook/intakeCommand.ts), drop thread transcript loading from the ask executor, and revert ask prompt/user-content changes.
+Remove mention handling from [`intakeCommand.ts`](../../src/webhook/intakeCommand.ts), drop the shared discussion load from the ask and verification executors, and revert the prompt changes.

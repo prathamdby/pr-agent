@@ -86,6 +86,11 @@ export type PrConversationComment = {
   readonly body: string;
 };
 
+export type ListConversationCommentsResult = {
+  readonly comments: readonly PrConversationComment[];
+  readonly truncated: boolean;
+};
+
 export type PushedCommitSummary = {
   readonly sha: string;
   readonly subject: string;
@@ -181,7 +186,7 @@ export type PrSurfaceReadMethods = PrResource & {
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
   gitCredentialAuth(): Promise<{ readonly token: string; readonly expiresAtTs: number }>;
-  listConversationComments(): Promise<readonly PrConversationComment[]>;
+  listConversationComments(): Promise<ListConversationCommentsResult>;
   listPushedCommits(): Promise<readonly PushedCommitSummary[]>;
   lookupGitHubUser(userId: number): Promise<GithubUserProfile | null>;
 };

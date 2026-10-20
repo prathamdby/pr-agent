@@ -776,7 +776,7 @@ export function createFakePrSurface(
           body: comment.body,
         });
       }
-      return [...comments.values()];
+      return { comments: [...comments.values()], truncated: false };
     },
 
     async editReviewComment(commentId, body) {

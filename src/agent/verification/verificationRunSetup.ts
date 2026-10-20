@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../settings/index.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
+import type { PullRequestDiscussion } from "../discussion/pullRequestDiscussion.ts";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.ts";
 import {
@@ -37,6 +38,7 @@ export function buildVerificationRunSetup(params: {
   readonly workspace: LocalPrWorkspace;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
 }): VerificationRunSetup {
   const submitState = createSubmitVerificationState();
@@ -62,6 +64,7 @@ export function buildVerificationRunSetup(params: {
       headSha: params.headSha,
       pushedCommits: params.pushedCommits,
       threads: params.inventory,
+      discussion: params.discussion,
       compareFilesTruncated: params.compareFilesTruncated,
     }),
     piTools: [...workspaceTools.piTools, submitTool.piTool],

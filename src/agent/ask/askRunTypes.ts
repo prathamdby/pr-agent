@@ -2,6 +2,10 @@ import type { Pool } from "pg";
 import type { ReplyTarget } from "../../agentWork/types.ts";
 import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
+import type {
+  DiscussionTrigger,
+  PullRequestDiscussion,
+} from "../discussion/pullRequestDiscussion.ts";
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
 import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.ts";
@@ -34,8 +38,8 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
-  threadTranscript?: string;
-  threadTranscriptTruncated?: boolean;
+  discussion: PullRequestDiscussion;
+  discussionTrigger?: DiscussionTrigger;
   cwd?: string;
   workspace: LocalPrWorkspace;
   sessionContext?: FeatureSessionContext;

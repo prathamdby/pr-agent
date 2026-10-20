@@ -7,7 +7,7 @@ import type { Pool } from "pg";
 
 import type { PrSurface } from "../../github/prSurface.ts";
 import { runAskRun } from "../../agent/ask/askRun.ts";
-import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.ts";
+import { loadPullRequestDiscussion } from "../../agent/discussion/pullRequestDiscussion.ts";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.ts";
 import {
   askReplyBodyWithOperationMarker,
@@ -352,11 +352,7 @@ export function createAskWorkExecution({
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
-          const transcript = await loadAskThreadTranscript({
-            prSurface,
-            replyTarget: payload.replyTarget,
-            commentId: payload.commentId,
-          });
+          const discussion = await loadPullRequestDiscussion(prSurface);
           const executionId = createAskExecutionId();
           const result = await runAskRun({
             cfg,
@@ -368,8 +364,11 @@ export function createAskWorkExecution({
             question: payload.question,
             replyTarget: payload.replyTarget,
             codeAnchor: payload.codeAnchor,
-            threadTranscript: transcript.text,
-            threadTranscriptTruncated: transcript.truncated,
+            discussion,
+            discussionTrigger:
+              payload.replyTarget.kind === "inlineReviewThread"
+                ? { kind: "inline", commentId: payload.replyTarget.inReplyToCommentId }
+                : { kind: "conversation", commentId: payload.commentId },
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
             sessionContext: env.durability,

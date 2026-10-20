@@ -30,7 +30,7 @@ const BARE_HOST_PATTERN =
   /(?:\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.){2,}[a-z]{2,}\b|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,}[/:?#][^\s]*)/i;
 const PROMPT_CONTENT_PATTERNS: readonly RegExp[] = [
   /\b(?:ignore|disregard|forget|override)\b[\s\S]{0,48}\b(?:previous|prior|above|system|developer)\b[\s\S]{0,48}\b(?:instructions?|rules?|prompt)\b/i,
-  /<\s*\/?\s*(?:system|developer|user|assistant|tool|prompt|instructions?|user_question|thread_transcript)\b/i,
+  /<\s*\/?\s*(?:system|developer|user|assistant|tool|prompt|instructions?|user_question|thread_transcript|discussion)\b/i,
   /\b(?:begin|end)\s+(?:system|developer|user|assistant|tool|prompt|context|instructions?)\b/i,
   /\b(?:system|developer|user|assistant|tool|user_question|thread_transcript)\s*[:_]/i,
   /\b(?:you are|act as|roleplay as)\s+(?:an?\s+)?(?:assistant|system|developer|chatgpt|bot)\b/i,

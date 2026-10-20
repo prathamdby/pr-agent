@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { emptyPullRequestDiscussion } from "../src/agent/discussion/pullRequestDiscussion.ts";
 import { buildVerificationUserContent } from "../src/prompts/verification/prompt.ts";
 
 describe("verification user message", () => {
@@ -9,6 +10,7 @@ describe("verification user message", () => {
       prNumber: 7,
       headSha: "abc",
       pushedCommits: [],
+      discussion: emptyPullRequestDiscussion(),
       threads: [
         {
           rootCommentId: 123,
