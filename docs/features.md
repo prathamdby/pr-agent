@@ -125,10 +125,11 @@ Notes:
   labels still sync.
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
   (`reviewVerdict(...).close`). A crash concludes the check as `action_required`.
-  Any open P0–P2 finding on the pull request concludes it as `failure`, including
-  findings from earlier reviews that this run did not recheck. When earlier
-  findings cannot be loaded and none is known to block, the check is `neutral`
-  and the status `error`, never `success`.
+  Any open finding at or above `REVIEW_CHECK_FAIL_SEVERITY` concludes it as
+  `failure`, including findings from earlier reviews that this run did not
+  recheck. The default is `P2`. `P3` fails only when the threshold is `P3`.
+  When earlier findings cannot be loaded and none is known to block, the check
+  is `neutral` and the status `error`, never `success`.
   Concurrent closes keep the first verdict. A later cancellation or recovery
   does not replace it. The optional status uses that same verdict.
   Crash recovery serializes its failure decision with lease renewals and

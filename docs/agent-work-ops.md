@@ -421,7 +421,7 @@ separate acceptance receipts. A selected row stays open until its check and
 applicable status are accepted, unless that check's close intent is already
 `outcome_unknown` with `unknownResolution: terminal`. Status is applicable only
 when enabled with a nonempty, nondeferred saved head. Check-only completion can
-attach status later, without changing the check output.
+attach status later, without changing the check output. Repair reads the stored summary meta, including the recorded `ownCheckFailSeverity`. The conclusion follows `ownCheckFailing`, `ownCheckIncomplete`, and `ownBlockingCount`. A later change to `REVIEW_CHECK_FAIL_SEVERITY` does not rewrite a selected check.
 
 Inspect one run with bound parameters:
 

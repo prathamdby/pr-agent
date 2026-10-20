@@ -70,6 +70,13 @@ installed first. Keep it off until local crash/restart proof and rollout approva
 See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
 [rollout](operations.md#review-reliability-rollout).
 
+`REVIEW_CHECK_FAIL_SEVERITY` defaults to `P2` and maps to
+`cfg.review.checkFailSeverity`. Allowed values are `P0`, `P1`, `P2`, and `P3`.
+Open findings at that rank or stricter fail the check. `P3` fails only when
+the threshold is `P3`. An empty string is not the default. It throws
+`config.invalid_enum`. There is no `off` value. See
+[ADR 0058](adr/0058-judgment-owned-severity.md).
+
 Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
 `REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
 `REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
@@ -392,8 +399,10 @@ independently starts `pr-agent/review` as `pending` when status write is availab
 A remote check belongs to `(owner, repo, head SHA, name, external ID)`, with the
 work-item ID as external ID. Duplicate recovery requires exactly one full-identity
 match. Every terminal path uses `reviewVerdict(...).close`.
-Full coverage concludes `failure` for P0–P2 and `success` for empty/P3-only
-findings. Partial coverage uses check `neutral` and status `error`.
+Full coverage concludes `failure` for open findings at or above
+`REVIEW_CHECK_FAIL_SEVERITY` (default `P2`) and `success` when none block.
+`P3` fails only when the threshold is `P3`. Partial coverage uses check
+`neutral` and status `error`.
 Cancellation, supersession, and stale-head replacement use check `cancelled`;
 crash/unpublished uses `action_required`. Their statuses use `error`.
 Commit-status keys remain per state (`review:commit_status:<resource>:<head>:<state>`).
@@ -455,6 +464,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS`                                                                                                          | 2000                                                                                               |
 | `REVIEW_FOLLOW_UP_MAX_CHARS`                                                                                                                       | 2000                                                                                               |
 | `REVIEW_GATE_PROSE_MAX_CHARS`                                                                                                                      | 280 — shared Mergeability and Blast Radius line cap                                                |
+| `REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS`                                                                                                      | 280 — published severity rationale cap, same length as gate prose                                  |
 | `REVIEW_GATE_PROSE_UNASSESSED`                                                                                                                     | `Not assessed.` — deterministic fallback copy when synthesis cannot run                            |
 | `REVIEW_SUMMARY_BODY_MAX_CHARS`                                                                                                                    | 60000                                                                                              |
 | `REVIEW_SUMMARY_COMPACTION_NOTE`                                                                                                                   | Public note when summary is compacted                                                              |
