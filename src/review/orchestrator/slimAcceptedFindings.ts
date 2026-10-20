@@ -5,7 +5,7 @@ import type {
 } from "./orchestratorTypes.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
 import type { SpecialistReport } from "./specialistReport.ts";
-import { candidateFindingId, type AwaitingCandidate } from "./judgmentDisposition.ts";
+import { awaitingCandidates, type AwaitingCandidate } from "./judgmentDisposition.ts";
 
 type ReportOutcome = {
   readonly specialist: SpecialistId;
@@ -34,7 +34,7 @@ export function slimAcceptedFindings(
   readonly awaiting: readonly AwaitingCandidate[];
 } {
   const findings = outcome.report.findings;
-  const awaiting: AwaitingCandidate[] = [];
+  const awaiting = awaitingCandidates(outcome.specialist, outcome.report, ledger);
   if (findings.length === 0) {
     return { json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting };
   }
@@ -47,10 +47,7 @@ export function slimAcceptedFindings(
       const match = published.find((placement) =>
         samePublishedFinding(placement.placement.finding, finding),
       );
-      if (match == null) {
-        awaiting.push(candidateFindingIdStamp(outcome.specialist, finding));
-        return finding;
-      }
+      if (match == null) return finding;
       count += 1;
       return {
         findingId: match.findingId,
@@ -65,18 +62,5 @@ export function slimAcceptedFindings(
     json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2),
     count,
     awaiting,
-  };
-}
-
-function candidateFindingIdStamp(
-  specialist: SpecialistId,
-  finding: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title">,
-): AwaitingCandidate {
-  return {
-    candidateId: candidateFindingId({ specialist, ...finding }),
-    file: finding.file,
-    startLine: finding.startLine,
-    endLine: finding.endLine,
-    title: finding.title,
   };
 }

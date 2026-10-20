@@ -460,7 +460,9 @@ export async function runOrchestratedPrReview(
     reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), state.unjudgedSpecialists);
   const restoreCoverageLists = (coverage: ReviewCoverage): void => {
     if (coverage.kind !== "partial") return;
-    if (coverage.failed != null) state.failedSpecialists.push(...coverage.failed);
+    for (const specialist of coverage.failed ?? []) {
+      if (!state.failedSpecialists.includes(specialist)) state.failedSpecialists.push(specialist);
+    }
     for (const specialist of coverage.unjudged ?? []) {
       if (!state.unjudgedSpecialists.includes(specialist))
         state.unjudgedSpecialists.push(specialist);
