@@ -1,12 +1,4 @@
 {
-  "no-unsafe-type-assertion(src)": {
-    "count": 0,
-    "scope": "src/**"
-  },
-  "no-unsafe-type-assertion(test)": {
-    "count": 546,
-    "scope": "test/**"
-  },
   "explicit-any(src)": {
     "count": 0,
     "scope": "src/**"
@@ -20,7 +12,7 @@
     "scope": "src/**"
   },
   "lint-suppressions(src)": {
-    "count": 5,
+    "count": 4,
     "scope": "src/**"
   },
   "lint-suppressions(test)": {

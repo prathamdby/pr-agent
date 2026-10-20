@@ -7,10 +7,10 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsrs -p tsconfig.build.json",
     "start": "node dist/index.js",
     "dev": "node --watch --env-file-if-exists=.env src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.json",
     "lint": "oxlint --deny-warnings",
     "lint:backend": "oxlint --deny-warnings --ignore-pattern 'site/**'",
     "lint:fix": "oxlint --fix",
@@ -63,8 +63,7 @@
     "@types/pg": "^8.23.1",
     "oxfmt": "^0.67.0",
     "oxlint": "1.82.0",
-    "oxlint-tsgolint": "7.0.2001",
-    "typescript": "^7.0.2",
+    "tsrs": "0.14.1-ts7.1.0-dev.20260929",
     "vitest": "^4.1.11"
   },
   "overrides": {

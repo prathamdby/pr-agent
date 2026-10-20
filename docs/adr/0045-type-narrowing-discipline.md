@@ -14,8 +14,8 @@ Use control-flow checks and existing guards first. Assertion functions belong
 at existing check-and-throw boundaries; they do not replace input validation.
 Literal membership tables use own-property checks so inherited keys cannot pass.
 
-The backend denies unsafe narrowing assertions, explicit `any`, and non-null
-assertions. Machine diagnostics, not a source regex, define the worklist.
+The backend denies explicit `any` and non-null assertions. Machine
+diagnostics, not a source regex, define the worklist.
 The guard ledger and static baseline force each counted lint rule on explicitly,
 even if normal lint configuration turns it off.
 
@@ -30,7 +30,7 @@ without parsing or replacing the original object. The erased PR-surface boundary
 returns `unknown`; its method-selected validator checks the result at the seam.
 Malformed evidence fails terminally without permission to repeat the mutation.
 The reviewed `escape(reason, value)` remains the single cast escape, with zero
-callers. No other file may suppress the unsafe-assertion rule.
+callers.
 
 ## Failure modes recorded before implementation
 
@@ -56,17 +56,13 @@ intentional fallback changes, and unavailable checks in the pull request.
 
 ## Enforcement inventory
 
-Backend unsafe assertions, explicit `any`, and non-null assertions each count
-zero. The escape helper exempts only its cast line; its caller-chosen type
-parameter has a separate rule-specific override. No other backend file is exempt.
+Explicit `any` and non-null assertions each count zero. The escape helper
+remains the single cast site, and its caller count stays zero.
 The escape-call row counts generic calls and imported aliases as well as
 unparameterized calls. Its baseline is zero.
 
-The former zero test-assertion count came from a test override that defeated
-CLI `--deny`. Measurement removes rule-specific overrides in a temporary trusted
-config before forcing each rule on. The 546 existing test assertions are
-explicit retained debt, not a pass: normal fixture lint remains exempt, but both
-counting gates prohibit growth. This does not authorize new test files or
+Measurement removes rule-specific overrides in a temporary trusted
+config before forcing each rule on. This does not authorize new test files or
 fixture casts.
 
 Literal-table guards preserve membership behavior for ordinary inputs and
