@@ -16,7 +16,7 @@ type FeatureItem = {
 export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
 
 export const HERO_SUPPORT =
-  "Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model keys, your code never leaves.";
+  "Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model keys, your choice of provider.";
 
 export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
 

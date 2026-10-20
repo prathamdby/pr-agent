@@ -618,7 +618,7 @@
   }
 
   /* After the closing banner the sky is already at `wash-mid`; on its own (the 404) it starts white. */
-  main:has(> .sky-fold-lead:last-child) + .sky-fold {
+  .sky-fold-continued {
     --sky-fold-top: var(--color-wash-mid);
   }
 

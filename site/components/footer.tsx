@@ -46,12 +46,12 @@ export function UsefulShelfBadge() {
   );
 }
 
-export function Footer() {
+export function Footer({ continuesSky = false }: { continuesSky?: boolean }) {
   const year = new Date().getFullYear();
   return (
-    <footer className="sky-fold">
+    <footer className={continuesSky ? "sky-fold sky-fold-continued" : "sky-fold"}>
       <div className="container-x pt-12 pb-5 sm:pt-16 sm:pb-6">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-[minmax(0,4fr)_minmax(0,2fr)_minmax(0,3fr)_minmax(0,2fr)] lg:gap-12">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-[minmax(0,4fr)_minmax(0,2fr)_minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
           <div className="col-span-2 pb-2 sm:col-span-3 lg:col-span-1 lg:pb-0">
             <a href="/" className="inline-flex items-center gap-2.5 rounded-sm text-text">
               <img
@@ -81,23 +81,6 @@ export function Footer() {
               ))}
             </ul>
           </div>
-          <div className="order-last col-span-2 sm:order-none sm:col-span-1">
-            <p className="text-sm font-medium text-text">Documentation</p>
-            <ul className="mt-2 flex flex-col">
-              {DOC_LINKS.map((doc) => (
-                <li key={doc.url}>
-                  <a
-                    href={doc.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={linkClassName}
-                  >
-                    {shortTitle(doc.title)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
           <div>
             <p className="text-sm font-medium text-text">For agents</p>
             <ul className="mt-2 flex flex-col">
@@ -109,6 +92,23 @@ export function Footer() {
                     className={`${linkClassName} font-mono text-label`}
                   >
                     {resource.path}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="col-span-2 sm:col-span-1">
+            <p className="text-sm font-medium text-text">Documentation</p>
+            <ul className="mt-2 flex flex-col">
+              {DOC_LINKS.map((doc) => (
+                <li key={doc.url}>
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={linkClassName}
+                  >
+                    {shortTitle(doc.title)}
                   </a>
                 </li>
               ))}
