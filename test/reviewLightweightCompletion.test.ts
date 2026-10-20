@@ -179,6 +179,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -207,6 +208,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -241,6 +243,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -260,7 +263,11 @@ describe("tryLightweightAutoReviewCompletion", () => {
       pool,
       expect.objectContaining({
         step: "summary_comment",
-        detail: expect.objectContaining({ ownCheckFailing: false, ownCheckIncomplete: true }),
+        detail: expect.objectContaining({
+          ownCheckFailing: false,
+          ownCheckIncomplete: true,
+          ownCheckFailSeverity: "P2",
+        }),
       }),
     );
   });
@@ -280,6 +287,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: 3,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -308,6 +316,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -338,6 +347,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -364,6 +374,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       prSurface: surface,
       model: "grok-4.5",
       leaseEpoch: null,
+      checkFailSeverity: "P2",
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,

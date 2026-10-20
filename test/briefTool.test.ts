@@ -391,7 +391,7 @@ describe("orchestrator prompts", () => {
         status: "findings",
         findings: [
           {
-            severity: "P2",
+            suggestedSeverity: "P2",
             file: "src/example.ts",
             startLine: 4,
             endLine: 4,
@@ -480,7 +480,13 @@ describe("orchestrator prompts", () => {
       kind: "report" as const,
       specialist: "correctness" as const,
       durationMs: 1,
-      report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
+      report: {
+        status: "findings" as const,
+        findings: findings.map(({ severity, ...entry }) => ({
+          ...entry,
+          suggestedSeverity: severity,
+        })),
+      },
     });
     const acceptedId = legacyFindingId("thread-node-1");
     const placementFor = (entry: SlimFinding) => ({

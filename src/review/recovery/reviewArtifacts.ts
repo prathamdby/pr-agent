@@ -15,8 +15,8 @@ import {
   UNREAD_COVERAGE_PATH_LIMIT,
 } from "./reviewRecoverySchema.ts";
 
-export const REVIEW_CONTRACT_VERSION = "review-1";
-export const REVIEW_ARTIFACT_SCHEMA_VERSION = 5;
+export const REVIEW_CONTRACT_VERSION = "review-2";
+export const REVIEW_ARTIFACT_SCHEMA_VERSION = 6;
 
 const hashSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/));
 const identityText = (max: number) =>

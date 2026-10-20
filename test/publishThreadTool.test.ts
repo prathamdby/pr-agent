@@ -1,4 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const decisionRows = vi.hoisted(() => ({
+  rows: [] as Array<{ detail?: { severityRaised?: number; severityLowered?: number } }>,
+}));
+
+vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
+  return {
+    ...actual,
+    safeAppendAgentEvents: (
+      _client: unknown,
+      cfg: { agentEvents: { enabled: boolean } },
+      rows: Array<{ detail?: { severityRaised?: number; severityLowered?: number } }>,
+    ) => {
+      if (!cfg.agentEvents.enabled) return;
+      decisionRows.rows.push(...rows);
+    },
+  };
+});
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   createOrchestratorPhaseRef,
@@ -21,6 +40,7 @@ let nextReviewId = 100;
 function finding(line: number): ReviewFinding {
   return {
     severity: "P1",
+    severityRationale: "The trigger is reachable in the changed branch.",
     file: "src/a.ts",
     startLine: line,
     endLine: line,
@@ -51,6 +71,14 @@ function threadSession(
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
+    agentEvents: {
+      pool: {} as never,
+      workItemId: "wi-1",
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+    },
   });
 }
 
@@ -80,6 +108,7 @@ describe("buildPublishThreadTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     nextReviewId = 100;
+    decisionRows.rows.length = 0;
   });
 
   it("asks one overlap round against earlier accepted findings, then publishes the answered batch", async () => {
@@ -289,5 +318,97 @@ describe("buildPublishThreadTool", () => {
     );
     expect(bodies).toHaveLength(2);
     expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  it("publishes the capped judged severity and keeps the rationale off the thread", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("tests");
+    tool.setReport({
+      status: "findings",
+      findings: [
+        {
+          suggestedSeverity: "P0",
+          file: "src/a.ts",
+          startLine: 10,
+          endLine: 10,
+          title: "Bug at line 10",
+          detail: "The changed path at line 10 returns the wrong value.",
+          fixPrompt: "Correct the path at line 10.",
+        },
+      ],
+    });
+
+    const result = await tool.executor({
+      findings: [
+        {
+          ...finding(10),
+          severity: "P0",
+          severityRationale: "RATIONALE_TOKEN_786",
+          suggestedSeverity: "SUGGESTED_P0_TOKEN",
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("published");
+    const stored = tool.getLedger().accepted[0]?.placement.finding;
+    expect(stored?.severity).toBe("P2");
+    const body = publishThreadBatch.mock.calls[0]?.[0].comments?.[0]?.body ?? "";
+    expect(body).toContain("**P2**");
+    expect(body).toContain("sev=P2");
+    expect(body).not.toContain("RATIONALE_TOKEN_786");
+    expect(body).not.toContain("SUGGESTED_P0_TOKEN");
+    expect(stored).not.toHaveProperty("suggestedSeverity");
+    expect(decisionRows.rows.at(-1)?.detail).toMatchObject({
+      severityRaised: 0,
+      severityLowered: 1,
+    });
+  });
+
+  it("caps a judged finding on a test path at P2 and an unjudged correctness P0 at P1", async () => {
+    const judged = buildTool();
+    judged.tool.setSource("correctness");
+    await judged.tool.executor({
+      findings: [{ ...finding(10), severity: "P0", file: "src/widget.test.ts" }],
+    });
+    expect(judged.tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P2");
+
+    const degraded = buildTool();
+    degraded.tool.setSource("correctness");
+    await degraded.tool.publishWithoutModel([{ ...finding(10), severity: "P0" }]);
+    expect(degraded.tool.getLedger().accepted[0]?.placement.finding.severity).toBe("P1");
+  });
+
+  it("rejects a publish_thread call that omits the severity rationale", async () => {
+    const { tool } = buildTool();
+    tool.setSource("correctness");
+    const { severityRationale: _rationale, ...withoutRationale } = finding(10);
+
+    await expect(tool.executor({ findings: [withoutRationale] })).rejects.toMatchObject({
+      code: "review.publish_thread_validation_failed",
+    });
+    expect(tool.getLedger().accepted).toEqual([]);
+  });
+
+  it("counts neither a raise nor a downgrade when the report row is split", async () => {
+    const { tool } = buildTool();
+    tool.setSource("correctness");
+    const row = {
+      suggestedSeverity: "P2" as const,
+      file: "src/a.ts",
+      startLine: 10,
+      endLine: 10,
+      title: "Bug at line 10",
+      detail: "The changed path at line 10 returns the wrong value.",
+      fixPrompt: "Correct the path at line 10.",
+    };
+    tool.setReport({
+      status: "findings",
+      findings: [row, { ...row, detail: "A second report row." }],
+    });
+    await tool.executor({ findings: [{ ...finding(10), severity: "P0" }] });
+    expect(decisionRows.rows.at(-1)?.detail).toMatchObject({
+      severityRaised: 0,
+      severityLowered: 0,
+    });
   });
 });

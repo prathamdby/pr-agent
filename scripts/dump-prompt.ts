@@ -752,7 +752,10 @@ function dumpExtraTurns() {
         {
           kind: "report",
           specialist: "correctness",
-          report: { status: "findings", findings: [sampleFinding] },
+          report: {
+            status: "findings",
+            findings: [{ ...sampleFinding, suggestedSeverity: sampleFinding.severity }],
+          },
           durationMs: 1000,
         },
         { kind: "empty", specialist: "quality", durationMs: 500 },

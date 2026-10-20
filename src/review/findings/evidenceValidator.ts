@@ -2,22 +2,24 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
 import { normalizeEvidencePath, type EvidenceLedger } from "./evidenceLedger.ts";
 
-export type EvidenceRejectedFinding = {
-  readonly finding: ReviewFinding;
+type EvidenceAnchor = Pick<ReviewFinding, "file" | "startLine" | "endLine">;
+
+export type EvidenceRejectedFinding<T extends EvidenceAnchor = ReviewFinding> = {
+  readonly finding: T;
   readonly reasonCode: string;
 };
 
-export function assertFindingsHaveEvidence(
-  findings: readonly ReviewFinding[],
+export function assertFindingsHaveEvidence<T extends EvidenceAnchor>(
+  findings: readonly T[],
   ledger: EvidenceLedger,
   headSha: string,
   opts?: {
     readonly checkoutCoverage?: CheckoutCoverage;
     readonly isPathInCheckout?: (path: string) => boolean;
   },
-): { accepted: ReviewFinding[]; rejected: EvidenceRejectedFinding[] } {
-  const accepted: ReviewFinding[] = [];
-  const rejected: EvidenceRejectedFinding[] = [];
+): { accepted: T[]; rejected: EvidenceRejectedFinding<T>[] } {
+  const accepted: T[] = [];
+  const rejected: EvidenceRejectedFinding<T>[] = [];
 
   for (const finding of findings) {
     if (ledger.covers(finding.file, finding.startLine, finding.endLine)) {

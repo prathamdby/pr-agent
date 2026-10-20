@@ -6,7 +6,7 @@ import {
   renderTableStrong,
 } from "../../github/markdownFormat.ts";
 import type { FindingLedger } from "../orchestrator/orchestratorTypes.ts";
-import { isCheckFailingSeverity } from "../reviewSchema.ts";
+import { isCheckFailingSeverity, type ReviewFinding } from "../reviewSchema.ts";
 import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.ts";
 import type {
   FindingInventory,
@@ -74,7 +74,7 @@ function severityRank(severity: FindingSeverity | "unknown"): number {
   return SEVERITY_ORDER.indexOf(severity);
 }
 
-function higherSeverity(
+export function higherSeverity(
   left: FindingSeverity | "unknown",
   right: FindingSeverity | "unknown",
 ): FindingSeverity | "unknown" {
@@ -87,12 +87,13 @@ function viewRow(
   severity: FindingSeverity | "unknown",
   held: InventoryFinding | null,
   observedThisRun: boolean,
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingViewRow {
   return {
     id,
     status,
     severity,
-    blocking: severity !== "unknown" && isCheckFailingSeverity(severity),
+    blocking: severity !== "unknown" && isCheckFailingSeverity(severity, checkFailSeverity),
     held,
     observedThisRun,
   };
@@ -101,6 +102,7 @@ function viewRow(
 function runRows(
   inventory: FindingInventory,
   ledger: Extract<FindingRunOutcomes, { kind: "reviewed" }>["ledger"],
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingViewRow[] {
   const rows = new Map<FindingId, FindingViewRow>();
   for (const accepted of ledger.accepted) {
@@ -113,6 +115,7 @@ function runRows(
         accepted.placement.finding.severity,
         null,
         true,
+        checkFailSeverity,
       ),
     );
   }
@@ -127,6 +130,7 @@ function runRows(
         higherSeverity(held.severity, entry.severity),
         held,
         true,
+        checkFailSeverity,
       ),
     );
   }
@@ -188,6 +192,7 @@ function openCopySeverities(
 export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
+  checkFailSeverity: ReviewFinding["severity"],
 ): FindingView {
   const duplicates = outcomes.kind === "reviewed" ? outcomes.duplicates : [];
   const cleaned = duplicates.filter(
@@ -195,9 +200,9 @@ export function buildFindingView(
   );
   const cleanedIds = new Set(cleaned.map((duplicate) => duplicate.id));
   const copySeverities = openCopySeverities(inventory, cleaned);
-  const observed = (outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger) : []).filter(
-    (row) => !cleanedIds.has(row.id),
-  );
+  const observed = (
+    outcomes.kind === "reviewed" ? runRows(inventory, outcomes.ledger, checkFailSeverity) : []
+  ).filter((row) => !cleanedIds.has(row.id));
   const observedIds = new Set(observed.map((row) => row.id));
   const carried = [...inventory.findings.values()]
     .filter(
@@ -210,7 +215,14 @@ export function buildFindingView(
     )
     .toSorted(compareCarried)
     .map((finding) =>
-      viewRow(finding.id, carriedStatus(finding), finding.severity, finding, false),
+      viewRow(
+        finding.id,
+        carriedStatus(finding),
+        finding.severity,
+        finding,
+        false,
+        checkFailSeverity,
+      ),
     );
   const rows = [...observed, ...carried].map((row) => {
     const copySeverity = copySeverities.get(row.id);
@@ -222,6 +234,7 @@ export function buildFindingView(
           higherSeverity(row.severity, copySeverity),
           row.held,
           row.observedThisRun,
+          checkFailSeverity,
         );
   });
   return {

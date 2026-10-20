@@ -110,6 +110,7 @@ export function createReviewWorkExecution({
             deletedPaths: new Set(),
           }),
           { kind: "not_reviewed" },
+          cfg.review.checkFailSeverity,
         );
         const notice = `${renderFailureNoticeWithFindings(reviewLens, findingView, accessSuffix.length)}${accessSuffix}`;
         const summary = await createReviewSummaryComment({

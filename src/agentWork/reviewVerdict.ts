@@ -885,6 +885,7 @@ export function summaryCommentVerdictMeta(params: {
   readonly conclusion: FindingCheckConclusion;
   readonly partialReason?: "specialists" | "unread";
   readonly blockingCount?: number;
+  readonly checkFailSeverity: "P0" | "P1" | "P2" | "P3";
 }): {
   readonly ownVerdictKind: "published" | "partial";
   readonly ownVerdictNote?: string;
@@ -892,6 +893,7 @@ export function summaryCommentVerdictMeta(params: {
   readonly ownCheckFailing: boolean;
   readonly ownCheckIncomplete?: true;
   readonly ownBlockingCount?: number;
+  readonly ownCheckFailSeverity: "P0" | "P1" | "P2" | "P3";
 } {
   const check = {
     ownCheckFailing: params.conclusion === "failure",
@@ -902,18 +904,19 @@ export function summaryCommentVerdictMeta(params: {
       ? { ownBlockingCount: params.blockingCount }
       : {}),
   };
+  const recorded = { ...check, ownCheckFailSeverity: params.checkFailSeverity };
   if (params.kind === "partial") {
     return {
       ownVerdictKind: "partial",
       ...(params.note != null && params.note.length > 0 ? { ownVerdictNote: params.note } : {}),
       ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
-      ...check,
+      ...recorded,
     };
   }
   return {
     ownVerdictKind: "published",
     ...(params.partialReason != null ? { ownPartialReason: params.partialReason } : {}),
-    ...check,
+    ...recorded,
   };
 }
 

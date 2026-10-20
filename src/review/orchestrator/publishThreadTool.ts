@@ -12,12 +12,18 @@ import {
   reconciledFindingKey,
 } from "../publish/publishFindingBatch.ts";
 import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.ts";
+import type { SpecialistReport } from "./specialistReport.ts";
 import {
+  cappedFindingSeverity,
   reviewFindingEntries,
   reviewFindingSchema,
   reviewPayloadFromFindings,
   type ReviewFinding,
 } from "../reviewSchema.ts";
+import {
+  REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS,
+  REVIEW_SEVERITY_RANK,
+} from "../../settings/index.ts";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.ts";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.ts";
@@ -66,7 +72,21 @@ const relationSchema = v.pipe(
 );
 
 const publishThreadSchema = v.object({
-  findings: v.array(v.object({ ...reviewFindingEntries, relation: v.optional(relationSchema) })),
+  findings: v.array(
+    v.object({
+      ...reviewFindingEntries,
+      severityRationale: v.pipe(
+        v.string(),
+        v.trim(),
+        v.minLength(1),
+        v.maxLength(REVIEW_FINDING_SEVERITY_RATIONALE_MAX_CHARS),
+        v.description(
+          "Required private sentence for the final severity. Stored with the finding and never rendered.",
+        ),
+      ),
+      relation: v.optional(relationSchema),
+    }),
+  ),
 });
 
 const checkedFindingsSchema = v.object({ findings: v.array(reviewFindingSchema) });
@@ -185,6 +205,30 @@ function repeatedInBatch(findings: readonly ReviewFinding[]): ReadonlySet<number
   return repeated;
 }
 
+function severityMovement(
+  report: SpecialistReport | null,
+  findings: readonly ReviewFinding[],
+): { readonly severityRaised: number; readonly severityLowered: number } {
+  let severityRaised = 0;
+  let severityLowered = 0;
+  for (const finding of findings) {
+    const matches = (report?.findings ?? []).filter(
+      (row) =>
+        row.file === finding.file &&
+        row.startLine === finding.startLine &&
+        row.endLine === finding.endLine &&
+        row.title === finding.title,
+    );
+    const match = matches.length === 1 ? matches[0] : undefined;
+    if (match == null) continue;
+    const judgedRank = REVIEW_SEVERITY_RANK[finding.severity];
+    const suggestedRank = REVIEW_SEVERITY_RANK[match.suggestedSeverity];
+    if (judgedRank < suggestedRank) severityRaised += 1;
+    else if (judgedRank > suggestedRank) severityLowered += 1;
+  }
+  return { severityRaised, severityLowered };
+}
+
 function validationFailed(message: string): AppError {
   return new AppError({ domain: "review", kind: "publish_thread_validation_failed", message });
 }
@@ -211,12 +255,14 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     findings: readonly ReviewFinding[],
   ) => Promise<PublishThreadToolResult>;
   readonly setSource: (source: SpecialistId) => void;
+  readonly setReport: (report: SpecialistReport) => void;
   readonly getLedger: () => FindingLedger;
   readonly getPublishedBatchCount: () => number;
   readonly getStopReason: () => PublishStopReason | null;
   readonly replay: (decision: RecoveryDecision, withoutEvidence?: boolean) => Promise<void>;
 } {
   let source: SpecialistId | null = null;
+  let specialistReport: SpecialistReport | null = null;
   let stopReason: PublishStopReason | null = null;
   let publishedBatchCount = 0;
   let overlapRoundsUsed = 0;
@@ -298,6 +344,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   const publish = async (
     submitted: readonly SubmittedFinding[],
     overlapRoundsLeft: number,
+    judged: boolean,
   ): Promise<PublishThreadToolResult> => {
     if (source == null) {
       throw new AppError({
@@ -308,12 +355,22 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     }
     const redacted = redactReviewPayloadSecrets(
       reviewPayloadFromFindings(submitted.map((entry) => entry.finding)),
-    ).findings;
+    ).findings.map((finding) => ({
+      ...finding,
+      severity: cappedFindingSeverity({
+        severity: finding.severity,
+        testsLens: source === "tests",
+        anchorPath: finding.file,
+        judged,
+      }),
+    }));
+    const prepared = submitted.map((entry, index) => ({
+      finding: redacted[index],
+      relation: entry.relation,
+    }));
     const repeated = repeatedInBatch(redacted);
-    const outcomes = reconcileBatch(submitted, redacted, repeated, overlapRoundsLeft, source);
-    const findings = submitted
-      .filter((_, index) => !repeated.has(index))
-      .map((entry) => entry.finding);
+    const outcomes = reconcileBatch(prepared, redacted, repeated, overlapRoundsLeft, source);
+    const findings = redacted.filter((_, index) => !repeated.has(index));
 
     let result: FindingBatchResult;
     try {
@@ -347,6 +404,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
           submittedCount,
           acceptedCount,
           rejectedCount: Math.max(0, submittedCount - acceptedCount),
+          ...severityMovement(specialistReport, findings),
         });
       }
     } else {
@@ -375,7 +433,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       finding,
       relation: observationRelation(parsed.value.findings[index]?.relation),
     }));
-    return publish(submitted, Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed));
+    return publish(submitted, Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed), true);
   };
 
   return {
@@ -395,11 +453,16 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       return publish(
         findings.map((finding) => ({ finding, relation: { kind: "new" } })),
         0,
+        false,
       );
     },
     setSource: (nextSource) => {
       source = nextSource;
       overlapRoundsUsed = 0;
+      specialistReport = null;
+    },
+    setReport: (report) => {
+      specialistReport = report;
     },
     getLedger: () => ledger,
     getPublishedBatchCount: () => publishedBatchCount,

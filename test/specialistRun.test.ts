@@ -44,7 +44,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.ts";
 
 const finding = {
-  severity: "P2",
+  suggestedSeverity: "P2",
   file: "src/example.ts",
   startLine: 7,
   endLine: 7,

@@ -482,17 +482,35 @@ describe("review check run lifecycle", () => {
     });
     expect(
       ownVerdictFromSummaryDetail(
-        summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" }),
+        summaryCommentVerdictMeta({
+          kind: "published",
+          conclusion: "neutral",
+          checkFailSeverity: "P2",
+        }),
       ),
     ).toEqual({ kind: "published", conclusion: "neutral", blockingCount: 0 });
-    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "failure" })).toEqual({
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: "failure",
+        checkFailSeverity: "P2",
+      }),
+    ).toEqual({
       ownVerdictKind: "published",
       ownCheckFailing: true,
+      ownCheckFailSeverity: "P2",
     });
-    expect(summaryCommentVerdictMeta({ kind: "published", conclusion: "neutral" })).toEqual({
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: "neutral",
+        checkFailSeverity: "P1",
+      }),
+    ).toEqual({
       ownVerdictKind: "published",
       ownCheckFailing: false,
       ownCheckIncomplete: true,
+      ownCheckFailSeverity: "P1",
     });
   });
 
@@ -525,13 +543,24 @@ describe("review check run lifecycle", () => {
         conclusion: "failure",
         partialReason: "unread",
         blockingCount: 4,
+        checkFailSeverity: "P0",
       }),
     ).toEqual({
       ownVerdictKind: "published",
       ownPartialReason: "unread",
       ownCheckFailing: true,
       ownBlockingCount: 4,
+      ownCheckFailSeverity: "P0",
     });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "published",
+        ownCheckFailing: true,
+        ownCheckIncomplete: false,
+        ownBlockingCount: 2,
+        ownCheckFailSeverity: "P0",
+      }),
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 2 });
   });
 
   it("creates and records an in-progress check run", async () => {

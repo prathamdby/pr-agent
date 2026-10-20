@@ -52,6 +52,7 @@ export async function tryLightweightAutoReviewCompletion(
     model: string;
     leaseEpoch: number | null;
     boss?: PgBoss;
+    checkFailSeverity: "P0" | "P1" | "P2" | "P3";
   },
 ): Promise<LightweightAutoReviewResult> {
   if (params.item.source !== "auto") return { handled: false };
@@ -80,6 +81,7 @@ export async function tryLightweightAutoReviewCompletion(
       deletedPaths: new Set(),
     }),
     { kind: "not_reviewed" },
+    params.checkFailSeverity,
   );
   const check = findingCheck(findingView);
   const footer = {
@@ -172,7 +174,11 @@ export async function tryLightweightAutoReviewCompletion(
     detail: {
       lightweightCompletion: true,
       trivialReason: "docs_only",
-      ...summaryCommentVerdictMeta({ kind: "published", conclusion: check.conclusion }),
+      ...summaryCommentVerdictMeta({
+        kind: "published",
+        conclusion: check.conclusion,
+        checkFailSeverity: params.checkFailSeverity,
+      }),
     },
     leaseEpoch: params.leaseEpoch,
   }).record();

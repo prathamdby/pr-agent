@@ -95,6 +95,8 @@ export function decisionEventRow(
     readonly rejectedCount: number;
     readonly degradedReason?: "judgment_failed" | "judgment_unpublished" | "judgment_unavailable";
     readonly turnEnd?: TurnEnd;
+    readonly severityRaised: number;
+    readonly severityLowered: number;
   },
 ): AgentEventInsertRow {
   const detail: Record<string, unknown> = {
@@ -102,6 +104,8 @@ export function decisionEventRow(
     submittedCount: params.submittedCount,
     acceptedCount: params.acceptedCount,
     rejectedCount: params.rejectedCount,
+    severityRaised: params.severityRaised,
+    severityLowered: params.severityLowered,
   };
   if (params.degradedReason != null) detail.degradedReason = params.degradedReason;
   if (params.turnEnd != null) detail.turnEnd = params.turnEnd;

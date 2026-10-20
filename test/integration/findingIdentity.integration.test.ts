@@ -62,6 +62,7 @@ const LEASE_EPOCH = 7;
 
 const findings: readonly ReviewFinding[] = [10, 11].map((line) => ({
   severity: "P1",
+  severityRationale: "The null read is reachable on this path.",
   file: "src/a.ts",
   startLine: line,
   endLine: line,
@@ -89,7 +90,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     for (const cleanup of rerunCleanups.splice(0)) await cleanup();
   });
 
-  async function seedReviewPublication() {
+  async function seedReviewPublication(cfg = makeTestConfig()) {
     const workItemId = randomUUID();
     const repo = `r-${workItemId}`;
     const resourceKey = `finding-identity-it/${repo}#1`;
@@ -145,7 +146,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         openReviewArtifactStore(client, binding, LEASE_EPOCH),
       );
       const session = createReviewPublishSession({
-        cfg: makeTestConfig(),
+        cfg,
         ctx: {
           owner: "finding-identity-it",
           repo,
@@ -181,8 +182,9 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     surface: PrSurface,
     observations: readonly ReviewFinding[] = [],
     findingInventory?: FindingInventory,
+    cfg = makeTestConfig(),
   ) {
-    const next = await seedReviewPublication();
+    const next = await seedReviewPublication(cfg);
     rerunCleanups.push(next.cleanup);
     return {
       ...next.attempt(pool, surface, observations, findingInventory),
@@ -256,6 +258,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
   function observed(line: number, extras: Partial<ReviewFinding> = {}): ReviewFinding {
     return {
       severity: "P1",
+      severityRationale: "The null read is reachable on this path.",
       file: "src/a.ts",
       startLine: line,
       endLine: line,
@@ -868,6 +871,131 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       });
       expect(lastSummaryBody(controls)).toContain(FINDING_INVENTORY_UNAVAILABLE_NOTE);
       expect(checkConclusions(controls)).toEqual(["neutral", "failure"]);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("fails only findings at or above the configured threshold and keeps partial specialist coverage neutral", async () => {
+    const cfg = makeTestConfig({ review: { checkFailSeverity: "P1" } });
+    const seeded = await seedReviewPublication(cfg);
+    const { surface, controls } = seeded;
+    const quietFinding = observed(10, {
+      severity: "P2",
+      title: "Bounded gap in the null guard",
+    });
+    const blockingFinding = observed(11, {
+      severity: "P0",
+      title: "Reachable null write drops the record",
+    });
+
+    try {
+      const first = seeded.attempt(pool, surface, [quietFinding]);
+      const published = await publishFindingBatch([quietFinding], first.session, first.input);
+      if (published.kind !== "published") throw new Error("expected the P2 finding to publish");
+
+      const quietInventory = await loadFindingInventory(surface, noPathChanges);
+      const quietRun = await rerun(surface, [], quietInventory, cfg);
+      const quietResult = await publishSummaryWithVerdict(surface, quietRun, quietRun.input.ledger);
+      expect(quietResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "success", blockingCount: 0 },
+      });
+      expect(lastSummaryBody(controls)).toContain("1 open finding, none blocks merge");
+
+      controls.setThreadResolutionStatus("partial", "thread page missing");
+      const incompleteQuiet = await loadFindingInventory(surface, noPathChanges);
+      expect(incompleteQuiet.completeness).toBe("partial");
+      const incompleteQuietRun = await rerun(surface, [], incompleteQuiet, cfg);
+      const incompleteQuietResult = await publishSummaryWithVerdict(
+        surface,
+        incompleteQuietRun,
+        incompleteQuietRun.input.ledger,
+      );
+      expect(incompleteQuietResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "neutral", blockingCount: 0 },
+      });
+
+      controls.setThreadResolutionStatus("ok");
+      const blockingRun = await rerun(surface, [blockingFinding], quietInventory, cfg);
+      const blockingPublished = await publishFindingBatch(
+        [blockingFinding],
+        blockingRun.session,
+        blockingRun.input,
+      );
+      if (blockingPublished.kind !== "published") {
+        throw new Error("expected the P0 finding to publish");
+      }
+      const carried = await loadFindingInventory(surface, noPathChanges);
+      const carriedRun = await rerun(surface, [], carried, cfg);
+      const carriedResult = await publishSummaryWithVerdict(
+        surface,
+        carriedRun,
+        carriedRun.input.ledger,
+      );
+      expect(carriedResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 1 },
+      });
+
+      controls.setThreadResolutionStatus("partial", "thread page missing");
+      const incompleteBlocked = await loadFindingInventory(surface, noPathChanges);
+      expect(incompleteBlocked.completeness).toBe("partial");
+      const incompleteBlockedRun = await rerun(surface, [], incompleteBlocked, cfg);
+      const incompleteBlockedResult = await publishSummaryWithVerdict(
+        surface,
+        incompleteBlockedRun,
+        incompleteBlockedRun.input.ledger,
+      );
+      expect(incompleteBlockedResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 1 },
+      });
+
+      controls.setThreadResolutionStatus("ok");
+      const partialInventory = await loadFindingInventory(surface, noPathChanges);
+      const partialRun = await rerun(surface, [], partialInventory, cfg);
+      const verdictTarget = {
+        pool,
+        workItemId: partialRun.workItemId,
+        resourceKey: partialRun.resourceKey,
+        leaseEpoch: LEASE_EPOCH,
+      };
+      await reviewVerdict({
+        ...verdictTarget,
+        prSurface: surface,
+        owner: "finding-identity-it",
+        repo: surface.repo,
+        prNumber: 1,
+        reviewLens: "review",
+        headSha: HEAD_SHA,
+        commitStatusEnabled: false,
+      }).pending();
+      const partialResult = await publishReviewSummaryOnly(
+        { ...partialRun.session, verdict: verdictTarget },
+        {
+          payload: reviewPayloadFromFindings([]),
+          ledger: partialRun.input.ledger,
+          coverage: {
+            kind: "partial",
+            reason: "specialists",
+            failed: ["tests"],
+            note: "The tests specialist did not finish.",
+          },
+        },
+      );
+      expect(partialResult).toMatchObject({
+        kind: "published",
+        check: { conclusion: "failure", blockingCount: 1 },
+      });
+      expect(checkConclusions(controls)).toEqual([
+        "success",
+        "neutral",
+        "failure",
+        "failure",
+        "neutral",
+      ]);
     } finally {
       await seeded.cleanup();
     }

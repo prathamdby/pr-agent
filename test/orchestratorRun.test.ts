@@ -132,7 +132,7 @@ vi.mock("../src/review/orchestrator/specialistRun.ts", () => ({
       readonly escalation?: EscalationPlan;
       readonly onValidatedReport?: (report: {
         status: "findings" | "no_findings";
-        findings: readonly ReviewFinding[];
+        findings: readonly { readonly file: string }[];
       }) => Promise<void>;
     }) => {
       const outcome = testState.outcomes.get(params.specialist);
@@ -202,6 +202,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.ts", () => ({
         setSource: (source: SpecialistId) => {
           testState.activeSource = source;
         },
+        setReport: () => undefined,
         getLedger: () => testState.ledger ?? createFindingLedger(),
         getPublishedBatchCount: () => testState.publishedBatchCount,
         getStopReason: () => null,
@@ -375,12 +376,32 @@ function acceptedPlacement(
   return { kind, ...base, reviewId: kind === "posted" ? 11 : 22 };
 }
 
+function reported(
+  items: readonly ReviewFinding[],
+): Extract<SpecialistOutcome, { readonly kind: "report" }>["report"] {
+  return {
+    status: "findings",
+    findings: items.map((item) => ({
+      suggestedSeverity: item.severity,
+      file: item.file,
+      startLine: item.startLine,
+      endLine: item.endLine,
+      title: item.title,
+      detail: item.detail,
+      fixPrompt: item.fixPrompt,
+      ...(item.suggestedCode != null ? { suggestedCode: item.suggestedCode } : {}),
+      ...(item.confidence != null ? { confidence: item.confidence } : {}),
+      ...(item.category != null ? { category: item.category } : {}),
+    })),
+  };
+}
+
 function report(specialist: SpecialistId): SpecialistOutcome {
   return {
     kind: "report",
     specialist,
     durationMs: 1,
-    report: { status: "findings", findings: [finding(specialist)] },
+    report: reported([finding(specialist)]),
   };
 }
 
@@ -652,7 +673,7 @@ describe("runOrchestratedPrReview", () => {
             createReviewArtifactEnvelope(binding, {
               kind: "report",
               specialist,
-              report: { status: "findings", findings: [item] },
+              report: reported([item]),
               evidence: [],
             }),
           );
@@ -1160,7 +1181,7 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "quality",
       durationMs: 1,
-      report: { status: "findings", findings: [speculative] },
+      report: reported([speculative]),
     });
     for (const specialist of ["correctness", "security", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -1191,7 +1212,7 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "tests",
       durationMs: 1,
-      report: { status: "findings", findings: [genericCoverage] },
+      report: reported([genericCoverage]),
     });
     for (const specialist of ["correctness", "security", "quality"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -1238,7 +1259,7 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "quality",
       durationMs: 1,
-      report: { status: "findings", findings: [compound] },
+      report: reported([compound]),
     });
     for (const specialist of ["correctness", "security", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -1269,7 +1290,7 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "quality",
       durationMs: 1,
-      report: { status: "findings", findings: [compound] },
+      report: reported([compound]),
     });
     for (const specialist of ["correctness", "security", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -1328,25 +1349,25 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "quality",
       durationMs: 1,
-      report: { status: "findings", findings: [structural] },
+      report: reported([structural]),
     });
     testState.outcomes.get("tests")?.resolve({
       kind: "report",
       specialist: "tests",
       durationMs: 1,
-      report: { status: "findings", findings: [testGap] },
+      report: reported([testGap]),
     });
     testState.outcomes.get("correctness")?.resolve({
       kind: "report",
       specialist: "correctness",
       durationMs: 1,
-      report: { status: "findings", findings: [correctnessFinding] },
+      report: reported([correctnessFinding]),
     });
     testState.outcomes.get("security")?.resolve({
       kind: "report",
       specialist: "security",
       durationMs: 1,
-      report: { status: "findings", findings: [securityFinding] },
+      report: reported([securityFinding]),
     });
 
     await expect(run).resolves.toMatchObject({ published: true });
@@ -1379,7 +1400,7 @@ describe("runOrchestratedPrReview", () => {
       kind: "report",
       specialist: "correctness",
       durationMs: 1,
-      report: { status: "findings", findings: [lowImpact] },
+      report: reported([lowImpact]),
     });
     for (const specialist of ["security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -1388,6 +1409,43 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.ledger?.accepted).toHaveLength(1);
     expect(testState.ledger?.accepted[0]?.placement.finding.severity).toBe("P3");
+  });
+
+  it("caps a degraded correctness suggestion of P0 at P1", async () => {
+    testState.judgmentSkipsPublishRemaining = 1;
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve({
+      kind: "report",
+      specialist: "correctness",
+      durationMs: 1,
+      report: reported([finding("correctness", { severity: "P0" })]),
+    });
+    for (const specialist of ["security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.ledger?.accepted[0]?.placement.finding.severity).toBe("P1");
+  });
+
+  it("caps a degraded tests suggestion of P0 at P2", async () => {
+    testState.judgmentSkipsPublishRemaining = 1;
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("tests")?.resolve({
+      kind: "report",
+      specialist: "tests",
+      durationMs: 1,
+      report: reported([finding("tests", { severity: "P0" })]),
+    });
+    for (const specialist of ["correctness", "security", "quality"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(
+      testState.ledger?.accepted.find((item) => item.source === "tests")?.placement.finding
+        .severity,
+    ).toBe("P2");
   });
 
   it("skips judgment for an empty specialist outcome", async () => {

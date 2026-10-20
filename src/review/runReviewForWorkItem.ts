@@ -347,6 +347,7 @@ async function runLightweightCompletionOrSkip(args: {
     model: cfg.models.model,
     leaseEpoch,
     boss,
+    checkFailSeverity: cfg.review.checkFailSeverity,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };

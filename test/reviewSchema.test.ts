@@ -4,6 +4,7 @@ import { toJsonSchema } from "@valibot/to-json-schema";
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
+  cappedFindingSeverity,
   isCheckFailingSeverity,
   isInlineSeverity,
   reviewPayloadFromFindings,
@@ -36,10 +37,45 @@ describe("severity helpers", () => {
     expect(isInlineSeverity("P1")).toBe(true);
     expect(isInlineSeverity("P2")).toBe(true);
     expect(isInlineSeverity("P3")).toBe(true);
-    expect(isCheckFailingSeverity("P0")).toBe(true);
-    expect(isCheckFailingSeverity("P1")).toBe(true);
-    expect(isCheckFailingSeverity("P2")).toBe(true);
-    expect(isCheckFailingSeverity("P3")).toBe(false);
+    expect(isCheckFailingSeverity("P0", "P2")).toBe(true);
+    expect(isCheckFailingSeverity("P1", "P2")).toBe(true);
+    expect(isCheckFailingSeverity("P2", "P2")).toBe(true);
+    expect(isCheckFailingSeverity("P3", "P2")).toBe(false);
+    expect(isCheckFailingSeverity("P2", "P1")).toBe(false);
+    expect(isCheckFailingSeverity("P1", "P1")).toBe(true);
+    expect(isCheckFailingSeverity("P3", "P3")).toBe(true);
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        judged: true,
+      }),
+    ).toBe("P2");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: false,
+        anchorPath: "src/a.test.ts",
+        judged: true,
+      }),
+    ).toBe("P2");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: false,
+        anchorPath: "src/a.ts",
+        judged: false,
+      }),
+    ).toBe("P1");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        judged: false,
+      }),
+    ).toBe("P2");
   });
 
   it("requires a non-blank fixPrompt for P3 findings", () => {

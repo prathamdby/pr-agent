@@ -326,7 +326,10 @@ const surface = withPrSurfaceMutationBoundary(raw.surface, {
   },
 });
 const finding = (source) => ({
-  severity: source === "correctness" ? "P1" : "P2", file: "src/a.ts",
+  suggestedSeverity: source === "correctness" ? "P1" : "P2",
+  severity: source === "correctness" ? "P1" : "P2",
+  severityRationale: "Judgment kept the suggestion.",
+  file: "src/a.ts",
   startLine: source === "correctness" ? 2 : 3, endLine: source === "correctness" ? 2 : 3,
   title: source === "correctness" ? "Null input dereference" : "Unhandled stale input",
   detail: source === "correctness" ? "A null request dereferences its missing value before validation." :

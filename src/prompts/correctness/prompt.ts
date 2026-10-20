@@ -7,6 +7,7 @@ import {
   highStakesTrivialTrapGuidance,
   readOnlyReviewGuidance,
   outOfScopeFilesGuidance,
+  severityRubric,
 } from "../shared/behavior.ts";
 import {
   priorInlineFeedbackGuidance,
@@ -52,7 +53,8 @@ export const securityTripwiresGuidance = [
   "## Security tripwires",
   "Before submitting, check canonical vulnerabilities when the diff touches these API families: filesystem path resolution or symlink handling, process execution, external-input deserialization, raw SQL construction, or authorization decisions.",
   "Check for path traversal / symlink escape, command injection, unsafe deserialization, SQL injection, or authz bypass, as appropriate for the API family.",
-  "These findings use the normal P0–P2 scale with evidence; this is not a severity change.",
+  "These checks use the shared severity rubric.",
+  "Matching one of those API families does not by itself raise severity.",
 ].join("\n");
 
 export const proseContractGuidance = [
@@ -75,13 +77,6 @@ export const compactReportingGate: readonly string[] = [
   "- Cosmetic issues with no impact, and defensive hardening with no realistic trigger.",
   "- Style or formatting, unless inseparable from a bug above.",
   "- Refactors, improvements, or preferences: the review reports problems, not prescriptions.",
-  "",
-  "## Severity classification",
-  "- **P0**: virtually certain crash or exploit, backed by strong evidence.",
-  "- **P1**: high-confidence correctness or security defect with a clear trigger path.",
-  "- **P2**: plausible bug with meaningful impact; the trigger path is plausible and the detail states what remains uncertain.",
-  "- **P3**: real low-impact defect that meets the contract.",
-  "Missing an evidenced P0–P2 costs more than one extra P2 with an honest caveat, while the P0/P1 bar stays strict.",
 ];
 
 export const pathAndSizeGuidance = [
@@ -131,6 +126,8 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     ...reportingGate,
     "",
+    severityRubric,
+    "",
     "<!-- END_SHARED_METHODOLOGY -->",
     "",
     pathAndSizeGuidance,
@@ -142,7 +139,7 @@ export function buildAutomatedSystemPrompt(): string {
     specialistFindingsReportContract,
     "",
     "Finding fields:",
-    "- Each finding has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant).",
+    "- Each finding has suggestedSeverity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant). Judgment assigns the published severity.",
     reviewPayloadPerFindingContracts,
   ].join("\n");
 }

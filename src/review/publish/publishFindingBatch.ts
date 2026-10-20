@@ -5,6 +5,7 @@ import {
   type InlinePlacement,
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.ts";
+import { higherSeverity } from "../findingIdentity/findingLifecycle.ts";
 import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.ts";
 import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
 import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.ts";
@@ -159,7 +160,12 @@ function reaffirmedFinding(
   inventory: FindingInventory,
 ): ReaffirmedFinding {
   const held = inventory.findings.get(outcome.id);
-  const base = { id: outcome.id, source, severity: outcome.severity };
+  const merged = held == null ? outcome.severity : higherSeverity(held.severity, outcome.severity);
+  const base = {
+    id: outcome.id,
+    source,
+    severity: merged === "unknown" ? outcome.severity : merged,
+  };
   if (held?.source === "thread") {
     return {
       ...base,

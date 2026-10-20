@@ -3,7 +3,7 @@ import type { EvidenceDescriptor, EvidenceLedger } from "../findings/evidenceLed
 
 export function evidenceForCachedFindings(
   ledger: EvidenceLedger,
-  findings: readonly ReviewFinding[],
+  findings: readonly Pick<ReviewFinding, "file" | "startLine" | "endLine">[],
 ): EvidenceDescriptor[] | null {
   const evidence = ledger.snapshot().flatMap((read) => (read.descriptor ? [read.descriptor] : []));
   const selected = new Map<string, EvidenceDescriptor>();

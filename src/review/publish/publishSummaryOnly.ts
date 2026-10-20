@@ -104,11 +104,15 @@ export async function publishReviewSummaryOnly(
     });
   }
   const duplicates = await session.duplicateCleanup.clean(session);
-  const findingView = buildFindingView(session.findingInventory, {
-    kind: "reviewed",
-    ledger: input.ledger,
-    duplicates,
-  });
+  const findingView = buildFindingView(
+    session.findingInventory,
+    {
+      kind: "reviewed",
+      ledger: input.ledger,
+      duplicates,
+    },
+    session.cfg.review.checkFailSeverity,
+  );
   const check = findingCheck(findingView);
   const startedAt = Date.now();
   const closeOutcome = closeOutcomeForCoverage(coverage, check);
@@ -347,6 +351,7 @@ export async function publishReviewSummaryOnly(
         conclusion: check.conclusion,
         partialReason: coverage.kind === "partial" ? coverage.reason : undefined,
         blockingCount: check.blockingCount,
+        checkFailSeverity: session.cfg.review.checkFailSeverity,
       }),
     },
   });

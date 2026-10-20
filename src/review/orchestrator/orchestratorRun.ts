@@ -32,7 +32,7 @@ import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.ts";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.ts";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.ts";
 import { createReviewPublishSession } from "../publish/reviewPublishSession.ts";
-import { reviewPayloadFromFindings } from "../reviewSchema.ts";
+import { cappedFindingSeverity, reviewPayloadFromFindings } from "../reviewSchema.ts";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.ts";
 import {
   initReviewRunMetrics,
@@ -1050,11 +1050,30 @@ export async function runOrchestratedPrReview(
   ): Promise<void> => {
     phaseRef.current = "judgment";
     publishThread.setSource(outcome.specialist);
+    publishThread.setReport(outcome.report);
     const ledgerBefore = publishThread.getLedger();
 
     let result: Awaited<ReturnType<typeof publishThread.executor>>;
     try {
-      result = await publishThread.publishWithoutModel(outcome.report.findings);
+      result = await publishThread.publishWithoutModel(
+        outcome.report.findings.map((finding) => ({
+          file: finding.file,
+          startLine: finding.startLine,
+          endLine: finding.endLine,
+          title: finding.title,
+          detail: finding.detail,
+          fixPrompt: finding.fixPrompt,
+          ...(finding.suggestedCode != null ? { suggestedCode: finding.suggestedCode } : {}),
+          ...(finding.confidence != null ? { confidence: finding.confidence } : {}),
+          ...(finding.category != null ? { category: finding.category } : {}),
+          severity: cappedFindingSeverity({
+            severity: finding.suggestedSeverity,
+            testsLens: outcome.specialist === "tests",
+            anchorPath: finding.file,
+            judged: false,
+          }),
+        })),
+      );
     } catch (error) {
       publishAttempts += 1;
       throw error;
@@ -1095,6 +1114,8 @@ export async function runOrchestratedPrReview(
         acceptedCount: 0,
         rejectedCount: submittedCount,
         degradedReason: cause.reason,
+        severityRaised: 0,
+        severityLowered: 0,
         ...(cause.reason === "judgment_unpublished" ? { turnEnd: cause.turnEnd } : {}),
       });
     }
@@ -1161,7 +1182,11 @@ export async function runOrchestratedPrReview(
       reviewMode,
       publishAttempts,
       ...(lastFailure != null ? { lastFailure } : {}),
-      findingView: buildFindingView(findingInventory, { kind: "not_reviewed" }),
+      findingView: buildFindingView(
+        findingInventory,
+        { kind: "not_reviewed" },
+        params.cfg.review.checkFailSeverity,
+      ),
     });
     state.summary = { kind: "failed" };
   };
@@ -1324,6 +1349,7 @@ export async function runOrchestratedPrReview(
               }
 
               publishThread.setSource(outcome.specialist);
+              publishThread.setReport(outcome.report);
               const ledgerBefore = publishThread.getLedger();
               publishStepCount += 1;
               const judgment = await sendWithRetry(

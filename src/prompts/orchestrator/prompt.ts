@@ -14,7 +14,7 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { wrapUntrustedEvidence } from "../shared/safety.ts";
-import { causalPublicationContract } from "../shared/behavior.ts";
+import { causalPublicationContract, severityRubric } from "../shared/behavior.ts";
 import {
   formatReviewPathProfileBlock,
   formatReviewSizeBudgetBlock,
@@ -57,6 +57,7 @@ export const orchestratorSystemPrompt = [
   "PR-facing review prose goes only through the active publish tool. Prompts, internal reasoning, provider failures, retries, and tool failures stay private, because the review is public on the pull request.",
   "",
   causalPublicationContract,
+  severityRubric,
   communicationGuidance,
   [
     "## Review gates",
@@ -135,6 +136,7 @@ export function renderJudgmentTurn(
     "Publish problems, not notes, because each published finding creates an inline review thread a developer needs to answer. A style, naming, or micro-simplification remark is not a finding. A hypothetical risk needs a traced call site in code that exists. An absent file, path, or body is not a trigger.",
     "Pure refactors, preferences, praise, diff summaries, generalized hardening, advisory notes without present impact, and broad test-coverage requests are not findings.",
     "Publish each accepted finding with the specialist's title and detail as written. Change the wording only to split a compound finding.",
+    "Apply the shared severity rubric to each surviving candidate. Keep or change the suggestion in either direction. Publish no P0 whose reachable trigger this turn has not confirmed by reading the checkout through execute.",
     "P3 is a valid severity: keep a P3 that identifies a real, bounded problem meeting the contract.",
     "Check every candidate against your reconnaissance and the reviewed checkout. Unreachable, wrongly anchored, unread-evidence, and out-of-gate candidates are not published.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. Keep an actionable finding about a real coverage gap even when it cites only an unedited path. The server will place it as summary-only when no commentable right line range exists.",

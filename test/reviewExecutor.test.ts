@@ -400,6 +400,7 @@ describe("review work definition", () => {
               kind: receipt === "partial" ? "partial" : "published",
               ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
               conclusion: "success",
+              checkFailSeverity: "P2",
             }),
       );
       if (receipt === "wrong_outcome")

@@ -35,7 +35,7 @@ describe("specialistReportSchema", () => {
       status: "no_findings",
       findings: [
         {
-          severity: "P2",
+          suggestedSeverity: "P2",
           file: "src/app.ts",
           startLine: 1,
           endLine: 1,
@@ -51,7 +51,7 @@ describe("specialistReportSchema", () => {
 
   it("rejects more than 20 findings", () => {
     const findings = Array.from({ length: 21 }, (_, index) => ({
-      severity: "P2",
+      suggestedSeverity: "P2",
       file: "src/app.ts",
       startLine: index + 1,
       endLine: index + 1,

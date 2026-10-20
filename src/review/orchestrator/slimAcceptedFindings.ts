@@ -11,7 +11,10 @@ type ReportOutcome = {
   readonly report: SpecialistReport;
 };
 
-function samePublishedFinding(left: ReviewFinding, right: ReviewFinding): boolean {
+function samePublishedFinding(
+  left: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title" | "detail">,
+  right: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title" | "detail">,
+): boolean {
   return (
     left.file === right.file &&
     left.startLine === right.startLine &&
@@ -31,8 +34,8 @@ export function slimAcceptedFindings(
     (placement) => placement.kind === "posted" || placement.kind === "resumed",
   );
   let count = 0;
-  const slimmed: readonly (ReviewFinding | AcceptedFindingSlimReference)[] = findings.map(
-    (finding) => {
+  const slimmed: readonly (SpecialistReport["findings"][number] | AcceptedFindingSlimReference)[] =
+    findings.map((finding) => {
       const match = published.find((placement) =>
         samePublishedFinding(placement.placement.finding, finding),
       );
@@ -45,8 +48,7 @@ export function slimAcceptedFindings(
         endLine: finding.endLine,
         title: finding.title,
       };
-    },
-  );
+    });
   if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
   return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
 }
