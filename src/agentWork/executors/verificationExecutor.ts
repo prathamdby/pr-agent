@@ -6,6 +6,7 @@ import { logInfo, logWarn } from "../../evlog.ts";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.ts";
 import { loadFindingInventoryFromThreads } from "../../review/findingIdentity/findingInventory.ts";
 import { loadRepoPolicy } from "../../review/repoPolicy.ts";
+import { reviewRecoveryBaseSha } from "../../review/recovery/reviewRecoveryBinding.ts";
 import {
   fetchBotFindingThreads,
   type BotFindingThread,
@@ -306,13 +307,50 @@ export function createVerificationWorkExecution({
         });
       }
 
+      const resolvedHead = await prSurface.getHead();
+      const preViewFreshness = verificationHeadFreshness(headSha, resolvedHead.headSha);
+      if (preViewFreshness.kind === "stale") {
+        logInfo("verification_publish_skipped", {
+          type: "verification",
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reason: "stale_head",
+          boundHeadSha: preViewFreshness.boundHeadSha,
+          latestHeadSha: preViewFreshness.latestHeadSha,
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+        });
+        return STALE_VERIFICATION_RESULT;
+      }
+      const baseSha = reviewRecoveryBaseSha(resolvedHead.pullRequest);
       const result = await env.withAdmittedRepositoryView(
         {
           repositorySizeKb: payload.repositorySizeKb,
           prFiles,
+          ...(baseSha ? { baseSha } : {}),
         },
         async (view) => {
-          const policyResult = await loadRepoPolicy(view.workspace.agentCwd, MAX_REPO_POLICY_BYTES);
+          const snapshot = view.workspace.policySnapshot;
+          const policyResult =
+            snapshot.kind === "ok"
+              ? await loadRepoPolicy(
+                  snapshot.files
+                    .filter((file) => file.path.endsWith(".mdc"))
+                    .map((file) => ({ path: file.path, body: file.body })),
+                  MAX_REPO_POLICY_BYTES,
+                )
+              : { kind: "absent" as const };
+          if (baseSha == null || snapshot.kind === "unavailable") {
+            logWarn("verification_repo_policy_unavailable", {
+              owner: item.owner,
+              repo: item.repo,
+              pr: item.prNumber,
+              reason: snapshot.kind === "unavailable" ? snapshot.reason : "missing_base_sha",
+            });
+          }
+          const groundedPolicy =
+            snapshot.kind === "ok" ? policyResult : { kind: "absent" as const };
           const runResult = await runVerification({
             cfg,
             owner: item.owner,
@@ -334,7 +372,7 @@ export function createVerificationWorkExecution({
               message: "Verification run ended without submitVerification",
             });
           }
-          return { payload: runResult.payload, policyResult };
+          return { payload: runResult.payload, policyResult: groundedPolicy };
         },
       );
 

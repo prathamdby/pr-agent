@@ -31,6 +31,7 @@ import {
 import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.ts";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.ts";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.ts";
+import { recordedPolicyBaseSha, reviewPolicySummaryAlert } from "../policySnapshotUse.ts";
 import { createReviewPublishSession } from "../publish/reviewPublishSession.ts";
 import { cappedFindingSeverity, reviewPayloadFromFindings } from "../reviewSchema.ts";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.ts";
@@ -515,13 +516,17 @@ export async function runOrchestratedPrReview(
     resolveProgressCommentUrl,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
+    policyAlert: reviewPolicySummaryAlert(
+      params.workspace.policySnapshot,
+      params.workspace.reader.changedFiles,
+    ),
   });
   const publishThread = buildPublishThreadTool({
     phaseRef,
     session: publishSession,
     policy: {
       repoPolicy: params.repoPolicy,
-      sameRepo: params.sameRepo,
+      policyBaseSha: recordedPolicyBaseSha(params.workspace.policySnapshot),
       boundPolicyJudge: createBoundPolicyJudge(params.cfg),
       readCheckoutFile: async (relativePath) => {
         try {

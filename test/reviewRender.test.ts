@@ -32,6 +32,7 @@ import {
 } from "../src/settings/index.ts";
 import type { ReviewPayload } from "../src/review/reviewSchema.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
+import { reviewPolicySummaryAlert } from "../src/review/policySnapshotUse.ts";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.ts";
 import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.ts";
 import { cachedDiffForFiles, testPlacements } from "./helpers/reviewPublishTestHelpers.ts";
@@ -84,6 +85,64 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
     expect(body).not.toContain("Bound ·");
     expect(body).not.toContain("Rule ·");
+    expect(body).not.toContain("this review ran with no binding policy");
+    expect(body).not.toContain("changes take effect after merge");
+  });
+
+  it("renders the base-policy summary alerts and stays silent when policy is absent", () => {
+    const baseSha = "abcdef1234567890".padEnd(40, "0");
+    const changed = [{ path: ".pr-agent/tone.mdc", status: "modified" as const }];
+    const applied = reviewPolicySummaryAlert(
+      {
+        kind: "ok",
+        baseSha,
+        files: [{ path: ".pr-agent/tone.mdc", blobSha: "b".repeat(40), body: "base\n" }],
+        drops: [],
+      },
+      changed,
+    );
+    const failed = reviewPolicySummaryAlert(
+      { kind: "unavailable", reason: "fetch_failed", baseSha },
+      changed,
+    );
+    const missing = reviewPolicySummaryAlert(
+      { kind: "unavailable", reason: "missing_base_sha" },
+      changed,
+    );
+    expect(reviewPolicySummaryAlert({ kind: "absent", baseSha }, changed)).toBeUndefined();
+    const silent = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacements(basePayload().findings),
+    });
+    const appliedBody = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacements(basePayload().findings),
+      policyAlert: applied,
+    });
+    const failedBody = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacements(basePayload().findings),
+      policyAlert: failed,
+    });
+    const missingBody = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacements(basePayload().findings),
+      policyAlert: missing,
+    });
+    expect(applied).toBe(
+      "this PR changes review policy; the review applied the base copy at abcdef1; changes take effect after merge",
+    );
+    expect(failed).toBe(
+      "repository policy could not be read at abcdef1; this review ran with no binding policy",
+    );
+    expect(missing).toBe(
+      "repository policy could not be read because the base commit sha was missing; this review ran with no binding policy",
+    );
+    expect(appliedBody).toContain(`> [!WARNING]\n> ${applied}`);
+    expect(failedBody).toContain(`> [!WARNING]\n> ${failed}`);
+    expect(missingBody).toContain(`> [!WARNING]\n> ${missing}`);
+    expect(silent).not.toContain("[!WARNING]");
+    expect(silent).not.toContain("binding policy");
   });
 
   it("renders a CI gate row when a CI summary is provided", () => {

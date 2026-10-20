@@ -74,6 +74,7 @@ vi.mock("../src/prWorkspace/localPrWorkspace.ts", () => ({
   prepareLocalPrWorkspace: async (prepParams: {
     prFiles: ListPullRequestFilesResult;
     repositorySizeKb?: number;
+    baseSha?: string;
   }) => {
     state.prepareCalls += 1;
     if (state.failNext) {
@@ -89,6 +90,20 @@ vi.mock("../src/prWorkspace/localPrWorkspace.ts", () => ({
     const checkoutPaths = new Set(changedFiles.map((file) => file.path));
     return {
       agentCwd: "/tmp/x",
+      policySnapshot: prepParams.baseSha
+        ? {
+            kind: "ok" as const,
+            baseSha: prepParams.baseSha,
+            files: [
+              {
+                path: ".pr-agent/rules.mdc",
+                blobSha: prepParams.baseSha,
+                body: "base",
+              },
+            ],
+            drops: [],
+          }
+        : { kind: "unavailable" as const, reason: "missing_base_sha" as const },
       cleanup: state.cleanup,
       reader: {
         changedFiles,
@@ -371,6 +386,20 @@ describe("prRepositoryView cache", () => {
         expectCompleteCoverage(view);
       },
     );
+    expect(state.prepareCalls).toBe(2);
+  });
+
+  it("does not reuse a view when only the base sha changes", async () => {
+    const baseA = "a".repeat(40);
+    const baseB = "b".repeat(40);
+    const first = await withPrRepositoryView({ ...params, baseSha: baseA }, async (view) => {
+      return view.workspace.policySnapshot;
+    });
+    const second = await withPrRepositoryView({ ...params, baseSha: baseB }, async (view) => {
+      return view.workspace.policySnapshot;
+    });
+    expect(first).toMatchObject({ kind: "ok", baseSha: baseA });
+    expect(second).toMatchObject({ kind: "ok", baseSha: baseB });
     expect(state.prepareCalls).toBe(2);
   });
 

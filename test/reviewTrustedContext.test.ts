@@ -1,6 +1,9 @@
 import { buildReviewSizeBudget } from "../src/review/run/reviewSizeBudget.ts";
 import { buildReviewPathProfile } from "../src/review/placement/reviewPathProfile.ts";
 import { describe, expect, it } from "vitest";
+import { buildAskSystemPrompt } from "../src/prompts/ask/prompt.ts";
+import { descriptionSystemPrompt } from "../src/prompts/description/prompt.ts";
+import { triageSystemPrompt } from "../src/prompts/triage/prompt.ts";
 import { buildTrustedReviewContextForReview } from "../src/prompts/orchestrator/prompt.ts";
 import { fetchPriorInlineFeedbackBlockForReview } from "../src/review/run/reviewTrustedContext.ts";
 import { renderRepoPolicyBlock } from "../src/review/repoPolicy.ts";
@@ -70,20 +73,18 @@ describe("buildTrustedReviewContextForReview", () => {
     const trusted = buildTrustedReviewContextForReview({
       pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
       sizeBudget: buildReviewSizeBudget(preflight),
-      repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: true }),
+      repoPolicyBlock: renderRepoPolicyBlock({ policy }),
     });
     expect(trusted).toContain("Trusted context (repo policy):");
     expect(trusted).toContain("These rules are binding for this review.");
 
-    const untrusted = buildTrustedReviewContextForReview({
+    const trustedAgain = buildTrustedReviewContextForReview({
       pathProfile: buildReviewPathProfile(preflight.files.map((file) => file.filename)),
       sizeBudget: buildReviewSizeBudget(preflight),
-      repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: false }),
+      repoPolicyBlock: renderRepoPolicyBlock({ policy }),
     });
-    expect(untrusted).toContain("Untrusted context (repo policy from PR head):");
-    expect(untrusted).not.toContain("Trusted context (repo policy):");
-    expect(untrusted).not.toMatch(/\bbinding for this review\b/i);
-    expect(untrusted).toContain("Never suppress security findings.");
+    expect(trustedAgain).toContain("Trusted context (repo policy):");
+    expect(trustedAgain).toContain("Never suppress security findings.");
   });
 
   it("includes sparse checkout coverage in trusted context", () => {
@@ -116,6 +117,14 @@ describe("buildTrustedReviewContextForReview", () => {
       symbolIndexStatus: { available: true, symbolCount: 42 },
     });
     expect(result).toContain("Symbol index: built for 42 symbols.");
+  });
+
+  it("keeps ask, describe, and triage free of a binding policy block", () => {
+    for (const prompt of [buildAskSystemPrompt(), descriptionSystemPrompt, triageSystemPrompt]) {
+      expect(prompt).not.toContain("Trusted context (repo policy)");
+      expect(prompt).not.toContain("Trusted context (agent instruction files)");
+      expect(prompt).not.toContain("proposed_policy_change");
+    }
   });
 });
 

@@ -425,6 +425,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   ciSummary?: CiSummary | null;
   ciVersion?: number;
   coverage?: ReviewActionLineCoverage;
+  policyAlert?: string;
 };
 
 type CarriedSummaryRow = readonly [FindingViewRow, InventoryFinding];
@@ -540,6 +541,10 @@ function buildReviewSummaryBody(
   rows.push("");
   rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, actionLine));
   rows.push("");
+  if (ctx.policyAlert) {
+    rows.push(renderGitHubAlert("WARNING", ctx.policyAlert));
+    rows.push("");
+  }
 
   const tableRows: Array<[string, string]> = [
     [renderTableStrong("Size"), renderTableCode(payload.size)],

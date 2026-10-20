@@ -298,6 +298,7 @@ const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/orchestrator-test",
   privateGitDir: "/tmp/orchestrator-test/.git",
   agentCwd: "/tmp/orchestrator-test/agent",
+  policySnapshot: { kind: "unavailable", reason: "missing_base_sha" },
   checkoutTelemetry: { mode: "full", fallbackReason: null, fetchAttempts: [] },
   reader: {
     ...createWritableRepositoryReader("/tmp/unused"),

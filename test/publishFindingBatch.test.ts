@@ -233,7 +233,6 @@ function batchContext(
     checkoutCoverage,
     isPathInCheckout,
     repoPolicy,
-    sameRepo,
     boundPolicyJudge,
     readCheckoutFile,
     reconciled,
@@ -270,7 +269,6 @@ function batchContext(
       checkoutCoverage,
       isPathInCheckout,
       repoPolicy,
-      sameRepo,
       boundPolicyJudge,
       readCheckoutFile,
       reconciled,
@@ -783,7 +781,7 @@ describe("publishFindingBatch", () => {
     expect(commentBody).not.toContain(".pr-agent/testing.mdc");
   });
 
-  it("prints Bound only for judged-yes same-repo rules", async () => {
+  it("prints Bound only for judged-yes rules", async () => {
     const findings = Array.from({ length: 10 }, (_, index) => findingAt(10 + index));
     const judge = vi.fn(async (_pairs: readonly BoundPolicyJudgePair[]) => ["p1", "p7"]);
     const result = await publishFindingBatch(
@@ -794,7 +792,6 @@ describe("publishFindingBatch", () => {
           "src/a.ts",
           findings.map((item) => item.startLine),
         ),
-        sameRepo: true,
         boundPolicyJudge: judge,
         repoPolicy: {
           kind: "ok",
@@ -840,7 +837,6 @@ describe("publishFindingBatch", () => {
     const result = await publishFindingBatch(
       [finding],
       ...batchContext(createFindingLedger(), undefined, {
-        sameRepo: true,
         repoPolicy: {
           kind: "ok",
           policy: {

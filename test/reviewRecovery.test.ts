@@ -8,7 +8,10 @@ import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   parseReviewArtifactEnvelope,
+  REVIEW_ARTIFACT_SCHEMA_VERSION,
+  REVIEW_CONTRACT_VERSION,
 } from "../src/review/recovery/reviewArtifacts.ts";
+import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.ts";
 import {
   openReviewRecovery,
   snapshotFindingLedger,
@@ -172,5 +175,69 @@ describe("review coverage persistence", () => {
       "OPENAI_[redacted]",
       "y".repeat(4096),
     ]);
+  });
+});
+
+describe("base policy provenance", () => {
+  it("changes the digest when only a policy blob sha changes", () => {
+    expect(REVIEW_CONTRACT_VERSION).toBe("review-3");
+    expect(REVIEW_ARTIFACT_SCHEMA_VERSION).toBe(6);
+    const input = {
+      cfg: makeTestConfig(),
+      diff: [["src/a.ts", "patch"]],
+      trustedInputs: "policy",
+      source: "slash",
+      prTitle: "Title",
+      prBody: null,
+      policyProvenance: {
+        kind: "ok",
+        baseSha: "a".repeat(40),
+        reason: null,
+        blobs: [{ path: ".pr-agent/ok.mdc", blobSha: "b".repeat(40) }],
+      },
+    };
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        policyProvenance: {
+          ...input.policyProvenance,
+          blobs: [{ path: ".pr-agent/ok.mdc", blobSha: "c".repeat(40) }],
+        },
+      }),
+    ).not.toBe(reviewRecoveryInputDigest(input));
+  });
+
+  it("rejects a review-2 artifact and keeps a stored footer decision", () => {
+    const storedBaseSha = "d".repeat(40);
+    const envelope = createReviewArtifactEnvelope(binding, {
+      kind: "publication_prepared",
+      sequence: 0,
+      decisionId: "d0",
+      operationKey: "local:0",
+      payload: makeReviewPayload({ findings: [] }),
+      dependencies: [],
+      canonical: {
+        kind: "threads",
+        source: "correctness",
+        ledgerBefore: summaryInputs.ledger,
+        localDelta: summaryInputs.ledger,
+        inline: [],
+        footers: [["src/a.ts:1", [".pr-agent/auth.mdc"]]],
+        baseSha: storedBaseSha,
+        resultKind: "empty",
+        evidence: [],
+        judgmentDegraded: false,
+        counts: { suppressed: 0, capDowngraded: 0 },
+      },
+    });
+    expect(parseReviewArtifactEnvelope(envelope)).toEqual(envelope);
+    expect(parseReviewArtifactEnvelope({ ...envelope, contractVersion: "review-2" })).toBeNull();
+    const replayed = parseReviewArtifactEnvelope(envelope);
+    expect(replayed?.artifact.kind).toBe("publication_prepared");
+    if (replayed?.artifact.kind !== "publication_prepared") return;
+    expect(replayed.artifact.canonical).toMatchObject({
+      footers: [["src/a.ts:1", [".pr-agent/auth.mdc"]]],
+      baseSha: storedBaseSha,
+    });
   });
 });

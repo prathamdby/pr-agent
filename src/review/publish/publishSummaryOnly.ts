@@ -216,6 +216,7 @@ export async function publishReviewSummaryOnly(
       durationMs,
       model: session.cfg.models.model,
     },
+    policyAlert: session.policyAlert,
   });
 
   const stopReason = await session.stopReason();

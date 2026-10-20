@@ -38,6 +38,7 @@ export type PreparePrRepositoryViewParams = PrResource & {
   readonly prFiles?: ListPullRequestFilesResult;
   readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
+  readonly baseSha?: string;
 };
 
 type CachedPrRepositoryView = Omit<PrRepositoryView, "reused"> & {
@@ -68,11 +69,12 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 function cacheKey(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb" | "baseSha"
   >,
 ): string {
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
-  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
+  const base = params.baseSha ?? "base:missing";
+  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}:${base}`;
 }
 
 async function resolveCanonicalFileList(
@@ -112,6 +114,7 @@ async function prepareUncached(
     installationToken: token,
     prFiles,
     repositorySizeKb: params.repositorySizeKb,
+    baseSha: params.baseSha,
   });
   return {
     workspace,
@@ -169,7 +172,7 @@ async function acquirePrRepositoryView(
 async function releasePrRepositoryView(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb" | "baseSha"
   >,
 ): Promise<void> {
   const key = cacheKey(params);

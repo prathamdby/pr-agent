@@ -3,7 +3,7 @@ import { noToolsTurnGuidance } from "../shared/output.ts";
 import { wrapUntrustedBlock } from "../shared/safety.ts";
 
 export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
-  "You judge whether a review finding violates a bound same-repo repo policy rule.",
+  "You judge whether a review finding violates a bound repo policy rule.",
   noToolsTurnGuidance,
   "A yes attaches the rule's path to a published review thread as the policy the finding breaks, so it needs to hold up when a maintainer opens the rule.",
   "Each asked pair is self-contained: one finding and one always-apply rule. Most findings do not violate a given rule.",

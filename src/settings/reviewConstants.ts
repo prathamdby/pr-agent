@@ -96,6 +96,19 @@ export const AGENT_INSTRUCTION_FILENAMES = ["AGENTS.md", "CLAUDE.md"] as const;
 export const MAX_AGENT_INSTRUCTION_BYTES = 64 * 1024;
 export const MAX_AGENT_INSTRUCTION_FILE_BYTES = 32 * 1024;
 
+const AGENT_INSTRUCTION_FILENAME_SET: ReadonlySet<string> = new Set(AGENT_INSTRUCTION_FILENAMES);
+
+export function isAllowlistedPolicyPath(path: string): boolean {
+  if (path.includes("\\") || path.includes("\0")) return false;
+  if (AGENT_INSTRUCTION_FILENAME_SET.has(path)) return true;
+  const slash = path.indexOf("/");
+  if (slash <= 0 || slash !== path.lastIndexOf("/")) return false;
+  const dir = path.slice(0, slash);
+  const name = path.slice(slash + 1);
+  if (dir !== REPO_POLICY_DIRNAME || name.length === 0 || name.startsWith(".")) return false;
+  return name.endsWith(REPO_POLICY_EXTENSION) && name.length > REPO_POLICY_EXTENSION.length;
+}
+
 export const REVIEW_RISK_PATH_PATTERNS: Readonly<
   Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>
 > = {

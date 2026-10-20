@@ -66,6 +66,12 @@ run, including category-label applicability. It excludes grant observation
 timestamps, generations, token values, and credentials. A changed grant may
 invalidate reusable computation; it cannot invalidate an exact accepted receipt.
 
+Policy provenance is part of the input digest: snapshot kind, base sha,
+unavailable reason, and the path plus blob sha list. A change in that
+provenance is a cache miss. The review contract version bump is the
+compatibility rule for that input. `REVIEW_ARTIFACT_SCHEMA_VERSION` stays put
+when only the contract string moves.
+
 ### Fenced and bounded persistence
 
 Writes lock the exact live PR actor lease first, then read and lock the active

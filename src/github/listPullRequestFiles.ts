@@ -45,6 +45,7 @@ export type PullRequestForFileList = {
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
   readonly base?: {
+    readonly sha?: string | null;
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
 };

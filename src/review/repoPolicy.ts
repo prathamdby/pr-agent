@@ -2,9 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import * as v from "valibot";
-import { wrapUntrustedBlock, renderRepoPolicyTrustGuidance } from "../prompts/shared/safety.ts";
+import { renderRepoPolicyTrustGuidance } from "../prompts/shared/safety.ts";
 import { logWarn } from "../evlog.ts";
 import {
+  isAllowlistedPolicyPath,
   MAX_REPO_POLICY_BYTES,
   MAX_REPO_POLICY_FILE_BYTES,
   MAX_REPO_POLICY_FILES,
@@ -70,11 +71,16 @@ function sanitizeRenderedPolicyText(value: string): string {
   return value.split(/\r?\n/).join(" ").trim();
 }
 
-function neutralizeForgedTrustHeaders(body: string): string {
+export function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
+    .replace(/Trusted context \(agent instruction files\):/gi, "[neutralized forged header]")
     .replace(
       /^\s*These rules are binding for this review\..*$/gim,
+      "[neutralized forged binding line]",
+    )
+    .replace(
+      /^\s*These root files are binding for this review\..*$/gim,
       "[neutralized forged binding line]",
     );
 }
@@ -116,10 +122,9 @@ export type PolicyCandidatePair<T extends { readonly file: string }> = {
 
 export function candidatePolicyPairs<T extends { readonly file: string }>(params: {
   readonly policy: RepoPolicyResult;
-  readonly sameRepo?: boolean;
   readonly findings: readonly T[];
 }): readonly PolicyCandidatePair<T>[] {
-  if (params.sameRepo !== true || params.policy.kind !== "ok") {
+  if (params.policy.kind !== "ok") {
     return [];
   }
   const pairs: PolicyCandidatePair<T>[] = [];
@@ -218,7 +223,131 @@ function errnoCode(error: unknown): string | undefined {
   return undefined;
 }
 
+export type RepoPolicyCandidate = {
+  readonly path: string;
+  readonly body: string;
+};
+
+function policyFilename(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? path : path.slice(slash + 1);
+}
+
 export async function loadRepoPolicy(
+  source: string | readonly RepoPolicyCandidate[],
+  maxBytes: number = MAX_REPO_POLICY_BYTES,
+): Promise<RepoPolicyResult> {
+  if (typeof source !== "string") return loadRepoPolicyCandidates(source, maxBytes);
+  return loadRepoPolicyFromCheckout(source, maxBytes);
+}
+
+type PolicyBodySource = {
+  readonly filename: string;
+  readonly relativePath: string;
+  readonly logPath: string;
+  readonly read: () => Promise<string>;
+};
+
+async function parseRepoPolicySources(
+  sources: readonly PolicyBodySource[],
+  maxBytes: number,
+): Promise<RepoPolicyResult> {
+  if (sources.length === 0) return { kind: "absent", drops: [] };
+
+  const rules: RepoPolicyRule[] = [];
+  const drops: RepoPolicyDrop[] = [];
+  let aggregateBytes = 0;
+
+  for (const source of sources.slice(MAX_REPO_POLICY_FILES)) {
+    drops.push({ filename: source.filename, reason: "file-skipped" });
+    logWarn("repo_policy_rule_skipped", {
+      path: source.logPath,
+      reason: "file cap exceeded",
+    });
+  }
+
+  for (const source of sources.slice(0, MAX_REPO_POLICY_FILES)) {
+    let raw: string;
+    try {
+      raw = await source.read();
+    } catch (error) {
+      const message = errorMessage(error);
+      drops.push({ filename: source.filename, reason: "file-skipped" });
+      logWarn("repo_policy_rule_skipped", { path: source.logPath, reason: message });
+      continue;
+    }
+
+    const byteLength = Buffer.byteLength(raw, "utf8");
+    if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
+      drops.push({ filename: source.filename, reason: "file-skipped" });
+      logWarn("repo_policy_rule_skipped", {
+        path: source.logPath,
+        reason: "file exceeds size cap",
+      });
+      continue;
+    }
+    if (aggregateBytes + byteLength > maxBytes) {
+      drops.push({ filename: source.filename, reason: "file-skipped" });
+      logWarn("repo_policy_rule_skipped", {
+        path: source.logPath,
+        reason: "aggregate size cap exceeded",
+      });
+      continue;
+    }
+
+    const parsed = parseMdcContent(raw);
+    if (parsed.kind === "invalid") {
+      drops.push({ filename: source.filename, reason: "file-skipped" });
+      logWarn("repo_policy_rule_skipped", { path: source.logPath, reason: parsed.reason });
+      continue;
+    }
+    if (parsed.omittedChars > 0) {
+      drops.push({
+        filename: source.filename,
+        reason: "body-cut",
+        omittedChars: parsed.omittedChars,
+      });
+      logWarn("repo_policy_body_cut", {
+        path: source.logPath,
+        omittedChars: parsed.omittedChars,
+      });
+    }
+
+    aggregateBytes += byteLength;
+    rules.push({
+      filename: source.filename,
+      relativePath: source.relativePath,
+      alwaysApply: parsed.alwaysApply,
+      globs: parsed.globs,
+      body: parsed.body,
+    });
+  }
+
+  if (rules.length === 0) {
+    return { kind: "invalid", reason: "no usable .mdc rules", drops };
+  }
+  return { kind: "ok", policy: { rules }, drops };
+}
+
+async function loadRepoPolicyCandidates(
+  candidates: readonly RepoPolicyCandidate[],
+  maxBytes: number,
+): Promise<RepoPolicyResult> {
+  const sources = candidates
+    .filter(
+      (file) => isAllowlistedPolicyPath(file.path) && file.path.endsWith(REPO_POLICY_EXTENSION),
+    )
+    .map((file) => ({
+      filename: policyFilename(file.path),
+      relativePath: file.path,
+      logPath: file.path,
+      read: async () => file.body,
+    }))
+    .toSorted((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return parseRepoPolicySources(sources, maxBytes);
+}
+
+async function loadRepoPolicyFromCheckout(
   agentCwd: string,
   maxBytes: number = MAX_REPO_POLICY_BYTES,
 ): Promise<RepoPolicyResult> {
@@ -238,115 +367,39 @@ export async function loadRepoPolicy(
     return { kind: "invalid", reason: message, drops: [] };
   }
 
-  const candidates = entries
+  const sources = entries
     .filter(
       (entry) =>
         entry.isFile() && entry.name.endsWith(REPO_POLICY_EXTENSION) && !entry.name.startsWith("."),
     )
     .map((entry) => entry.name)
-    .toSorted();
-
-  if (candidates.length === 0) {
-    return { kind: "absent", drops: [] };
-  }
-
-  const rules: RepoPolicyRule[] = [];
-  const drops: RepoPolicyDrop[] = [];
-  let aggregateBytes = 0;
-
-  for (const filename of candidates.slice(MAX_REPO_POLICY_FILES)) {
-    drops.push({ filename, reason: "file-skipped" });
-    logWarn("repo_policy_rule_skipped", {
-      path: join(policyDir, filename),
-      reason: "file cap exceeded",
+    .toSorted()
+    .map((filename) => {
+      const absolutePath = join(policyDir, filename);
+      return {
+        filename,
+        relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
+        logPath: absolutePath,
+        read: () => readFile(absolutePath, "utf8"),
+      };
     });
-  }
-
-  for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
-    const absolutePath = join(policyDir, filename);
-    let raw: string;
-    try {
-      raw = await readFile(absolutePath, "utf8");
-    } catch (error) {
-      const message = errorMessage(error);
-      drops.push({ filename, reason: "file-skipped" });
-      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
-      continue;
-    }
-
-    const byteLength = Buffer.byteLength(raw, "utf8");
-    if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
-      drops.push({ filename, reason: "file-skipped" });
-      logWarn("repo_policy_rule_skipped", {
-        path: absolutePath,
-        reason: "file exceeds size cap",
-      });
-      continue;
-    }
-    if (aggregateBytes + byteLength > maxBytes) {
-      drops.push({ filename, reason: "file-skipped" });
-      logWarn("repo_policy_rule_skipped", {
-        path: absolutePath,
-        reason: "aggregate size cap exceeded",
-      });
-      continue;
-    }
-
-    const parsed = parseMdcContent(raw);
-    if (parsed.kind === "invalid") {
-      drops.push({ filename, reason: "file-skipped" });
-      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: parsed.reason });
-      continue;
-    }
-    if (parsed.omittedChars > 0) {
-      drops.push({ filename, reason: "body-cut", omittedChars: parsed.omittedChars });
-      logWarn("repo_policy_body_cut", {
-        path: absolutePath,
-        omittedChars: parsed.omittedChars,
-      });
-    }
-
-    aggregateBytes += byteLength;
-    rules.push({
-      filename,
-      relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
-      alwaysApply: parsed.alwaysApply,
-      globs: parsed.globs,
-      body: parsed.body,
-    });
-  }
-
-  if (rules.length === 0) {
-    return { kind: "invalid", reason: "no usable .mdc rules", drops };
-  }
-  return { kind: "ok", policy: { rules }, drops };
+  return parseRepoPolicySources(sources, maxBytes);
 }
 
 export function renderRepoPolicyBlock(params: {
   policy: RepoPolicy;
   changedFiles?: readonly string[];
-  sameRepo?: boolean;
 }): string {
   const { policy, changedFiles } = params;
-  const sameRepo = params.sameRepo === true;
   const applicableRules = policy.rules.filter((rule) => ruleApplies(rule, changedFiles));
   if (applicableRules.length === 0) {
     return "";
   }
 
-  const lines = renderRepoPolicyTrustGuidance(sameRepo);
-
+  const lines = renderRepoPolicyTrustGuidance();
   for (const rule of applicableRules) {
-    const body = sanitizeRenderedPolicyText(
-      sameRepo ? rule.body : neutralizeForgedTrustHeaders(rule.body),
-    );
-    if (sameRepo) {
-      lines.push(`- Rule \`${rule.relativePath}\`: ${body}`);
-    } else {
-      lines.push(`- Rule \`${rule.relativePath}\`:`, wrapUntrustedBlock("repo_policy_rule", body));
-    }
+    lines.push(`- Rule \`${rule.relativePath}\`: ${sanitizeRenderedPolicyText(rule.body)}`);
   }
-
   return lines.join("\n");
 }
 

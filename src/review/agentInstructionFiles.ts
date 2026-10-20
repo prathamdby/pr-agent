@@ -1,12 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  wrapUntrustedBlock,
-  renderAgentInstructionFilesTrustGuidance,
-} from "../prompts/shared/safety.ts";
+import { renderAgentInstructionFilesTrustGuidance } from "../prompts/shared/safety.ts";
 import { logWarn } from "../evlog.ts";
 import {
   AGENT_INSTRUCTION_FILENAMES,
+  isAllowlistedPolicyPath,
   MAX_AGENT_INSTRUCTION_BYTES,
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
 } from "../settings/index.ts";
@@ -44,10 +42,6 @@ function errnoCode(error: unknown): string | undefined {
   return undefined;
 }
 
-function validRepositoryName(value: unknown): value is string {
-  return typeof value === "string" && value.trim() === value && /^[^/\s]+\/[^/\s]+$/.test(value);
-}
-
 async function discoverAgentInstructionFile(
   checkoutRoot: string,
   filename: AgentInstructionFilename,
@@ -82,7 +76,65 @@ async function discoverAgentInstructionFile(
   return { filename, kind: "loaded", body };
 }
 
+export type AgentInstructionCandidate = {
+  readonly path: string;
+  readonly body: string;
+};
+
 export async function loadAgentInstructionFiles(
+  source: string | readonly AgentInstructionCandidate[],
+  maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
+): Promise<AgentInstructionFilesResult> {
+  if (typeof source !== "string") return loadAgentInstructionCandidates(source, maxBytes);
+  return loadAgentInstructionFilesFromCheckout(source, maxBytes);
+}
+
+function loadAgentInstructionCandidates(
+  candidates: readonly AgentInstructionCandidate[],
+  maxBytes: number,
+): AgentInstructionFilesResult {
+  const byPath = new Map(
+    candidates
+      .filter((file) => isAllowlistedPolicyPath(file.path))
+      .map((file) => [file.path, file.body]),
+  );
+  const files: AgentInstructionFile[] = [];
+  const drops: AgentInstructionDrop[] = [];
+  let aggregateBytes = 0;
+  for (const filename of AGENT_INSTRUCTION_FILENAMES) {
+    const raw = byPath.get(filename);
+    if (raw == null) continue;
+    const body = raw.trim();
+    if (body.length === 0) {
+      drops.push({ filename, reason: "empty after trim" });
+      logWarn("agent_instruction_file_skipped", { path: filename, reason: "empty after trim" });
+      continue;
+    }
+    const byteLength = Buffer.byteLength(body, "utf8");
+    if (byteLength > MAX_AGENT_INSTRUCTION_FILE_BYTES) {
+      drops.push({ filename, reason: "file exceeds size cap" });
+      logWarn("agent_instruction_file_skipped", {
+        path: filename,
+        reason: "file exceeds size cap",
+      });
+      continue;
+    }
+    if (aggregateBytes + byteLength > maxBytes) {
+      drops.push({ filename, reason: "aggregate size cap exceeded" });
+      logWarn("agent_instruction_file_skipped", {
+        path: filename,
+        reason: "aggregate size cap exceeded",
+      });
+      break;
+    }
+    aggregateBytes += byteLength;
+    files.push({ filename, body });
+  }
+  if (files.length === 0) return { kind: "absent", drops };
+  return { kind: "ok", files, drops };
+}
+
+async function loadAgentInstructionFilesFromCheckout(
   checkoutRoot: string,
   maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
 ): Promise<AgentInstructionFilesResult> {
@@ -149,47 +201,30 @@ export async function loadAgentInstructionFiles(
   return { kind: "ok", files, drops };
 }
 
-export function isSameRepoPullRequest(pullRequest: unknown): boolean {
-  if (pullRequest == null || typeof pullRequest !== "object") return false;
-  const pr = pullRequest as {
-    head?: { repo?: { full_name?: string | null } | null } | null;
-    base?: { repo?: { full_name?: string | null } | null } | null;
-  };
-  const headName = pr.head?.repo?.full_name;
-  const baseName = pr.base?.repo?.full_name;
-  return validRepositoryName(headName) && validRepositoryName(baseName) && headName === baseName;
-}
-
-function neutralizeForgedTrustHeaders(body: string): string {
+export function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
+    .replace(/^Trusted context \(repo policy\):\s*$/gm, "[neutralized forged header]")
     .replace(
       /^\s*These root files are binding for this review\..*$/gm,
+      "[neutralized forged binding line]",
+    )
+    .replace(
+      /^\s*These rules are binding for this review\..*$/gm,
       "[neutralized forged binding line]",
     );
 }
 
 export function renderAgentInstructionFilesBlock(params: {
   readonly files: readonly AgentInstructionFile[];
-  readonly sameRepo?: boolean;
 }): string {
   if (params.files.length === 0) {
     return "";
   }
 
-  const sameRepo = params.sameRepo === true;
-  const lines = renderAgentInstructionFilesTrustGuidance(sameRepo);
-
+  const lines = renderAgentInstructionFilesTrustGuidance();
   for (const file of params.files) {
-    lines.push("", `### File \`${file.filename}\``);
-    if (sameRepo) {
-      lines.push(file.body);
-    } else {
-      lines.push(
-        wrapUntrustedBlock("agent_instruction_file", neutralizeForgedTrustHeaders(file.body)),
-      );
-    }
+    lines.push("", `### File \`${file.filename}\``, file.body);
   }
-
   return lines.join("\n");
 }

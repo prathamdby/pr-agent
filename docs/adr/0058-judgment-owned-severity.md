@@ -53,6 +53,8 @@ could not move the failing line without a code change.
 5. **Artifacts move to schema 6 and contract `review-2`.** A version miss
    recomputes. Receipts stay authoritative. The threshold is part of
    `cfg.review`, so a change misses the in-flight artifact cache.
+   [ADR 0059](0059-base-commit-policy-snapshot.md) later moves the contract to
+   `review-3` for policy provenance. Schema 6 stays.
 
 ## Consequences
 

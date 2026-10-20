@@ -35,6 +35,7 @@ import {
 } from "../settings/index.ts";
 import { AppError, isAppError } from "../errors/appError.ts";
 import { logWarn } from "../evlog.ts";
+import { readBasePolicySnapshot, type PolicySnapshot } from "./policySnapshot.ts";
 import {
   failedFetchAttempt,
   succeededFetchAttempt,
@@ -134,6 +135,7 @@ export type LocalPrWorkspace = {
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly reader: PinnedRepositoryReader;
+  readonly policySnapshot: PolicySnapshot;
   readonly checkoutTelemetry: WorkspaceCheckoutTelemetry;
   readonly cleanup: () => Promise<void>;
 };
@@ -148,6 +150,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly remoteUrlOverride?: string;
   readonly maxFetchBytes?: number;
   readonly fetchTimeoutMs?: number;
+  readonly baseSha?: string;
 };
 
 export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
@@ -455,6 +458,13 @@ async function finishLocalPrWorkspace(
     });
   }
 
+  const policySnapshot = await readBasePolicySnapshot({
+    baseSha: params.baseSha,
+    git,
+    maxFetchBytes: params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+    timeoutMs: fetchTimeoutMs,
+  });
+
   await credentials.cleanup();
   checkoutPaths = await prepareCheckedOutTree(agentCwd);
   sortedCheckoutPaths = [...checkoutPaths].toSorted();
@@ -517,6 +527,7 @@ async function finishLocalPrWorkspace(
     privateGitDir,
     agentCwd,
     reader: readerResource.reader,
+    policySnapshot,
     checkoutTelemetry: checkoutTelemetrySnapshot(recorder),
     cleanup: async () => {
       readerResource.dispose();

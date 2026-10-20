@@ -147,7 +147,6 @@ export function attachJudgedBoundPaths(params: {
 
 export async function resolveBoundPolicyFooters(params: {
   readonly policy: RepoPolicyResult;
-  readonly sameRepo?: boolean;
   readonly findings: readonly ReviewFinding[];
   readonly judge?: BoundPolicyJudge;
   readonly evidenceLedger?: EvidenceLedger;
@@ -157,7 +156,6 @@ export async function resolveBoundPolicyFooters(params: {
   const numbered = numberCandidatePairs(
     candidatePolicyPairs({
       policy: params.policy,
-      sameRepo: params.sameRepo,
       findings: params.findings,
     }),
   );

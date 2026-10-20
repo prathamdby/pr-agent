@@ -97,7 +97,10 @@ function configureExecution(
 const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {} as PgBoss;
-const verificationWorkspace = { agentCwd: "/tmp/view" };
+const verificationWorkspace = {
+  agentCwd: "/tmp/view",
+  policySnapshot: { kind: "unavailable" as const, reason: "missing_base_sha" as const },
+};
 
 function item(overrides: Parameters<typeof makeVerificationWorkItem>[0] = {}) {
   return makeVerificationWorkItem({
@@ -343,7 +346,7 @@ describe("verification work definition", () => {
       }),
     );
     expect(mocks.runVerification.mock.calls[0]?.[0]).not.toHaveProperty("rootDir");
-    expect(mocks.loadRepoPolicy).toHaveBeenCalledWith("/tmp/view", expect.any(Number));
+    expect(mocks.loadRepoPolicy).not.toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
@@ -356,6 +359,99 @@ describe("verification work definition", () => {
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "listCommitCompareFiles"),
     ).toBe(false);
+  });
+
+  it("passes an ok base snapshot through to verification publish", async () => {
+    const baseSha = "c".repeat(40);
+    durablePrSurfaceControls().setPullRequest({
+      title: "",
+      body: null,
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      state: "open",
+      merged: false,
+      merged_at: null,
+      head: { sha: "a".repeat(40), ref: "branch", repo: { full_name: "o/r" } },
+      base: { sha: baseSha, repo: { full_name: "fork/o/r" } },
+    });
+    const policy = {
+      kind: "ok" as const,
+      policy: {
+        rules: [
+          {
+            filename: "src.mdc",
+            relativePath: ".pr-agent/src.mdc",
+            alwaysApply: false,
+            globs: ["src/**"],
+            body: "existing",
+          },
+        ],
+      },
+    };
+    mocks.loadRepoPolicy.mockResolvedValue(policy);
+    mocks.withPrRepositoryView.mockImplementation(
+      async (params: unknown, run: (view: unknown) => Promise<unknown>) => {
+        expect(params).toMatchObject({ baseSha });
+        return run({
+          agentCwd: verificationWorkspace.agentCwd,
+          workspace: {
+            ...verificationWorkspace,
+            policySnapshot: {
+              kind: "ok",
+              baseSha,
+              files: [{ path: ".pr-agent/src.mdc", blobSha: "d".repeat(40), body: "existing\n" }],
+              drops: [],
+            },
+          },
+          preflight: {},
+        });
+      },
+    );
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+
+    await runExecution();
+
+    expect(mocks.loadRepoPolicy).toHaveBeenCalledWith(
+      [{ path: ".pr-agent/src.mdc", body: "existing\n" }],
+      expect.any(Number),
+    );
+    expect(mocks.publishVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ policyResult: policy }),
+    );
+  });
+
+  it("publishes a starter path when the base sha is missing and keeps the prior degradation set", async () => {
+    const warn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    mocks.publishVerification.mockResolvedValue({ degradation: ["compare_files_truncated"] });
+
+    await expect(runExecution()).resolves.toMatchObject({
+      kind: "completed",
+      degradation: ["compare_files_truncated"],
+    });
+
+    expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).not.toHaveProperty("baseSha");
+    expect(mocks.loadRepoPolicy).not.toHaveBeenCalled();
+    expect(mocks.publishVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ policyResult: { kind: "absent" } }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "verification_repo_policy_unavailable",
+      expect.objectContaining({ reason: "missing_base_sha" }),
+    );
+  });
+
+  it("fails the run when the freshness head read throws", async () => {
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    vi.spyOn(fakeDurablePrSurface(), "getHead").mockRejectedValueOnce(
+      new Error("head unavailable"),
+    );
+
+    await expect(runExecution()).rejects.toThrow("head unavailable");
+
+    expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 
   it("gates skipped-reply paths on the push-delta compare when pushBeforeSha is present", async () => {

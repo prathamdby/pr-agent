@@ -19,6 +19,9 @@ describe("isDocsOnlyPath", () => {
     expect(isDocsOnlyPath("src/notes.md")).toBe(false);
     expect(isDocsOnlyPath(".github/workflows/ci.yml")).toBe(false);
     expect(isDocsOnlyPath("package.json")).toBe(false);
+    expect(isDocsOnlyPath("AGENTS.md")).toBe(false);
+    expect(isDocsOnlyPath("CLAUDE.md")).toBe(false);
+    expect(isDocsOnlyPath(".pr-agent/tone.mdc")).toBe(false);
   });
 
   it("rejects readme/license/changelog basename prefix on code files", () => {

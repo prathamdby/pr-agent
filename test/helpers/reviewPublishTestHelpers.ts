@@ -82,7 +82,6 @@ export async function runTestPublishFlow(
     shouldAbortPublish?: () => Promise<boolean>;
     publishAbortState?: { readonly staleHead?: boolean };
     repoPolicy?: RepoPolicyResult;
-    sameRepo?: boolean;
     boundPolicyJudge?: BoundPolicyJudge;
     readCheckoutFile?: (path: string) => Promise<string | undefined>;
   },
@@ -130,7 +129,6 @@ export async function runTestPublishFlow(
   const batchResult = await publishFindingBatch(params.payload.findings, session, {
     source: "review",
     repoPolicy: params.repoPolicy,
-    sameRepo: params.sameRepo,
     boundPolicyJudge: params.boundPolicyJudge,
     readCheckoutFile: params.readCheckoutFile,
     reconciled: params.reconciled,

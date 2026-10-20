@@ -96,7 +96,7 @@ export type DurableExecutionContext = {
   beginAttempt: () => Promise<WorkClaim>;
   readonly ensureReviewAccess?: () => Promise<void>;
   withAdmittedRepositoryView: <T>(
-    options: Pick<PreparePrRepositoryViewParams, "repositorySizeKb" | "prFiles">,
+    options: Pick<PreparePrRepositoryViewParams, "repositorySizeKb" | "prFiles" | "baseSha">,
     run: (view: PrRepositoryView) => Promise<T>,
   ) => Promise<T>;
   readonly durability: {

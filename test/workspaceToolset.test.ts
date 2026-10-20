@@ -100,6 +100,7 @@ function mockWorkspace(
     rootDir: agentCwd,
     privateGitDir,
     agentCwd,
+    policySnapshot: { kind: "unavailable", reason: "missing_base_sha" },
     checkoutTelemetry: { mode: checkoutMode, fallbackReason: null, fetchAttempts: [] },
     reader: {
       ...createWritableRepositoryReader(agentCwd),

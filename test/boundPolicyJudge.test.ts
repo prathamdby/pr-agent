@@ -53,7 +53,7 @@ function findingAt(file: string, line: number, title = `Finding ${line}`): Revie
   };
 }
 
-function sameRepoPolicy(rules: readonly RepoPolicyRule[]) {
+function loadedPolicy(rules: readonly RepoPolicyRule[]) {
   return { kind: "ok" as const, policy: { rules } };
 }
 
@@ -164,8 +164,7 @@ describe("resolveBoundPolicyFooters snippet reads", () => {
       return [];
     });
     await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply]),
-      sameRepo: true,
+      policy: loadedPolicy([alwaysApply]),
       findings,
       judge,
       evidenceLedger: ledger,
@@ -187,7 +186,6 @@ describe("resolveBoundPolicyFooters", () => {
     const judge = vi.fn(async () => ["p0"]);
     const bound = await resolveBoundPolicyFooters({
       policy: { kind: "absent" },
-      sameRepo: true,
       findings: [findingAt("src/a.ts", 10)],
       judge,
     });
@@ -195,24 +193,22 @@ describe("resolveBoundPolicyFooters", () => {
     expect(bound.size).toBe(0);
   });
 
-  it("skips the pass for fork or invalid policy", async () => {
+  it("binds an ok snapshot and skips invalid policy", async () => {
     const judge = vi.fn(async () => ["p0"]);
     const finding = findingAt("src/auth/login.ts", 3);
-    const fork = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply, authRule]),
-      sameRepo: false,
+    const bound = await resolveBoundPolicyFooters({
+      policy: loadedPolicy([authRule]),
       findings: [finding],
       judge,
     });
+    expect(bound.get(reviewFindingPlacementKey(finding))).toEqual([".pr-agent/auth.mdc"]);
     const invalid = await resolveBoundPolicyFooters({
       policy: { kind: "invalid", reason: "no usable .mdc rules" },
-      sameRepo: true,
       findings: [finding],
       judge,
     });
-    expect(judge).not.toHaveBeenCalled();
-    expect(fork.size).toBe(0);
     expect(invalid.size).toBe(0);
+    expect(judge).toHaveBeenCalledTimes(1);
   });
 
   it("never sends a glob-mismatch pair to the judge", async () => {
@@ -221,8 +217,7 @@ describe("resolveBoundPolicyFooters", () => {
       return ["p0"];
     });
     const bound = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([authRule]),
-      sameRepo: true,
+      policy: loadedPolicy([authRule]),
       findings: [findingAt("src/db/query.ts", 8)],
       judge,
     });
@@ -230,8 +225,7 @@ describe("resolveBoundPolicyFooters", () => {
     expect(bound.size).toBe(0);
     expect(
       candidatePolicyPairs({
-        policy: sameRepoPolicy([authRule]),
-        sameRepo: true,
+        policy: loadedPolicy([authRule]),
         findings: [findingAt("src/db/query.ts", 8)],
       }),
     ).toEqual([]);
@@ -247,8 +241,7 @@ describe("resolveBoundPolicyFooters", () => {
       return ["p1", "p4"];
     });
     const bound = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply]),
-      sameRepo: true,
+      policy: loadedPolicy([alwaysApply]),
       findings,
       judge,
     });
@@ -261,16 +254,14 @@ describe("resolveBoundPolicyFooters", () => {
   it("drops a timeout or extra path", async () => {
     const finding = findingAt("src/a.ts", 10);
     const timedOut = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply]),
-      sameRepo: true,
+      policy: loadedPolicy([alwaysApply]),
       findings: [finding],
       judge: async () => {
         throw new Error("deadline");
       },
     });
     const extra = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply]),
-      sameRepo: true,
+      policy: loadedPolicy([alwaysApply]),
       findings: [finding],
       judge: async () => [".pr-agent/always.mdc", "p9"],
     });
@@ -280,8 +271,7 @@ describe("resolveBoundPolicyFooters", () => {
 
   it("returns nothing without a judge", async () => {
     const bound = await resolveBoundPolicyFooters({
-      policy: sameRepoPolicy([alwaysApply]),
-      sameRepo: true,
+      policy: loadedPolicy([alwaysApply]),
       findings: [findingAt("src/a.ts", 10)],
     });
     expect(bound.size).toBe(0);

@@ -508,19 +508,19 @@ setting or polling interval.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
-Flat directory of `.mdc` rule files, read from the PR head checkout at review preflight. Parsing, matching, file-count limits, and byte caps apply before the trust decision. When the PR head and base `repo.full_name` values match, matching rules are binding in `Trusted context (repo policy)`. A fork, missing identity, or malformed identity renders matching rules in `Untrusted context (repo policy from PR head)` inside an untrusted wrapper; those bodies are evidence only and cannot define binding review instructions. Forged trusted/binding headers and policy delimiters are neutralized. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
+Reviews bind `.pr-agent/*.mdc` from the pull request's recorded base commit. The workspace snapshot is `ok` when the base blobs passed the per-file cap, `absent` when the read succeeded and the allowlist was empty, or `unavailable` when the base sha was missing or the read failed. The `.mdc` per-file cap is 8192 bytes. The aggregate cap stays 32 KiB, with the existing file-count and frontmatter limits. Head copies are untrusted proposed changes. An over-cap blob is a drop, not a failed snapshot. Invalid policy warns and the review proceeds without binding rules. A failed base read binds nothing.
 
 | Frontmatter / body | Type               | Cap                   | Role                                                                                              |
 | ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `globs`            | string or string[] | 200 chars per pattern | Include rule when a changed file matches; omit with no `alwaysApply` to always apply              |
 | `alwaysApply`      | boolean            | optional              | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
-| body               | markdown           | 1000 chars            | Rule prose injected as trusted same-repo policy or untrusted fork evidence when the rule applies  |
+| body               | markdown           | 1000 chars            | Rule prose from the base snapshot, injected as trusted policy when the rule applies               |
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas. No policy body may suppress, omit, or downgrade findings.
 
 #### Root agent instruction files (`AGENTS.md` / `CLAUDE.md`)
 
-On each review run, the worker statically checks the PR head checkout root for `AGENTS.md` and `CLAUDE.md` (in that order). Present regular files from a same-repository head are loaded into a sibling trusted-context block (`Trusted context (agent instruction files):`); fork, missing, or malformed repository identity uses an untrusted wrapper instead. Separate caps apply from repo policy. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, triage, and verification do not load these files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
+On each review run, the worker loads `AGENTS.md` and `CLAUDE.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
 
 Example:
 

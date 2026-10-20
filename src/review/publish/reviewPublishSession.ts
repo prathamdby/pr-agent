@@ -46,6 +46,7 @@ export type ReviewPublishSession = {
   readonly verdict?: VerdictTarget;
   readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
   readonly stopReason: () => Promise<PublishStopReason | undefined>;
+  readonly policyAlert?: string;
 };
 
 export type ReviewPublishSessionInput = {
@@ -71,6 +72,7 @@ export type ReviewPublishSessionInput = {
   readonly resolveProgressCommentUrl?: () => Promise<string | undefined>;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
+  readonly policyAlert?: string;
 };
 
 export function createReviewPublishSession(input: ReviewPublishSessionInput): ReviewPublishSession {
@@ -106,6 +108,7 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput): Re
           }
         : undefined,
     resolveProgressCommentUrl: input.resolveProgressCommentUrl ?? (async () => undefined),
+    policyAlert: input.policyAlert,
     stopReason: async () => {
       if (!((await input.shouldAbortPublish?.()) ?? false)) return undefined;
       return input.publishAbortState?.staleHead === true ? "stale_head" : "superseded";

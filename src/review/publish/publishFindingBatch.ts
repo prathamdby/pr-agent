@@ -106,7 +106,7 @@ export type FindingBatchInput = {
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly repoPolicy?: RepoPolicyResult;
-  readonly sameRepo?: boolean;
+  readonly policyBaseSha?: string | null;
   readonly boundPolicyJudge?: BoundPolicyJudge;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
   readonly reconciled?: ReconciledFindings;
@@ -414,6 +414,7 @@ export async function publishFindingBatch(
       ...(relatedLinks != null ? { relatedLinks: [...relatedLinks] } : {}),
     })),
     footers: [...footers].map(([key, paths]) => [key, [...paths]]),
+    baseSha: input.policyBaseSha ?? null,
     resultKind,
     evidence: evidence ?? [],
     judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
@@ -525,7 +526,6 @@ export async function publishFindingBatch(
     ? new Map(saved.footers)
     : await resolveBoundPolicyFooters({
         policy: input.repoPolicy ?? { kind: "absent" },
-        sameRepo: input.sameRepo,
         findings: targets.inline.map((placement) => placement.finding),
         judge: input.boundPolicyJudge,
         evidenceLedger: input.evidenceLedger,

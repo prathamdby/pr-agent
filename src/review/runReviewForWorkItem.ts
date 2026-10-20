@@ -43,10 +43,11 @@ import type { ReviewRunResult } from "./run/reviewRunTypes.ts";
 import type { ReviewRunGate, ReviewRunTiming } from "./orchestrator/orchestratorTypes.ts";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "./repoPolicy.ts";
 import {
-  isSameRepoPullRequest,
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
 } from "./agentInstructionFiles.ts";
+import { renderProposedPolicyChanges } from "./proposedPolicyChanges.ts";
+import { policyProvenance } from "./policySnapshotUse.ts";
 import { buildTrustedReviewContextForReview } from "../prompts/orchestrator/prompt.ts";
 import { fetchPriorInlineFeedbackBlockForReview } from "./run/reviewTrustedContext.ts";
 import {
@@ -105,7 +106,7 @@ import {
 } from "./recovery/reviewRecoveryBinding.ts";
 import { openReviewArtifactStore } from "../agentWork/reviewArtifactRepository.ts";
 
-type ReviewDegradationReason = "publish_not_completed";
+type ReviewDegradationReason = "publish_not_completed" | "repo_policy_unavailable";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -517,6 +518,7 @@ async function handleReviewPublishResult(args: {
   readonly commitStatusEnabled: boolean;
   readonly result: ReviewRunResult;
   readonly profile: ReviewProfileSession;
+  readonly policyUnavailable: boolean;
 }): Promise<DurableExecutionResult> {
   const { pool, item, reviewLens, prSurface, leaseEpoch, commitStatusEnabled, result } = args;
   const snapshot = snapshotReviewRunMetrics();
@@ -606,31 +608,39 @@ async function handleReviewPublishResult(args: {
           : composed,
     });
   }
-  if (result.published || result.publishSuperseded) {
-    return { kind: "completed" };
-  }
-  return {
-    kind: "completed",
-    degradation: ["publish_not_completed"] satisfies readonly ReviewDegradationReason[],
-  };
+  const degradation: ReviewDegradationReason[] = [];
+  if (!(result.published || result.publishSuperseded)) degradation.push("publish_not_completed");
+  if (result.published && args.policyUnavailable) degradation.push("repo_policy_unavailable");
+  if (degradation.length === 0) return { kind: "completed" };
+  return { kind: "completed", degradation };
 }
 
 async function assembleTrustedReviewContext(args: {
   readonly repositoryView: PrRepositoryView;
-  readonly pullRequest: PullRequestForFileList | undefined;
   readonly priorInlineFeedback: string | undefined;
   readonly checkoutCoverage: ReturnType<PrRepositoryView["workspace"]["reader"]["getCoverage"]>;
 }) {
-  const { repositoryView, pullRequest, priorInlineFeedback, checkoutCoverage } = args;
+  const { repositoryView, priorInlineFeedback, checkoutCoverage } = args;
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
-  const sameRepo = isSameRepoPullRequest(pullRequest);
+  const snapshot = repositoryView.workspace.policySnapshot;
+  const snapshotFiles = snapshot.kind === "ok" ? snapshot.files : [];
   const [repoPolicy, instructionFiles] = await Promise.all([
-    loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
-    loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
+    loadRepoPolicy(
+      snapshotFiles
+        .filter((file) => file.path.endsWith(".mdc"))
+        .map((file) => ({ path: file.path, body: file.body })),
+      MAX_REPO_POLICY_BYTES,
+    ),
+    loadAgentInstructionFiles(
+      snapshotFiles
+        .filter((file) => file.path === "AGENTS.md" || file.path === "CLAUDE.md")
+        .map((file) => ({ path: file.path, body: file.body })),
+      MAX_AGENT_INSTRUCTION_BYTES,
+    ),
   ]);
   const agentInstructionFilesBlock =
     instructionFiles.kind === "ok"
-      ? renderAgentInstructionFilesBlock({ files: instructionFiles.files, sameRepo }) || undefined
+      ? renderAgentInstructionFilesBlock({ files: instructionFiles.files }) || undefined
       : undefined;
 
   if (repoPolicy.kind === "invalid") {
@@ -644,9 +654,14 @@ async function assembleTrustedReviewContext(args: {
       ? renderRepoPolicyBlock({
           policy: repoPolicy.policy,
           changedFiles,
-          sameRepo,
         }) || undefined
       : undefined;
+  const proposedPolicyChangeBlock =
+    (await renderProposedPolicyChanges({
+      changedFiles: repositoryView.workspace.reader.changedFiles,
+      readHead: (path, maxFileBytes) =>
+        repositoryView.workspace.reader.readSource(path, maxFileBytes),
+    })) || undefined;
 
   const trustedContext = buildTrustedReviewContextForReview({
     pathProfile: buildReviewPathProfile(
@@ -656,16 +671,18 @@ async function assembleTrustedReviewContext(args: {
     priorInlineFeedback,
     repoPolicyBlock,
     agentInstructionFilesBlock,
+    proposedPolicyChangeBlock,
     checkoutCoverage,
     symbolIndexStatus: repositoryView.workspace.reader.getSymbolIndexStatus(),
   });
   const recoveryContext = encodeReviewArtifact({
-    sameRepo,
+    policyProvenance: policyProvenance(snapshot),
     repoPolicyBlock,
     agentInstructionFilesBlock,
+    proposedPolicyChangeBlock,
     preflight: repositoryView.preflight,
   });
-  return { sameRepo, repoPolicy, trustedContext, recoveryContext };
+  return { repoPolicy, trustedContext, recoveryContext };
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
@@ -741,13 +758,11 @@ async function runFullReviewAgainstRepositoryView(args: {
     });
   }
 
-  const { sameRepo, repoPolicy, trustedContext, recoveryContext } =
-    await assembleTrustedReviewContext({
-      repositoryView,
-      pullRequest,
-      priorInlineFeedback: priorInlineFeedbackResult.value,
-      checkoutCoverage,
-    });
+  const { repoPolicy, trustedContext, recoveryContext } = await assembleTrustedReviewContext({
+    repositoryView,
+    priorInlineFeedback: priorInlineFeedbackResult.value,
+    checkoutCoverage,
+  });
 
   const timing = reviewRunTimingFromJob(args.job);
   const gate = reviewRunGate({
@@ -799,6 +814,7 @@ async function runFullReviewAgainstRepositoryView(args: {
           prBody: pullRequest?.body ?? null,
           escalation,
           modelApis: await reviewRecoveryModelApis(cfg, escalation),
+          policyProvenance: policyProvenance(repositoryView.workspace.policySnapshot),
           effectivePublicationCapabilities: {
             checksWrite:
               (prSurface.capabilities?.access("checksWrite") ?? "available") === "available",
@@ -832,7 +848,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     resumedPlacements,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
-    sameRepo,
     repoPolicy,
     shouldLinkToSummary,
     progressCommentIdHint,
@@ -918,6 +933,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     commitStatusEnabled,
     result,
     profile,
+    policyUnavailable: repositoryView.workspace.policySnapshot.kind === "unavailable",
   });
 }
 
@@ -1070,6 +1086,7 @@ async function runClaimedReview(args: {
         ...(lightweight.prefetchedPrFiles !== undefined
           ? { prFiles: lightweight.prefetchedPrFiles }
           : {}),
+        baseSha: reviewRecoveryBaseSha(env.pullRequest) ?? undefined,
       },
       async (repositoryView) =>
         runFullReviewAgainstRepositoryView({

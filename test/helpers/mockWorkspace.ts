@@ -18,6 +18,7 @@ export function mockLocalPrWorkspace(
     rootDir: agentCwd,
     privateGitDir: `${agentCwd}/.git`,
     agentCwd,
+    policySnapshot: { kind: "unavailable", reason: "missing_base_sha" },
     checkoutTelemetry: { mode: checkoutMode, fallbackReason: null, fetchAttempts: [] },
     reader: {
       ...createWritableRepositoryReader(agentCwd),

@@ -244,6 +244,7 @@ export function buildTrustedReviewContextForReview(params: {
   priorInlineFeedback?: string;
   repoPolicyBlock?: string;
   agentInstructionFilesBlock?: string;
+  proposedPolicyChangeBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
   symbolIndexStatus?: SymbolIndexStatus;
 }): string {
@@ -266,6 +267,9 @@ export function buildTrustedReviewContextForReview(params: {
   }
   if (params.agentInstructionFilesBlock) {
     blocks.push("", params.agentInstructionFilesBlock);
+  }
+  if (params.proposedPolicyChangeBlock) {
+    blocks.push("", params.proposedPolicyChangeBlock);
   }
   return blocks.join("\n");
 }
