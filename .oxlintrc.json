@@ -16,14 +16,38 @@
       {
         "allow": ["_exhaustive", "__mutating", "__result", "_parentReplacement"]
       }
-    ]
+    ],
+    "typescript/await-thenable": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-array-delete": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-duplicate-type-constituents": "off",
+    "typescript/no-floating-promises": "off",
+    "typescript/no-for-in-array": "off",
+    "typescript/no-implied-eval": "off",
+    "typescript/no-meaningless-void-operator": "off",
+    "typescript/no-misused-spread": "off",
+    "typescript/no-redundant-type-constituents": "off",
+    "typescript/no-unnecessary-boolean-literal-compare": "off",
+    "typescript/no-unnecessary-template-expression": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-unnecessary-type-assertion": "off",
+    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-unnecessary-type-parameters": "off",
+    "typescript/no-unsafe-enum-comparison": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/no-unsafe-unary-minus": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/unbound-method": "off"
   },
   "env": {
     "node": true
   },
   "ignorePatterns": ["dist/**", "test/__snapshots__/**", "coverage/**", "site/routeTree.gen.ts"],
   "options": {
-    "typeAware": true,
+    "typeAware": false,
     "typeCheck": false
   },
   "overrides": [
@@ -36,31 +60,19 @@
     {
       "files": ["src/**/*.ts"],
       "rules": {
-        "typescript/no-unsafe-type-assertion": "error",
         "typescript/no-explicit-any": "error",
         "typescript/no-non-null-assertion": "error"
-      }
-    },
-    {
-      "files": ["src/util/escape.ts"],
-      "rules": {
-        "typescript/no-unnecessary-type-parameters": "off"
       }
     },
     {
       "files": ["test/**/*.ts"],
       "env": { "vitest": true },
       "rules": {
-        "typescript/no-floating-promises": "off",
-        "typescript/no-unsafe-type-assertion": "off",
         "vitest/require-mock-type-parameters": "off",
         "vitest/no-conditional-expect": "off",
         "vitest/expect-expect": "off",
         "vitest/require-to-throw-message": "off",
         "eslint/no-unsafe-optional-chaining": "off",
-        "typescript/no-misused-spread": "off",
-        "typescript/no-base-to-string": "off",
-        "typescript/unbound-method": "off",
         "eslint/no-underscore-dangle": "off",
         "eslint/no-shadow": "off",
         "unicorn/consistent-function-scoping": "off"

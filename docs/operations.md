@@ -233,34 +233,34 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 
 ### Scripts
 
-| Script                                                        | Purpose                                                                                                                     |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `node --env-file-if-exists=.env src/index.ts` / `npm run dev` | Run `src/index.ts` (`ROLE` env)                                                                                             |
-| `npm run dev`                                                 | Auto-restart dev entry                                                                                                      |
-| `npm run build`                                               | Compile to `dist/`                                                                                                          |
-| `npm run start` / `node dist/index.js`                        | Run compiled `dist/`                                                                                                        |
-| `npm run typecheck`                                           | `tsc --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `npm run build` uses `tsconfig.build.json` (`src/` only) |
-| `npm run lint`                                                | Type-aware Oxlint, zero warnings (includes `site/`)                                                                         |
-| `npm run lint:backend`                                        | Type-aware Oxlint, zero warnings, excluding `site/`                                                                         |
-| `npm run lint:fix`                                            | Oxlint with safe fixes                                                                                                      |
-| `npm run fmt`                                                 | Format with Oxfmt                                                                                                           |
-| `npm run fmt:check`                                           | Check formatting                                                                                                            |
-| `npm run check:code`                                          | `typecheck` + `lint` + `fmt:check`                                                                                          |
-| `npm run check:effect-versions`                               | Verify pinned Effect deps                                                                                                   |
-| `npm run check:prod-deps`                                     | Clean installed backend production graph guard                                                                              |
-| `npm run check:commit-messages`                               | Lint PR commits against /commit conventional rules (`--base`, `--head`)                                                     |
-| `npm run test`                                                | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                        |
-| `npm run test:watch`                                          | Vitest watch mode                                                                                                           |
-| `npm run test:integration`                                    | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                     |
-| `npm run test:integration:inventory`                          | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                              |
-| `npm run site:dev`                                            | Landing site local dev (`pr-agent-landing`)                                                                                 |
-| `npm run site:build`                                          | Landing site production build                                                                                               |
-| `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                      |
-| `npm run site:generate-og`                                    | Generate landing OG assets                                                                                                  |
+| Script                                                        | Purpose                                                                                                                              |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `node --env-file-if-exists=.env src/index.ts` / `npm run dev` | Run `src/index.ts` (`ROLE` env)                                                                                                      |
+| `npm run dev`                                                 | Auto-restart dev entry                                                                                                               |
+| `npm run build`                                               | Compile to `dist/`                                                                                                                   |
+| `npm run start` / `node dist/index.js`                        | Run compiled `dist/`                                                                                                                 |
+| `npm run typecheck`                                           | `tsrs --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `npm run build` uses `tsrs -p tsconfig.build.json` (`src/` only) |
+| `npm run lint`                                                | Oxlint, zero warnings (includes `site/`)                                                                                             |
+| `npm run lint:backend`                                        | Oxlint, zero warnings, excluding `site/`                                                                                             |
+| `npm run lint:fix`                                            | Oxlint with safe fixes                                                                                                               |
+| `npm run fmt`                                                 | Format with Oxfmt                                                                                                                    |
+| `npm run fmt:check`                                           | Check formatting                                                                                                                     |
+| `npm run check:code`                                          | `typecheck` + `lint` + `fmt:check`                                                                                                   |
+| `npm run check:effect-versions`                               | Verify pinned Effect deps                                                                                                            |
+| `npm run check:prod-deps`                                     | Clean installed backend production graph guard                                                                                       |
+| `npm run check:commit-messages`                               | Lint PR commits against /commit conventional rules (`--base`, `--head`)                                                              |
+| `npm run test`                                                | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                                 |
+| `npm run test:watch`                                          | Vitest watch mode                                                                                                                    |
+| `npm run test:integration`                                    | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                              |
+| `npm run test:integration:inventory`                          | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                                       |
+| `npm run site:dev`                                            | Landing site local dev (`pr-agent-landing`)                                                                                          |
+| `npm run site:build`                                          | Landing site production build                                                                                                        |
+| `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                               |
+| `npm run site:generate-og`                                    | Generate landing OG assets                                                                                                           |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `npm run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. There are no cooling exclusions. npm exclusions match package names/globs, not exact versions; any future exception needs a narrow name and a checked locked version.
+`npm run typecheck` runs `tsrs --noEmit -p tsconfig.json`. `npm run build` runs `tsrs -p tsconfig.build.json`. [`.oxlintrc.json`](../.oxlintrc.json) sets `options.typeAware` to false, so lint does not load `oxlint-tsgolint`. Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. There are no cooling exclusions. npm exclusions match package names/globs, not exact versions; any future exception needs a narrow name and a checked locked version.
 
-Both lint scripts pass `--deny-warnings`. `npm run check:guards` locks suppression markers with `lint-suppressions(src)` (5) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
+Both lint scripts pass `--deny-warnings`. `npm run check:guards` locks suppression markers with `lint-suppressions(src)` (4) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
 
 ### Effect version gate
 

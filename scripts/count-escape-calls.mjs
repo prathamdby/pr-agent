@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import * as ts from "typescript/unstable/ast";
-import { API } from "typescript/unstable/sync";
+import * as ts from "tsrs/unstable/ast";
+import { API } from "tsrs/unstable/sync";
 
 export function countEscapeCalls(root) {
   let count = 0;
@@ -59,7 +59,7 @@ export function countEscapeCalls(root) {
     }
   };
   try {
-    snapshot = api.updateSnapshot({ openProjects: [config] });
+    snapshot = api.createSnapshot({ openProjects: [config] });
     project = snapshot.getProject(config);
     if (!project) throw new Error(`missing TypeScript project for ${root}`);
     walk(root);

@@ -64,20 +64,6 @@ function countPattern(pattern, scope, flags) {
 
 const RULES = [
   {
-    id: "no-unsafe-type-assertion(src)",
-    kind: "oxlint-deny",
-    rule: "typescript/no-unsafe-type-assertion",
-    lintCode: "typescript(no-unsafe-type-assertion)",
-    scope: "src/**",
-  },
-  {
-    id: "no-unsafe-type-assertion(test)",
-    kind: "oxlint-deny",
-    rule: "typescript/no-unsafe-type-assertion",
-    lintCode: "typescript(no-unsafe-type-assertion)",
-    scope: "test/**",
-  },
-  {
     id: "explicit-any(src)",
     kind: "oxlint-deny",
     rule: "typescript/no-explicit-any",
