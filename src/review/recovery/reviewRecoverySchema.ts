@@ -36,6 +36,7 @@ const reaffirmed = v.strictObject({
   id: findingIdSchema,
   source,
   severity: reviewFindingEntries.severity,
+  judged: v.optional(v.boolean()),
   heldBy: v.picklist(["thread", "summary", "run"]),
   placement,
 });

@@ -5,7 +5,7 @@ import {
   type InlinePlacement,
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.ts";
-import { higherSeverity } from "../findingIdentity/findingLifecycle.ts";
+import { cappedReaffirmedSeverity } from "../findingIdentity/findingLifecycle.ts";
 import { parseOwnedFindingMarker, type FindingId } from "../findingIdentity/findingMarker.ts";
 import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
 import type { ReconcileOutcome } from "../findingIdentity/findingReconcile.ts";
@@ -110,6 +110,7 @@ export type FindingBatchInput = {
   readonly boundPolicyJudge?: BoundPolicyJudge;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
   readonly reconciled?: ReconciledFindings;
+  readonly judged?: boolean;
 };
 
 export type ReconciledFindings = {
@@ -158,13 +159,21 @@ function reaffirmedFinding(
   outcome: Extract<ReconcileOutcome, { kind: "reaffirm" }>,
   source: FindingSource,
   inventory: FindingInventory,
+  judged: boolean,
 ): ReaffirmedFinding {
   const held = inventory.findings.get(outcome.id);
-  const merged = held == null ? outcome.severity : higherSeverity(held.severity, outcome.severity);
   const base = {
     id: outcome.id,
     source,
-    severity: merged === "unknown" ? outcome.severity : merged,
+    severity: cappedReaffirmedSeverity({
+      held: held?.severity,
+      observed: outcome.severity,
+      testsLens: source === "tests",
+      anchorPath: placement.finding.file,
+      ...(held == null ? {} : { heldPath: held.path }),
+      judged,
+    }),
+    ...(judged ? {} : { judged: false }),
   };
   if (held?.source === "thread") {
     return {
@@ -189,6 +198,7 @@ function reconcileBatch(
   placements: readonly InlinePlacement[],
   source: FindingSource,
   reconciled: ReconciledFindings | undefined,
+  judged: boolean,
 ): ReconciledBatch {
   const identities = new Map<string, PlacementIdentity>();
   const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
@@ -230,7 +240,9 @@ function reconcileBatch(
         held.push({ placement: { ...placement, findingId: outcome.id }, reason: outcome.reason });
         break;
       case "reaffirm":
-        reaffirmed.push(reaffirmedFinding(placement, outcome, source, reconciled.inventory));
+        reaffirmed.push(
+          reaffirmedFinding(placement, outcome, source, reconciled.inventory, judged),
+        );
         break;
       case "suppressed_dismissed":
         suppressedDismissedCount += 1;
@@ -337,10 +349,12 @@ export async function publishFindingBatch(
     0,
     session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
+  const judged = input.judged !== false;
   const reconciledBatch = reconcileBatch(
     prepared.prepared.placements,
     input.source,
     saved ? undefined : input.reconciled,
+    judged,
   );
   const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const calculatedTargets = prepareFindingsForPublish({

@@ -32,11 +32,16 @@ could not move the failing line without a code change.
    `REVIEW_RISK_PATH_PATTERNS.test` caps at P2. An unjudged publish caps at P1.
    The strictest cap wins. There is no docs cap. A skipped judgment copies the
    suggestion onto `severity`, omits the rationale, and then hits the same cap.
-3. **Reaffirmation keeps the higher severity.** When the inventory holds the
-   finding, the stored severity is `higherSeverity` of the held value and this
-   run's capped severity. The thread root is not edited. An unobserved
+3. **Reaffirmation keeps the higher severity, then the cap.** When the
+   inventory holds the finding, the stored severity is `higherSeverity` of the
+   held value and this run's observation, passed through
+   `cappedFindingSeverity` again. The tests-lens, test-path, and unjudged
+   ceilings apply to that merge, using the observation path and the held
+   path. The finding view applies the same cap after it merges a reaffirmed
+   row, including a duplicate-copy severity. The thread root is not edited.
+   An unobserved carried finding keeps its inventory severity. An unobserved
    `unknown` stays unblocking. A reaffirmation that observes it may merge
-   upward to the judged severity.
+   upward to the judged severity, still inside the cap.
 4. **`REVIEW_CHECK_FAIL_SEVERITY` is the failing line.** Allowed values are
    `P0`, `P1`, `P2`, and `P3`. The default is `P2`, which keeps today's gate.
    A known severity fails when its rank is less than or equal to the threshold

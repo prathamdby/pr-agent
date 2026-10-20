@@ -995,6 +995,66 @@ describe("finding lifecycle view", () => {
     expect(lowered.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
   });
 
+  it("keeps a reaffirmed row inside the test-path, tests-lens, and unjudged caps", () => {
+    const testPath = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.test.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+    );
+    expect(testPath.rows).toMatchObject([{ id: A, severity: "P2", blocking: true }]);
+
+    const heldMoved = buildFindingView(
+      inventoryOf([
+        thread({ rootBody: markedBody(A, "P0"), path: "src/a.test.ts", rootCommentId: 11 }),
+        thread({
+          rootBody: markedBody(B, "P0"),
+          path: "src/other.ts",
+          rootCommentId: 12,
+          replies: [
+            {
+              body: renderReceipt({ kind: "duplicate", id: B, canonical: A }),
+              authorLogin: BOT,
+            },
+          ],
+        }),
+      ]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P2", "thread")] }),
+    );
+    expect(heldMoved.rows).toMatchObject([{ id: A, severity: "P2", blocking: true }]);
+
+    const testsLens = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [{ ...reaffirmedThisRun(A, "P0", "thread"), source: "tests" }],
+      }),
+    );
+    expect(testsLens.rows).toMatchObject([{ id: A, severity: "P2" }]);
+
+    const unjudged = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
+      reviewed({
+        reaffirmed: [{ ...reaffirmedThisRun(A, "P0", "thread"), judged: false }],
+      }),
+    );
+    expect(unjudged.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+
+    const raised = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P2") })]),
+      reviewed({ reaffirmed: [reaffirmedThisRun(A, "P0", "thread")] }),
+    );
+    expect(raised.rows).toMatchObject([{ id: A, severity: "P0", blocking: true }]);
+  });
+
   it("never counts an unknown severity as blocking", () => {
     const known = heldFinding(inventoryOf([thread({ rootBody: markedBody(A) })]), A);
     const view = buildFindingView(

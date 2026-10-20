@@ -379,6 +379,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         source,
         ledger,
         reconciled: { inventory, outcomes },
+        judged,
       });
     } catch (error) {
       throw toAppError(error, {
