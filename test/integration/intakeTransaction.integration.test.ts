@@ -4352,40 +4352,50 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   );
 
-  it("signed first-time fork still accepts a workflow start", async () => {
-    const ref = makePrRef("first-time");
-    const cfg = approvalCfg();
-    const openDelivery = deliveryId();
-    expect(
-      (
-        await postSigned(
-          cfg,
-          "pull_request",
-          openDelivery,
-          openedPull(ref, "FIRST_TIME_CONTRIBUTOR", 2, 1),
-        )
-      ).response,
-    ).toEqual({ status: 200, body: "ok" });
-    expect(await processingDecision(openDelivery)).toBe("review_awaiting_approval");
-    expect(await approvalRow(ref)).toMatchObject({
-      state: "awaiting",
-      workflow_start_admits: true,
-    });
-    const waiting = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
-      (job) => job.data.awaitingApproval && job.data.prNumber === ref.prNumber,
-    );
-    expect(waiting?.data.awaitingApprovalMaintainerOnly).toBeUndefined();
-    const workflowDelivery = deliveryId();
-    expect(
-      (await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(ref))).response,
-    ).toEqual({ status: 200, body: "ok" });
-    expect(await processingDecision(workflowDelivery)).toBe("review_approved");
-    expect(await approvalRow(ref)).toMatchObject({
-      state: "approved",
-      approved_by: "workflow_run",
-    });
-    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
-  });
+  it.each([
+    ["NONE", "none"],
+    ["FIRST_TIME_CONTRIBUTOR", "ftc"],
+    ["FIRST_TIMER", "timer"],
+  ] as const)(
+    "signed fork %s waits, and a workflow start does not admit the row",
+    async (association, suffix) => {
+      const ref = makePrRef(`fork-${suffix}`);
+      const cfg = approvalCfg();
+      const openDelivery = deliveryId();
+      expect(
+        (await postSigned(cfg, "pull_request", openDelivery, openedPull(ref, association, 2, 1)))
+          .response,
+      ).toEqual({ status: 200, body: "ok" });
+      expect(await processingDecision(openDelivery)).toBe("review_awaiting_approval");
+      expect(await approvalRow(ref)).toMatchObject({
+        state: "awaiting",
+        workflow_start_admits: false,
+        approved_by: null,
+      });
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+      const waiting = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+        (job) => job.data.awaitingApproval && job.data.prNumber === ref.prNumber,
+      );
+      expect(waiting).toHaveLength(1);
+      expect(waiting[0]?.data.awaitingApprovalMaintainerOnly).toBe(true);
+      const before = await approvalRow(ref);
+      const workflowDelivery = deliveryId();
+      expect(
+        (await postSigned(cfg, "workflow_run", workflowDelivery, workflowStart(ref))).response,
+      ).toEqual({ status: 200, body: "ok" });
+      expect(await processingDecision(workflowDelivery)).toBe(
+        "ignored_review_approval_maintainer_required",
+      );
+      expect(await approvalRow(ref)).toMatchObject({
+        state: "awaiting",
+        workflow_start_admits: false,
+      });
+      expect(new Date((await approvalRow(ref)).updated_at).getTime()).toBe(
+        new Date(before.updated_at).getTime(),
+      );
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    },
+  );
 
   it("a refused workflow start leaves an admissible same-head row approved", async () => {
     const held = makePrRef("mixed-held");
@@ -4396,14 +4406,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         .response.status,
     ).toBe(200);
     expect(
-      (
-        await postSigned(
-          cfg,
-          "pull_request",
-          deliveryId(),
-          openedPull(admitted, "FIRST_TIME_CONTRIBUTOR", 2, 1),
-        )
-      ).response.status,
+      (await postSigned(cfg, "pull_request", deliveryId(), openedPull(admitted, "MANNEQUIN", 2, 1)))
+        .response.status,
     ).toBe(200);
     const before = await approvalRow(held);
     const workflowDelivery = deliveryId();

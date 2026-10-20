@@ -14,7 +14,7 @@ describe("reviewAuthorTrust", () => {
       ).toBe("trusted");
     },
   );
-  it.each(["CONTRIBUTOR", "contributor"])(
+  it.each(["CONTRIBUTOR", "contributor", "NONE", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER"])(
     "holds a fork %s for maintainer approval",
     (author_association) => {
       expect(
@@ -38,14 +38,8 @@ describe("reviewAuthorTrust", () => {
   it.each([
     { author_association: undefined, head: { repo: { id: 1 } }, base: { repo: { id: 1 } } },
     { author_association: "OWNER", head: { repo: null }, base: { repo: { id: 1 } } },
-    { author_association: "NONE", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
     { author_association: "", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
-    {
-      author_association: "FIRST_TIME_CONTRIBUTOR",
-      head: { repo: { id: 2 } },
-      base: { repo: { id: 1 } },
-    },
-    { author_association: "FIRST_TIMER", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
+    { author_association: "MANNEQUIN", head: { repo: { id: 2 } }, base: { repo: { id: 1 } } },
   ])("fails closed for untrusted/missing metadata: %j", (pr) => {
     expect(reviewAuthorTrust(pr)).toBe("awaiting_approval");
   });

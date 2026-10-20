@@ -28,7 +28,7 @@ the head moves. Operators who want a review of each later push had to comment
    does not insert another review.
 
 3. **Admission is stored evidence.** Under `approval`, an awaiting row skips
-   the `every_push` insert, including a fork `CONTRIBUTOR` hold
+   the `every_push` insert, including a maintainer-only hold
    (`workflow_start_admits` false). With no awaiting row, a retained `review`
    work item or `pr_review_approvals.state = 'approved'` admits the push. A
    workflow start is not synchronize admission. `auto` admits every open pull
