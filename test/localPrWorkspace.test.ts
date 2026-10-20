@@ -16,6 +16,7 @@ import { classifyFailure } from "../src/errors/classifiedFailure.ts";
 import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
 import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
+import { readBasePolicySnapshot } from "../src/prWorkspace/policySnapshot.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
 const credentialHooks = { failAfterWrite: false };
@@ -193,22 +194,54 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const mappedFiles = {
+          ...prFiles,
+          files: [
+            ...prFiles.files,
+            {
+              filename: ".pr-agent/from-rename.mdc",
+              status: "renamed",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+            {
+              filename: ".pr-agent/from-copy.mdc",
+              status: "copied",
+              additions: 1,
+              deletions: 0,
+              changes: 1,
+            },
+          ],
+        };
         const fullWorkspace = await prepareLocalPrWorkspace({
           owner: "owner",
           repo: "repo",
           prNumber: 1,
           headSha,
           installationToken: "unused",
-          prFiles,
+          prFiles: mappedFiles,
           repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
           remoteUrlOverride: remote,
         });
         try {
           expect(fullWorkspace.reader.checkoutMode).toBe("full");
           expect(fullWorkspace.reader.changedFiles.map((file) => file.path).toSorted()).toEqual([
+            ".pr-agent/from-copy.mdc",
+            ".pr-agent/from-rename.mdc",
             "renamed.txt",
             "src.txt",
           ]);
+          expect(
+            fullWorkspace.reader.changedFiles.find(
+              (file) => file.path === ".pr-agent/from-rename.mdc",
+            ),
+          ).toEqual({ path: ".pr-agent/from-rename.mdc", status: "renamed" });
+          expect(
+            fullWorkspace.reader.changedFiles.find(
+              (file) => file.path === ".pr-agent/from-copy.mdc",
+            ),
+          ).toEqual({ path: ".pr-agent/from-copy.mdc", status: "copied" });
           expect(
             fullWorkspace.reader.changedFiles.find((file) => file.path === "renamed.txt"),
           ).toMatchObject({
@@ -630,12 +663,69 @@ describe("local PR workspace", () => {
       expect(isAllowlistedPolicyPath(".PR-AGENT/x.mdc")).toBe(false);
       expect(isAllowlistedPolicyPath(".pr-agent//x.mdc")).toBe(false);
       expect(isAllowlistedPolicyPath(".pr-agent\\x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/sub/x.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/.hidden.mdc")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/x.MDC")).toBe(false);
+      expect(isAllowlistedPolicyPath(".pr-agent/x.mdc ")).toBe(false);
+      expect(isAllowlistedPolicyPath("agENTS.md")).toBe(false);
       expect(isAllowlistedPolicyPath(".pr-agent/ok.mdc")).toBe(true);
       expect(isAllowlistedPolicyPath("AGENTS.md")).toBe(true);
+      expect(isAllowlistedPolicyPath("CLAUDE.md")).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("marks an over-cap object store, an empty allowlist, and a failed blob read", async () => {
+    const baseSha = "a".repeat(40);
+    const blobSha = "b".repeat(40);
+    const tree = `100644 blob ${blobSha}\t.pr-agent/ok.mdc\0`;
+    const git = (script: (command: string) => { readonly stdout: string } | Promise<never>) => {
+      return async (args: readonly string[]) => {
+        const command = args.includes("fetch") ? "fetch" : (args[0] ?? "");
+        return script(command);
+      };
+    };
+
+    const overCap = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch" || command === "ls-tree") {
+          return { stdout: command === "ls-tree" ? tree : "" };
+        }
+        if (command === "cat-file") return { stdout: "4\n" };
+        if (command === "count-objects") return { stdout: "size: 2\nsize-pack: 0\n" };
+        throw new Error(command);
+      }),
+    });
+    expect(overCap).toEqual({ kind: "unavailable", reason: "object_store_cap", baseSha });
+
+    const absent = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch" || command === "ls-tree") return { stdout: "" };
+        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
+        throw new Error(command);
+      }),
+    });
+    expect(absent).toEqual({ kind: "absent", baseSha });
+
+    const failed = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch") return { stdout: "" };
+        if (command === "ls-tree") return { stdout: tree };
+        throw new Error("cat-file failed");
+      }),
+    });
+    expect(failed).toEqual({ kind: "unavailable", reason: "blob_read_failed", baseSha });
+  });
 });
 
 type GitHttpDecision =

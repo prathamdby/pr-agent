@@ -174,18 +174,11 @@ export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
 
 function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
   const status = file.status;
-  if (status === "renamed" && file.previousFilename) {
+  if (status === "renamed" || status === "copied") {
     return {
       path: file.filename,
-      status: "renamed",
-      oldPath: file.previousFilename,
-    };
-  }
-  if (status === "copied" && file.previousFilename) {
-    return {
-      path: file.filename,
-      status: "copied",
-      oldPath: file.previousFilename,
+      status,
+      ...(file.previousFilename ? { oldPath: file.previousFilename } : {}),
     };
   }
   const mapped: ChangedFileStatus =

@@ -71,20 +71,6 @@ function sanitizeRenderedPolicyText(value: string): string {
   return value.split(/\r?\n/).join(" ").trim();
 }
 
-export function neutralizeForgedTrustHeaders(body: string): string {
-  return body
-    .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
-    .replace(/Trusted context \(agent instruction files\):/gi, "[neutralized forged header]")
-    .replace(
-      /^\s*These rules are binding for this review\..*$/gim,
-      "[neutralized forged binding line]",
-    )
-    .replace(
-      /^\s*These root files are binding for this review\..*$/gim,
-      "[neutralized forged binding line]",
-    );
-}
-
 function normalizeGlobs(value: string | string[] | undefined): string[] {
   if (value == null) return [];
   const raw = Array.isArray(value) ? value : [value];

@@ -406,7 +406,8 @@ const env = {
       patchByPath: new Map([["src/a.ts", files.files[0].patch]]), patchOmittedByCapPaths: new Set(), symbolIndex: null,
     });
     const workspace = { rootDir: join(dir, "workspace"), agentCwd: join(dir, "workspace"),
-      privateGitDir: join(dir, "workspace/.git"), reader: pinned.reader, cleanup: async () => pinned.dispose() };
+      privateGitDir: join(dir, "workspace/.git"), reader: pinned.reader, cleanup: async () => pinned.dispose(),
+      policySnapshot: { kind: "absent", baseSha: input.base } };
     try { return await run({ workspace, agentCwd: workspace.agentCwd, preflight: buildReviewPreflightMetadataFromWorkspace(workspace) }); }
     finally { pinned.dispose(); }
   },

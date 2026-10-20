@@ -201,20 +201,6 @@ async function loadAgentInstructionFilesFromCheckout(
   return { kind: "ok", files, drops };
 }
 
-export function neutralizeForgedTrustHeaders(body: string): string {
-  return body
-    .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
-    .replace(/^Trusted context \(repo policy\):\s*$/gm, "[neutralized forged header]")
-    .replace(
-      /^\s*These root files are binding for this review\..*$/gm,
-      "[neutralized forged binding line]",
-    )
-    .replace(
-      /^\s*These rules are binding for this review\..*$/gm,
-      "[neutralized forged binding line]",
-    );
-}
-
 export function renderAgentInstructionFilesBlock(params: {
   readonly files: readonly AgentInstructionFile[];
 }): string {

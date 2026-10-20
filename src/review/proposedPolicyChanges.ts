@@ -6,12 +6,24 @@ import {
   MAX_REPO_POLICY_FILE_BYTES,
   REPO_POLICY_EXTENSION,
 } from "../settings/index.ts";
-import { neutralizeForgedTrustHeaders as neutralizeInstructionHeaders } from "./agentInstructionFiles.ts";
-import { neutralizeForgedTrustHeaders as neutralizePolicyHeaders } from "./repoPolicy.ts";
+
+function neutralizeProposedPolicyBody(body: string): string {
+  return body
+    .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
+    .replace(/Trusted context \(agent instruction files\):/gi, "[neutralized forged header]")
+    .replace(
+      /^\s*These rules are binding for this review\..*$/gim,
+      "[neutralized forged binding line]",
+    )
+    .replace(
+      /^\s*These root files are binding for this review\..*$/gim,
+      "[neutralized forged binding line]",
+    );
+}
 
 export type PolicyChangeSide = {
   readonly path: string;
-  readonly status: "added" | "modified" | "deleted";
+  readonly status: "added" | "modified" | "deleted" | "other";
 };
 
 export function allowlistedPolicyChangeSides(
@@ -31,7 +43,10 @@ export function allowlistedPolicyChangeSides(
       continue;
     }
     if (
-      (file.status === "added" || file.status === "modified" || file.status === "deleted") &&
+      (file.status === "added" ||
+        file.status === "modified" ||
+        file.status === "deleted" ||
+        file.status === "other") &&
       isAllowlistedPolicyPath(file.path)
     ) {
       sides.push({ path: file.path, status: file.status });
@@ -60,7 +75,7 @@ export async function renderProposedPolicyChanges(params: {
         lines.push(
           wrapUntrustedBlock(
             policyFile ? "proposed_policy_change" : "proposed_agent_instruction",
-            policyFile ? neutralizePolicyHeaders(body) : neutralizeInstructionHeaders(body),
+            neutralizeProposedPolicyBody(body),
           ),
         );
       }
