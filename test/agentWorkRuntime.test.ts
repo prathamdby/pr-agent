@@ -1,5 +1,6 @@
 import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TRANSIENT_CONNECT_ATTEMPTS } from "../src/db/transientConnect.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
 const runtimeMocks = vi.hoisted(() => {
@@ -66,6 +67,17 @@ vi.mock("../src/agentWork/executionTracker.ts", async (importOriginal) => {
         },
       };
     },
+  };
+});
+
+vi.mock("../src/db/transientConnect.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/db/transientConnect.ts")>();
+  return {
+    ...actual,
+    retryTransientConnect: (
+      operation: () => Promise<unknown>,
+      sleep?: (delayMs: number) => Promise<void>,
+    ) => actual.retryTransientConnect(operation, sleep ?? (async () => undefined)),
   };
 });
 
@@ -314,8 +326,6 @@ describe("agent work runtime teardown", () => {
   }, 25_000);
 });
 
-const BOOT_CONNECT_ATTEMPTS = 8;
-
 function connectError(code: string): Error {
   const error = new Error(`connect ${code}`);
   return Object.assign(error, { code });
@@ -348,6 +358,7 @@ describe("agent work runtime boot", () => {
       );
 
       expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(2);
+      expect(runtimeMocks.warnings).toEqual(["postgres_connect_retry"]);
       expect(Exit.isSuccess(exit)).toBe(true);
     },
   );
@@ -363,6 +374,7 @@ describe("agent work runtime boot", () => {
     );
 
     expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(2);
+    expect(runtimeMocks.warnings).toEqual(["postgres_connect_retry"]);
     expect(Exit.isSuccess(exit)).toBe(true);
   });
 
@@ -375,7 +387,8 @@ describe("agent work runtime boot", () => {
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(BOOT_CONNECT_ATTEMPTS);
+    expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(TRANSIENT_CONNECT_ATTEMPTS);
+    expect(runtimeMocks.warnings).toHaveLength(TRANSIENT_CONNECT_ATTEMPTS - 1);
     if (Exit.isFailure(exit)) {
       expect(Cause.squash(exit.cause)).toMatchObject({ code: "ENOTFOUND" });
     }
@@ -390,7 +403,8 @@ describe("agent work runtime boot", () => {
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(BOOT_CONNECT_ATTEMPTS);
+    expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(TRANSIENT_CONNECT_ATTEMPTS);
+    expect(runtimeMocks.warnings).toHaveLength(TRANSIENT_CONNECT_ATTEMPTS - 1);
     if (Exit.isFailure(exit)) {
       expect(Cause.squash(exit.cause)).toMatchObject({ code: "ENOTFOUND" });
     }
@@ -406,5 +420,6 @@ describe("agent work runtime boot", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.warnings).not.toContain("postgres_connect_retry");
   });
 });
