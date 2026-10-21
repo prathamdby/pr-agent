@@ -338,6 +338,7 @@ function restoreBootDoubles(): void {
   runtimeMocks.createStartedBoss.mockImplementation(async () => runtimeMocks.boss);
   runtimeMocks.ensureAgentQueues.mockClear();
   runtimeMocks.stopBoss.mockClear();
+  runtimeMocks.pool.end.mockClear();
   runtimeMocks.warnings.length = 0;
 }
 
@@ -392,6 +393,7 @@ describe("agent work runtime boot", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(TRANSIENT_CONNECT_ATTEMPTS);
+    expect(runtimeMocks.pool.end).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).toHaveLength(TRANSIENT_CONNECT_ATTEMPTS - 1);
     if (Exit.isFailure(exit)) {
       expect(Cause.squash(exit.cause)).toMatchObject({ code: "ENOTFOUND" });
@@ -424,6 +426,7 @@ describe("agent work runtime boot", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.pool.end).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("postgres_connect_retry");
   });
 

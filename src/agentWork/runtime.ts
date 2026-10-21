@@ -65,7 +65,12 @@ export const AgentWorkPoolLive = (cfg: Config) =>
       Effect.tryPromise({
         try: async () => {
           const pool = createPgPool(cfg);
-          await retryTransientConnect(() => runMigrations(pool));
+          try {
+            await retryTransientConnect(() => runMigrations(pool));
+          } catch (error) {
+            await pool.end().catch(() => undefined);
+            throw error;
+          }
           return pool;
         },
         catch: (e) => toError(e),
