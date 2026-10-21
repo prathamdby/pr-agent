@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { TRANSIENT_CONNECT_ATTEMPTS } from "../src/db/transientConnect.ts";
+import { retryTransientConnect, TRANSIENT_CONNECT_ATTEMPTS } from "../src/db/transientConnect.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
 const runtimeMocks = vi.hoisted(() => {
@@ -337,6 +337,7 @@ function restoreBootDoubles(): void {
   runtimeMocks.createStartedBoss.mockReset();
   runtimeMocks.createStartedBoss.mockImplementation(async () => runtimeMocks.boss);
   runtimeMocks.ensureAgentQueues.mockClear();
+  runtimeMocks.stopBoss.mockClear();
   runtimeMocks.warnings.length = 0;
 }
 
@@ -363,20 +364,23 @@ describe("agent work runtime boot", () => {
     },
   );
 
-  it("starts pg-boss after one ENOTFOUND connect failure", async () => {
-    runtimeMocks.createStartedBoss
-      .mockRejectedValueOnce(connectError("ENOTFOUND"))
-      .mockResolvedValueOnce(runtimeMocks.boss);
-    const { AgentWorkBossLive } = await import("../src/agentWork/runtime.ts");
+  it.each(["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT"] as const)(
+    "starts pg-boss after one %s connect failure",
+    async (code) => {
+      runtimeMocks.createStartedBoss
+        .mockRejectedValueOnce(connectError(code))
+        .mockResolvedValueOnce(runtimeMocks.boss);
+      const { AgentWorkBossLive } = await import("../src/agentWork/runtime.ts");
 
-    const exit = await Effect.runPromiseExit(
-      Effect.scoped(Layer.build(AgentWorkBossLive(makeTestConfig()))),
-    );
+      const exit = await Effect.runPromiseExit(
+        Effect.scoped(Layer.build(AgentWorkBossLive(makeTestConfig()))),
+      );
 
-    expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(2);
-    expect(runtimeMocks.warnings).toEqual(["postgres_connect_retry"]);
-    expect(Exit.isSuccess(exit)).toBe(true);
-  });
+      expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(2);
+      expect(runtimeMocks.warnings).toEqual(["postgres_connect_retry"]);
+      expect(Exit.isSuccess(exit)).toBe(true);
+    },
+  );
 
   it("fails pool boot when ENOTFOUND outlasts the bound", async () => {
     runtimeMocks.runMigrations.mockRejectedValue(connectError("ENOTFOUND"));
@@ -421,5 +425,63 @@ describe("agent work runtime boot", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     expect(runtimeMocks.runMigrations).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("postgres_connect_retry");
+  });
+
+  it("fails pg-boss boot on the first queue setup error and stops the boss", async () => {
+    runtimeMocks.ensureAgentQueues.mockRejectedValueOnce(connectError("ENOTFOUND"));
+    const { AgentWorkBossLive } = await import("../src/agentWork/runtime.ts");
+    const cfg = makeTestConfig();
+
+    const exit = await Effect.runPromiseExit(Effect.scoped(Layer.build(AgentWorkBossLive(cfg))));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runtimeMocks.createStartedBoss).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.ensureAgentQueues).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.stopBoss).toHaveBeenCalledWith(
+      runtimeMocks.boss,
+      cfg.queue.shutdownDrainTimeoutSeconds * 1000,
+    );
+    expect(runtimeMocks.warnings).not.toContain("postgres_connect_retry");
+    if (Exit.isFailure(exit)) {
+      expect(Cause.squash(exit.cause)).toMatchObject({ code: "ENOTFOUND" });
+    }
+  });
+
+  it("records the backoff until ENOTFOUND exhausts the bound", async () => {
+    const delays: number[] = [];
+    let attempts = 0;
+
+    await expect(
+      retryTransientConnect(
+        async () => {
+          attempts += 1;
+          throw connectError("ENOTFOUND");
+        },
+        async (delayMs) => {
+          delays.push(delayMs);
+        },
+      ),
+    ).rejects.toMatchObject({ code: "ENOTFOUND" });
+
+    expect(attempts).toBe(TRANSIENT_CONNECT_ATTEMPTS);
+    expect(delays).toEqual([250, 500, 1_000, 2_000, 2_000, 2_000, 2_000]);
+  });
+
+  it("stops when the backoff wait rejects", async () => {
+    let attempts = 0;
+
+    await expect(
+      retryTransientConnect(
+        async () => {
+          attempts += 1;
+          throw connectError("ENOTFOUND");
+        },
+        async () => {
+          throw new Error("clock failed");
+        },
+      ),
+    ).rejects.toThrow("clock failed");
+
+    expect(attempts).toBe(1);
   });
 });

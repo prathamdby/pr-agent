@@ -88,7 +88,14 @@ export const AgentWorkBossLive = (
       Effect.tryPromise({
         try: async () => {
           const boss = await retryTransientConnect(() => createStartedBoss(cfg));
-          await ensureAgentQueues(boss, cfg);
+          try {
+            await ensureAgentQueues(boss, cfg);
+          } catch (error) {
+            await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000).catch(
+              () => undefined,
+            );
+            throw error;
+          }
           return boss;
         },
         catch: (e) => toError(e),
