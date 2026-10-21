@@ -4,6 +4,7 @@ import type { PgBoss } from "pg-boss";
 import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.ts";
 import { runMigrations } from "../db/migrations.ts";
 import { createPgPool } from "../db/postgres.ts";
+import { retryTransientConnect } from "../db/transientConnect.ts";
 import { shutdownAnalytics } from "../analytics/index.ts";
 import { initTraces } from "../traces/recorder.ts";
 import { logWarn } from "../evlog.ts";
@@ -64,7 +65,12 @@ export const AgentWorkPoolLive = (cfg: Config) =>
       Effect.tryPromise({
         try: async () => {
           const pool = createPgPool(cfg);
-          await runMigrations(pool);
+          try {
+            await retryTransientConnect(() => runMigrations(pool));
+          } catch (error) {
+            await pool.end().catch(() => undefined);
+            throw error;
+          }
           return pool;
         },
         catch: (e) => toError(e),
@@ -86,8 +92,15 @@ export const AgentWorkBossLive = (
     Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
-          const boss = await createStartedBoss(cfg);
-          await ensureAgentQueues(boss, cfg);
+          const boss = await retryTransientConnect(() => createStartedBoss(cfg));
+          try {
+            await ensureAgentQueues(boss, cfg);
+          } catch (error) {
+            await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000).catch(
+              () => undefined,
+            );
+            throw error;
+          }
           return boss;
         },
         catch: (e) => toError(e),

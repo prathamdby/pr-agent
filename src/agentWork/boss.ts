@@ -97,7 +97,12 @@ export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
     if (suppressedRepeats == null) return;
     logWarn("pg_boss_warning", { message: warning.message, suppressedRepeats });
   });
-  await boss.start();
+  try {
+    await boss.start();
+  } catch (error) {
+    await boss.stop({ close: true, graceful: false, timeout: 1_000 }).catch(() => undefined);
+    throw error;
+  }
   return boss;
 }
 

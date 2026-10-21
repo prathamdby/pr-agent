@@ -1,6 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgBoss } from "pg-boss";
 
+const pgBossHarness = vi.hoisted(() => ({
+  start: vi.fn(async () => undefined),
+  stop: vi.fn(
+    async (_options?: { close?: boolean; graceful?: boolean; timeout?: number }) => undefined,
+  ),
+}));
+
+vi.mock("pg-boss", () => ({
+  PgBoss: class {
+    on(): void {}
+    start(): Promise<void> {
+      return pgBossHarness.start();
+    }
+    stop(options?: { close?: boolean; graceful?: boolean; timeout?: number }): Promise<void> {
+      return pgBossHarness.stop(options);
+    }
+  },
+}));
+
 vi.mock("../src/evlog.ts", () => ({
   logDebug: vi.fn(),
   logWarn: vi.fn(),
@@ -11,6 +30,7 @@ import { logError, logWarn } from "../src/evlog.ts";
 import {
   bossConstructorOptions,
   createPgBossEventGate,
+  createStartedBoss,
   ensureAgentQueues,
   retireCodeIndexBuildQueue,
   retireLeftoverCiRefreshQueues,
@@ -229,5 +249,32 @@ describe("retireLeftoverCiRefreshQueues", () => {
       queue: "agent-work-ci-refresh",
       liveCount: 2,
     });
+  });
+});
+
+describe("createStartedBoss", () => {
+  it("stops the instance and rethrows when start fails", async () => {
+    const startError = Object.assign(new Error("connect ENOTFOUND"), { code: "ENOTFOUND" });
+    pgBossHarness.start.mockRejectedValueOnce(startError);
+    pgBossHarness.stop.mockResolvedValueOnce(undefined);
+
+    await expect(
+      createStartedBoss(makeTestConfig({ runtime: { databaseUrl: "postgres://test" } })),
+    ).rejects.toBe(startError);
+    expect(pgBossHarness.stop).toHaveBeenCalledWith({
+      close: true,
+      graceful: false,
+      timeout: 1_000,
+    });
+  });
+
+  it("rethrows the start error when stop also fails", async () => {
+    const startError = Object.assign(new Error("connect ENOTFOUND"), { code: "ENOTFOUND" });
+    pgBossHarness.start.mockRejectedValueOnce(startError);
+    pgBossHarness.stop.mockRejectedValueOnce(new Error("stop failed"));
+
+    await expect(
+      createStartedBoss(makeTestConfig({ runtime: { databaseUrl: "postgres://test" } })),
+    ).rejects.toBe(startError);
   });
 });

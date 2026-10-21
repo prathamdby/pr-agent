@@ -231,6 +231,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "Start production with: docker compose build && docker compose up -d",
       "Production services: postgres (durable state, unpublished), pr-agent-web (ROLE=web, POST /webhooks, GET /health, GET /ready), pr-agent-worker (queue consumers).",
       "Migrations run when each process opens its Postgres pool.",
+      "If that connect or pg-boss startup fails with ENOTFOUND, EAI_AGAIN, ECONNREFUSED, or ETIMEDOUT, the process retries for eight attempts and then exits. Any other database error fails the boot on the first attempt.",
       "GitHub App webhook URL: https://<host>/webhooks. Webhook secret must match WEBHOOK_SECRET.",
       "Subscribe to pull_request, issue_comment, pull_request_review_comment, workflow_run, check_suite, check_run, and status. Add pull_request_review when FEATURE_REVIEW=approval.",
       "Permissions: Pull requests read/write, Contents read, Metadata read. Contents write is needed only for triage pushes. Conversation comments and labels accept Issues or Pull requests grants at the endpoint's required level. Checks read/write, commit-status read/write, Actions logs, labels, and reactions degrade independently when unavailable.",
