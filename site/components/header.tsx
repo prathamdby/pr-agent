@@ -72,7 +72,8 @@ export function Header() {
       />
       <header
         data-stuck={stuck}
-        className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md transition-[box-shadow] duration-200 data-[stuck=true]:shadow-header"
+        data-open={open}
+        className="sticky top-0 z-40 transition-[box-shadow,background-color] duration-200 data-[open=true]:bg-surface/85 data-[open=true]:backdrop-blur-md data-[stuck=true]:bg-surface/85 data-[stuck=true]:shadow-header data-[stuck=true]:backdrop-blur-md"
       >
         <div className="container-x flex h-16 items-center justify-between gap-4">
           <Link

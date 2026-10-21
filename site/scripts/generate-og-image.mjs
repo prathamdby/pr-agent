@@ -214,10 +214,14 @@ const defs = `
 const hero = [
   logo(64, 93.4, 44, "logoLarge"),
   text(120, baseline(99.4, 24, 31), "PR Agent", { size: 24, weight: 600, spacing: -0.24 }),
-  ...["AI PR reviews", "on your", "own servers"].map((line, i) =>
+  ...["Every pull request", "gets a reviewer", "you host"].map((line, i) =>
     text(64, baseline(173.4, 64, 66.56, i), line, { size: 64, weight: 500, spacing: -2.24 }),
   ),
-  ...["Same first pass every pull request", "gets, without a per-seat bill."].map((line, i) =>
+  ...[
+    "PR Agent reviews, describes, and answers on your",
+    "pull requests from servers you run. No per-seat",
+    "fee, and your keys stay with you.",
+  ].map((line, i) =>
     text(64, baseline(397.1, 22, 35.75, i), line, { size: 22, fill: color.textSecondary }),
   ),
   ...[
@@ -225,9 +229,9 @@ const hero = [
     [212, 158, "No per-seat fee"],
     [380, 201, "Your own model keys"],
   ].flatMap(([x, w, label]) => [
-    rect(x, 500.6, w, 36, { r: 18, fill: color.surface, filter: "soft" }),
-    icon("tick", x + 12, 510.6, 16, color.accentText),
-    text(x + 36, baseline(508.3, 15, 19), label, { size: 15, fill: color.textSecondary }),
+    rect(x, 536.35, w, 36, { r: 18, fill: color.surface, filter: "soft" }),
+    icon("tick", x + 12, 546.35, 16, color.accentText),
+    text(x + 36, baseline(544.05, 15, 19), label, { size: 15, fill: color.textSecondary }),
   ]),
 ];
 

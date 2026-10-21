@@ -45,7 +45,7 @@ export function Features() {
                     className="pointer-events-none absolute top-12 bottom-0 left-[1.375rem] w-px -translate-x-1/2 bg-line"
                   />
                 )}
-                <span className="grid size-11 place-items-center rounded-sm bg-surface text-accent-text shadow-soft">
+                <span className="grid size-11 place-items-center rounded-full sky-tint text-accent-text shadow-soft">
                   <Icon className="size-5" />
                 </span>
                 <div className="min-w-0 pt-1.5">

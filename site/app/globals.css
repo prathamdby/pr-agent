@@ -211,7 +211,8 @@
     shadow falls on the page, so only descendants switch, and anything inside a white surface
     that sits on the wash falls back to neutral.
   */
-  .wash * {
+  .wash *,
+  .sky-tint * {
     --shadow-ink: var(--palette-ink-wash);
   }
 
@@ -380,32 +381,30 @@
   }
 
   /*
-    Soft blue wash used behind product mock-ups. The grid and cloud textures are pseudo-elements
-    kept under every child by the isolated stacking context, so they can be combined freely.
+    Soft blue wash used behind product mock-ups. It deepens towards the bottom, like the sky
+    above it. The cloud texture is a pseudo-element kept under every child by the isolated
+    stacking context.
   */
   .wash {
     position: relative;
     isolation: isolate;
     overflow: hidden;
     background: linear-gradient(
-      145deg in oklab,
-      var(--color-wash-strong) 0%,
-      var(--color-wash-mid) 48%,
-      var(--color-wash-soft) 100%
+      to bottom in oklab,
+      var(--color-wash-soft) 0%,
+      var(--color-wash-mid) 52%,
+      var(--color-wash-strong) 100%
     );
   }
 
-  .wash-grid::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background-image:
-      linear-gradient(to right, rgb(255 255 255 / 0.55) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(255 255 255 / 0.55) 1px, transparent 1px);
-    background-size: 28px 28px;
-    mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 90%);
+  /* A pale sky fill for small marks on white: eyebrows, step pills, step tiles, the hero word pill. */
+  .sky-tint {
+    background: linear-gradient(
+      to bottom in oklab,
+      var(--color-surface) 0%,
+      var(--color-wash-soft) 45%,
+      var(--color-wash-mid) 100%
+    );
   }
 
   .wash-clouds::after {
@@ -587,6 +586,155 @@
   }
 
   /*
+    The hero opens the page under a rising sky: deepest at the top edge, behind the transparent
+    header, and white by the time it reaches the window. The section is pulled up under the 64px
+    header and padded back down by the same amount, so the sky starts at the sheet's top edge.
+  */
+  .sky-rise {
+    position: relative;
+    isolation: isolate;
+    overflow: clip;
+    margin-top: -4rem;
+    padding-top: 4rem;
+    background: linear-gradient(
+      to bottom in oklab,
+      var(--color-wash-strong) 0%,
+      var(--color-wash-mid) 34%,
+      var(--color-wash-soft) 60%,
+      var(--color-surface) 89%
+    );
+  }
+
+  /* Six puffs: two banks high in the corners and two lower on the edges, unequal so they read as weather. */
+  .sky-rise::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(
+        ellipse 22% 12% at 8% 10%,
+        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 14% 8% at 22% 4%,
+        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 24% 13% at 92% 14%,
+        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 12% 7% at 78% 6%,
+        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 20% 16% at 4% 58%,
+        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 22% 18% at 97% 52%,
+        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        transparent 70%
+      );
+    filter: blur(14px);
+  }
+
+  /* The window is cut by the section edge; this fade dissolves the cut into the white sheet. */
+  .sky-rise::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: 150px;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom in oklab,
+      transparent 0%,
+      color-mix(in oklab, var(--color-surface) 80%, transparent) 60%,
+      var(--color-surface) 100%
+    );
+  }
+
+  /*
+    The pricing band: white at both edges with a sky in between. The stops are in rem from the
+    top, so the deepest blue stays behind the `$0` figure however tall the cards make the band.
+  */
+  .sky-band {
+    position: relative;
+    isolation: isolate;
+    overflow: clip;
+    background: linear-gradient(
+      to bottom in oklab,
+      var(--color-surface) 0,
+      var(--color-wash-mid) 9rem,
+      color-mix(in oklab, var(--color-wash-strong) 92%, var(--color-accent-bright)) 24rem,
+      var(--color-wash-mid) 50rem,
+      var(--color-surface) 100%
+    );
+  }
+
+  .sky-band::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(
+        ellipse 22% 10% at 6% 40%,
+        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 14% 7% at 18% 30%,
+        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 24% 11% at 95% 34%,
+        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 12% 6% at 82% 46%,
+        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        transparent 70%
+      );
+    filter: blur(16px);
+  }
+
+  /*
+    The pricing figure, filled with cloud the way the footer wordmark is. The inline padding
+    widens the painted box past the glyph ink: the `$` overhangs its left bearing, and the
+    -0.06em tracking pulls the `0` past the right edge of its advance.
+  */
+  .figure-sky {
+    padding-inline: 0.085em 0.145em;
+    font-size: clamp(12.5rem, 20.8vw, 17.5rem);
+    font-weight: 500;
+    line-height: 0.84;
+    letter-spacing: -0.06em;
+    color: transparent;
+    background-image:
+      radial-gradient(ellipse 30% 26% at 24% 36%, var(--color-on-accent), transparent 70%),
+      radial-gradient(ellipse 26% 24% at 74% 52%, var(--color-on-accent), transparent 70%),
+      linear-gradient(
+        to bottom in oklab,
+        var(--color-on-accent) 18%,
+        var(--color-wash-soft) 60%,
+        var(--color-wash-mid) 92%
+      );
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  /*
     The sky fold closes the page: one sky running from the white sheet behind the closing banner
     down to the logo sky blue under the wordmark. The banner carries the top half and ends on
     `wash-mid`; the footer carries the rest. The footer's stops are measured from its bottom edge,
@@ -620,6 +768,47 @@
   /* After the closing banner the sky is already at `wash-mid`; on its own (the 404) it starts white. */
   .sky-fold-continued {
     --sky-fold-top: var(--color-wash-mid);
+  }
+
+  /* A loose cloud bank across the middle, behind the link columns and above the legal bar. */
+  .sky-fold::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(
+        ellipse 22% 12% at 5% 48%,
+        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 13% 7% at 17% 38%,
+        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 24% 13% at 96% 42%,
+        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 12% 7% at 83% 54%,
+        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 16% 9% at 30% 66%,
+        color-mix(in oklab, var(--color-on-accent) 55%, transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 18% 10% at 70% 70%,
+        color-mix(in oklab, var(--color-on-accent) 55%, transparent),
+        transparent 70%
+      );
+    filter: blur(16px);
   }
 
   /* Two cloud puffs low in the corners, unequal so they read as weather. */

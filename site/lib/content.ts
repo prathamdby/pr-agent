@@ -13,10 +13,12 @@ type FeatureItem = {
   summary: string;
 };
 
-export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
+export const HERO_HEADING = "PR Agent: Every pull request gets a reviewer you host";
+
+export const HERO_HEADING_PILL = "reviewer";
 
 export const HERO_SUPPORT =
-  "Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model keys, your choice of provider.";
+  "PR Agent reviews, describes, and answers on your pull requests from servers you run. No per-seat fee, and your keys stay with you.";
 
 export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
 
