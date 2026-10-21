@@ -228,9 +228,9 @@ const prWindow = [
 
   logo(240, 360, 44, "logoComment"),
   text(298, baseline(364, 28, 36), "pr-agent", { size: 28, weight: 600 }),
-  ...elevated(roundRect(429, 367, 50, 30, 8), color.surfaceRaised, { ring: 0.07 }),
-  text(439, baseline(370, 19, 24), "bot", { size: 19, weight: 500, fill: color.textSecondary }),
-  text(493, baseline(364, 28, 36), "commented just now", { size: 28, fill: color.textTertiary }),
+  ...elevated(roundRect(429, 367, 52, 30, 8), color.surfaceRaised, { ring: 0.07 }),
+  text(439, baseline(370, 20, 24), "bot", { size: 20, weight: 500, fill: color.textSecondary }),
+  text(495, baseline(364, 28, 36), "commented just now", { size: 28, fill: color.textTertiary }),
 
   ...finding(432, "P1", "Webhook ack can race the durable write", {
     labelFill: color.danger,
