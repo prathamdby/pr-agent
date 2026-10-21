@@ -246,7 +246,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
-- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `npm run site:generate-og` when a token, the hero copy, or the mock changes.
+- The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
 
 ## Radii
 
