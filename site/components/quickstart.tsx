@@ -27,7 +27,7 @@ function Step({ n, title, body, children }: StepProps) {
   return (
     <li className="grid gap-6 card p-6 sm:p-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
       <div>
-        <p className="tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text">
+        <p className="tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text shadow-soft">
           Step {n}
         </p>
         <h3 className="mt-4 text-xl font-medium tracking-[-0.015em] text-text">{title}</h3>

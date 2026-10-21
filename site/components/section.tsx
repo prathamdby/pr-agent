@@ -19,7 +19,7 @@ export function Section({ id, labelledBy, className, children }: SectionProps) {
 
 export function Eyebrow({ children }: { readonly children: ReactNode }) {
   return (
-    <p className="inline-flex items-center gap-2 text-label font-medium text-text-secondary">
+    <p className="inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-medium text-accent-text shadow-soft">
       <span aria-hidden="true" className="h-1.5 w-3.5 rounded-full bg-accent-solid" />
       {children}
     </p>
@@ -29,13 +29,15 @@ export function Eyebrow({ children }: { readonly children: ReactNode }) {
 type SectionTitleProps = {
   readonly id: string;
   readonly eyebrow: string;
+  readonly figure?: ReactNode;
   readonly children: ReactNode;
 };
 
-export function SectionTitle({ id, eyebrow, children }: SectionTitleProps) {
+export function SectionTitle({ id, eyebrow, figure, children }: SectionTitleProps) {
   return (
     <>
       <Eyebrow>{eyebrow}</Eyebrow>
+      {figure}
       <h2
         id={id}
         className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"

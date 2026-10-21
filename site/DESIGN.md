@@ -28,7 +28,8 @@ The PR Agent Design System is a light, calm, product-led look: a white sheet on 
 - **A white sheet over a light grey backdrop.** `.page-frame` is the sheet: `bg-surface`, `min-height: 100svh`, and from `min-width: 84rem` it caps at `max-width: 84rem`, centres, and takes `--shadow-card`. The `<body>` behind it is `bg-bg`. The sheet runs from the top edge, so the sticky header has nothing to fight, to the bottom edge, where the footer wordmark meets the fold.
 - **Generous whitespace.** Sections breathe with `py-16 sm:py-20 lg:py-24`. Nothing sits closer than it must.
 - **One blue accent, sampled from the logo** (`site/assets/logo-source.png`): sky `#339bfd` and royal `#1e69e9`. Everything else is grey or white.
-- **Wash panels behind product mock-ups.** A soft blue gradient (`.wash`) with a faint white grid (`.wash-grid`) or blurred cloud puffs (`.wash-clouds`).
+- **Wash panels behind product mock-ups.** A soft blue gradient that deepens towards the bottom (`.wash`), with blurred cloud puffs (`.wash-clouds`).
+- **One sky across the page.** The hero rises out of a sky under the transparent header (`.sky-rise`), pricing sits in a sky band with a cloud-filled `$0` (`.sky-band` and `.figure-sky`), and small marks on white (eyebrows, step pills, feature step tiles, the hero word pill) take a pale sky fill (`.sky-tint`). Clouds replace grids everywhere.
 - **GitHub-styled output mocks inside those washes** (`site/components/github-output/`), so the reader sees what lands on a pull request rather than an abstract illustration.
 - **A sky fold closing the page.** The closing banner and the footer share one sky that deepens from the white sheet to the logo’s sky blue (`.sky-fold-lead` and `.sky-fold`), and a giant white brand wordmark rises out of it (`.wordmark-clip` and `.wordmark-sky`, rendered by `site/components/footer.tsx`).
 - **Clean cut and calm.** Depth comes from soft layered shadows, never from borders. Hairline `border-line` rules only separate rows inside a card or frame a mock’s chrome.
@@ -81,9 +82,9 @@ These rules are followed without exception. They are grouped the way the site ap
 - Components use semantic tokens only, never primitives. `--palette-*` is read only inside `@theme`.
 - Tokens are named by purpose (`surface-raised`, `text-tertiary`, `wash-strong`), not by hue.
 - `accent` is reserved for the brand blue. Status colours have their own tokens.
-- Contrast is measured against the real background. `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`. The one approved exception is the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)).
+- Contrast is measured against the real background. `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`. Two exceptions are approved: the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)), and the cloud-filled `$0` in the pricing band, which is display art at 200px and up and stays real text (see [Section, heading, eyebrow](#section-heading-eyebrow)).
 - A dark theme, if ever added, is a separate palette behind one switch mechanism, not per-component overrides.
-- Gradients interpolate `in oklab`: `.wash`, `.sky-fold-lead`, `.sky-fold`, and `.wordmark-sky`.
+- Gradients interpolate `in oklab`: `.wash`, `.sky-tint`, `.sky-rise`, `.sky-band`, `.figure-sky`, `.sky-fold-lead`, `.sky-fold`, `.wordmark-sky`, and the comparison column wash (`bg-linear-to-b/oklab`).
 
 ### Accessibility
 
@@ -97,7 +98,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - Hit areas are at least 24px, preferably 40–44px: `.btn` is 40px tall, header buttons 36px, mobile menu links and tabs 44px, footer links `min-h-8`, the footer social marks `size-6`. Small text links that cannot grow without moving the layout (the footer legal bar, the 404 resource paths, the `GhDetails` summary in mocks) take `.hit-area`, a `::after` that reaches 4px above and below and 6px to each side. Keep that inset under half the gap to the next target.
 - `.btn` sets `cursor: pointer` (Tailwind v4 resets buttons to the default cursor) and `user-select: none`, and `html` clears `-webkit-tap-highlight-color` so the press scale is the only tap feedback.
 - Mock links are inert. The triage mock’s `thread` cells are styled like GitHub links but render as `span`, because a mock has no real thread to open.
-- `pointer-events: none` on decoration: rails, the header sentinel, wash textures, the sky fold clouds, the wordmark.
+- `pointer-events: none` on decoration: rails, the header sentinel, wash textures, the hero, pricing, and sky fold clouds, the hero fade, the comparison column wash, the wordmark.
 - Hover styles only inside `@media (hover: hover)` in `globals.css`. Tailwind v4’s `hover:` variant is already gated the same way.
 - `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` zeroes the `.btn`, `.disclosure-icon`, `.menu-panel`, and `.swap` transitions and turns smooth scrolling off.
 - `role="status"` for quiet confirmations (`CopyButton`, where the region is a sibling of the button so the confirmation never joins the button’s accessible name); `role="alert"` only for something that needs attention now.
@@ -150,30 +151,30 @@ The tokens are `rem`, so they follow a reader's browser font size the way `text-
 
 ### Headings
 
-| Where                     | Recipe                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------ |
-| Hero `h1`                 | `text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text`    |
-| CTA banner `h2`           | `text-[clamp(2.375rem,4.8vw,4rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text`     |
-| 404 `h1`                  | `text-[clamp(2rem,4vw,3rem)] font-medium leading-[1.08] tracking-[-0.03em] text-text`            |
-| Section `h2`              | `text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text` |
-| Tab panel `h3`            | `text-2xl font-medium tracking-[-0.02em] text-text`                                              |
-| Quickstart step `h3`      | `text-xl font-medium tracking-[-0.015em] text-text`                                              |
-| Feature step `h3`         | `text-lg leading-snug font-medium text-text sm:text-xl`                                          |
-| Card and pricing `h3`     | `text-lead leading-snug font-medium text-text`                                                   |
-| Row heading, FAQ question | `text-ui leading-snug font-medium text-text`                                                     |
-| Pricing figure            | `tabular text-[clamp(4.5rem,10vw,8rem)] leading-none font-medium tracking-[-0.05em] text-text`   |
+| Where                     | Recipe                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Hero `h1`                 | `max-w-75 text-[clamp(2.5rem,5.6vw,4.75rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text sm:max-w-245`      |
+| CTA banner `h2`           | `text-[clamp(2.375rem,4.8vw,4rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text`                             |
+| 404 `h1`                  | `text-[clamp(2rem,4vw,3rem)] font-medium leading-[1.08] tracking-[-0.03em] text-text`                                    |
+| Section `h2`              | `text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text`                         |
+| Tab panel `h3`            | `text-2xl font-medium tracking-[-0.02em] text-text`                                                                      |
+| Quickstart step `h3`      | `text-xl font-medium tracking-[-0.015em] text-text`                                                                      |
+| Feature step `h3`         | `text-lg leading-snug font-medium text-text sm:text-xl`                                                                  |
+| Card and pricing `h3`     | `text-lead leading-snug font-medium text-text`                                                                           |
+| Row heading, FAQ question | `text-ui leading-snug font-medium text-text`                                                                             |
+| Pricing figure            | `figure-sky tabular` (`clamp(12.5rem, 20.8vw, 17.5rem)`, weight 500, line height `0.84`, tracking `-0.06em`, cloud fill) |
 
-The pattern: `font-medium`, tighter tracking as the size grows (`-0.015em` at 20px up to `-0.035em` at 68px), line height between `1.04` and `1.12`, and `clamp()` for anything that scales with the viewport. Headings never go bold. The hero `h1` keeps the brand in a `sr-only` span (`HERO_BRAND`) so the accessible name matches the markdown page while only the tagline is visible.
+The pattern: `font-medium`, tighter tracking as the size grows (`-0.015em` at 20px up to `-0.035em` at 76px), line height between `1.04` and `1.12` (the pricing figure, at `0.84` and `-0.06em`, is display art), and `clamp()` for anything that scales with the viewport. Headings never go bold. The hero `h1` keeps the brand in a `sr-only` span (`HERO_BRAND`) so the accessible name matches the markdown page while only the tagline is visible.
 
 ### Body and labels
 
 | Role                | Recipe                                                                                         |
 | ------------------- | ---------------------------------------------------------------------------------------------- |
-| Hero support        | `max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg`                        |
+| Hero support        | `max-w-155 text-base leading-relaxed text-text-secondary sm:text-lg`                           |
 | Section description | `max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-lead`                      |
 | Card body           | `text-ui leading-relaxed text-text-secondary` or `text-sm leading-relaxed text-text-secondary` |
 | Muted detail        | `text-sm leading-relaxed text-text-tertiary`                                                   |
-| Eyebrow             | `text-label font-medium text-text-secondary`                                                   |
+| Eyebrow             | `text-label font-medium text-accent-text` on a `sky-tint` pill                                 |
 | Small print         | `text-label text-text-tertiary`                                                                |
 | Mock body           | `text-xs leading-relaxed text-text`, `text-meta` for meta, `text-badge` for the bot badge      |
 
@@ -211,52 +212,52 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 
 ### Semantic tokens
 
-`@theme` declares `--color-*: initial` first. That removes Tailwind’s stock palette, so `bg-red-500` does not exist and only the tokens below become utilities (`bg-surface`, `text-accent-text`, `divide-line`, `border-line`, `bg-accent-soft/60`, and so on).
+`@theme` declares `--color-*: initial` first. That removes Tailwind’s stock palette, so `bg-red-500` does not exist and only the tokens below become utilities (`bg-surface`, `text-accent-text`, `divide-line`, `border-line`, `bg-surface/85`, and so on).
 
-| Token                    | Primitive | Purpose                                                                                             |
-| ------------------------ | --------- | --------------------------------------------------------------------------------------------------- |
-| `--color-bg`             | gray-50   | Backdrop behind the page sheet                                                                      |
-| `--color-surface`        | white     | Page sheet, cards, mock windows, secondary buttons, selected tab                                    |
-| `--color-surface-raised` | gray-50   | Wells inside cards, mock chrome, tabs shell, neutral pills, code block and pricing shells           |
-| `--color-surface-hover`  | gray-100  | Hover fill for ghost and secondary buttons and menu links                                           |
-| `--color-line`           | gray-200  | Hairline rules between rows, mock chrome borders, rail strokes, window dots                         |
-| `--color-text`           | gray-950  | Headings, primary copy                                                                              |
-| `--color-text-secondary` | gray-700  | Body copy, eyebrows, nav, mock meta                                                                 |
-| `--color-text-tertiary`  | gray-500  | Small labels, step numbers, provider marks, the “No” mark                                           |
-| `--color-accent-solid`   | blue-600  | Primary button fill, eyebrow dash, list bullets, info dot, active tab underline in the PR mock      |
-| `--color-accent-hover`   | blue-700  | Primary button hover                                                                                |
-| `--color-accent-text`    | blue-700  | Accent text and icons on white: chips, icon tiles, mock links, the “Yes” mark, the CTA word pill    |
-| `--color-accent-soft`    | blue-50   | Icon tile fill, command chips, step pills, tinted comparison column                                 |
-| `--color-accent-bright`  | blue-500  | Deep end of the sky fold, `::selection` tint                                                        |
-| `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar, social marks, wordmark, and clouds on the sky fold |
-| `--color-wash-strong`    | blue-200  | Wash gradient start                                                                                 |
-| `--color-wash-mid`       | blue-100  | Wash gradient middle; where the closing banner hands the sky fold to the footer                     |
-| `--color-wash-soft`      | blue-50   | Wash gradient end                                                                                   |
-| `--color-success`        | green-700 | Passing checks, “Open” and “Fixed” pills, the copied check mark                                     |
-| `--color-success-soft`   | green-100 | Fill behind `success` pills                                                                         |
-| `--color-danger`         | red-700   | Failing checks                                                                                      |
-| `--color-danger-soft`    | red-100   | Fill behind `danger` pills                                                                          |
-| `--color-warning`        | amber-700 | “Dismissed” pill                                                                                    |
-| `--color-warning-soft`   | amber-100 | Fill behind `warning` pills                                                                         |
-| `--color-focus`          | blue-500  | `:focus-visible` outline                                                                            |
+| Token                    | Primitive | Purpose                                                                                                                                |
+| ------------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-bg`             | gray-50   | Backdrop behind the page sheet                                                                                                         |
+| `--color-surface`        | white     | Page sheet, cards, mock windows, secondary buttons, selected tab                                                                       |
+| `--color-surface-raised` | gray-50   | Wells inside cards, mock chrome, tabs shell, neutral pills, code block shells                                                          |
+| `--color-surface-hover`  | gray-100  | Hover fill for ghost and secondary buttons and menu links                                                                              |
+| `--color-line`           | gray-200  | Hairline rules between rows, mock chrome borders, rail strokes, window dots                                                            |
+| `--color-text`           | gray-950  | Headings, primary copy                                                                                                                 |
+| `--color-text-secondary` | gray-700  | Body copy, nav, mock meta                                                                                                              |
+| `--color-text-tertiary`  | gray-500  | Small labels, step numbers, provider marks, the “No” mark                                                                              |
+| `--color-accent-solid`   | blue-600  | Primary button fill, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                                         |
+| `--color-accent-hover`   | blue-700  | Primary button hover                                                                                                                   |
+| `--color-accent-text`    | blue-700  | Accent text and icons on white: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                    |
+| `--color-accent-soft`    | blue-50   | Icon tile fill, command chips, the hero pill link badge                                                                                |
+| `--color-accent-bright`  | blue-500  | Deep end of the sky fold, the tint in the pricing band peak, `::selection` tint                                                        |
+| `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar, social marks, wordmark, the `$0` fill, and every cloud on a sky                       |
+| `--color-wash-strong`    | blue-200  | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
+| `--color-wash-mid`       | blue-100  | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
+| `--color-wash-soft`      | blue-50   | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
+| `--color-success`        | green-700 | Passing checks, “Open” and “Fixed” pills, the copied check mark                                                                        |
+| `--color-success-soft`   | green-100 | Fill behind `success` pills                                                                                                            |
+| `--color-danger`         | red-700   | Failing checks                                                                                                                         |
+| `--color-danger-soft`    | red-100   | Fill behind `danger` pills                                                                                                             |
+| `--color-warning`        | amber-700 | “Dismissed” pill                                                                                                                       |
+| `--color-warning-soft`   | amber-100 | Fill behind `warning` pills                                                                                                            |
+| `--color-focus`          | blue-500  | `:focus-visible` outline                                                                                                               |
 
 Rules that go with the table:
 
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
-- `bg-surface/85` with `backdrop-blur-md` is the only translucent surface (the sticky header).
+- `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
 - The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `npm run site:generate-og` when a token, the hero copy, or the mock changes.
 
 ## Radii
 
-| Token          | Value | Typical use                                                         |
-| -------------- | ----- | ------------------------------------------------------------------- |
-| `--radius-xs`  | 6px   | Chips, inline code, small logos, compact copy buttons, `GhPre`      |
-| `--radius-sm`  | 8px   | Buttons, icon tiles, check-run boxes, the inline `GhComment` frame  |
-| `--radius-md`  | 12px  | `.window`, `CodeBlock`, wells, the CTA command box, the triage wash |
-| `--radius-lg`  | 16px  | Cards, the comparison table, the FAQ card, quickstart steps         |
-| `--radius-xl`  | 20px  | Hero wash, pricing shells                                           |
-| `--radius-2xl` | 24px  | Tabs shell                                                          |
+| Token          | Value | Typical use                                                                                                |
+| -------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
+| `--radius-xs`  | 6px   | Chips, inline code, small logos, compact copy buttons, `GhPre`                                             |
+| `--radius-sm`  | 8px   | Buttons, icon tiles, check-run boxes, the inline `GhComment` frame, the PR Agent comparison row on a phone |
+| `--radius-md`  | 12px  | `.window`, `CodeBlock`, wells, the CTA command box, the triage wash                                        |
+| `--radius-lg`  | 16px  | Cards, the comparison table, the FAQ card, quickstart steps                                                |
+| `--radius-xl`  | 20px  | Pricing shells                                                                                             |
+| `--radius-2xl` | 24px  | Tabs shell                                                                                                 |
 
 Radii compose concentrically: an element nested with 4px of padding steps down one size (`xl` 20 to `lg` 16 to `md` 12 to `sm` 8), and one nested with 2px of padding steps `sm` 8 to `xs` 6. When the padding is larger than the outer radius the maths gives zero; step down at least one size instead. A `rounded-lg` card with `p-6` holds `rounded-md` wells, `rounded-sm` tiles, and `rounded-xs` chips. An inner element is never rounder than its container.
 
@@ -285,18 +286,18 @@ Worked example, the CTA command box in `site/components/cta-banner.tsx`: the box
 
 Depth comes from layered shadows. Each layer doubles its offset and blur at about 3% alpha, so the edge stays crisp while the falloff is long and soft, the way light from above behaves. The first layer of every token is a 1px hairline that stands in for a border.
 
-Every layer is `rgb(var(--shadow-ink) / α)`, and a shadow takes the hue of the surface it falls on. `--shadow-ink` is `--palette-ink-neutral` by default. `.wash *` switches descendants of a wash to `--palette-ink-wash`, because a grey shadow on blue reads as dirt; the wash's own shadow falls on the page and stays neutral. `.wash :is(.window, .bg-surface) *` switches back to neutral inside any white surface sitting on the wash, so buttons, tabs, and chips inside a window keep grey shadows.
+Every layer is `rgb(var(--shadow-ink) / α)`, and a shadow takes the hue of the surface it falls on. `--shadow-ink` is `--palette-ink-neutral` by default. `.wash *` and `.sky-tint *` switch descendants of a wash or a sky-tinted mark to `--palette-ink-wash`, because a grey shadow on blue reads as dirt; the wash's own shadow falls on the page and stays neutral. `.wash :is(.window, .bg-surface) *` switches back to neutral inside any white surface sitting on the wash, so buttons, tabs, and chips inside a window keep grey shadows.
 
 Apply shadows through the `shadow-*` utilities, or `@apply shadow-*` inside a component class. Never write `box-shadow: var(--shadow-*)`: a custom property resolves `--shadow-ink` where it is declared, on `:root`, so the wash ink would never reach it.
 
-| Token             | Layers                                                                         | Where                                                                                                                                                                                                                             |
-| ----------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--shadow-ring`   | `0 0 0 1px` at 7%                                                              | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block and pricing shells. A border without a border                                                                                               |
-| `--shadow-soft`   | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                    | Secondary buttons, the hero pill link, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, the hero wash card, pricing panels and price pills, the CTA word pill and its avatar |
-| `--shadow-card`   | `--shadow-soft` plus `16, 32` at 3%                                            | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing tiles, `.skip-link`, `.page-frame`                                                                                       |
-| `--shadow-float`  | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)` | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                                                                                                         |
-| `--shadow-button` | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder       | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                                                                                                        |
-| `--shadow-header` | `0 1px 0` at 5%, then `2, 4, 8, 16` at 2%                                      | The header once it sticks (`data-stuck="true"`)                                                                                                                                                                                   |
+| Token             | Layers                                                                         | Where                                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--shadow-ring`   | `0 0 0 1px` at 7%                                                              | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block shells. A border without a border                                                                                                             |
+| `--shadow-soft`   | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                    | Secondary buttons, the hero pill link, eyebrows, step pills, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, pricing panels and price pills, the word pills and their avatars |
+| `--shadow-card`   | `--shadow-soft` plus `16, 32` at 3%                                            | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing shells and tiles, `.skip-link`, `.page-frame`                                                                              |
+| `--shadow-float`  | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)` | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                                                                                                           |
+| `--shadow-button` | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder       | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                                                                                                          |
+| `--shadow-header` | `0 1px 0` at 5%, then `2, 4, 8, 16` at 2%                                      | The header once it sticks (`data-stuck="true"`)                                                                                                                                                                                     |
 
 Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-float`, `shadow-button`, `shadow-header`. Use `border-line` only for rules between rows (`divide-y divide-line`, `border-b border-line`) and for the mock chrome; never to outline a card or a button.
 
@@ -314,7 +315,7 @@ Recipes, all in `globals.css`:
 - **Icon swap.** `.swap` is an `inline-grid` with every child on `grid-area: 1 / 1`; children transition `opacity, scale, filter` for 200ms. `[data-shown="false"]` is `opacity: 0; scale: 0.25; filter: blur(4px)`. Used by the menu button (`Menu` and `X`) and `CopyButton` (`Copy` and `Check`). The `data-shown` state sits on wrapper spans around the icons, because the Hugeicons component does not forward data attributes to its SVG; put it on the icon and both icons render at once.
 - **Mobile menu.** `.menu-panel` transitions `opacity, translate, filter, display` for 160ms `ease-out` with `transition-behavior: allow-discrete`. Closed is `display: none; opacity: 0; translate: 0 -4px; filter: blur(4px)`. Open sets the resting values inside `@starting-style` too, so opening is instant and only closing animates.
 - **Disclosures.** `.disclosure-icon` transitions `rotate 200ms`; `.disclosure[open] .disclosure-icon { rotate: 45deg }` turns the plus into a cross. Under `prefers-reduced-motion: no-preference`, `.disclosure::details-content` transitions `block-size 240ms` and `content-visibility 240ms allow-discrete`, which relies on `interpolate-size: allow-keywords` on `html`.
-- **Sticky header.** `transition-[box-shadow] duration-200` and `data-[stuck=true]:shadow-header`.
+- **Sticky header.** `transition-[box-shadow,background-color] duration-200`, with `data-[stuck=true]:shadow-header` and the `bg-surface/85` fill (see [Layout](#layout)).
 - **Hovers.** `transition-colors duration-150` on links; the `.btn` variants change background inside `@media (hover: hover)`.
 - **Skip link.** `transition: transform 150ms var(--ease-out-quart)` from `translateY(-200%)` to `0` on `:focus-visible`.
 - **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
@@ -324,10 +325,10 @@ Recipes, all in `globals.css`:
 - **Container.** `.container-x`: `max-width: 72rem`, `padding-inline` `1.25rem`, then `2rem` from `40rem`, then `3rem` from `64rem`.
 - **Breakpoints.** Tailwind defaults: `sm` 40rem, `md` 48rem, `lg` 64rem. The only custom query is `min-width: 84rem` for `.page-frame`.
 - **Section rhythm.** `Section` renders a `py-16 sm:py-20 lg:py-24` band around a `container-x scroll-mt-5` that carries the anchor `id`. Content under a `SectionHeading` starts at `mt-10 sm:mt-12`.
-- **Anchors.** Every section the header or footer links to is a `Section`, and the `id` sits on its inner container, not the padded band, so the band's `py-16`/`py-20`/`py-24` never shifts where the content lands. The container's `scroll-mt-5` (20px) plus the root `scroll-padding-top` of 80px puts the first line 100px down at every breakpoint, clearing the 64px header with room to spare. `aria-labelledby` stays on the `<section>`. The providers strip sets `scroll-mt-5` on its unpadded `<section>` by hand because it is not a `Section`; its top rule lands at the same 100px.
-- **Sticky header.** `sticky top-0 z-40 bg-surface/85 backdrop-blur-md`, 64px tall. A 1px sentinel above it (`absolute inset-x-0 top-0 h-px`) feeds an `IntersectionObserver`; when the sentinel leaves the viewport the header gets `data-stuck="true"` and `shadow-header`.
+- **Anchors.** Every section the header or footer links to is a `Section` (pricing builds the same band by hand, see [Section, heading, eyebrow](#section-heading-eyebrow)), and the `id` sits on its inner container, not the padded band, so the band's `py-16`/`py-20`/`py-24` never shifts where the content lands. The container's `scroll-mt-5` (20px) plus the root `scroll-padding-top` of 80px puts the first line 100px down at every breakpoint, clearing the 64px header with room to spare. `aria-labelledby` stays on the `<section>`. The providers strip sets `scroll-mt-5` on its unpadded `<section>` by hand because it is not a `Section`; its top rule lands at the same 100px.
+- **Sticky header.** `sticky top-0 z-40`, 64px tall, transparent at the top of the page so the hero sky runs behind it. A 1px sentinel above it (`absolute inset-x-0 top-0 h-px`) feeds an `IntersectionObserver`; when the sentinel leaves the viewport the header gets `data-stuck="true"`, `shadow-header`, and `bg-surface/85 backdrop-blur-md`. `data-open="true"` (the mobile menu) gives it the same fill, so the menu never sits on bare sky or page content.
 - **Sticky side columns.** Features and FAQ pin their copy column at `lg:sticky lg:top-28 lg:self-start` (112px, under the header).
-- **Grid ratios.** Hero `lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)]`; features `5fr` / `7fr`; footer `4fr` / `2fr` / `2fr` / `3fr`; FAQ `4fr` / `8fr`; pricing `7fr` / `5fr`; tab panel `9fr` / `11fr`; quickstart step `2fr` / `3fr`. Always `minmax(0, …)` so long code or paths cannot widen a column.
+- **Grid ratios.** Features `5fr` / `7fr`; footer `4fr` / `2fr` / `2fr` / `3fr`; FAQ `4fr` / `8fr`; tab panel `9fr` / `11fr`; quickstart step `2fr` / `3fr`. Always `minmax(0, …)` so long code or paths cannot widen a column.
 - **Page order** (`site/app/index.tsx`): Header, Hero, Providers, Features (`#features`), UseCases (`#examples`), Capabilities (`#capabilities`), Pricing (`#pricing`), Alternatives (`#alternatives`), Faq (`#faq`), Quickstart (`#usage`), CtaBanner, Footer.
 
 ## Components
@@ -389,19 +390,21 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 </section>
 ```
 
-- `Eyebrow`: `inline-flex items-center gap-2 text-label font-medium text-text-secondary` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word.
-- `SectionTitle`: the eyebrow, then the section `h2` recipe at `mt-4`, as a fragment. It takes the `h2` `id` and the eyebrow text.
+- `Eyebrow`: `inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-medium text-accent-text shadow-soft` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word. The tilt matches the word pills.
+- `SectionTitle`: the eyebrow, an optional `figure` slot, then the section `h2` recipe at `mt-4`, as a fragment. It takes the `h2` `id`, the eyebrow text, and the figure (only pricing passes one).
 - `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
-- Sections with a side column (features, pricing, FAQ) place `SectionTitle` in that column themselves instead of using `SectionHeading`.
-- Pricing plans are shell cards: each `li` is a grey shell (`flex flex-col rounded-xl bg-surface-raised p-2 shadow-ring`) holding a `wash wash-grid` (or `wash-clouds`) `aspect-[4/3] rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
+- Sections with a side column (features, FAQ) and the centred pricing band place `SectionTitle` in that column themselves instead of using `SectionHeading`.
+- Pricing builds its own band, `<section className="sky-band py-20 sm:py-24 lg:py-30">`, around the usual `container-x scroll-mt-5` with `#pricing`. The heading block is `mx-auto flex max-w-2xl flex-col items-center text-center`: the eyebrow, the `$0` figure passed to `SectionTitle` as `figure` (`figure-sky tabular mt-7 mb-2`), the `h2`, and one `max-w-[52ch]` line. The plans are shell cards: each `li` is a white shell (`flex flex-col rounded-xl bg-surface p-2 shadow-card`) holding a `wash wash-clouds flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
+- `.sky-band` is white at both edges with a sky between. Its stops are in `rem` from the top (`surface` at 0, `wash-mid` at 9rem, a peak of `color-mix(in oklab, var(--color-wash-strong) 92%, var(--color-accent-bright))` at 24rem, `wash-mid` at 50rem, `surface` at 100%), so the deepest blue stays behind `$0` however tall the stacked cards make the band on a phone. `.sky-band::before` adds four white puffs on the edges, blurred by 16px.
+- `.figure-sky` fills `$0` with cloud, the `.wordmark-sky` recipe: two white radial puffs over a `to bottom in oklab` gradient from `on-accent` at 18% through `wash-soft` at 60% to `wash-mid` at 92%, clipped to the glyphs with `background-clip: text`. It is `clamp(12.5rem, 20.8vw, 17.5rem)`, weight 500, line height `0.84`, tracking `-0.06em`, with `padding-inline: 0.085em 0.145em` so the painted box reaches past the `$` overhang and the tracked `0`. It stays real text, so screen readers and the copy see “$0”.
 
 ### Cards, tiles, chips, wells
 
 - **Card**: `.card p-6` (`flex flex-col` when the card needs a bottom slot). `.card` is `border-radius: var(--radius-lg)`, `bg-surface`, and `@apply shadow-card`; padding stays with the caller. No border. `.card` sits in the `.wash :is(.window, .card, .bg-surface) *` selector, so shadows inside a card on a wash stay neutral.
-- **Icon tile**: `grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text` holding a `size-5` icon. The features timeline uses the white variant, `grid size-11 place-items-center rounded-sm bg-surface text-accent-text shadow-soft`, joined by a `w-px bg-line` spine.
+- **Icon tile**: `grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text` holding a `size-5` icon. The features timeline uses the round sky variant, `grid size-11 place-items-center rounded-full sky-tint text-accent-text shadow-soft`, joined by a `w-px bg-line` spine.
 - **Chip**: `.chip` is `@apply rounded-xs bg-surface-raised px-2 py-1 text-xs shadow-ring`. Ink, weight, and font family stay with the caller.
 - **Command chip**: `chip font-mono font-medium text-accent-text`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
-- **Step pill**: `tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-text`.
+- **Step pill**: `tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text shadow-soft`.
 - **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-label whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
 - **Well** (a list inside a card): `divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring`.
 - **Feature cue**: `inline-flex max-w-full items-center chip font-mono text-text-secondary`.
@@ -476,15 +479,17 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
   isolation: isolate;
   overflow: hidden;
   background: linear-gradient(
-    145deg in oklab,
-    var(--color-wash-strong) 0%,
-    var(--color-wash-mid) 48%,
-    var(--color-wash-soft) 100%
+    to bottom in oklab,
+    var(--color-wash-soft) 0%,
+    var(--color-wash-mid) 52%,
+    var(--color-wash-strong) 100%
   );
 }
 ```
 
-`.wash-grid::before` paints a 28px white grid at 55% alpha masked by a radial ellipse at `50% 40%`; `.wash-clouds::after` paints six white radial puffs, banked along the bottom edge on both sides and unequal in size, over `inset: -20%` blurred by 12px. Both pseudo-elements are `z-index: -1` inside the wash’s isolated stacking context, so they stay under every child and can be combined freely: the hero is `wash wash-grid`, the tab media well is `wash wash-clouds`, the CTA word pill is a bare `wash`. Every wash is `pointer-events: none` texture over a real container; children position themselves with `absolute` insets or normal flow.
+Every wash deepens towards the bottom, the way the skies around it do. `.wash-clouds::after` paints six white radial puffs, banked along the bottom edge on both sides and unequal in size, over `inset: -20%` blurred by 12px. It is `z-index: -1` inside the wash’s isolated stacking context, so it stays under every child: the tab media well, the pricing panels, and the triage mock are `wash wash-clouds`, the CTA word pill is a bare `wash`.
+
+`.sky-tint` is the pale fill for small marks on white: `to bottom in oklab` from `surface` at 0% through `wash-soft` at 45% to `wash-mid` at 100%. Eyebrows, step pills, feature step tiles, and the hero word pill use it. It joins the wash ink rule (`.wash *, .sky-tint *`), so the hero pill’s avatar casts a blue shadow on it. Every wash is `pointer-events: none` texture over a real container; children position themselves with `absolute` insets or normal flow.
 
 ### Use-cases tabs
 
@@ -503,14 +508,14 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 
 - **Review and verify “loop” card** (`sm:row-span-2`): a `grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4`. A dashed `Rail` (an `absolute left-0 w-10` span with an SVG `line` at `x=20.5`, `strokeDasharray="3 3"`, `text-line`) runs from under the review tile through an 18px info dot (`size-4.5 rounded-full bg-accent-solid text-on-accent` with `Info size-3.5`) beside the 12px subtext “Then, after every push” (`text-xs text-text-tertiary`, both in an `h-20` row), then behind the verify tile, where a `viewBox="0 0 56 160"` path `M20.5 0V126a16 16 0 0 0 16 16H52` bends with a 16px corner into the verify copy. The tiles sit at `relative z-10` so the rail passes behind them. A wrapper span takes the insets because an absolutely positioned SVG keeps its intrinsic height instead of stretching.
 - **Describe and ask cards**: the plain `.card p-6` recipe with an icon tile top-left and a command chip top-right.
-- **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
+- **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-clouds flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
 
 ### Comparison matrix
 
 `site/components/alternatives.tsx` renders `COMPARISON_CRITERIA` against `ALTERNATIVE_ROWS` twice:
 
-- From `md`, a table in `hidden overflow-hidden card md:block`: `table-fixed`, criteria column `w-[26%]`, brand mark `size-6` over a `text-label font-medium` name in each header, and the PR Agent column tinted `bg-accent-soft/60` in both header and cells.
-- Below `md`, one card per criterion (`card px-5 pt-5 pb-2`) with `min-h-12` rows, `size-4.5` marks, and the product row in `font-medium text-text` while the others are `text-text-secondary`, so the comparison stays two columns wide on a phone.
+- From `md`, a table in `relative hidden overflow-hidden card md:block`: `relative w-full table-fixed`, the criteria column at `CRITERIA_COLUMN_PERCENT` (26%) set inline, and brand mark `size-6` over a `text-label font-medium` name in each header. One `aria-hidden` span behind the table, `pointer-events-none absolute inset-y-0 bg-linear-to-b/oklab from-wash-soft to-wash-mid`, washes the PR Agent column top to bottom; its inline `left` and `width` come from `CRITERIA_COLUMN_PERCENT` and the column’s index, so it follows the column if the tools are reordered. The cells carry no fill of their own.
+- Below `md`, one card per criterion (`card px-5 pt-5 pb-2`) with `min-h-12` rows, `size-4.5` marks, and the product row in `font-medium text-text` while the others are `text-text-secondary`, so the comparison stays two columns wide on a phone. The PR Agent row is the same wash as a `-mx-3 rounded-sm px-3` band (`bg-linear-to-b/oklab from-wash-soft to-wash-mid`).
 
 Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-text` with a `sr-only` “Yes”; “partial” is `Minus size-3.5` with a visible “Partial” in `text-xs text-text-secondary`; “no” is `X size-4 text-text-tertiary` with a `sr-only` “No”. The markdown page uses `comparisonMarkLabel` for the same three states.
 
@@ -520,7 +525,7 @@ Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-te
 
 ### Header and mobile menu
 
-`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`.
+`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`.
 
 ### Footer and wordmark
 
@@ -558,7 +563,28 @@ The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap t
 
 ### Hero and CTA banner
 
-The hero (`site/components/hero.tsx`) is `pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20`, a `grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10`. Copy on the left in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link, the `h1` with the brand in a `sr-only` span, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. On the right a `wash wash-grid aspect-[4/3] w-full rounded-xl shadow-soft sm:aspect-[5/4] lg:aspect-auto lg:h-[36rem]` card with the `PrWindow` (`w-full`) pinned at `absolute inset-x-5 top-5 sm:inset-x-8 sm:top-8 lg:top-12 lg:right-auto lg:left-12 lg:w-[34rem]`, so it fills the card below `lg` and is cropped by the card’s `overflow: hidden`.
+The hero (`site/components/hero.tsx`) is a `sky-rise` section holding one centred column, `container-x flex flex-col items-center pt-10 text-center sm:pt-16`, in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link and the `h1`, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line, then the window stage. The `h1` keeps the brand in a `sr-only` span and splits the tagline around `HERO_HEADING_PILL`: the lead (`sm:block`, its own line from `sm`), the word in a `word-pill sky-tint shadow-soft` pill with the same avatar and `max-sm:` recipe as the CTA banner, then the tail. On a phone the heading reads “Every pull request gets a / reviewer / you host”. The support line is `mt-6 max-w-155`. The buttons sit in `mt-8 grid w-full gap-3 sm:flex sm:w-auto sm:justify-center`, so they stack full width on a phone. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. The stage is `relative mt-14 h-95 w-full text-left sm:h-110 lg:h-125`, with the `PrWindow` at `absolute inset-x-0 top-0 mx-auto max-w-220`. The stage is shorter than the window, so the section’s `overflow: clip` cuts the window and `.sky-rise::after` fades the cut into the sheet. `text-left` stops the column’s centring from leaking into the mock.
+
+`.sky-rise` is pulled up under the transparent header (`margin-top: -4rem; padding-top: 4rem`), so the sky starts at the sheet’s top edge:
+
+```css
+.sky-rise {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  margin-top: -4rem;
+  padding-top: 4rem;
+  background: linear-gradient(
+    to bottom in oklab,
+    var(--color-wash-strong) 0%,
+    var(--color-wash-mid) 34%,
+    var(--color-wash-soft) 60%,
+    var(--color-surface) 89%
+  );
+}
+```
+
+`.sky-rise::before` paints six white (`on-accent` at 65% to 90%) puffs, two banks high in the corners and two lower on the edges, blurred by 14px. `.sky-rise::after` is a 150px fade at the bottom edge from transparent through `surface` at 80% to `surface`, painted over the window.
 
 The CTA banner (`site/components/cta-banner.tsx`) is the first half of the sky fold, a full-bleed `sky-fold-lead pt-18 pb-10 text-center sm:pt-28 sm:pb-16` band inside the sheet with a `container-x` inside it, no rounded corners and no shadow. It holds exactly three things: the heading, one `max-w-[46ch]` sentence, and the clone command box. Do not add anything to it.
 
@@ -593,7 +619,7 @@ The sky fold is one sky split across two elements, because the banner lives in `
 }
 ```
 
-The banner ends on `wash-mid` and the footer picks it up there: the landing page renders `<Footer continuesSky />`, which adds `sky-fold-continued`. The footer’s stops are measured in `rem` from its bottom edge, so the legal bar and the wordmark always land on the deep end and the link columns on the pale end, however tall the columns grow on a phone. Without the banner above it (the 404) the footer renders plain `<Footer />` and ramps up from white instead. `.sky-fold::after` adds two blurred white cloud puffs (`on-accent` at 80% and 75%) low in the corners, under every child.
+The banner ends on `wash-mid` and the footer picks it up there: the landing page renders `<Footer continuesSky />`, which adds `sky-fold-continued`. The footer’s stops are measured in `rem` from its bottom edge, so the legal bar and the wordmark always land on the deep end and the link columns on the pale end, however tall the columns grow on a phone. Without the banner above it (the 404) the footer renders plain `<Footer />` and ramps up from white instead. `.sky-fold::before` adds a loose bank of six white puffs (`on-accent` at 55% to 85%) across the middle, behind the link columns, blurred by 16px. `.sky-fold::after` adds two blurred white cloud puffs (`on-accent` at 80% and 75%) low in the corners. Both sit under every child.
 
 ### 404
 
@@ -742,39 +768,39 @@ Run these before calling a site change done. They are the checks the maintainer 
 
 ## File map
 
-| Path                                  | Owns                                                                                         |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities     |
-| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                        |
-| `site/app/index.tsx`                  | Section order                                                                                |
-| `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                       |
-| `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                       |
-| `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                    |
-| `site/components/header.tsx`          | Sticky header, mobile menu                                                                   |
-| `site/components/hero.tsx`            | Hero copy, staggered entrance, hero wash                                                     |
-| `site/components/pr-window.tsx`       | The decorative pull request window                                                           |
-| `site/components/providers.tsx`       | Provider strip                                                                               |
-| `site/components/provider-logos.tsx`  | Model provider marks                                                                         |
-| `site/components/features.tsx`        | “How it works” timeline                                                                      |
-| `site/components/use-cases.tsx`       | Output example tabs                                                                          |
-| `site/components/capabilities.tsx`    | Commands bento, loop card, triage card                                                       |
-| `site/components/pricing.tsx`         | `$0` figure and three shell cards, each with an inset wash panel, a mark, and a line of copy |
-| `site/components/alternatives.tsx`    | Comparison table and cards                                                                   |
-| `site/components/brand-logos.tsx`     | Competitor marks                                                                             |
-| `site/components/faq.tsx`             | Native accordion                                                                             |
-| `site/components/quickstart.tsx`      | Installation steps                                                                           |
-| `site/components/code-block.tsx`      | `CodeBlock`                                                                                  |
-| `site/components/copy-button.tsx`     | `CopyButton`                                                                                 |
-| `site/components/cta-banner.tsx`      | Closing banner on the sky fold, word pill, clone command                                     |
-| `site/components/footer.tsx`          | Footer columns, legal bar with social marks, wordmark, on the sky fold                       |
-| `site/components/not-found.tsx`       | 404 page                                                                                     |
-| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks                                           |
-| `site/lib/content.ts`                 | Every line of page copy                                                                      |
-| `site/lib/agentResources.ts`          | Every machine-readable URL                                                                   |
-| `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                        |
-| `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                        |
-| `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                      |
-| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                            |
-| `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                        |
-| `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                    |
-| `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                  |
+| Path                                  | Owns                                                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities                              |
+| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                                                 |
+| `site/app/index.tsx`                  | Section order                                                                                                         |
+| `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                                                |
+| `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                                                |
+| `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                                             |
+| `site/components/header.tsx`          | Sticky header, transparent until it sticks, mobile menu                                                               |
+| `site/components/hero.tsx`            | Hero copy, word pill, staggered entrance, window stage under the hero sky                                             |
+| `site/components/pr-window.tsx`       | The decorative pull request window                                                                                    |
+| `site/components/providers.tsx`       | Provider strip                                                                                                        |
+| `site/components/provider-logos.tsx`  | Model provider marks                                                                                                  |
+| `site/components/features.tsx`        | “How it works” timeline                                                                                               |
+| `site/components/use-cases.tsx`       | Output example tabs                                                                                                   |
+| `site/components/capabilities.tsx`    | Commands bento, loop card, triage card                                                                                |
+| `site/components/pricing.tsx`         | Pricing sky band, cloud `$0` figure, and three shell cards, each with an inset wash panel, a mark, and a line of copy |
+| `site/components/alternatives.tsx`    | Comparison table and cards                                                                                            |
+| `site/components/brand-logos.tsx`     | Competitor marks                                                                                                      |
+| `site/components/faq.tsx`             | Native accordion                                                                                                      |
+| `site/components/quickstart.tsx`      | Installation steps                                                                                                    |
+| `site/components/code-block.tsx`      | `CodeBlock`                                                                                                           |
+| `site/components/copy-button.tsx`     | `CopyButton`                                                                                                          |
+| `site/components/cta-banner.tsx`      | Closing banner on the sky fold, word pill, clone command                                                              |
+| `site/components/footer.tsx`          | Footer columns, legal bar with social marks, wordmark, on the sky fold                                                |
+| `site/components/not-found.tsx`       | 404 page                                                                                                              |
+| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks                                                                    |
+| `site/lib/content.ts`                 | Every line of page copy                                                                                               |
+| `site/lib/agentResources.ts`          | Every machine-readable URL                                                                                            |
+| `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                                                 |
+| `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                                                 |
+| `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                                               |
+| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                                                     |
+| `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                                                 |
+| `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                                             |
+| `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                                           |

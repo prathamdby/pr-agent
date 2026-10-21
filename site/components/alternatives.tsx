@@ -6,6 +6,13 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 const SELF = ALTERNATIVE_ROWS.find((row) => row.name === PRODUCT_NAME)?.id ?? "pr-agent";
 
+const CRITERIA_COLUMN_PERCENT = 26;
+const TOOL_COLUMN_PERCENT = (100 - CRITERIA_COLUMN_PERCENT) / ALTERNATIVE_ROWS.length;
+const SELF_COLUMN_INDEX = Math.max(
+  ALTERNATIVE_ROWS.findIndex((row) => row.id === SELF),
+  0,
+);
+
 function Mark({ value }: { readonly value: ComparisonMark }) {
   switch (value) {
     case "yes":
@@ -38,26 +45,27 @@ function Mark({ value }: { readonly value: ComparisonMark }) {
 
 function ComparisonTable() {
   return (
-    <div className="hidden overflow-hidden card md:block">
-      <table className="w-full table-fixed border-collapse text-left">
+    <div className="relative hidden overflow-hidden card md:block">
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 bg-linear-to-b/oklab from-wash-soft to-wash-mid"
+        style={{
+          left: `${CRITERIA_COLUMN_PERCENT + SELF_COLUMN_INDEX * TOOL_COLUMN_PERCENT}%`,
+          width: `${TOOL_COLUMN_PERCENT}%`,
+        }}
+      />
+      <table className="relative w-full table-fixed border-collapse text-left">
         <thead>
           <tr className="border-b border-line">
             <th
               scope="col"
-              className="w-[26%] px-5 pt-5 pb-4 text-xs font-medium text-text-tertiary"
+              className="px-5 pt-5 pb-4 text-xs font-medium text-text-tertiary"
+              style={{ width: `${CRITERIA_COLUMN_PERCENT}%` }}
             >
               Criteria
             </th>
             {ALTERNATIVE_ROWS.map((tool) => (
-              <th
-                key={tool.id}
-                scope="col"
-                className={
-                  tool.id === SELF
-                    ? "bg-accent-soft/60 px-3 pt-5 pb-4 text-center"
-                    : "px-3 pt-5 pb-4 text-center"
-                }
-              >
+              <th key={tool.id} scope="col" className="px-3 pt-5 pb-4 text-center">
                 <span className="inline-flex flex-col items-center gap-2.5 text-text">
                   <BrandLogo name={tool.id} className="size-6" />
                   <span className="text-label font-medium">{tool.name}</span>
@@ -73,14 +81,7 @@ function ComparisonTable() {
                 {criterion.label}
               </th>
               {ALTERNATIVE_ROWS.map((tool) => (
-                <td
-                  key={tool.id}
-                  className={
-                    tool.id === SELF
-                      ? "bg-accent-soft/60 px-3 py-3.5 text-center"
-                      : "px-3 py-3.5 text-center"
-                  }
-                >
+                <td key={tool.id} className="px-3 py-3.5 text-center">
                   <Mark value={criterion.marks[tool.id]} />
                 </td>
               ))}
@@ -102,7 +103,14 @@ function ComparisonCards() {
             {ALTERNATIVE_ROWS.map((tool) => {
               const self = tool.id === SELF;
               return (
-                <li key={tool.id} className="flex min-h-12 items-center justify-between gap-4 py-2">
+                <li
+                  key={tool.id}
+                  className={
+                    self
+                      ? "-mx-3 flex min-h-12 items-center justify-between gap-4 rounded-sm bg-linear-to-b/oklab from-wash-soft to-wash-mid px-3 py-2"
+                      : "flex min-h-12 items-center justify-between gap-4 py-2"
+                  }
+                >
                   <span
                     className={
                       self
