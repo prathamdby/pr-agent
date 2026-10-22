@@ -21,7 +21,11 @@ import {
   prepareReviewPayloadForPublish,
   type PlacementIdentity,
 } from "../findings/findingPipeline.ts";
-import { reviewFindingEntries, type ReviewFinding } from "../reviewSchema.ts";
+import {
+  reviewFindingEntries,
+  type CoverageGapCeiling,
+  type ReviewFinding,
+} from "../reviewSchema.ts";
 import { reviewPayloadFromFindings } from "../reviewSchema.ts";
 import type { RepoPolicyResult } from "../repoPolicy.ts";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.ts";
@@ -111,6 +115,9 @@ export type FindingBatchInput = {
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
   readonly reconciled?: ReconciledFindings;
   readonly judged?: boolean;
+  readonly coverageGapCeiling?: (
+    finding: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title">,
+  ) => CoverageGapCeiling | undefined;
 };
 
 export type ReconciledFindings = {
@@ -160,6 +167,7 @@ function reaffirmedFinding(
   source: FindingSource,
   inventory: FindingInventory,
   judged: boolean,
+  coverageGapCeiling: CoverageGapCeiling | undefined,
 ): ReaffirmedFinding {
   const held = inventory.findings.get(outcome.id);
   const base = {
@@ -172,8 +180,10 @@ function reaffirmedFinding(
       anchorPath: placement.finding.file,
       ...(held == null ? {} : { heldPath: held.path }),
       judged,
+      ...(coverageGapCeiling == null ? {} : { coverageGapCeiling }),
     }),
     ...(judged ? {} : { judged: false }),
+    ...(coverageGapCeiling == null ? {} : { coverageGapCeiling }),
   };
   if (held?.source === "thread") {
     return {
@@ -199,6 +209,7 @@ function reconcileBatch(
   source: FindingSource,
   reconciled: ReconciledFindings | undefined,
   judged: boolean,
+  coverageGapCeiling: (finding: ReviewFinding) => CoverageGapCeiling | undefined,
 ): ReconciledBatch {
   const identities = new Map<string, PlacementIdentity>();
   const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
@@ -241,7 +252,14 @@ function reconcileBatch(
         break;
       case "reaffirm":
         reaffirmed.push(
-          reaffirmedFinding(placement, outcome, source, reconciled.inventory, judged),
+          reaffirmedFinding(
+            placement,
+            outcome,
+            source,
+            reconciled.inventory,
+            judged,
+            coverageGapCeiling(placement.finding),
+          ),
         );
         break;
       case "suppressed_dismissed":
@@ -350,11 +368,13 @@ export async function publishFindingBatch(
     session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
   const judged = input.judged !== false;
+  const coverageGapCeiling = input.coverageGapCeiling ?? (() => undefined);
   const reconciledBatch = reconcileBatch(
     prepared.prepared.placements,
     input.source,
     saved ? undefined : input.reconciled,
     judged,
+    coverageGapCeiling,
   );
   const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const calculatedTargets = prepareFindingsForPublish({

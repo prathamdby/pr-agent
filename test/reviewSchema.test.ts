@@ -76,6 +76,42 @@ describe("severity helpers", () => {
         judged: false,
       }),
     ).toBe("P2");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: true,
+        anchorPath: "src/a.test.ts",
+        judged: true,
+        coverageGapCeiling: "P0",
+      }),
+    ).toBe("P0");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: true,
+        anchorPath: "src/foo.test.ts",
+        judged: true,
+        coverageGapCeiling: "P1",
+      }),
+    ).toBe("P1");
+    expect(
+      cappedFindingSeverity({
+        severity: "P2",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        judged: true,
+        coverageGapCeiling: "P1",
+      }),
+    ).toBe("P2");
+    expect(
+      cappedFindingSeverity({
+        severity: "P0",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        judged: false,
+        coverageGapCeiling: "P0",
+      }),
+    ).toBe("P1");
   });
 
   it("requires a non-blank fixPrompt for P3 findings", () => {

@@ -28,6 +28,7 @@ import {
 } from "../src/review/findingIdentity/duplicateCleanup.ts";
 import {
   buildFindingView as buildFindingViewWithThreshold,
+  cappedReaffirmedSeverity,
   checkConclusion,
   renderFindingsSection,
   renderResolvedThisRun,
@@ -1039,6 +1040,137 @@ describe("finding lifecycle view", () => {
       }),
     );
     expect(testsLens.rows).toMatchObject([{ id: A, severity: "P2" }]);
+
+    const coverageGap = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/a.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            source: "tests",
+            coverageGapCeiling: "P0",
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.test.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+      "P0",
+    );
+    expect(coverageGap.rows).toMatchObject([{ id: A, severity: "P0", blocking: true }]);
+    expect(checkConclusion(coverageGap)).toBe("failure");
+
+    expect(
+      cappedReaffirmedSeverity({
+        held: "P0",
+        observed: "P0",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        heldPath: "src/foo.test.ts",
+        judged: true,
+        coverageGapCeiling: "P0",
+      }),
+    ).toBe("P0");
+    expect(
+      cappedReaffirmedSeverity({
+        held: "P0",
+        observed: "P1",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        heldPath: "src/foo.test.ts",
+        judged: true,
+        coverageGapCeiling: "P1",
+      }),
+    ).toBe("P1");
+    expect(
+      cappedReaffirmedSeverity({
+        held: "P0",
+        observed: "P0",
+        testsLens: true,
+        anchorPath: "src/a.ts",
+        heldPath: "src/foo.test.ts",
+        judged: true,
+      }),
+    ).toBe("P2");
+
+    const heldPathGap = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/foo.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            source: "tests",
+            coverageGapCeiling: "P0",
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+      "P0",
+    );
+    expect(heldPathGap.rows).toMatchObject([{ id: A, severity: "P0", blocking: true }]);
+
+    const heldPathCapped = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/foo.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            source: "tests",
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+    );
+    expect(heldPathCapped.rows).toMatchObject([{ id: A, severity: "P2" }]);
+
+    const nonCriticalGap = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/foo.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P1", "thread"),
+            source: "tests",
+            coverageGapCeiling: "P1",
+            placement: {
+              finding: { ...runFinding("P1"), file: "src/a.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+    );
+    expect(nonCriticalGap.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+
+    const unjudgedGap = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/a.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            source: "tests",
+            judged: false,
+            coverageGapCeiling: "P0",
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.test.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+    );
+    expect(unjudgedGap.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
 
     const unjudged = buildFindingView(
       inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
