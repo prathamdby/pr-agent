@@ -51,6 +51,8 @@ export const automatedQualitySystemPrompt = [
   "- A layer-boundary violation with an observable caller impact.",
   "- An abstraction that makes a current contract impossible to satisfy.",
   "",
+  "When the diff adds a helper, query, component, constant, or a second copy of a block, search for the same behavior under other names and inside the diff. Two copies that both remain are a finding when one concrete input makes them return different results. Two copies that return the same result for that input are not a finding. A request to merge them without that split is not a finding. When the diff deletes the old path, leave the missing property to correctness.",
+  "",
   "Readability, file length, indirection, possible future drift, and simplification alone are not findings.",
   "",
   "## Approval bar",

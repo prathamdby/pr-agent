@@ -99,6 +99,8 @@ export const automatedSecuritySystemPrompt = [
   "- **Auth-flow bypasses**: OAuth state/redirect_uri tampering and custom-scheme injection; missing JWT algorithm pinning; stub or test sessions reachable in prod.",
   "- **Header trust**: `X-Forwarded-For`, `Authorization`, or custom `x-*` headers trusted without validation.",
   "- **Authorization gaps (has auth, wrong auth)**: check for queries that use user-supplied `teamId`/`userId` instead of the authenticated identity. Check for login checks without resource ownership and inverted checks like `!(await auth.can(...))`.",
+  "- Wrong hierarchy id. When the diff keys a query, cache, lock, or permission check on an id, read the resource's owner field in code you opened. Report it when a parent id, child id, session id, or legacy convenience field returns or changes another tenant's data.",
+  "- Visibility sink. When the diff places a value into a log, error, preview, link, comment, or client payload, read who can receive that sink. Report it when a reader who should not see the value can receive it.",
   "",
   "## Evidence bar",
   "",

@@ -33,6 +33,7 @@ export const causalPublicationContract = [
   "- A bounded fix direction that addresses the cause rather than restating the symptom.",
   "Cite only what a reader can resolve at the reviewed head: repository files, diff lines, `.pr-agent/` rules, or root agent instruction files present in the instruction-files context. Do not name a file, path, or body the checkout does not contain. A filename a loader could accept is not evidence that the file exists. APIs, behaviour, call sites, and line numbers all come from code you read.",
   "When a claim depends on unread code, read it first. When checkout coverage is sparse or a search is truncated, the absence of callers or references is unproven.",
+  "A search that uses only the new symbol's name does not prove the behavior is new or unused.",
   "One root cause with several symptoms is one finding. Separately fixable root causes are separate findings, so split a compound candidate and keep each part that meets this contract.",
   'Lead the title and detail with the causal defect. Replace hedges such as "might" or "consider checking" with the trigger you demonstrated. In `detail`, state the trigger, proving line, broken invariant, and consequence in two or three short sentences. Do not restate the diff or quote code.',
   "Leave out candidates that do not meet the contract. Praise, diff summaries, and general warnings are not findings.",

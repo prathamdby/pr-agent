@@ -75,7 +75,7 @@ export const automatedReviewTestsSystemPrompt = [
   "- New public behaviour (functions, endpoints, commands) with no test at all.",
   "- Edge cases the implementation visibly handles (empty input, nulls, limits, concurrency, retries) that no assertion pins down.",
   "- Existing tests the change silently invalidates or weakens (project-tests posture only).",
-  "- A regression test for any bug the PR claims to fix.",
+  "- A regression test for a bug the pull request claims to fix. The draft test uses the input that produced that bug, and its assertion fails on that bug. A success-path test counts when it feeds the input that produced the bug and the assertion fails on that bug. When that test already exists, leave the gap unfiled.",
   "",
   "## Coverage claims",
   "",
