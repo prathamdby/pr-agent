@@ -35,7 +35,7 @@ import {
   storedDispositions,
   type JudgmentDisposition,
 } from "./judgmentDisposition.ts";
-import { coverageGapPublishError, isCoverageGapRow } from "./testsEvidence.ts";
+import { coverageGapCeilingForFinding, coverageGapPublishError } from "./testsEvidence.ts";
 import {
   MAX_OVERLAP_ROUNDS,
   reconcileObservation,
@@ -401,7 +401,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         testsLens: source === "tests",
         anchorPath: finding.file,
         judged,
-        coverageGap: isCoverageGapRow({
+        coverageGapCeiling: coverageGapCeilingForFinding({
           specialist,
           reportFindings: specialistReport?.findings ?? [],
           finding,
@@ -424,8 +424,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         ledger,
         reconciled: { inventory, outcomes },
         judged,
-        isCoverageGap: (finding) =>
-          isCoverageGapRow({
+        coverageGapCeiling: (finding) =>
+          coverageGapCeilingForFinding({
             specialist,
             reportFindings: specialistReport?.findings ?? [],
             finding,

@@ -17,6 +17,7 @@ import {
   snapshotFindingLedger,
 } from "../src/review/recovery/reviewRecovery.ts";
 import {
+  findingLedgerSnapshotSchema,
   reviewCoverageSchema,
   type CanonicalReviewDecision,
 } from "../src/review/recovery/reviewRecoverySchema.ts";
@@ -24,6 +25,12 @@ import * as v from "valibot";
 import { makeTestConfig } from "./helpers/config.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 import { completeFindingInventory } from "./helpers/reviewPublishTestHelpers.ts";
+import { buildFindingInventory } from "../src/review/findingIdentity/findingInventory.ts";
+import { buildFindingView } from "../src/review/findingIdentity/findingLifecycle.ts";
+import {
+  legacyFindingId,
+  renderFindingMarker,
+} from "../src/review/findingIdentity/findingMarker.ts";
 
 const binding = createReviewArtifactBinding(
   {
@@ -189,6 +196,93 @@ describe("review coverage persistence", () => {
       "OPENAI_[redacted]",
       "y".repeat(4096),
     ]);
+  });
+});
+
+describe("reaffirmed ledger snapshots", () => {
+  it("parses a row without a coverage-gap ceiling and caps that reaffirm at P2", () => {
+    const id = legacyFindingId("old-reaffirm");
+    const parsed = v.parse(findingLedgerSnapshotSchema, {
+      accepted: [],
+      reaffirmed: [
+        {
+          id,
+          source: "tests",
+          severity: "P0",
+          heldBy: "thread",
+          placement: {
+            finding: {
+              severity: "P0",
+              file: "src/a.ts",
+              startLine: 10,
+              endLine: 10,
+              title: "Held",
+              detail: "detail",
+              fixPrompt: "fix",
+            },
+            inlineLine: 10,
+            inlinePosted: true,
+          },
+        },
+      ],
+      suppressedDismissedCount: 0,
+      inlineReviewIds: [],
+      postedInlineCount: 0,
+      threadCallCount: 1,
+      threadBudgetExhausted: false,
+    });
+    const row = parsed.reaffirmed[0];
+    if (row == null) throw new Error("expected a reaffirmed row");
+    expect(row).not.toHaveProperty("coverageGapCeiling");
+    const createdAt = "2026-01-01T00:00:00Z";
+    const view = buildFindingView(
+      buildFindingInventory({
+        threads: {
+          status: "ok",
+          threads: [
+            {
+              threadNodeId: `PRRT_${id}`,
+              isResolved: false,
+              rootCommentId: 42,
+              path: "src/a.ts",
+              line: 10,
+              startLine: null,
+              originalLine: 10,
+              originalStartLine: null,
+              isOutdated: false,
+              diffSide: "RIGHT",
+              commentsComplete: true,
+              comments: [
+                {
+                  databaseId: 42,
+                  authorLogin: "pr-agent",
+                  body: `**P0** · **Held**\n\ndetail\n\n${renderFindingMarker({ id, lens: "tests", severity: "P0" })}`,
+                  createdAt,
+                  updatedAt: createdAt,
+                  url: "https://github.com/o/r/pull/1#discussion_r42",
+                },
+              ],
+            },
+          ],
+        },
+        summary: null,
+        summaryComplete: true,
+        botLogin: "pr-agent",
+        renames: new Map(),
+        deletedPaths: new Set(),
+      }),
+      {
+        kind: "reviewed",
+        ledger: {
+          accepted: [],
+          reaffirmed: [row],
+          suppressedDismissedCount: 0,
+        },
+        duplicates: [],
+      },
+      "P2",
+    );
+    expect(view.rows).toMatchObject([{ id, severity: "P2" }]);
   });
 });
 

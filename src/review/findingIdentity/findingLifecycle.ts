@@ -9,6 +9,7 @@ import type { FindingLedger, ReaffirmedFinding } from "../orchestrator/orchestra
 import {
   cappedFindingSeverity,
   isCheckFailingSeverity,
+  type CoverageGapCeiling,
   type ReviewFinding,
 } from "../reviewSchema.ts";
 import { FINDING_INVENTORY_UNAVAILABLE_NOTE } from "../statusCopy.ts";
@@ -92,7 +93,7 @@ export function severityWithinRunCap(
     readonly anchorPath: string;
     readonly heldPath?: string;
     readonly judged: boolean;
-    readonly coverageGap?: boolean;
+    readonly coverageGapCeiling?: CoverageGapCeiling;
   },
 ): ReviewFinding["severity"] {
   const capped = cappedFindingSeverity({
@@ -100,7 +101,7 @@ export function severityWithinRunCap(
     testsLens: params.testsLens,
     anchorPath: params.anchorPath,
     judged: params.judged,
-    coverageGap: params.coverageGap,
+    coverageGapCeiling: params.coverageGapCeiling,
   });
   if (params.heldPath == null || params.heldPath === params.anchorPath) return capped;
   return cappedFindingSeverity({
@@ -108,7 +109,7 @@ export function severityWithinRunCap(
     testsLens: params.testsLens,
     anchorPath: params.heldPath,
     judged: params.judged,
-    coverageGap: params.coverageGap,
+    coverageGapCeiling: params.coverageGapCeiling,
   });
 }
 
@@ -119,7 +120,7 @@ export function cappedReaffirmedSeverity(params: {
   readonly anchorPath: string;
   readonly heldPath?: string;
   readonly judged: boolean;
-  readonly coverageGap?: boolean;
+  readonly coverageGapCeiling?: CoverageGapCeiling;
 }): ReviewFinding["severity"] {
   const merged =
     params.held == null ? params.observed : higherSeverity(params.held, params.observed);
@@ -288,7 +289,9 @@ export function buildFindingView(
             anchorPath: entry.placement.finding.file,
             ...(row.held == null ? {} : { heldPath: row.held.path }),
             judged: entry.judged !== false,
-            coverageGap: entry.coverageGap === true,
+            ...(entry.coverageGapCeiling == null
+              ? {}
+              : { coverageGapCeiling: entry.coverageGapCeiling }),
           });
     return severity === row.severity
       ? row

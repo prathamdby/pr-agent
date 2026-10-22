@@ -34,6 +34,34 @@ export function coverageGapCeiling(
   return finding.testEvidence.criticalPath == null ? "P1" : "P0";
 }
 
+export function coverageGapCeilingForFinding(params: {
+  readonly specialist: SpecialistId;
+  readonly reportFindings: readonly (TestsEvidenceFinding & {
+    readonly file: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly title: string;
+  })[];
+  readonly finding: {
+    readonly file: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly title: string;
+  };
+}): "P0" | "P1" | undefined {
+  if (params.specialist !== "tests") return undefined;
+  const gaps = params.reportFindings.filter(
+    (row) =>
+      row.testsClaim === "coverage_gap" &&
+      row.file === params.finding.file &&
+      row.startLine === params.finding.startLine &&
+      row.endLine === params.finding.endLine &&
+      row.title === params.finding.title,
+  );
+  if (gaps.length === 0) return undefined;
+  return gaps.every((gap) => coverageGapCeiling(gap) === "P0") ? "P0" : "P1";
+}
+
 export function coverageGapPublishError(params: {
   readonly specialist: SpecialistId;
   readonly reportFindings: readonly (TestsEvidenceFinding & {
@@ -50,49 +78,12 @@ export function coverageGapPublishError(params: {
     readonly title: string;
   };
 }): string | undefined {
-  if (params.specialist !== "tests") return undefined;
-  const gaps = params.reportFindings.filter(
-    (row) =>
-      row.testsClaim === "coverage_gap" &&
-      row.file === params.finding.file &&
-      row.startLine === params.finding.startLine &&
-      row.endLine === params.finding.endLine &&
-      row.title === params.finding.title,
-  );
-  if (gaps.length === 0) return undefined;
-  const ceiling = gaps.every((gap) => coverageGapCeiling(gap) === "P0") ? "P0" : "P1";
+  const ceiling = coverageGapCeilingForFinding(params);
+  if (ceiling == null) return undefined;
   if (REVIEW_SEVERITY_RANK[params.finding.severity] < REVIEW_SEVERITY_RANK[ceiling]) {
     return `coverage gap severity ${params.finding.severity} is above the ${ceiling} ceiling`;
   }
   return undefined;
-}
-
-export function isCoverageGapRow(params: {
-  readonly specialist: SpecialistId;
-  readonly reportFindings: readonly (TestsEvidenceFinding & {
-    readonly file: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly title: string;
-  })[];
-  readonly finding: {
-    readonly file: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly title: string;
-  };
-}): boolean {
-  return (
-    params.specialist === "tests" &&
-    params.reportFindings.some(
-      (row) =>
-        row.testsClaim === "coverage_gap" &&
-        row.file === params.finding.file &&
-        row.startLine === params.finding.startLine &&
-        row.endLine === params.finding.endLine &&
-        row.title === params.finding.title,
-    )
-  );
 }
 
 export function testsFindingError(params: {

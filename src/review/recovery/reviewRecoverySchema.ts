@@ -1,6 +1,10 @@
 import * as v from "valibot";
 import { evidenceDescriptorSchema, OPENED_PATH_MAX_CHARS } from "../findings/evidenceLedger.ts";
-import { reviewFindingEntries, reviewFindingSchema } from "../reviewSchema.ts";
+import {
+  COVERAGE_GAP_CEILINGS,
+  reviewFindingEntries,
+  reviewFindingSchema,
+} from "../reviewSchema.ts";
 import { isFindingId, type FindingId } from "../findingIdentity/findingMarker.ts";
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -37,7 +41,7 @@ const reaffirmed = v.strictObject({
   source,
   severity: reviewFindingEntries.severity,
   judged: v.optional(v.boolean()),
-  coverageGap: v.optional(v.boolean()),
+  coverageGapCeiling: v.optional(v.picklist(COVERAGE_GAP_CEILINGS)),
   heldBy: v.picklist(["thread", "summary", "run"]),
   placement,
 });

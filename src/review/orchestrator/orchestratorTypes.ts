@@ -3,6 +3,7 @@ import type { ReviewCancelAttribution } from "../../settings/index.ts";
 import type { SpecialistReport } from "./specialistReport.ts";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.ts";
 import type { FindingId } from "../findingIdentity/findingMarker.ts";
+import type { CoverageGapCeiling } from "../reviewSchema.ts";
 
 export type AcceptedFindingSlimReference = {
   readonly findingId: string;
@@ -129,7 +130,7 @@ export type ReaffirmedFinding = {
   readonly source: FindingSource;
   readonly severity: InlinePlacement["finding"]["severity"];
   readonly judged?: boolean;
-  readonly coverageGap?: boolean;
+  readonly coverageGapCeiling?: CoverageGapCeiling;
   readonly heldBy: "thread" | "summary" | "run";
   readonly placement: InlinePlacement;
 };
