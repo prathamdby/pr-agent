@@ -92,6 +92,7 @@ export function severityWithinRunCap(
     readonly anchorPath: string;
     readonly heldPath?: string;
     readonly judged: boolean;
+    readonly coverageGap?: boolean;
   },
 ): ReviewFinding["severity"] {
   const capped = cappedFindingSeverity({
@@ -99,6 +100,7 @@ export function severityWithinRunCap(
     testsLens: params.testsLens,
     anchorPath: params.anchorPath,
     judged: params.judged,
+    coverageGap: params.coverageGap,
   });
   if (params.heldPath == null || params.heldPath === params.anchorPath) return capped;
   return cappedFindingSeverity({
@@ -106,6 +108,7 @@ export function severityWithinRunCap(
     testsLens: params.testsLens,
     anchorPath: params.heldPath,
     judged: params.judged,
+    coverageGap: params.coverageGap,
   });
 }
 
@@ -116,6 +119,7 @@ export function cappedReaffirmedSeverity(params: {
   readonly anchorPath: string;
   readonly heldPath?: string;
   readonly judged: boolean;
+  readonly coverageGap?: boolean;
 }): ReviewFinding["severity"] {
   const merged =
     params.held == null ? params.observed : higherSeverity(params.held, params.observed);
@@ -284,6 +288,7 @@ export function buildFindingView(
             anchorPath: entry.placement.finding.file,
             ...(row.held == null ? {} : { heldPath: row.held.path }),
             judged: entry.judged !== false,
+            coverageGap: entry.coverageGap === true,
           });
     return severity === row.severity
       ? row

@@ -24,6 +24,8 @@ message.
    sentence, `No candidate test was found.` A pure coverage gap, with no
    `criticalPath`, has ceiling P1. P0 requires `criticalPath` and one of
    those two evidence shapes. `invalidated_test` does not take that ceiling.
+   The same ceiling applies when a later run reaffirms the finding, in place
+   of the tests-lens and test-path P2 caps.
 2. **The ledger check is a flag.** `REVIEW_TESTS_EVIDENCE` defaults to false.
    When it is true, each coverage-gap read path must have a content read in
    the run ledger. `hasOpened` is not enough. A path another lens read still

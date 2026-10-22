@@ -129,6 +129,7 @@ export type ReaffirmedFinding = {
   readonly source: FindingSource;
   readonly severity: InlinePlacement["finding"]["severity"];
   readonly judged?: boolean;
+  readonly coverageGap?: boolean;
   readonly heldBy: "thread" | "summary" | "run";
   readonly placement: InlinePlacement;
 };

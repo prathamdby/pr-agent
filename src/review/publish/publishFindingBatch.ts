@@ -111,6 +111,9 @@ export type FindingBatchInput = {
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
   readonly reconciled?: ReconciledFindings;
   readonly judged?: boolean;
+  readonly isCoverageGap?: (
+    finding: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title">,
+  ) => boolean;
 };
 
 export type ReconciledFindings = {
@@ -160,6 +163,7 @@ function reaffirmedFinding(
   source: FindingSource,
   inventory: FindingInventory,
   judged: boolean,
+  coverageGap: boolean,
 ): ReaffirmedFinding {
   const held = inventory.findings.get(outcome.id);
   const base = {
@@ -172,8 +176,10 @@ function reaffirmedFinding(
       anchorPath: placement.finding.file,
       ...(held == null ? {} : { heldPath: held.path }),
       judged,
+      ...(coverageGap ? { coverageGap: true } : {}),
     }),
     ...(judged ? {} : { judged: false }),
+    ...(coverageGap ? { coverageGap: true } : {}),
   };
   if (held?.source === "thread") {
     return {
@@ -199,6 +205,7 @@ function reconcileBatch(
   source: FindingSource,
   reconciled: ReconciledFindings | undefined,
   judged: boolean,
+  isCoverageGap: (finding: ReviewFinding) => boolean,
 ): ReconciledBatch {
   const identities = new Map<string, PlacementIdentity>();
   const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
@@ -241,7 +248,14 @@ function reconcileBatch(
         break;
       case "reaffirm":
         reaffirmed.push(
-          reaffirmedFinding(placement, outcome, source, reconciled.inventory, judged),
+          reaffirmedFinding(
+            placement,
+            outcome,
+            source,
+            reconciled.inventory,
+            judged,
+            isCoverageGap(placement.finding),
+          ),
         );
         break;
       case "suppressed_dismissed":
@@ -350,11 +364,13 @@ export async function publishFindingBatch(
     session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
   );
   const judged = input.judged !== false;
+  const isCoverageGap = input.isCoverageGap ?? (() => false);
   const reconciledBatch = reconcileBatch(
     prepared.prepared.placements,
     input.source,
     saved ? undefined : input.reconciled,
     judged,
+    isCoverageGap,
   );
   const intentWorkItemId = session.operationIntent?.workItemId ?? session.workItemId;
   const calculatedTargets = prepareFindingsForPublish({

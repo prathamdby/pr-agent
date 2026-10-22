@@ -37,7 +37,9 @@ could not move the failing line without a code change.
    held value and this run's observation, passed through
    `cappedFindingSeverity` again. The tests-lens, test-path, and unjudged
    ceilings apply to that merge, using the observation path and the held
-   path. The finding view applies the same cap after it merges a reaffirmed
+   path. A coverage gap uses the ceiling in
+   [ADR 0060](0060-tests-evidence-and-unjudged-reports.md) instead of the
+   tests-lens and test-path caps. The finding view applies the same cap after it merges a reaffirmed
    row, including a duplicate-copy severity. The thread root is not edited.
    An unobserved carried finding keeps its inventory severity. An unobserved
    `unknown` stays unblocking. A reaffirmation that observes it may merge

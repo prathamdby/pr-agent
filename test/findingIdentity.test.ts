@@ -1040,6 +1040,27 @@ describe("finding lifecycle view", () => {
     );
     expect(testsLens.rows).toMatchObject([{ id: A, severity: "P2" }]);
 
+    const coverageGap = buildFindingView(
+      inventoryOf([thread({ rootBody: markedBody(A, "P0"), path: "src/a.test.ts" })]),
+      reviewed({
+        reaffirmed: [
+          {
+            ...reaffirmedThisRun(A, "P0", "thread"),
+            source: "tests",
+            coverageGap: true,
+            placement: {
+              finding: { ...runFinding("P0"), file: "src/a.test.ts" },
+              inlineLine: 10,
+              inlinePosted: true,
+            },
+          },
+        ],
+      }),
+      "P0",
+    );
+    expect(coverageGap.rows).toMatchObject([{ id: A, severity: "P0", blocking: true }]);
+    expect(checkConclusion(coverageGap)).toBe("failure");
+
     const unjudged = buildFindingView(
       inventoryOf([thread({ rootBody: markedBody(A, "P0") })]),
       reviewed({

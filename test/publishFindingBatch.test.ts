@@ -237,6 +237,7 @@ function batchContext(
     readCheckoutFile,
     reconciled,
     judged,
+    isCoverageGap,
     ...sessionOverrides
   } = overrides;
   const evidenceLedger = evidenceOverride ?? createTestEvidenceLedger("abc1234");
@@ -273,6 +274,7 @@ function batchContext(
       readCheckoutFile,
       reconciled,
       ...(judged === undefined ? {} : { judged }),
+      ...(isCoverageGap === undefined ? {} : { isCoverageGap }),
     },
   ];
 }
@@ -653,6 +655,27 @@ describe("publishFindingBatch", () => {
     expect(testsLens.kind).toBe("empty");
     if (testsLens.kind !== "empty") return;
     expect(testsLens.delta.reaffirmed).toEqual([expect.objectContaining({ id, severity: "P2" })]);
+    expect(testsLens.delta.reaffirmed[0]).not.toHaveProperty("coverageGap");
+
+    const gap: ReviewFinding = { ...finding, severity: "P0" };
+    const coverageGap = await publishFindingBatch(
+      [gap],
+      ...batchContext(createFindingLedger(), undefined, {
+        source: "tests",
+        isCoverageGap: () => true,
+        reconciled: {
+          inventory: heldInventory(id, "P0", "src/a.ts"),
+          outcomes: new Map([
+            [reconciledFindingKey(gap), { kind: "reaffirm", id, severity: "P0" }],
+          ]),
+        },
+      }),
+    );
+    expect(coverageGap.kind).toBe("empty");
+    if (coverageGap.kind !== "empty") return;
+    expect(coverageGap.delta.reaffirmed).toEqual([
+      expect.objectContaining({ id, severity: "P0", coverageGap: true }),
+    ]);
 
     const unjudgedFinding: ReviewFinding = { ...finding, severity: "P0" };
     const unjudged = await publishFindingBatch(

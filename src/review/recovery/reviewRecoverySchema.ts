@@ -37,6 +37,7 @@ const reaffirmed = v.strictObject({
   source,
   severity: reviewFindingEntries.severity,
   judged: v.optional(v.boolean()),
+  coverageGap: v.optional(v.boolean()),
   heldBy: v.picklist(["thread", "summary", "run"]),
   placement,
 });

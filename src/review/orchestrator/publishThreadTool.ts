@@ -424,6 +424,12 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         ledger,
         reconciled: { inventory, outcomes },
         judged,
+        isCoverageGap: (finding) =>
+          isCoverageGapRow({
+            specialist,
+            reportFindings: specialistReport?.findings ?? [],
+            finding,
+          }),
       });
     } catch (error) {
       throw toAppError(error, {
