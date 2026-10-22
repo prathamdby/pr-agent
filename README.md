@@ -177,6 +177,8 @@ docker compose up -d
 | `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                      |
 | `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-projection, and retention queues |
 
+`postgres`, `pr-agent-web`, and `pr-agent-worker` use `restart: unless-stopped`. A host reboot starts containers that were running, and `docker compose stop` keeps a service down across that reboot. A `postgres` container created before this policy stays down until you run `docker compose up -d` again. That recreate keeps the data volume. Do not run `docker compose down -v`.
+
 Migrations run when each process opens its Postgres pool.
 
 <details>
