@@ -439,7 +439,20 @@ describe("orchestrator prompts", () => {
     expect(prompt).not.toContain(causalPublicationContract);
     expect(prompt).toContain("Apply the causal-publication contract from your instructions");
     expect(prompt).toContain("Treat specialist claims as evidence, not authority");
-    expect(prompt).toContain("re-read the cited lines");
+    expect(prompt).toContain(
+      "Do a light pass over the findings already in this specialist report.",
+    );
+    expect(prompt).toContain("Check each finding against its cited lines.");
+    expect(prompt).toContain("Leave out a finding those lines contradict.");
+    expect(prompt).toContain("A dropped finding stays out of the `findings` array.");
+    expect(prompt).toContain("Use the rejected dispositions the tool already accepts.");
+    expect(orchestratorSystemPrompt).toContain(
+      "Do a light pass over the findings already in this specialist report.",
+    );
+    expect(orchestratorSystemPrompt).toContain("Leave out a finding those lines contradict.");
+    expect(orchestratorSystemPrompt).toContain(
+      "Use the rejected dispositions the tool already accepts.",
+    );
     expect(prompt).toContain("library behaviour");
     expect(prompt).toContain(
       candidateFindingId({
