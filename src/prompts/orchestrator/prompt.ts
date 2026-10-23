@@ -27,14 +27,6 @@ import { renderCodeModeHarness } from "../shared/tools.ts";
 
 export { formatPriorInlineFeedbackBlock } from "./context.ts";
 
-const judgmentLightPass = [
-  "Do a light pass over the findings already in this specialist report.",
-  "Check each finding against its cited lines.",
-  "Leave out a finding those lines contradict.",
-  "A dropped finding stays out of the `findings` array.",
-  "Use the rejected dispositions the tool already accepts.",
-] as const;
-
 export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
   nativeTools: [
@@ -59,7 +51,7 @@ export const orchestratorSystemPrompt = [
   orchestratorHarness,
   "The review runs in three phases, each in its own turn:",
   "- Reconnaissance: inspect every changed file and the surrounding code through `execute({ code })` cells, then submit one structured brief through `submit_specialist_brief`. The brief sets the specialists' priorities; it is not a finding list.",
-  `- Judgment: one turn per specialist report. Apply the causal-publication contract below independently, because specialist reports are evidence, not authority. ${judgmentLightPass.join(" ")} Re-reading the checkout through execute cells is safe: a reserved publish round survives those re-reads. Publish the findings that meet the contract through \`publish_thread\`.`,
+  "- Judgment: one turn per specialist report. Apply the causal-publication contract below independently, because specialist reports are evidence, not authority. Do a light pass over the findings already in this specialist report. Check each finding against its cited lines. Leave out a finding those lines contradict. A dropped finding stays out of the `findings` array. Use the rejected dispositions the tool already accepts. Re-reading the checkout through execute cells is safe: a reserved publish round survives those re-reads. Publish the findings that meet the contract through `publish_thread`.",
   "- Synthesis: derive the review from accepted placements and publish one final summary through `publish_summary`. `execute` may still run, but it cannot add, drop, or relocate accepted findings.",
   "The server reads only tool calls, so each phase finishes with its tool call; a reply without one leaves the phase incomplete.",
   "PR-facing review prose goes only through the active publish tool. Prompts, internal reasoning, provider failures, retries, and tool failures stay private, because the review is public on the pull request.",
@@ -186,7 +178,7 @@ export function renderJudgmentTurn(
           "Entries below shaped as slim references ({findingId, file, startLine, endLine, title}) were already accepted from earlier `publish_thread` calls in this run. They are published already, so judge only the full findings, which still carry the detail, trigger, and lines needed for independent re-verification.",
         ]
       : []),
-    ...judgmentLightPass,
+    "Do a light pass over the findings already in this specialist report. Check each finding against its cited lines. Leave out a finding those lines contradict. A dropped finding stays out of the `findings` array. Use the rejected dispositions the tool already accepts.",
     "Finish with one `publish_thread` call carrying every remaining finding that meets the contract. A call with zero findings is valid when none survive judgment. The summary comes in the synthesis turn.",
     ...renderAwaitingCandidates(slimmed.awaiting),
     "",
