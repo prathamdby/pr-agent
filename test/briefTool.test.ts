@@ -439,7 +439,9 @@ describe("orchestrator prompts", () => {
     expect(prompt).not.toContain(causalPublicationContract);
     expect(prompt).toContain("Apply the causal-publication contract from your instructions");
     expect(prompt).toContain("Treat specialist claims as evidence, not authority");
-    expect(prompt).toContain("Do a light pass over the findings already in this specialist report.");
+    expect(prompt).toContain(
+      "Do a light pass over the findings already in this specialist report.",
+    );
     expect(prompt).toContain("Check each finding against its cited lines.");
     expect(prompt).toContain("Leave out a finding those lines contradict.");
     expect(prompt).toContain("A dropped finding stays out of the `findings` array.");
