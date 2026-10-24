@@ -62,12 +62,10 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Ops (deployment-varying tuning)
 
-`REVIEW_RECOVERY_ENABLED` defaults to `false` and maps to
-`cfg.review.recoveryEnabled` in `src/settings/slices/service.ts`. It accepts only
-`true` or `false`; empty uses the default, and `1`, `yes`, or `TRUE` fail startup.
-It is operator tuning, not another `FEATURE_*` mode. Migration 037 must be
-installed first. Keep it off until local crash/restart proof and rollout approval.
-See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
+`REVIEW_RECOVERY_ENABLED` is not a setting. A process that still has the name
+in its environment boots, and the name is not read. Recovery runs for every
+review with a base sha. Migration 037 is already applied by startup. See
+[ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
 [rollout](operations.md#review-reliability-rollout).
 
 `REVIEW_TESTS_EVIDENCE` defaults to `false` and maps to `cfg.review.testsEvidence`.
@@ -87,12 +85,12 @@ the threshold is `P3`. An empty string is not the default. It throws
 Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
 `REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
 `REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
-that budget). They are not env settings. Work-item retention cascades deletion
-even with recovery off; disabling scheduled retention leaves artifacts retained.
+that budget). They are not env settings. Work-item retention cascades the
+artifact rows. Disabling scheduled retention leaves them.
 
 `AGENT_EVENTS_ENABLED` controls local metadata audit persistence only.
-`POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting enables
-review artifacts, and artifact retention is independent of the recovery flag.
+`POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting decides
+whether a review writes artifacts, and they do not change artifact retention.
 
 AI traces are independent of agent events and of review artifacts. They are
 worker-only and require `POSTHOG_PROJECT_TOKEN`. The web process does not emit

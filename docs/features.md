@@ -94,10 +94,10 @@ Notes:
 - `REVIEW_TESTS_EVIDENCE` is separate operator tuning, default off, not a
   `FEATURE_*` mode. When it is true, a tests coverage gap must name read paths
   that have a content read in the run ledger. Path checks apply either way.
-- `REVIEW_RECOVERY_ENABLED` is separate operator tuning, default off, not a
-  ninth feature. Validated review artifacts can reduce repeated computation
-  after a restart; they never restore a transcript or bypass evidence and
-  publication gates. See [configuration.md](configuration.md) and [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+- Recovery is part of review. It is not a ninth feature and not a `FEATURE_*`
+  mode. A restart can reuse a validated brief or report. Evidence is read
+  again. Publication uses the normal gates. It does not restore a transcript.
+  See [configuration.md](configuration.md) and [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
 - A typed GitHub review-thread resolution denial stops verification rather than
   claiming the thread was resolved. A reply accepted before that denial remains
   accepted; the denial is not permission to repeat it. Confirm App permissions
