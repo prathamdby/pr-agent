@@ -1066,6 +1066,71 @@ describe("createPiSession prompt cache identity", () => {
       maxRetryDelayMs: 1000,
     });
   });
+
+  it("splits a prefixed Anthropic payload through the stream hook", async () => {
+    const streamSimple = vi.fn(() => ({
+      [Symbol.asyncIterator]() {
+        return { next: async () => ({ done: true as const, value: undefined }) };
+      },
+      result: async () => undefined,
+    }));
+    const { streamFn, getLastOptions } = createSessionStreamFn({ streamSimple } as never, {
+      cacheRetention: "short",
+      sessionId: "sess",
+      timeoutMs: 12,
+      maxRetries: 0,
+      maxRetryDelayMs: 1000,
+    });
+    const model = { id: "m", provider: "anthropic", api: "anthropic-messages" } as never;
+    const persona = "You are the security specialist.";
+    const context = {
+      systemPrompt: `${specialistSharedPrefix}\n\n${persona}`,
+      messages: [],
+    } as never;
+    const tools = [{ name: "read" }];
+    const messages = [{ role: "user" }];
+    const payload = {
+      system: [
+        {
+          type: "text",
+          text: `${specialistSharedPrefix}\n\n${persona}`,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tools,
+      messages,
+    };
+    await streamFn(model, context, {});
+    const split = await getLastOptions()?.onPayload?.(payload, model);
+    expect(split).toMatchObject({
+      system: [
+        { type: "text", text: specialistSharedPrefix, cache_control: { type: "ephemeral" } },
+        { type: "text", text: persona, cache_control: { type: "ephemeral" } },
+      ],
+    });
+    const splitRecord = split as { tools: unknown; messages: unknown };
+    expect(splitRecord.tools).toBe(tools);
+    expect(splitRecord.messages).toBe(messages);
+
+    const prior = vi.fn(async () => undefined);
+    await streamFn(model, context, { onPayload: prior });
+    const chained = await getLastOptions()?.onPayload?.(payload, model);
+    expect(prior).toHaveBeenCalledOnce();
+    expect(chained).toMatchObject({
+      system: [{ text: specialistSharedPrefix }, { text: persona }],
+    });
+
+    const replacement = { system: "kept" };
+    const replacing = vi.fn(async () => replacement);
+    await streamFn(model, context, { onPayload: replacing });
+    expect(await getLastOptions()?.onPayload?.(payload, model)).toBe(replacement);
+
+    const untouched = vi.fn(async (value: unknown) => value);
+    await streamFn({ id: "m", provider: "openai", api: "openai-responses" } as never, context, {
+      onPayload: untouched,
+    });
+    expect(getLastOptions()?.onPayload).toBe(untouched);
+  });
 });
 
 describe("createPiSession tool contract", () => {
