@@ -536,7 +536,7 @@ describe("review check run lifecycle", () => {
       note: "Coverage partial: security specialist failed. Unread changed files: src/a.ts.",
     };
     expect(
-      closeOutcomeForCoverage(specialistsAndUnread, { conclusion: "failure", blockingCount: 2 }),
+      closeOutcomeForCoverage(specialistsAndUnread, { conclusion: "success", blockingCount: 0 }),
     ).toEqual({ kind: "partial", note: specialistsAndUnread.note });
     expect(
       ownVerdictFromSummaryDetail({
@@ -561,6 +561,24 @@ describe("review check run lifecycle", () => {
         ownCheckFailing: true,
       }),
     ).toEqual({ kind: "partial", note: "Partial specialist coverage." });
+  });
+
+  it("fails the review check when a specialist fails and a blocking finding is published", () => {
+    const coverage = {
+      kind: "partial" as const,
+      failed: ["security"] as const,
+      note: "Coverage partial: security specialist failed.",
+    };
+    expect(
+      ownVerdictSurfaces(
+        closeOutcomeForCoverage(coverage, { conclusion: "success", blockingCount: 0 }),
+      ).checkRun,
+    ).toBe("neutral");
+    expect(
+      ownVerdictSurfaces(
+        closeOutcomeForCoverage(coverage, { conclusion: "failure", blockingCount: 1 }),
+      ).checkRun,
+    ).toBe("failure");
   });
 
   it("publishes failure when unread files coincide with a failing check", () => {
