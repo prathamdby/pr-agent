@@ -514,7 +514,7 @@ describe("review check run lifecycle", () => {
     });
   });
 
-  it("promotes a failing check for unjudged coverage and keeps specialists partial", () => {
+  it("promotes a failing check under partial coverage and keeps a passing check partial", () => {
     const unjudged = {
       kind: "partial" as const,
       unjudged: ["tests"] as const,
@@ -539,6 +539,13 @@ describe("review check run lifecycle", () => {
       closeOutcomeForCoverage(specialistsAndUnread, { conclusion: "success", blockingCount: 0 }),
     ).toEqual({ kind: "partial", note: specialistsAndUnread.note });
     expect(
+      closeOutcomeForCoverage(specialistsAndUnread, { conclusion: "failure", blockingCount: 2 }),
+    ).toEqual({
+      kind: "published",
+      conclusion: "failure",
+      blockingCount: 2,
+    });
+    expect(
       ownVerdictFromSummaryDetail({
         ownVerdictKind: "partial",
         ownPartialReason: "unjudged",
@@ -553,7 +560,7 @@ describe("review check run lifecycle", () => {
         ownCheckFailing: true,
         ownVerdictNote: "Coverage partial: security specialist failed.",
       }),
-    ).toEqual({ kind: "partial", note: "Coverage partial: security specialist failed." });
+    ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 1 });
     expect(
       ownVerdictFromSummaryDetail({
         ownVerdictKind: "partial",
