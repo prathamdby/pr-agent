@@ -732,7 +732,6 @@ describe("runOrchestratedPrReview", () => {
       const recovery = openReviewRecovery(binding, { load, save: async () => "stored" });
       const result = await runOrchestratedPrReview({
         ...params(),
-        cfg: makeTestConfig({ review: { recoveryEnabled: true } }),
         recovery,
         workspace: { ...workspace, reader: { ...workspace.reader, isPathInCheckout: () => true } },
         trustedContext: "normal trusted policy",
@@ -768,7 +767,7 @@ describe("runOrchestratedPrReview", () => {
     },
   );
 
-  it("does not touch supplied recovery storage while the flag is off", async () => {
+  it("loads a supplied recovery session", async () => {
     const binding = createReviewArtifactBinding(
       {
         workItemId: "00000000-0000-4000-8000-000000000001",
@@ -784,18 +783,17 @@ describe("runOrchestratedPrReview", () => {
       "a".repeat(64),
     );
     const load = vi.fn(async () => {
-      throw new Error("flag-off read");
+      throw new Error("recovery read");
     });
     const save = vi.fn(async () => {
-      throw new Error("flag-off write");
+      throw new Error("recovery write");
     });
     const recovery = openReviewRecovery(binding, { load, save });
     const run = runOrchestratedPrReview({ ...params(), recovery });
     for (const specialist of ["correctness", "security", "quality", "tests"] as const)
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
-    await expect(run).resolves.toMatchObject({ published: true });
-    expect(load).not.toHaveBeenCalled();
-    expect(save).not.toHaveBeenCalled();
+    await expect(run).rejects.toThrow("recovery read");
+    expect(load).toHaveBeenCalled();
   });
 
   it("stops before synthesis when a specialist report cannot be stored", async () => {
@@ -826,7 +824,6 @@ describe("runOrchestratedPrReview", () => {
     const recovery = openReviewRecovery(binding, { load: async () => null, save });
     const run = runOrchestratedPrReview({
       ...params(),
-      cfg: makeTestConfig({ review: { recoveryEnabled: true } }),
       recovery,
     });
     for (const specialist of ["correctness", "security", "quality", "tests"] as const)

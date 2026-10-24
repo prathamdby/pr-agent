@@ -774,7 +774,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishAbortState,
     staleHeadAtPublish,
   });
-  const baseSha = cfg.review.recoveryEnabled ? reviewRecoveryBaseSha(pullRequest) : null;
+  const baseSha = reviewRecoveryBaseSha(pullRequest);
   const recoveryDiff = baseSha
     ? {
         patches: await Promise.all(
@@ -981,7 +981,6 @@ async function runClaimedReview(args: {
       summaryDetail?.lightweightCompletion === true && (await prSurface.getHeadSha()) === headSha;
     if (
       !usableSummaryReceipt &&
-      cfg.review.recoveryEnabled &&
       summaryDetail &&
       item.headSha === headSha &&
       (summaryDetail.ownVerdictKind === "published" ||

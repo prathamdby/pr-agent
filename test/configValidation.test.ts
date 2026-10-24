@@ -32,7 +32,6 @@ describe("loadConfig validation", () => {
     expect(cfg.runtime.port).toBe(3000);
     expect(cfg.provider.promptTimeoutMs).toBe(300_000);
     expect(cfg.review.specialistTimeoutMs).toBe(900_000);
-    expect(cfg.review.recoveryEnabled).toBe(false);
     expect(cfg.review.checkFailSeverity).toBe("P2");
     expect(cfg.provider.retryMax).toBe(2);
     expect(cfg.provider.maxRetryDelayMs).toBe(60_000);
@@ -53,7 +52,7 @@ describe("loadConfig validation", () => {
     expect(cfg.codeMode.executorKind).toBe("in_process");
   });
 
-  it("loads when retired trace and code index variables are set", async () => {
+  it("loads when retired trace, code index, and review recovery variables are set", async () => {
     const withValues = await load({
       TRACES_MODE: "metadata",
       TRACES_RETENTION_SECONDS: "86400",
@@ -61,9 +60,12 @@ describe("loadConfig validation", () => {
       CODE_INDEX_MODE: "fts",
       CODE_INDEX_WAIT_MS: "1000",
       CODE_INDEX_RETENTION_SECONDS: "3600",
+      REVIEW_RECOVERY_ENABLED: "true",
     });
     expect(withValues.runtime.role).toBe("web");
-    const withEmpty = await load({ TRACES_MODE: "" });
+    const withFalse = await load({ REVIEW_RECOVERY_ENABLED: "false" });
+    expect(withFalse.runtime.role).toBe("web");
+    const withEmpty = await load({ TRACES_MODE: "", REVIEW_RECOVERY_ENABLED: "" });
     expect(withEmpty.runtime.role).toBe("web");
   });
 
@@ -144,7 +146,6 @@ describe("loadConfig validation", () => {
     ["LOG_REDACT", (c: Config) => c.logging.redact] as const,
     ["AGENT_EVENTS_ENABLED", (c: Config) => c.agentEvents.enabled] as const,
     ["RETENTION_ENABLED", (c: Config) => c.retention.enabled] as const,
-    ["REVIEW_RECOVERY_ENABLED", (c: Config) => c.review.recoveryEnabled] as const,
     ["REVIEW_TESTS_EVIDENCE", (c: Config) => c.review.testsEvidence] as const,
   ])("parses boolean knob %s as strict true/false", async (name, field) => {
     expect(field(await load({ [name]: "false" }))).toBe(false);
@@ -162,22 +163,6 @@ describe("loadConfig validation", () => {
     expect(cfg.logging.redact).toBe(true);
     expect(cfg.agentEvents.enabled).toBe(true);
   });
-
-  it.each(["", "   ", "false", "true"])("reads the review recovery flag %j", async (value) => {
-    expect((await load({ REVIEW_RECOVERY_ENABLED: value })).review.recoveryEnabled).toBe(
-      value === "true",
-    );
-  });
-
-  it.each(["1", "0", "yes", "TRUE", "False", " true ", " false "])(
-    "rejects the review recovery flag typo %j",
-    async (value) => {
-      await expect(load({ REVIEW_RECOVERY_ENABLED: value })).rejects.toMatchObject({
-        code: "config.invalid_enum",
-        context: { name: "REVIEW_RECOVERY_ENABLED" },
-      });
-    },
-  );
 
   it("parses LOG_PRETTY with the same strict boolean rules", async () => {
     expect((await load({ LOG_PRETTY: "false" })).logging.pretty).toBe(false);

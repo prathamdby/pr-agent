@@ -95,7 +95,10 @@ const mocks = vi.hoisted(() => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
-  getProgressCommentOwner: vi.fn(async () => ({ workItemId: "wi-1", generation: 0 })),
+  getProgressCommentOwner: vi.fn(async () => ({
+    workItemId: "00000000-0000-4000-8000-000000000001",
+    generation: 0,
+  })),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
   write: vi.fn(),
@@ -208,7 +211,11 @@ const pullRequest = {
 };
 
 function makeItem(source: "auto" | "slash") {
-  return makeReviewWorkItem({ source, headSha: "head" });
+  return makeReviewWorkItem({
+    id: "00000000-0000-4000-8000-000000000001",
+    source,
+    headSha: "head",
+  });
 }
 
 function mockRepositoryView() {
@@ -368,128 +375,127 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
-    expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
+    expect(mocks.loadPublishContext).toHaveBeenCalledWith(
+      pool,
+      "00000000-0000-4000-8000-000000000001",
+      "o/r#1",
+      "review",
+    );
   });
 
   it.each([
-    [false, "exact", false],
-    [false, "metadata", false],
-    [true, "exact", true],
-    [true, "partial", true],
-    [true, "metadata", false],
-    [true, "missing_result", false],
-    [true, "malformed_result", false],
-    [true, "pending", false],
-    [true, "wrong_head", false],
-    [true, "wrong_identity", false],
-    [true, "wrong_marker", false],
-    [true, "wrong_outcome", false],
-  ] as const)(
-    "requires an exact usable summary receipt at cap (enabled=%s, receipt=%s)",
-    async (enabled, receipt, completes) => {
-      mocks.loadPublishContext.mockResolvedValueOnce({
-        publishState: { summaryPublished: true, inlineReviewIds: [41], threadCallCount: 1 },
-        shouldLinkToSummary: false,
-        resumedPlacements: [],
-        progressCommentGithubId: 2,
-      });
-      mocks.completed.mockResolvedValue(
-        receipt === "metadata"
-          ? {}
-          : verdictOwner.summaryCommentVerdictMeta({
-              kind: receipt === "partial" ? "partial" : "published",
-              ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
-              conclusion: "success",
-              checkFailSeverity: "P2",
-            }),
-      );
-      if (receipt === "wrong_outcome")
-        mocks.completed.mockResolvedValue({
-          ownVerdictKind: "crashed",
-          ownCheckFailing: false,
-        });
-      const operationKey = reviewSummaryOperationKey("o/r#1", "review");
-      await publishStoreState.store.persistOperationIntent(pool, {
-        workItemId: receipt === "wrong_identity" ? "other-work" : "wi-1",
-        operationKey,
-        mutationKind: "github.summary_comment",
-        detail: {
-          step: "summary_comment",
-          resourceKey: "o/r#1",
-          reviewLens: "review",
-          operationMarker:
-            receipt === "wrong_marker"
-              ? "wrong-marker"
-              : operationIntentMarker(operationKey, "wi-1"),
-        },
-      });
-      if (receipt === "pending") {
-        await publishStoreState.store.mergeOperationIntentDetail(pool, {
-          workItemId: "wi-1",
-          operationKey,
-          detail: { __result: { id: 2, updated: true } },
-        });
-      } else
-        await publishStoreState.store.reconcileOperationIntent(pool, {
-          workItemId: receipt === "wrong_identity" ? "other-work" : "wi-1",
-          operationKey,
-          status: "reconciled",
-          detail:
-            receipt === "missing_result"
-              ? {}
-              : {
-                  __result: receipt === "malformed_result" ? { id: 0 } : { id: 2, updated: true },
-                },
-        });
-      if (receipt === "wrong_head") durableSurfaceBundle.controls.setHeadSha("different-head");
-      const beginAttempt = vi.fn(async () => {
-        throw new AppError({
-          domain: "agent_work",
-          kind: "attempts_exhausted",
-          message: "at cap",
-        });
-      });
-      configureExecution(
-        async (spec) => {
-          const item = makeItem("slash");
-          return spec.execute(
-            item,
-            createDurableExecutionContext({
-              pool,
-              item,
-              prSurface: durableSurfaceBundle.surface,
-              headSha: "head",
-              leaseEpoch: 1,
-              job: makeDurableJobMetadata(),
-              beginAttempt,
-              signal: new AbortController().signal,
-              pullRequest,
-              getClaim: () => ({ ...mockWorkClaim(), attemptCount: 4, resumed: true }),
-              getEscalation: () => undefined,
-            }),
-          );
-        },
-        makeTestConfig({ review: { recoveryEnabled: enabled } }),
-      );
-      if (completes) {
-        await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
-        expect(beginAttempt).not.toHaveBeenCalled();
-        expect(verdictMethods.close).toHaveBeenCalledWith(
-          expect.objectContaining({
+    ["exact", true],
+    ["partial", true],
+    ["metadata", false],
+    ["missing_result", false],
+    ["malformed_result", false],
+    ["pending", false],
+    ["wrong_head", false],
+    ["wrong_identity", false],
+    ["wrong_marker", false],
+    ["wrong_outcome", false],
+  ] as const)("reconciles a summary receipt at cap (receipt=%s)", async (receipt, completes) => {
+    mocks.loadPublishContext.mockResolvedValueOnce({
+      publishState: { summaryPublished: true, inlineReviewIds: [41], threadCallCount: 1 },
+      shouldLinkToSummary: false,
+      resumedPlacements: [],
+      progressCommentGithubId: 2,
+    });
+    mocks.completed.mockResolvedValue(
+      receipt === "metadata"
+        ? {}
+        : verdictOwner.summaryCommentVerdictMeta({
             kind: receipt === "partial" ? "partial" : "published",
+            ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
+            conclusion: "success",
+            checkFailSeverity: "P2",
           }),
-        );
-      } else {
-        await expect(runExecution()).rejects.toMatchObject({
-          code: "agent_work.attempts_exhausted",
-        });
-        expect(beginAttempt).toHaveBeenCalledTimes(1);
-        expect(verdictMethods.close).not.toHaveBeenCalled();
-      }
-      expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
-      expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    },
-  );
+    );
+    if (receipt === "wrong_outcome")
+      mocks.completed.mockResolvedValue({
+        ownVerdictKind: "crashed",
+        ownCheckFailing: false,
+      });
+    const operationKey = reviewSummaryOperationKey("o/r#1", "review");
+    await publishStoreState.store.persistOperationIntent(pool, {
+      workItemId:
+        receipt === "wrong_identity" ? "other-work" : "00000000-0000-4000-8000-000000000001",
+      operationKey,
+      mutationKind: "github.summary_comment",
+      detail: {
+        step: "summary_comment",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+        operationMarker:
+          receipt === "wrong_marker"
+            ? "wrong-marker"
+            : operationIntentMarker(operationKey, "00000000-0000-4000-8000-000000000001"),
+      },
+    });
+    if (receipt === "pending") {
+      await publishStoreState.store.mergeOperationIntentDetail(pool, {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        operationKey,
+        detail: { __result: { id: 2, updated: true } },
+      });
+    } else
+      await publishStoreState.store.reconcileOperationIntent(pool, {
+        workItemId:
+          receipt === "wrong_identity" ? "other-work" : "00000000-0000-4000-8000-000000000001",
+        operationKey,
+        status: "reconciled",
+        detail:
+          receipt === "missing_result"
+            ? {}
+            : {
+                __result: receipt === "malformed_result" ? { id: 0 } : { id: 2, updated: true },
+              },
+      });
+    if (receipt === "wrong_head") durableSurfaceBundle.controls.setHeadSha("different-head");
+    const beginAttempt = vi.fn(async () => {
+      throw new AppError({
+        domain: "agent_work",
+        kind: "attempts_exhausted",
+        message: "at cap",
+      });
+    });
+    configureExecution(async (spec) => {
+      const item = makeItem("slash");
+      return spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item,
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt,
+          signal: new AbortController().signal,
+          pullRequest,
+          getClaim: () => ({ ...mockWorkClaim(), attemptCount: 4, resumed: true }),
+          getEscalation: () => undefined,
+        }),
+      );
+    });
+    if (completes) {
+      await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
+      expect(beginAttempt).not.toHaveBeenCalled();
+      expect(verdictMethods.close).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: receipt === "partial" ? "partial" : "published",
+        }),
+      );
+    } else {
+      await expect(runExecution()).rejects.toMatchObject({
+        code: "agent_work.attempts_exhausted",
+      });
+      expect(beginAttempt).toHaveBeenCalledTimes(1);
+      expect(verdictMethods.close).not.toHaveBeenCalled();
+    }
+    expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
 
   it.each(["essential_access_denied", "preflight_unavailable"] as const)(
     "refuses fresh review work on %s before pending verdicts, workspace, or model work",
@@ -682,7 +688,10 @@ describe("review work definition", () => {
     expect(mocks.lightweight).not.toHaveBeenCalled();
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ workItemId: "wi-1", resumedPlacements: [] }),
+      expect.objectContaining({
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resumedPlacements: [],
+      }),
     );
   });
 
@@ -742,7 +751,7 @@ describe("review work definition", () => {
         repo: "r",
         prNumber: 1,
         headSha: "head",
-        workItemId: "wi-1",
+        workItemId: "00000000-0000-4000-8000-000000000001",
         resourceKey: "o/r#1",
         reviewLens: "review",
       }),
@@ -792,7 +801,7 @@ describe("review work definition", () => {
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ id: "wi-1" }),
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001" }),
       1,
     );
   });
@@ -816,7 +825,7 @@ describe("review work definition", () => {
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
     );
   });
@@ -846,7 +855,7 @@ describe("review work definition", () => {
     });
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
@@ -869,7 +878,7 @@ describe("review work definition", () => {
     });
     configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
-        id: "wi-replacement",
+        id: "00000000-0000-4000-8000-000000000002",
         source: "auto",
         status: "running",
         headSha: "old-replacement-head",
@@ -955,7 +964,7 @@ describe("review work definition", () => {
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
@@ -1031,7 +1040,7 @@ describe("review work definition", () => {
     });
     configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
-        id: "wi-replacement",
+        id: "00000000-0000-4000-8000-000000000002",
         source: "auto",
         status: "running",
         headSha: "old-replacement-head",
@@ -1074,7 +1083,11 @@ describe("review work definition", () => {
   it("preserves superseded gate stops without checking the pull request head", async () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(
-      makeReviewWorkItem({ id: "wi-1", source: "auto", status: "running" }),
+      makeReviewWorkItem({
+        id: "00000000-0000-4000-8000-000000000001",
+        source: "auto",
+        status: "running",
+      }),
     );
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
@@ -1096,7 +1109,7 @@ describe("review work definition", () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(
       makeReviewWorkItem({
-        id: "wi-1",
+        id: "00000000-0000-4000-8000-000000000001",
         source: "slash",
         status: "running",
         payload: {
@@ -1353,7 +1366,11 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(cancel).toHaveBeenCalledWith(pool, expect.objectContaining({ id: "wi-1" }), dead);
+    expect(cancel).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001" }),
+      dead,
+    );
     expect(verdictMethods.close).not.toHaveBeenCalled();
   });
 
@@ -1395,7 +1412,10 @@ describe("review work definition", () => {
     expect(mocks.summaryConclude).toHaveBeenCalledWith(
       expect.objectContaining({
         reviewLens: "review",
-        coordination: expect.objectContaining({ pool, workItemId: "wi-1" }),
+        coordination: expect.objectContaining({
+          pool,
+          workItemId: "00000000-0000-4000-8000-000000000001",
+        }),
       }),
       { body: expect.stringContaining("Review did not finish") },
     );
@@ -1486,7 +1506,11 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({ pool, workItemId: "wi-1", headSha: "head" }),
+      expect.objectContaining({
+        pool,
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        headSha: "head",
+      }),
     );
     expect(verdictMethods.close).toHaveBeenCalled();
     expect(
@@ -1527,7 +1551,11 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({ pool, workItemId: "wi-1", headSha: undefined }),
+      expect.objectContaining({
+        pool,
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        headSha: undefined,
+      }),
     );
     expect(verdictMethods.close).toHaveBeenCalled();
   });
@@ -1545,7 +1573,7 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({ pool, workItemId: "wi-1" }),
+      expect.objectContaining({ pool, workItemId: "00000000-0000-4000-8000-000000000001" }),
     );
     expect(verdictMethods.close).toHaveBeenCalled();
   });
