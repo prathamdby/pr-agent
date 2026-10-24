@@ -53,8 +53,9 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 ## Consequences
 
 Amendment for review reliability:
-[ADR 0044](0044-review-validated-artifact-recovery.md) adds default-off validated
-artifact recovery without changing retry scheduling, limits, or deadlines.
+[ADR 0044](0044-review-validated-artifact-recovery.md) adds recovery on every
+review that can bind a base sha, without changing retry scheduling, limits, or
+deadlines.
 Receipt-only reconciliation remains reachable at the cap, but resumed workspace,
 evidence rereads, read-tool, and model work charge memoized admitted `beginAttempt`.
 A typed `github.review_thread_resolution_denied` is terminal verification denial,
@@ -94,7 +95,8 @@ restores future budget burn and does not preserve the corrected guarantee.
 
 For a verification downgrade, pause active and queued execution first so old
 workers cannot consume a new terminal denial. Disabling a feature alone does
-not block retained queued work. Artifact rollback disables recovery and retains
-rows and receipts; it never drops the table or resets accepted intents.
+not block retained queued work. Artifact rollback deploys the previous release
+and retains rows and receipts. It does not drop the table or reset accepted
+intents.
 
 Restore `fallbackClassification.ts` and the orchestrator restart, drop the disposition and escalation plumbing, and re-emit per-feature failure events. This would reintroduce mid-run model switching and failure events for completed work items, so it is not recommended.
