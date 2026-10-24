@@ -303,8 +303,9 @@ const PROMPT_IMPORTS_PROBE: Record<string, string> = {
   "src/agent/entryImports.ts": [
     'import { askSystemPrompt } from "../prompts/ask/prompt.ts";',
     'import { envelope } from "../prompts/shared/safety.ts";',
+    'import { specialistSharedPrefix } from "../prompts/shared/prefix.ts";',
     'import { a } from "./prompts/ask/behavior.ts";',
-    "export const e = [askSystemPrompt, envelope, a];",
+    "export const e = [askSystemPrompt, envelope, specialistSharedPrefix, a];",
     "",
   ].join("\n"),
   "src/review/repairImports.ts":

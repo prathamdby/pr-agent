@@ -106,6 +106,7 @@ import {
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   sessionCacheIdFromIdentity,
+  specialistSharedCacheId,
 } from "../src/agent/runtime/piSession.ts";
 import { toCoreTool } from "../src/agent/runtime/coreTools.ts";
 import * as coreToolsModule from "../src/agent/runtime/coreTools.ts";
@@ -113,6 +114,7 @@ import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
 import type { ThinkingPolicy } from "../src/agent/runtime/types.ts";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
 import { isAppError } from "../src/errors/appError.ts";
 import type { Config } from "../src/settings/index.ts";
 
@@ -955,6 +957,39 @@ describe("createPiSession prompt cache identity", () => {
     );
   });
 
+  it("uses the shared cache id when the system prompt starts with the specialist prefix", async () => {
+    const events: Array<{ kind: string; specialistId?: string }> = [];
+    const session = await createPiSession({
+      role: "specialist",
+      specialistId: "correctness",
+      primary: { provider: cfg.models.provider, model: cfg.models.model },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      systemPrompt: `${specialistSharedPrefix}\n\nYou are the correctness specialist.`,
+      cwd: "/tmp/pr-agent-specialist-shared-cache",
+      eventSink: (event) => {
+        events.push({ kind: event.kind, specialistId: event.specialistId });
+      },
+      cfg,
+      tools: [],
+      executors: {},
+    });
+    await session.send("run", { phase: "specialist", checkpointId: "cp" });
+    expect(lastLoopConfig().sessionId).toBe(
+      specialistSharedCacheId({
+        role: "specialist",
+        specialistId: "correctness",
+        provider: cfg.models.provider,
+        model: cfg.models.model,
+      }),
+    );
+    expect(events.find((event) => event.kind === "completion")).toMatchObject({
+      specialistId: "correctness",
+    });
+  });
+
   it("injects short cacheRetention on the loop config", async () => {
     const session = await createPiRunnerSession({
       cfg,
@@ -1030,6 +1065,71 @@ describe("createPiSession prompt cache identity", () => {
       maxRetries: 2,
       maxRetryDelayMs: 1000,
     });
+  });
+
+  it("splits a prefixed Anthropic payload through the stream hook", async () => {
+    const streamSimple = vi.fn(() => ({
+      [Symbol.asyncIterator]() {
+        return { next: async () => ({ done: true as const, value: undefined }) };
+      },
+      result: async () => undefined,
+    }));
+    const { streamFn, getLastOptions } = createSessionStreamFn({ streamSimple } as never, {
+      cacheRetention: "short",
+      sessionId: "sess",
+      timeoutMs: 12,
+      maxRetries: 0,
+      maxRetryDelayMs: 1000,
+    });
+    const model = { id: "m", provider: "anthropic", api: "anthropic-messages" } as never;
+    const persona = "You are the security specialist.";
+    const context = {
+      systemPrompt: `${specialistSharedPrefix}\n\n${persona}`,
+      messages: [],
+    } as never;
+    const tools = [{ name: "read" }];
+    const messages = [{ role: "user" }];
+    const payload = {
+      system: [
+        {
+          type: "text",
+          text: `${specialistSharedPrefix}\n\n${persona}`,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      tools,
+      messages,
+    };
+    await streamFn(model, context, {});
+    const split = await getLastOptions()?.onPayload?.(payload, model);
+    expect(split).toMatchObject({
+      system: [
+        { type: "text", text: specialistSharedPrefix, cache_control: { type: "ephemeral" } },
+        { type: "text", text: persona, cache_control: { type: "ephemeral" } },
+      ],
+    });
+    const splitRecord = split as { tools: unknown; messages: unknown };
+    expect(splitRecord.tools).toBe(tools);
+    expect(splitRecord.messages).toBe(messages);
+
+    const prior = vi.fn(async () => undefined);
+    await streamFn(model, context, { onPayload: prior });
+    const chained = await getLastOptions()?.onPayload?.(payload, model);
+    expect(prior).toHaveBeenCalledOnce();
+    expect(chained).toMatchObject({
+      system: [{ text: specialistSharedPrefix }, { text: persona }],
+    });
+
+    const replacement = { system: "kept" };
+    const replacing = vi.fn(async () => replacement);
+    await streamFn(model, context, { onPayload: replacing });
+    expect(await getLastOptions()?.onPayload?.(payload, model)).toBe(replacement);
+
+    const untouched = vi.fn(async (value: unknown) => value);
+    await streamFn({ id: "m", provider: "openai", api: "openai-responses" } as never, context, {
+      onPayload: untouched,
+    });
+    expect(getLastOptions()?.onPayload).toBe(untouched);
   });
 });
 

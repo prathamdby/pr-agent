@@ -3,8 +3,9 @@
 ## Status
 
 Implemented for prompts, tool contracts, and the Anthropic Messages request
-profile. The measurement, shared-prefix, and structured no-tool work listed under
-Deferred is not implemented.
+profile. The measurement and structured no-tool work listed under Deferred is
+not implemented. The specialist prefix is implemented. The shared review kernel
+stays deferred.
 
 ## Context
 
@@ -90,9 +91,8 @@ Prompts:
 
 - Measurement: a seeded-bug eval corpus and wire capture of request payloads.
   The corpus needs new fixtures, which stay opt-in.
-- A shared review kernel and one specialist prefix shared across personas. The
-  four personas still have separate system prompts, so ADR 0025's per-role
-  prefixes are unchanged.
+- A shared review kernel. The four investigation methods differ, so one kernel
+  stays deferred.
 - Strict tools for the CI author and bound-policy judge in place of JSON parsed
   from prose.
 

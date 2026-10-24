@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { automatedQualitySystemPrompt } from "../src/prompts/quality/prompt.ts";
 import { automatedReviewTestsSystemPrompt } from "../src/prompts/tests/prompt.ts";
 import { automatedSecuritySystemPrompt } from "../src/prompts/security/prompt.ts";
@@ -7,6 +8,25 @@ import type { PiSession } from "../src/agent/runtime/types.ts";
 import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.ts";
 import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
+import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
+import {
+  causalPublicationContract,
+  highStakesTrivialTrapGuidance,
+  outOfScopeFilesGuidance,
+  readOnlyReviewGuidance,
+  severityRubric,
+} from "../src/prompts/shared/behavior.ts";
+import { communicationGuidance } from "../src/prompts/shared/communication.ts";
+import { specialistFindingsReportContract } from "../src/prompts/shared/output.ts";
+import {
+  agentInstructionFilesGuidance,
+  context7OutboundDataGuidance,
+  priorInlineFeedbackGuidance,
+  repoPolicyGuidance,
+  specialistUntrustedEvidenceGuidance,
+  userSupplementGuidance,
+} from "../src/prompts/shared/safety.ts";
+import { specialistInvestigationHarness } from "../src/prompts/shared/tools.ts";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
@@ -374,6 +394,77 @@ describe("runSpecialist", () => {
     );
     expect(automatedReviewTestsSystemPrompt).toContain("P2 is the ceiling for test-gap findings");
     expect(automatedReviewTestsSystemPrompt).toContain("criticalPath");
+  });
+
+  it("starts the four specialist prompts with one prefix and the ordered leftover", () => {
+    const prompts = [
+      buildAutomatedSystemPrompt(),
+      automatedSecuritySystemPrompt,
+      automatedQualitySystemPrompt,
+      automatedReviewTestsSystemPrompt,
+    ] as const;
+    const identities = [
+      "You are the correctness specialist investigator for this pull request. Your job is to find the real, actionable defects its changes introduce: each one has a trigger path you can show from the code. Style, taste, and speculation belong to no specialist.",
+      "You are the security specialist investigator for this pull request, focused on web application security, authentication systems, and modern frameworks. Think like an attacker: the valuable findings are subtle logic flaws such as race conditions, auth bypasses through parameter manipulation, and trust-boundary violations.",
+      "You are the quality specialist investigator for this pull request. Your job is to find structural causes of present harm: invalid ownership, diverged duplicates, unsafe fallbacks, unreachable cleanup, contradictory sources of truth, and layer-boundary failures with an observable caller impact.",
+      "You are the tests specialist investigator for this pull request. Think in failure modes: for each changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it. The testing posture below decides whether this project wants test suggestions at all.",
+    ] as const;
+    const blocks = [
+      readOnlyReviewGuidance,
+      specialistInvestigationHarness,
+      context7OutboundDataGuidance,
+      specialistUntrustedEvidenceGuidance,
+      userSupplementGuidance,
+      severityRubric,
+      causalPublicationContract,
+      highStakesTrivialTrapGuidance,
+      priorInlineFeedbackGuidance,
+      agentInstructionFilesGuidance,
+      repoPolicyGuidance,
+      outOfScopeFilesGuidance,
+      communicationGuidance,
+      specialistFindingsReportContract,
+    ] as const;
+    const leftoverSha256 = [
+      "7928cb1a89fa937f0885f5a2c951e1b2d6254f80fe09b8ec81a941aef9081f1b",
+      "95a5a8623225209142b66b59748a1e6b1b76c8e2ab3838f96b44b3b9e57dcdeb",
+      "01ad134591e990ed7a02655754f8a269787f0868c6e278c674c7635b8f985f08",
+      "81ab9e5e32a5110f71f43fd6c605a235ec539e6da69243f5c09a948946c48701",
+    ] as const;
+    expect(new Set(prompts).size).toBe(prompts.length);
+    for (const sentence of identities) {
+      expect(specialistSharedPrefix.includes(sentence)).toBe(false);
+    }
+    prompts.forEach((prompt, index) => {
+      const head = `${specialistSharedPrefix}\n\n`;
+      expect(prompt.startsWith(head)).toBe(true);
+      const body = prompt.slice(head.length);
+      expect(body.startsWith(identities[index] ?? "")).toBe(true);
+      expect(createHash("sha256").update(body).digest("hex")).toBe(leftoverSha256[index]);
+      for (const block of blocks) {
+        expect(prompt.indexOf(block)).toBe(prompt.lastIndexOf(block));
+        expect(body.includes(block)).toBe(false);
+      }
+    });
+    const securityBody = automatedSecuritySystemPrompt.slice(specialistSharedPrefix.length + 2);
+    const securityStart = securityBody.indexOf("Start from the PR diff");
+    const securityContext7 = securityBody.indexOf(
+      "When a finding hinges on a framework or library's security behaviour",
+    );
+    const securityLane = securityBody.indexOf(
+      "Correctness bugs, style issues, and non-security logic errors",
+    );
+    expect(securityContext7).toBeGreaterThan(securityStart);
+    expect(securityLane).toBeGreaterThan(securityContext7);
+    const correctnessBody = buildAutomatedSystemPrompt().slice(specialistSharedPrefix.length + 2);
+    const methodBegin = correctnessBody.indexOf("<!-- BEGIN_SHARED_METHODOLOGY -->");
+    const method = correctnessBody.indexOf("## Investigation method");
+    const methodEnd = correctnessBody.indexOf("<!-- END_SHARED_METHODOLOGY -->");
+    expect(method).toBeGreaterThan(methodBegin);
+    expect(methodEnd).toBeGreaterThan(method);
+    expect(automatedReviewTestsSystemPrompt.indexOf("For a coverage_gap finding")).toBeGreaterThan(
+      automatedReviewTestsSystemPrompt.indexOf(severityRubric) + severityRubric.length,
+    );
   });
 
   async function rejectedTestsReport(report: Record<string, unknown>, cfg = makeTestConfig()) {

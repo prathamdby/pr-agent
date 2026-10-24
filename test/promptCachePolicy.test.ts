@@ -4,7 +4,11 @@ import {
   SESSION_CACHE_ID_MAX_LENGTH,
   cacheIdentityFromAssignment,
   sessionCacheIdFromIdentity,
+  specialistSharedCacheId,
+  splitAnthropicSystemBlocks,
 } from "../src/agent/runtime/promptCachePolicy.ts";
+import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
+import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
 import type { AgentSessionRole } from "../src/agent/runtime/types.ts";
 import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.ts";
 
@@ -114,4 +118,135 @@ describe("promptCachePolicy", () => {
     expect(punctuated).toMatch(SESSION_ID_RE);
     expect(punctuated).toContain("A-B");
   });
+
+  it("splits one Anthropic system block at the specialist prefix", () => {
+    const prefix = "SHARED";
+    const body = "You are the correctness specialist.";
+    const text = `${prefix}\n\n${body}`;
+    const marker = { type: "ephemeral" };
+    const params = {
+      system: [{ type: "text", text, cache_control: marker }],
+      tools: [{ name: "execute" }],
+      messages: [{ role: "user", content: "Review." }],
+    };
+    const split = splitAnthropicSystemBlocks(params, prefix);
+    expect(split).toEqual({
+      system: [
+        { type: "text", text: prefix, cache_control: marker },
+        { type: "text", text: body, cache_control: marker },
+      ],
+      tools: params.tools,
+      messages: params.messages,
+    });
+    expect(split).not.toBe(params);
+    if (isRecord(split)) {
+      expect(split.tools).toBe(params.tools);
+      expect(split.messages).toBe(params.messages);
+    }
+    const absent = { system: [{ type: "text", text: "other prompt", cache_control: marker }] };
+    expect(splitAnthropicSystemBlocks(absent, prefix)).toBe(absent);
+    const already = {
+      system: [
+        { type: "text", text: prefix, cache_control: marker },
+        { type: "text", text: body, cache_control: marker },
+      ],
+    };
+    expect(splitAnthropicSystemBlocks(already, prefix)).toBe(already);
+    const notArray = { system: "SHARED" };
+    expect(splitAnthropicSystemBlocks(notArray, prefix)).toBe(notArray);
+    const real = {
+      system: [
+        {
+          type: "text",
+          text: buildAutomatedSystemPrompt(),
+          cache_control: marker,
+        },
+      ],
+      tools: [{ name: "execute" }],
+    };
+    const realSplit = splitAnthropicSystemBlocks(real, specialistSharedPrefix);
+    const realSystem = systemBlocks(realSplit);
+    expect(realSystem?.map((block) => block.text)).toEqual([
+      specialistSharedPrefix,
+      buildAutomatedSystemPrompt().slice(specialistSharedPrefix.length + 2),
+    ]);
+    expect(realSystem?.map((block) => block.text).join("\n\n")).toBe(buildAutomatedSystemPrompt());
+    expect(realSystem?.[0]?.cache_control).toEqual(marker);
+  });
+
+  it("keeps the prefix cache marker when the payload already has four", () => {
+    const prefix = "SHARED";
+    const body = "You are the security specialist.";
+    const marker = { type: "ephemeral" };
+    const identity = "You are Claude Code, Anthropic's official CLI for Claude.";
+    const withIdentity = {
+      system: [
+        { type: "text", text: identity, cache_control: marker },
+        { type: "text", text: `${prefix}\n\n${body}`, cache_control: marker },
+      ],
+      messages: [{ cache_control: marker }],
+      tools: [{ cache_control: marker }],
+    };
+    const identitySplit = splitAnthropicSystemBlocks(withIdentity, prefix);
+    expect(cacheMarkerCount(identitySplit)).toBe(4);
+    expect(systemBlocks(identitySplit)?.[1]).toMatchObject({
+      text: prefix,
+      cache_control: marker,
+    });
+    expect(systemBlocks(identitySplit)?.[0]).toEqual({ type: "text", text: identity });
+    const full = {
+      system: [{ type: "text", text: `${prefix}\n\n${body}`, cache_control: marker }],
+      messages: [{ cache_control: marker }],
+      tools: [{ cache_control: marker }, { cache_control: marker }],
+    };
+    const fullSplit = splitAnthropicSystemBlocks(full, prefix);
+    expect(cacheMarkerCount(fullSplit)).toBe(4);
+    expect(systemBlocks(fullSplit)).toEqual([
+      { type: "text", text: prefix, cache_control: marker },
+      { type: "text", text: body },
+    ]);
+    if (isRecord(fullSplit)) {
+      expect(fullSplit.tools).toBe(full.tools);
+      expect(fullSplit.messages).toBe(full.messages);
+    }
+  });
+
+  it("uses one shared cache id for prefixed specialist sessions", () => {
+    const pair = { provider: "openai", model: "gpt-5" } as const;
+    const ids = SPECIALIST_IDS.map((specialistId) =>
+      specialistSharedCacheId(cacheIdentityFromAssignment("specialist", pair, specialistId)),
+    );
+    expect(new Set(ids).size).toBe(1);
+    const shared = ids[0];
+    expect(shared).toBeDefined();
+    expect(shared).not.toBe(
+      sessionCacheIdFromIdentity(cacheIdentityFromAssignment("specialist", pair, "correctness")),
+    );
+    expect(shared).not.toBe(
+      sessionCacheIdFromIdentity(cacheIdentityFromAssignment("orchestrator", pair)),
+    );
+    expect(SPECIALIST_IDS).not.toContain("shared");
+  });
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function systemBlocks(
+  value: unknown,
+): Array<{ text?: string; cache_control?: unknown }> | undefined {
+  if (!isRecord(value) || !Array.isArray(value.system)) return undefined;
+  return value.system.filter(isRecord);
+}
+
+function cacheMarkerCount(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce((count, item) => count + cacheMarkerCount(item), 0);
+  if (!isRecord(value)) return 0;
+  let count = value.cache_control == null ? 0 : 1;
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "cache_control") continue;
+    count += cacheMarkerCount(child);
+  }
+  return count;
+}
