@@ -921,7 +921,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     }
   });
 
-  it("fails only findings at or above the configured threshold and keeps partial specialist coverage neutral", async () => {
+  it("fails only findings at or above the configured threshold and fails the check when a specialist did not finish", async () => {
     const cfg = makeTestConfig({ review: { checkFailSeverity: "P1" } });
     const seeded = await seedReviewPublication(cfg);
     const { surface, controls } = seeded;
@@ -1038,7 +1038,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         "neutral",
         "failure",
         "failure",
-        "neutral",
+        "failure",
       ]);
     } finally {
       await seeded.cleanup();
