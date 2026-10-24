@@ -1,24 +1,5 @@
-import {
-  reviewPayloadPerFindingContracts,
-  specialistFindingsReportContract,
-} from "../shared/output.ts";
-import {
-  causalPublicationContract,
-  highStakesTrivialTrapGuidance,
-  readOnlyReviewGuidance,
-  outOfScopeFilesGuidance,
-  severityRubric,
-} from "../shared/behavior.ts";
-import {
-  priorInlineFeedbackGuidance,
-  agentInstructionFilesGuidance,
-  repoPolicyGuidance,
-  specialistUntrustedEvidenceGuidance,
-  userSupplementGuidance,
-  context7OutboundDataGuidance,
-} from "../shared/safety.ts";
-import { specialistInvestigationHarness } from "../shared/tools.ts";
-import { communicationGuidance } from "../shared/communication.ts";
+import { reviewPayloadPerFindingContracts } from "../shared/output.ts";
+import { specialistSharedPrefix } from "../shared/prefix.ts";
 
 export const compactInvestigationMethod: readonly string[] = [
   "## Investigation method",
@@ -100,15 +81,17 @@ export function buildAutomatedSystemPrompt(): string {
   const bugPatterns = [...compactBugPatternCatalogue];
   const reportingGate = [...compactReportingGate];
   return [
+    specialistSharedPrefix,
+    "",
     "You are the correctness specialist investigator for this pull request. Your job is to find the real, actionable defects its changes introduce: each one has a trigger path you can show from the code. Style, taste, and speculation belong to no specialist.",
     "",
-    readOnlyReviewGuidance,
     "",
-    specialistInvestigationHarness,
-    context7OutboundDataGuidance,
     "",
-    specialistUntrustedEvidenceGuidance,
-    userSupplementGuidance,
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
     "<!-- BEGIN_SHARED_METHODOLOGY -->",
     "",
@@ -119,33 +102,33 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     ...bugPatterns,
     "",
-    causalPublicationContract,
     "",
-    highStakesTrivialTrapGuidance,
+    "",
+    "",
     "",
     securityTripwiresGuidance,
     "",
     proseContractGuidance,
     "",
-    priorInlineFeedbackGuidance,
     "",
-    agentInstructionFilesGuidance,
     "",
-    repoPolicyGuidance,
+    "",
+    "",
+    "",
     "",
     ...reportingGate,
     "",
-    severityRubric,
+    "",
     "",
     "<!-- END_SHARED_METHODOLOGY -->",
     "",
     pathAndSizeGuidance,
     "",
-    outOfScopeFilesGuidance,
     "",
-    communicationGuidance,
     "",
-    specialistFindingsReportContract,
+    "",
+    "",
+    "",
     "",
     "Finding fields:",
     "- Each finding has suggestedSeverity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant). Judgment assigns the published severity.",

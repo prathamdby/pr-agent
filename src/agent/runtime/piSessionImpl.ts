@@ -28,7 +28,12 @@ import {
 } from "../providers/usageMetadata.ts";
 import { toCoreTools } from "./coreTools.ts";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.ts";
-import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.ts";
+import {
+  cacheIdentityFromAssignment,
+  sessionCacheIdFromIdentity,
+  specialistSharedCacheId,
+  systemPromptStartsWithSpecialistPrefix,
+} from "./promptCachePolicy.ts";
 import { createSessionModels } from "./sessionModels.ts";
 import { createSessionStreamFn } from "./sessionStream.ts";
 import { createSessionTrace } from "./sessionTrace.ts";
@@ -88,9 +93,14 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const sessionMessages: AgentMessage[] = [
     { role: "system", content: params.systemPrompt, timestamp: Date.now() },
   ];
-  const sessionCacheId = sessionCacheIdFromIdentity(
-    cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
+  const cacheIdentity = cacheIdentityFromAssignment(
+    params.role,
+    params.primary,
+    params.specialistId,
   );
+  const sessionCacheId = systemPromptStartsWithSpecialistPrefix(params.systemPrompt)
+    ? specialistSharedCacheId(cacheIdentity)
+    : sessionCacheIdFromIdentity(cacheIdentity);
 
   const { models } = await createSessionModels(params.cfg);
   const model = models.getModel(params.primary.provider, params.primary.model);

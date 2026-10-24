@@ -1,4 +1,5 @@
 import {
+  contentText,
   createAssistantMessageEventStream,
   type AssistantMessage,
   type Context,
@@ -9,8 +10,13 @@ import {
   type Api,
 } from "@earendil-works/pi-ai";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
-import type { PromptCacheRetention } from "./promptCachePolicy.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
+import { specialistSharedPrefix } from "../../prompts/shared/prefix.ts";
+import {
+  splitAnthropicSystemBlocks,
+  systemPromptStartsWithSpecialistPrefix,
+  type PromptCacheRetention,
+} from "./promptCachePolicy.ts";
 
 const EMPTY_USAGE: Usage = {
   input: 0,
@@ -53,6 +59,16 @@ function failureMessage(
   };
 }
 
+function requestSystemText(context: Context): string {
+  if (typeof context.systemPrompt === "string" && context.systemPrompt.length > 0) {
+    return context.systemPrompt;
+  }
+  for (const message of context.messages) {
+    if (message.role === "system") return contentText(message.content);
+  }
+  return "";
+}
+
 function encodeFailureStream(
   model: Model<Api>,
   stopReason: "error" | "aborted",
@@ -79,6 +95,18 @@ export function createSessionStreamFn(
       cacheRetention: options?.cacheRetention === "none" ? "none" : defaults.cacheRetention,
       sessionId: options?.sessionId ?? defaults.sessionId,
     };
+    if (
+      model.api === "anthropic-messages" &&
+      systemPromptStartsWithSpecialistPrefix(requestSystemText(context))
+    ) {
+      const installed = merged.onPayload;
+      merged.onPayload = async (payload, payloadModel) => {
+        const split = splitAnthropicSystemBlocks(payload, specialistSharedPrefix);
+        if (!installed) return split;
+        const next = await installed(split, payloadModel);
+        return next === undefined ? split : next;
+      };
+    }
     lastOptions = merged;
     try {
       return models.streamSimple(model, context, merged);

@@ -106,6 +106,7 @@ import {
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   sessionCacheIdFromIdentity,
+  specialistSharedCacheId,
 } from "../src/agent/runtime/piSession.ts";
 import { toCoreTool } from "../src/agent/runtime/coreTools.ts";
 import * as coreToolsModule from "../src/agent/runtime/coreTools.ts";
@@ -113,6 +114,7 @@ import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
 import type { ThinkingPolicy } from "../src/agent/runtime/types.ts";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
 import { isAppError } from "../src/errors/appError.ts";
 import type { Config } from "../src/settings/index.ts";
 
@@ -953,6 +955,39 @@ describe("createPiSession prompt cache identity", () => {
         model: cfg.models.model,
       }),
     );
+  });
+
+  it("uses the shared cache id when the system prompt starts with the specialist prefix", async () => {
+    const events: Array<{ kind: string; specialistId?: string }> = [];
+    const session = await createPiSession({
+      role: "specialist",
+      specialistId: "correctness",
+      primary: { provider: cfg.models.provider, model: cfg.models.model },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      systemPrompt: `${specialistSharedPrefix}\n\nYou are the correctness specialist.`,
+      cwd: "/tmp/pr-agent-specialist-shared-cache",
+      eventSink: (event) => {
+        events.push({ kind: event.kind, specialistId: event.specialistId });
+      },
+      cfg,
+      tools: [],
+      executors: {},
+    });
+    await session.send("run", { phase: "specialist", checkpointId: "cp" });
+    expect(lastLoopConfig().sessionId).toBe(
+      specialistSharedCacheId({
+        role: "specialist",
+        specialistId: "correctness",
+        provider: cfg.models.provider,
+        model: cfg.models.model,
+      }),
+    );
+    expect(events.find((event) => event.kind === "completion")).toMatchObject({
+      specialistId: "correctness",
+    });
   });
 
   it("injects short cacheRetention on the loop config", async () => {

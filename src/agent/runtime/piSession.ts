@@ -11,6 +11,7 @@ export {
   SESSION_CACHE_ID_MAX_LENGTH,
   cacheIdentityFromAssignment,
   sessionCacheIdFromIdentity,
+  specialistSharedCacheId,
 } from "./promptCachePolicy.ts";
 export type {
   AgentSessionCacheIdentity,

@@ -39,7 +39,7 @@ new prompt text from landing anywhere.
    `orchestrator`, `ask`, `triage`, `verification`, `description`, `ci`,
    `judge`, and `compaction`. The role is `judge`, not `policy`, so it does not
    clash with repo policy.
-5. The section names are a closed set of nine. Where two could fit a block, the
+5. The section names are a closed set of ten. Where two could fit a block, the
    boundary rule decides.
 
    | File               | Owns                                                                                                                          | Boundary rule                                      |
@@ -53,6 +53,7 @@ new prompt text from landing anywhere.
    | `context.ts`       | Rendering runtime data into messages                                                                                          |                                                    |
    | `examples.ts`      | Worked examples shown to the model                                                                                            |                                                    |
    | `repair.ts`        | Nudges, retry, shorten, and validation-repair messages                                                                        |                                                    |
+   | `prefix.ts`        | The byte-identical specialist instruction prefix                                                                              | Persona sentences stay in the role file            |
 
    There is no per-block placement table. These rules are the whole convention.
 
@@ -70,7 +71,12 @@ new prompt text from landing anywhere.
     Run it on the merge base, run it twice on the head, and `cmp` both head runs
     against the base. The PR body carries the commands and results. This keeps
     the stable prefixes of [ADR 0025](0025-prompt-cache-stability.md). No
-    baseline is committed.
+    baseline is committed. The specialist prefix change reorders the fourteen
+    shared blocks in front of each persona, so the dump diff for that change is
+    expected. The wording check is the ordered leftover. Delete those blocks from
+    the base prompt and compare what remains, in order, with the new prompt after
+    `specialistSharedPrefix` and the following blank line are removed. Rule 10
+    still governs a structure-only move.
 
 ## Prompt wording
 
@@ -107,8 +113,8 @@ a second plugin with the same name, so new rules join this entry.
 2. `pr-agent/prompt-imports` checks import, re-export, and dynamic import
    edges. It resolves relative specifiers against the importing file.
    - Outside `src/prompts/`, a file under `src/` may import only
-     `<role>/prompt.js`, `shared/safety.js`, `shared/repair.js`, or a
-     `TRANSITION_IMPORTS` entry.
+     `<role>/prompt.js`, `shared/safety.js`, `shared/repair.js`,
+     `shared/prefix.ts`, or a `TRANSITION_IMPORTS` entry.
      `TRANSITION_IMPORTS` is empty. There are no legacy importer exemptions.
      Type-only imports get no exemption here.
      Shared repair text is consumed by the shared specialist run loop, which

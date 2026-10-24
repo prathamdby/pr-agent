@@ -38,6 +38,14 @@ premiums by default.
 5. **Measurable hit rate.** Review-run completed metrics expose cache hit rate and
    cache write amplification when provider usage totals are known, while preserving
    raw cache read/write totals and any provider-reported 1h cache write split.
+6. **Shared specialist prefix.** Correctness, security, quality, and tests system
+   prompts start with `specialistSharedPrefix`. On `anthropic-messages`, the
+   request splits that prefix into its own system text block and puts
+   `cache_control` on that block. The session affinity header is not that
+   breakpoint. On an OpenAI API that sends `prompt_cache_key`, those four
+   sessions use one cache id whose specialist segment is `shared`. A session
+   whose system prompt does not start with the prefix keeps its per-persona id.
+   `dispatch_specialists` still starts the four requests together.
 
 Feature harnesses keep using the single Pi session seam from ADR 0023. No generic
 prompt-caching framework and no deferred-tool subsystem for this change.
@@ -62,6 +70,9 @@ prompt-caching framework and no deferred-tool subsystem for this change.
   arithmetic (see [operations.md](../operations.md)).
 - Anthropic deployments benefit mainly from stable tools and disabled short-job
   compaction; OpenAI-compatible deployments also benefit from stable session ids.
+  Prefixed specialist sessions share one OpenAI cache id. Other sessions keep
+  per-persona ids. `cacheReadTokens` on a review run is the summed
+  `usage.cacheRead` total, not a per-block size.
 
 ## Alternatives considered
 
