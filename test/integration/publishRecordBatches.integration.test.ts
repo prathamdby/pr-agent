@@ -449,7 +449,7 @@ try {
     const outcomes: Record<string, unknown>[] = [];
     const children = new Set<ReturnType<typeof fork>>();
     const cfg = makeTestConfig({
-      review: { recoveryEnabled: true, maxInlineComments: 1, maxThreadPublishCalls: 1 },
+      review: { maxInlineComments: 1, maxThreadPublishCalls: 1 },
       agentEvents: { enabled: false },
       features: { reviewLabels: "off" },
     });

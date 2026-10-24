@@ -89,7 +89,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     expect(ids).toContain(freshSuperseded);
   });
 
-  it("cascades private review artifacts with work retention while recovery is off", async () => {
+  it("cascades an aged work item's artifact row and keeps the fresh row", async () => {
     const aged = await insertWorkItem("completed", daysAgo(60));
     const fresh = await insertWorkItem("completed", daysAgo(1));
     await pool.query(
@@ -99,7 +99,6 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
               ($2, 'brief', 0, 'brief', repeat('a', 64), repeat('b', 64), '{}')`,
       [aged, fresh],
     );
-    expect(RETENTION.review.recoveryEnabled).toBe(false);
     await runRetention(pool, RETENTION);
     expect(
       (

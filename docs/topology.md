@@ -35,7 +35,7 @@ Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake
 
 Interrupted mutation recovery requires exact evidence. Missing usable results
 stop terminally with `outcome_unknown`; failed/incomplete reads stay transient.
-Default-off validated review artifacts are not transcripts or evidence authority.
+Validated review artifacts are stored for a review that binds a base sha. They are not transcripts or evidence authority.
 See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) for recovery,
 child-only denial receipts, independent audit/analytics, and committed terminals.
 

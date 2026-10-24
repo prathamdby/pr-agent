@@ -2,9 +2,11 @@
 
 ## Status
 
-Approved for the review-reliability PR. Recovery remains default off pending
-local durable integration and process-crash/restart proof and rollout approval.
-Amends [ADR 0020](0020-orchestrated-review.md),
+Accepted. Recovery runs on every review that can bind a base sha.
+`REVIEW_RECOVERY_ENABLED` is removed. Pratham Dubey approved that on 23 October
+2026 without another crash gate. The SIGKILL case in
+`test/integration/publishRecordBatches.integration.test.ts` recovers a killed
+review in a separate process. Amends [ADR 0020](0020-orchestrated-review.md),
 [ADR 0023](0023-pi-native-agent-runtime.md),
 [ADR 0024](0024-workspace-primary-grounding-and-evidence.md), and
 [ADR 0034](0034-escalated-retries.md). It does not reverse migration 036 or
@@ -24,8 +26,7 @@ only the validated review state needed to continue safely.
 
 ### Review artifacts, not sessions
 
-`REVIEW_RECOVERY_ENABLED` is a strict boolean, default `false`, mapped to
-`cfg.review.recoveryEnabled`. It is not a new feature mode. Additive migration
+Additive migration
 `037_review_run_artifacts.sql` creates `review_run_artifacts`, keyed by work item
 and logical artifact key. `src/review/recovery/reviewArtifacts.ts` owns schemas,
 versioning, redaction, stable encoding, binding, and hashes.
@@ -88,8 +89,8 @@ Capacity or incompatible results disable new caching without changing the
 normal review path; already prepared plans still settle. Actual storage errors
 propagate to the existing durable retry policy. Lease loss stops execution.
 
-The work-item foreign key cascades retention unconditionally, even with recovery
-off. `AGENT_WORK_RETENTION_SECONDS` bounds terminal work and its artifacts.
+The work-item foreign key cascades retention unconditionally.
+`AGENT_WORK_RETENTION_SECONDS` bounds terminal work and its artifacts.
 Disabling scheduled retention leaves them retained. No separate retention lane
 or external service is introduced.
 
@@ -152,15 +153,15 @@ No historical telemetry is backfilled.
 ## Rollout and reversal
 
 Install migration 037 first, then coordinate matching web and worker telemetry
-and recovery changes. Keep recovery off until local durable integration and
-process-crash/restart proof and rollout approval. Live GitHub permission/mutation
+and recovery changes. Live GitHub permission/mutation
 checks are waived for this PR, not the local proof. Local denial fixtures do not
 prove a live permission cause.
 
-Disable recovery for rollback and retain rows, work, leases, intents, publish
-records, and receipts. Do not drop the table, reset accepted intents, or reopen
-terminal work. Pause active and queued verification execution before downgrading
-so old code cannot misinterpret the new terminal denial. A feature flag alone
+Rollback deploys the previous release and retains the table, the rows, work,
+leases, intents, publish records, and receipts. It does not drop the table,
+reset accepted intents, or reopen terminal work. Pause active and queued
+verification execution before downgrading so old code cannot misinterpret
+the new terminal denial. A feature flag alone
 does not stop retained queued execution. See
 [operations](../operations.md#review-reliability-rollout) and the
 [queue runbook](../agent-work-ops.md#validated-review-artifact-recovery).
