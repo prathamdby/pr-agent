@@ -28,7 +28,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
-    expect(envValues).toContain("REVIEW_RECOVERY_ENABLED");
+    expect(envValues).not.toContain("REVIEW_RECOVERY_ENABLED");
     expect(new Set(envValues).size).toBe(envValues.length);
     expect(envValues).toContain("PI_ORCHESTRATOR_PROVIDER");
     expect(envValues).toContain("PI_ORCHESTRATOR_MODEL");
@@ -46,7 +46,7 @@ describe("settings inventory", () => {
     expect(envValues).not.toContain("TRACES_MODE");
     expect(envValues).not.toContain("TRACES_RETENTION_SECONDS");
     expect(envValues).not.toContain("TRACES_BUFFER_MAX_SPANS");
-    expect(envValues.length).toBe(74);
+    expect(envValues.length).toBe(73);
     expect(envValues).toContain("REVIEW_TESTS_EVIDENCE");
     expect(envValues).toContain("REVIEW_CHECK_FAIL_SEVERITY");
   });

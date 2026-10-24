@@ -44,7 +44,6 @@ const baseTestConfig: Config = {
   codeMode: { executorKind: "in_process" },
   review: {
     specialistTimeoutMs: 900_000,
-    recoveryEnabled: false,
     testsEvidence: false,
     checkFailSeverity: "P2",
     maxInlineComments: 50,

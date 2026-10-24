@@ -358,7 +358,7 @@ export async function runOrchestratedPrReview(
   };
   const sessionCwd = params.cwd ?? params.workspace.agentCwd;
   const phaseRef = createOrchestratorPhaseRef("recon");
-  const recovery = params.cfg.review.recoveryEnabled ? params.recovery : undefined;
+  const recovery = params.recovery;
   const readEvidence = createGovernedReviewEvidenceReader(params.workspace.reader, params.headSha);
   const mustRestoreOpens = params.workspace.reader.changedFiles.some(
     (file) => file.status !== "deleted" && params.workspace.reader.isPathInCheckout(file.path),

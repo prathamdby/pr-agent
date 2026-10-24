@@ -56,8 +56,7 @@ versions contracts, and binds effective input identity;
 `src/agentWork/reviewArtifactRepository.ts` fences active writes lease-first,
 serializes the per-work 1 MiB UTF-8 budget, reserves 8 KiB per prepared decision,
 and enforces idempotent keys and ordered dependencies. It is not generic session
-storage. Flag gating and effective-input digest assembly belong to the review
-consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
+storage. Effective-input digest assembly belongs to the review consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
 settlement refers to them and never substitutes for exact remote receipts.
 `findings/evidenceLedger.ts::revalidateEvidenceDescriptors` stages coverage until
 all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
