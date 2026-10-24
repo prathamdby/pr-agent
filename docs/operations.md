@@ -362,8 +362,8 @@ before new output admission; optional cleanup cannot invalidate proven completio
 Install additive `037_review_run_artifacts.sql` first. Startup migrations install
 it normally. Deploy the matching web and worker telemetry changes together and
 upgrade all affected workers for typed thread-denial and recovery handling.
-Keep `REVIEW_RECOVERY_ENABLED=false` until dedicated local durable integration
-and process-crash/restart proof pass, and rollout is approved. Live GitHub
+Recovery runs on every review that can bind a base sha. Upgrade every worker
+together. Live GitHub
 permission/mutation checks are waived for this PR only; local proof is not waived.
 Do not claim a live permission cause was proven from local fixtures.
 
@@ -373,11 +373,11 @@ not retain raw checkout files, prompts, reasoning, transcripts, or a generic
 session checkpoint. The 1 MiB UTF-8 budget per work item includes an 8 KiB
 reservation per prepared decision for bounded settlement metadata. Larger ledger
 decisions belong in the prepared artifact. `AGENT_WORK_RETENTION_SECONDS` bounds
-the store through work-item FK cascade, including while recovery is off.
+the store through work-item FK cascade.
 Disabling scheduled retention leaves retained work and its artifacts unpurged.
 PostHog receives metadata only, never artifact contents.
 
-Disable recovery to stop artifact reuse and new caching without dropping rows.
+Rollback deploys the previous release and keeps the rows.
 Capacity or incompatible cache entries disable new caching; an existing prepared
 plan must still settle. Storage errors use the existing durable retry path.
 Lost epochs stop writes and publication. Binding drift is a cache miss, not

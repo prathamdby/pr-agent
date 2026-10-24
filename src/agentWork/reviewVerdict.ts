@@ -15,10 +15,7 @@ import type {
   FindingCheck,
   FindingCheckConclusion,
 } from "../review/findingIdentity/findingLifecycle.ts";
-import {
-  decidingCoverageReason,
-  type ReviewCoverage,
-} from "../review/orchestrator/orchestratorTypes.ts";
+import type { ReviewCoverage } from "../review/orchestrator/orchestratorTypes.ts";
 import {
   type AnyReviewLens,
   DEFERRED_HEAD_SHA,
@@ -928,8 +925,7 @@ export function closeOutcomeForCoverage(
   check: FindingCheck | undefined,
 ): OwnVerdictOutcome {
   if (coverage?.kind === "partial") {
-    const reason = decidingCoverageReason(coverage);
-    if ((reason === "unjudged" || reason === "unread") && check?.conclusion === "failure") {
+    if (check?.conclusion === "failure") {
       return {
         kind: "published",
         conclusion: "failure",
@@ -947,7 +943,9 @@ export function ownVerdictFromSummaryDetail(
 ): OwnVerdictOutcome {
   if (detail == null) return { kind: "not_published" };
   if (
-    (detail.ownPartialReason === "unjudged" || detail.ownPartialReason === "unread") &&
+    (detail.ownPartialReason === "unjudged" ||
+      detail.ownPartialReason === "unread" ||
+      detail.ownPartialReason === "specialists") &&
     detail.ownCheckFailing === true
   ) {
     return {
