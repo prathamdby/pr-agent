@@ -1,13 +1,8 @@
 import { ASK_RETRY_NUDGE, ASK_SHORTEN_NUDGE } from "../src/prompts/ask/prompt.ts";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ASK_FAILURE_MESSAGE, ASK_TRUNCATED_NOTICE } from "../src/settings/index.ts";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
-
-vi.mock("../src/agent/tools/context7Tools.ts", () => ({
-  buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
-}));
 
 const sendMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
@@ -23,7 +18,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
 
 import { runAskRun } from "../src/agent/ask/askRun.ts";
 import { emptyPullRequestDiscussion } from "../src/agent/discussion/pullRequestDiscussion.ts";
-import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
+import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 const cfg = makeTestConfig({
@@ -70,6 +65,9 @@ describe("runAskRun finalize", () => {
     });
     expect(result.answer).toContain("End-user summary and E2E checklist.");
     expect(result.answer).not.toContain("I'll examine");
+    const sessionTools = vi.mocked(createFeaturePiSession).mock.calls[0]?.[0].tools ?? [];
+    expect(sessionTools.map((tool) => tool.name)).not.toContain("resolveLibraryId");
+    expect(sessionTools.map((tool) => tool.name)).not.toContain("getLibraryDocs");
   });
 
   it("posts failure message when investigation and finalize both return empty", async () => {
@@ -107,16 +105,5 @@ describe("runAskRun finalize", () => {
     expect(sendMock.mock.calls[2]?.[0]).toBe(ASK_SHORTEN_NUDGE);
     expect(result.answer).toContain(`Cut answer\n\n${ASK_TRUNCATED_NOTICE}`);
     expect(result.answer).not.toContain(ASK_FAILURE_MESSAGE);
-  });
-
-  it("builds the shared Context7 tools with the ask configuration", async () => {
-    sendMock.mockResolvedValue({ text: "Answer." });
-
-    await runAskRun(askParams);
-
-    expect(buildContext7Tools).toHaveBeenCalledWith({
-      apiKey: cfg.context7.apiKey,
-      maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
-    });
   });
 });

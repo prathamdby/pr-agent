@@ -372,16 +372,16 @@ describe("Code Mode", () => {
       {
         piTools: [
           { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
-          { name: "resolveLibraryId", description: "docs", parameters: { type: "object" } },
+          { name: "noteTool", description: "docs", parameters: { type: "object" } },
         ],
         executors: {
           listChangedFiles: async () => ({ files: [] }),
-          resolveLibraryId: async () => ({ libraries: [] }),
+          noteTool: async () => ({ notes: [] }),
         },
       },
       { executorKind: "in_process" },
     );
-    expect(bundle.piTools.map((tool) => tool.name)).toEqual(["execute", "resolveLibraryId"]);
+    expect(bundle.piTools.map((tool) => tool.name)).toEqual(["execute", "noteTool"]);
     expect(bundle.executors.execute).toBeTypeOf("function");
     expect(bundle.executors.listChangedFiles).toBeTypeOf("function");
     const execute = bundle.piTools.find((tool) => tool.name === "execute");

@@ -83,8 +83,7 @@ Prompts:
   the system prompt's causal-publication contract instead of repeating it.
 - The security keep-list is unchanged: untrusted-evidence wrapping and
   neutralization, `FINDING_ANTI_SUPPRESSION`, the user-supplement rule, the
-  specialist untrusted-evidence guidance, repository policy anti-suppression,
-  and the Context7 outbound rules.
+  specialist untrusted-evidence guidance, and repository policy anti-suppression.
 - Limits the schema enforces stay in the prompt with their reason.
 
 ## Deferred

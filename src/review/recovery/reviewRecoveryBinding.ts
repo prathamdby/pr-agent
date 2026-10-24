@@ -104,7 +104,6 @@ export function reviewRecoveryInputDigest(input: {
           judgment: escalatedToolRounds(ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS, input.escalation),
         },
         codeMode: input.cfg.codeMode,
-        context7Enabled: input.cfg.context7.apiKey.length > 0,
         codeIndexMode: "off",
         personas: {
           orchestrator: orchestratorSystemPrompt,

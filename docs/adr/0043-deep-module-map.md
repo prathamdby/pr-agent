@@ -1004,8 +1004,8 @@ Recorded before the split:
 3. Feature-mode validation runs on a different env snapshot or order, so a
    deployment that failed fast at boot starts, or the reverse.
 4. A secret reaches a log through the new shape: `github.privateKey`,
-   `webhook.secret`, `models.providerKeys`, `context7.apiKey`, and
-   `posthog.projectToken` become reachable as a whole slice, so a slice passed to
+   `webhook.secret`, `models.providerKeys`, and `posthog.projectToken` become
+   reachable as a whole slice, so a slice passed to
    `logWarn` would print them. No slice is logged; redaction stays in
    `src/security/`.
 5. The `models.json` path or catalog failure changes: a missing explicit path, an
@@ -1031,14 +1031,14 @@ Recorded before the split:
 
 `Config` is now nested slices behind the single settings barrel:
 
-| Slice                                                                                         | Reader file          |
-| --------------------------------------------------------------------------------------------- | -------------------- |
-| `github`, `webhook`, `associations`                                                           | `slices/github.ts`   |
-| `ask`                                                                                         | `slices/ask.ts`      |
-| `queue`, `concurrency`, `retention`                                                           | `slices/queue.ts`    |
-| `models`, `provider`                                                                          | `slices/models.ts`   |
-| `features`                                                                                    | `slices/features.ts` |
-| `runtime`, `agentEvents`, `codeIndex`, `codeMode`, `review`, `context7`, `posthog`, `logging` | `slices/service.ts`  |
+| Slice                                                                             | Reader file          |
+| --------------------------------------------------------------------------------- | -------------------- |
+| `github`, `webhook`, `associations`                                               | `slices/github.ts`   |
+| `ask`                                                                             | `slices/ask.ts`      |
+| `queue`, `concurrency`, `retention`                                               | `slices/queue.ts`    |
+| `models`, `provider`                                                              | `slices/models.ts`   |
+| `features`                                                                        | `slices/features.ts` |
+| `runtime`, `agentEvents`, `codeIndex`, `codeMode`, `review`, `posthog`, `logging` | `slices/service.ts`  |
 
 `envReaders.ts` holds the typed readers (`requireEnv`, `optionalEnv`,
 `readPositive*`, `readNonNegative*`, `readEnum`, `readStrictBoolean`) and
@@ -1164,7 +1164,7 @@ is `unknown`. `errorMessage` (88) and `toError` (9) replace 97 inline
 
 Inventory (`{domain, kind}` literals in `src/`, 208 at 22 domains): `agent_work`
 44, `review` 40, `pr_workspace` 26, `triage` 18, `config` 15, `operation_intent` 9,
-`agent` 8, `ci` 8, `settings` 8, `provider` 6, `context7` 5, `github` 4,
+`agent` 8, `ci` 8, `settings` 8, `provider` 6, `github` 4,
 `description` 3, `verification` 3, `codemode` 2, `runtime` 2, and one each for
 `ask`, `code_index`, `pi`, `publish_store`, `tool`, `webhook`, and the dynamic
 `repositoryReader` profile.

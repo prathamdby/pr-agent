@@ -51,7 +51,6 @@ export const APP_ERROR_KINDS = {
     "invalid_number",
     "missing_env",
   ],
-  context7: ["outbound_policy_rejected", "request_failed", "response_too_large"],
   description: ["publish_superseded", "validation_failed"],
   github: [
     "essential_access_denied",

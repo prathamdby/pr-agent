@@ -65,7 +65,6 @@ import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
 } from "../src/prompts/judge/prompt.ts";
-import { buildContext7Tools } from "../src/agent/tools/context7Tools.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.ts";
 import {
@@ -99,7 +98,6 @@ import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
 } from "../src/agent/verification/submitVerificationTool.ts";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.ts";
 import {
   commentThreadGroups,
@@ -130,7 +128,6 @@ import {
   wrapTrustedContext,
   wrapUntrustedBlock,
   wrapUntrustedEvidence,
-  context7OutboundDataGuidance,
   agentInstructionFilesGuidance,
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
@@ -212,12 +209,7 @@ async function dumpAll() {
   const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local, {
     executorKind: "in_process",
   }).piTools;
-  const context7 = buildContext7Tools({
-    apiKey: "",
-    maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
-  }).piTools;
-  const reviewWorkspace = [...codeModeLocal, ...context7];
-  const specialist = [...reviewWorkspace, buildSubmitFindingsReportPiTool()];
+  const specialist = [...codeModeLocal, buildSubmitFindingsReportPiTool()];
   const phaseRef = { current: "recon" } satisfies Parameters<typeof buildSpecialistBriefTool>[0];
   const ctx = {
     owner: "",
@@ -317,13 +309,13 @@ async function dumpAll() {
       quality: specialist,
       tests: specialist,
       orchestrator: [
-        ...reviewWorkspace,
+        ...codeModeLocal,
         buildSpecialistBriefTool(phaseRef).piTool,
         thread,
         declareDuplicate,
         summary,
       ],
-      ask: [...codeModeLocal, ...context7],
+      ask: codeModeLocal,
       description: [...local.piTools, description],
       triage: [...triageWorkspace, triage],
       verification: [
@@ -858,7 +850,6 @@ function dumpKeepList() {
     specialistUntrustedEvidenceGuidance,
     repoPolicyGuidance,
     agentInstructionFilesGuidance,
-    context7OutboundDataGuidance,
     wrapUntrustedBlock: wrapUntrustedBlock("sample", sampleUntrusted),
     wrapUntrustedEvidence: wrapUntrustedEvidence("sample", sampleUntrusted),
     wrapTrustedContext: wrapTrustedContext(["Sample trusted line."]),

@@ -1,10 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
-import { type Config, CONTEXT7_RESPONSE_BYTES } from "../../settings/index.ts";
+import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
 import { createAskPathGate } from "../../agent/ask/askSafety.ts";
-import { buildContext7Tools } from "../../agent/tools/context7Tools.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.ts";
 import {
   buildWorkspaceTools,
@@ -101,17 +100,10 @@ export function buildReviewRunSetup(params: {
     evidenceLedger,
     headSha,
   });
-  const ctx7 = buildContext7Tools({
-    apiKey: cfg.context7.apiKey,
-    maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
-  });
-  const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit({
-    ...bundle.executors,
-    ...ctx7.executors,
-  });
+  const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
   const wrappedExecutors = wrapReviewToolExecutors(rateLimitedExecutors);
   const workspaceTools = {
-    piTools: [...bundle.piTools, ...ctx7.piTools],
+    piTools: [...bundle.piTools],
     executors: wrappedExecutors,
   };
 

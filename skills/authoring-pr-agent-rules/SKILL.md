@@ -73,8 +73,7 @@ sequential (`src/agent/runtime/toolExecutionMode.ts`).
 `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`. Verification
 installs read, search, and diff only. `searchWorkspace` is literal,
 case-sensitive text, not regex; `terms` ranks files by how many literals
-they contain. `findFiles` is fuzzy path lookup. Context7 stays a native
-sibling.
+they contain. `findFiles` is fuzzy path lookup.
 Submit and publish stay native (`submit_findings_report`,
 `submit_specialist_brief`, `publish_thread`, `publish_summary`,
 `submitVerification`, `submitDescription`, `submitTriage`). Catalogue

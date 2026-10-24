@@ -8,7 +8,6 @@ export * from "./askQuotaConstants.ts";
 export * from "./githubConstants.ts";
 export * from "./paginationConstants.ts";
 export * from "./timeoutConstants.ts";
-export * from "./context7Constants.ts";
 export * from "./loggingConstants.ts";
 export * from "./verificationConstants.ts";
 export * from "./webhookConstants.ts";

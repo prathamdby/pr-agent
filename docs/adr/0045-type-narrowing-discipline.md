@@ -67,8 +67,7 @@ fixture casts.
 
 Literal-table guards preserve membership behavior for ordinary inputs and
 reject inherited keys. Object-shape readers reject arrays where a record is
-required. Malformed non-object webhook JSON is rejected at intake. Invalid
-Context7 error fields are omitted rather than treated as strings; malformed
+required. Malformed non-object webhook JSON is rejected at intake. Malformed
 PostHog event shapes cannot bypass sanitization. Invalid stored CI facts raise
 a validation error rather than being projected as passing CI. CI validation
 retains the original valid object and its stored keys.
