@@ -91,7 +91,6 @@ const baseTestConfig: Config = {
     cron: "17 3 * * *",
     enabled: true,
   },
-  context7: { apiKey: "" },
   posthog: { projectToken: "", host: "" },
   logging: { level: "error", pretty: false, redact: true },
 };
@@ -117,7 +116,6 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
     ask: { ...base.ask, ...overrides.ask },
     queue: { ...base.queue, ...overrides.queue },
     retention: { ...base.retention, ...overrides.retention },
-    context7: { ...base.context7, ...overrides.context7 },
     posthog: { ...base.posthog, ...overrides.posthog },
     logging: { ...base.logging, ...overrides.logging },
   };

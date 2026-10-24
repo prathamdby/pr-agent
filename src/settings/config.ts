@@ -26,14 +26,12 @@ import {
 import {
   readAgentEventsSlice,
   readCodeModeSlice,
-  readContext7Slice,
   readLoggingSlice,
   readPosthogSlice,
   readReviewSlice,
   readRuntimeSlice,
   type AgentEventsSlice,
   type CodeModeSlice,
-  type Context7Slice,
   type LoggingSlice,
   type PosthogSlice,
   type ReviewSlice,
@@ -55,7 +53,6 @@ export type Config = {
   readonly ask: AskSlice;
   readonly queue: QueueSlice;
   readonly retention: RetentionSlice;
-  readonly context7: Context7Slice;
   readonly posthog: PosthogSlice;
   readonly logging: LoggingSlice;
 };
@@ -82,7 +79,6 @@ export async function loadConfig(): Promise<Config> {
     ask: readAskSlice(),
     queue: readQueueSlice(),
     retention,
-    context7: readContext7Slice(),
     posthog: readPosthogSlice(),
     logging: readLoggingSlice(),
   };

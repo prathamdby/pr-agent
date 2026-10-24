@@ -2,7 +2,6 @@ import type { CodeModeExecutorKind } from "../codeModeConstants.ts";
 import {
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
-  DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_REDACT,
   DEFAULT_POSTHOG_HOST,
@@ -44,10 +43,6 @@ export type ReviewSlice = {
   readonly checkFailSeverity: "P0" | "P1" | "P2" | "P3";
   readonly maxInlineComments: number;
   readonly maxThreadPublishCalls: number;
-};
-
-export type Context7Slice = {
-  readonly apiKey: string;
 };
 
 export type PosthogSlice = {
@@ -97,10 +92,6 @@ export function readReviewSlice(): ReviewSlice {
     maxInlineComments: MAX_INLINE_REVIEW_COMMENTS,
     maxThreadPublishCalls: MAX_THREAD_PUBLISH_CALLS,
   };
-}
-
-export function readContext7Slice(): Context7Slice {
-  return { apiKey: optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY) };
 }
 
 export function readPosthogSlice(): PosthogSlice {

@@ -46,7 +46,8 @@ describe("settings inventory", () => {
     expect(envValues).not.toContain("TRACES_MODE");
     expect(envValues).not.toContain("TRACES_RETENTION_SECONDS");
     expect(envValues).not.toContain("TRACES_BUFFER_MAX_SPANS");
-    expect(envValues.length).toBe(73);
+    expect(envValues).not.toContain("CONTEXT7_API_KEY");
+    expect(envValues.length).toBe(72);
     expect(envValues).toContain("REVIEW_TESTS_EVIDENCE");
     expect(envValues).toContain("REVIEW_CHECK_FAIL_SEVERITY");
   });

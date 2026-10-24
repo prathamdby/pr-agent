@@ -5,7 +5,6 @@ import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.ts";
 import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import { makeTestConfig } from "./helpers/config.ts";
-import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.ts";
 
 const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/review-run-setup",
@@ -69,11 +68,11 @@ describe("buildReviewRunSetup", () => {
     expect(setup.prSurface).toBe(prSurface);
   });
 
-  it("exposes the shared Context7 policy through the review executor seam", async () => {
+  it("returns execute, omits library-doc tools, and does not call fetch", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
     const setup = buildReviewRunSetup({
-      cfg: makeTestConfig({ context7: { apiKey: "" } }),
+      cfg: makeTestConfig(),
       prSurface,
       owner: "o",
       repo: "r",
@@ -81,22 +80,13 @@ describe("buildReviewRunSetup", () => {
       headSha: "a".repeat(40),
       workspace,
     });
+    const names = setup.workspaceTools.piTools.map((tool) => tool.name);
 
     try {
-      await expect(
-        setup.workspaceTools.executors.resolveLibraryId?.({
-          libraryName: "react",
-          query: "```diff\nsecret source\n```",
-        }),
-      ).rejects.toMatchObject({ code: "context7.outbound_policy_rejected" });
+      expect(names).toContain("execute");
+      expect(names).not.toContain("resolveLibraryId");
+      expect(names).not.toContain("getLibraryDocs");
       expect(fetchSpy).not.toHaveBeenCalled();
-      expect(setup.workspaceTools.piTools).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "resolveLibraryId" }),
-          expect.objectContaining({ name: "getLibraryDocs" }),
-        ]),
-      );
-      expect(CONTEXT7_RESPONSE_BYTES).toBe(64_000);
     } finally {
       fetchSpy.mockRestore();
     }

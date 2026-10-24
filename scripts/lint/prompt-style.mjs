@@ -66,7 +66,6 @@ export const KEEP_LIST_EXPORTS = [
   "specialistUntrustedEvidenceGuidance",
   "repoPolicyGuidance",
   "agentInstructionFilesGuidance",
-  "context7OutboundDataGuidance",
   "wrapUntrustedBlock",
   "wrapUntrustedEvidence",
   "wrapTrustedContext",

@@ -47,7 +47,7 @@ export function renderCodeModeHarness(params: {
 export const specialistInvestigationHarness = [
   renderCodeModeHarness({
     guest: GUEST_CAPABILITY_SPECS,
-    nativeTools: ["execute", "resolveLibraryId", "getLibraryDocs", "submit_findings_report"],
+    nativeTools: ["execute", "submit_findings_report"],
     cellBoundary:
       "Submitting happens outside the cell: after investigation, call `submit_findings_report`.",
   }),

@@ -2,16 +2,12 @@ import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.ts";
 import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { formatPullRequestDiscussion } from "../shared/context.ts";
-import {
-  context7OutboundDataGuidance,
-  wrapTrustedContext,
-  wrapUntrustedBlock,
-} from "../shared/safety.ts";
+import { wrapTrustedContext, wrapUntrustedBlock } from "../shared/safety.ts";
 import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../shared/tools.ts";
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
-  nativeTools: ["execute", "resolveLibraryId", "getLibraryDocs"],
+  nativeTools: ["execute"],
   cellBoundary: "The answer goes in your final plain-text reply, not in a cell.",
   extra: [`The workspace is a PR head checkout. ${unavailableConversationToolsGuidance}`],
 });
@@ -26,8 +22,6 @@ export function buildAskSystemPrompt(): string {
     "- The discussion block is the loaded inline review threads and the loaded pull request conversation. Answer the latest user_question in that context.",
     "- An incomplete-list notice means the discussion block is not the whole discussion. No tool reads further conversation, issues, or external URLs.",
     "- When ci_state is provided, it holds the CI facts for this head; no tool reads check status, so answer CI questions from it.",
-    context7OutboundDataGuidance,
-    "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
     "",
     communicationGuidance,
     "",

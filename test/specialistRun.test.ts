@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.ts";
 import type { PiSession } from "../src/agent/runtime/types.ts";
 import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.ts";
-import { renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
+import { orchestratorHarness, renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
+import { buildAskSystemPrompt } from "../src/prompts/ask/prompt.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
 import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
 import {
@@ -20,7 +21,6 @@ import { communicationGuidance } from "../src/prompts/shared/communication.ts";
 import { specialistFindingsReportContract } from "../src/prompts/shared/output.ts";
 import {
   agentInstructionFilesGuidance,
-  context7OutboundDataGuidance,
   priorInlineFeedbackGuidance,
   repoPolicyGuidance,
   specialistUntrustedEvidenceGuidance,
@@ -412,7 +412,6 @@ describe("runSpecialist", () => {
     const blocks = [
       readOnlyReviewGuidance,
       specialistInvestigationHarness,
-      context7OutboundDataGuidance,
       specialistUntrustedEvidenceGuidance,
       userSupplementGuidance,
       severityRubric,
@@ -426,8 +425,8 @@ describe("runSpecialist", () => {
       specialistFindingsReportContract,
     ] as const;
     const leftoverSha256 = [
-      "7928cb1a89fa937f0885f5a2c951e1b2d6254f80fe09b8ec81a941aef9081f1b",
-      "95a5a8623225209142b66b59748a1e6b1b76c8e2ab3838f96b44b3b9e57dcdeb",
+      "24eb167957c97d85ff9fe3b7d3857c1d45436647f475aceb5a4b1898656a29ed",
+      "fddb0244a5c71ea6023e0f3928009a502868d167124f781b74e1cdddd92182d6",
       "01ad134591e990ed7a02655754f8a269787f0868c6e278c674c7635b8f985f08",
       "81ab9e5e32a5110f71f43fd6c605a235ec539e6da69243f5c09a948946c48701",
     ] as const;
@@ -447,15 +446,16 @@ describe("runSpecialist", () => {
       }
     });
     const securityBody = automatedSecuritySystemPrompt.slice(specialistSharedPrefix.length + 2);
-    const securityStart = securityBody.indexOf("Start from the PR diff");
-    const securityContext7 = securityBody.indexOf(
-      "When a finding hinges on a framework or library's security behaviour",
-    );
-    const securityLane = securityBody.indexOf(
-      "Correctness bugs, style issues, and non-security logic errors",
-    );
-    expect(securityContext7).toBeGreaterThan(securityStart);
-    expect(securityLane).toBeGreaterThan(securityContext7);
+    for (const text of [
+      specialistSharedPrefix,
+      securityBody,
+      orchestratorHarness,
+      buildAskSystemPrompt(),
+    ]) {
+      expect(text).not.toContain("resolveLibraryId");
+      expect(text).not.toContain("getLibraryDocs");
+    }
+    expect(buildAskSystemPrompt()).toContain("Ground your answer in code you read in this session");
     const correctnessBody = buildAutomatedSystemPrompt().slice(specialistSharedPrefix.length + 2);
     const methodBegin = correctnessBody.indexOf("<!-- BEGIN_SHARED_METHODOLOGY -->");
     const method = correctnessBody.indexOf("## Investigation method");

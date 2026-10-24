@@ -29,7 +29,6 @@ const boot = Effect.fn("process.boot")(function* () {
     role: cfg.runtime.role,
     provider: cfg.models.provider,
     model: cfg.models.model,
-    context7_enabled: cfg.context7.apiKey.length > 0,
   });
   if (cfg.runtime.role === "worker") {
     const { startAgentWorker } = yield* Effect.promise(() => import("./worker.ts"));

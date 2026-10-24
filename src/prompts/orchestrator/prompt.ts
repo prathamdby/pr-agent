@@ -31,8 +31,6 @@ export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
   nativeTools: [
     "execute",
-    "resolveLibraryId",
-    "getLibraryDocs",
     "submit_specialist_brief",
     "publish_thread",
     "declare_duplicate",

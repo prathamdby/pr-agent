@@ -10,7 +10,7 @@ export const compactInvestigationMethod: readonly string[] = [
   "- Stateful behavior: paired transitions that preserve one invariant, such as success/failure, create/delete, hit/miss, enabled/disabled, old/new, immediate/deferred, acquire/release, start/stop.",
   "- Async work and shared mutable state: await propagation, async iteration, error propagation, retry ownership, cancellation, cleanup, read-modify-write atomicity, check-then-act races, duplicate execution, and shutdown.",
   "- Every state-changing path: what happens if it runs twice, or crashes halfway; when the answer depends on left-behind state, a reconciliation step is missing.",
-  "- Library behavior the finding depends on: confirm it in reviewed-head code or with Context7 (`resolveLibraryId`, then `getLibraryDocs`).",
+  "- Library behavior the finding depends on: confirm it in reviewed-head code.",
   "- The caller's next step. Read the caller that uses a new return value. Report it when that caller needs a field, name, or id the value does not carry, and the caller can reach the gap.",
   "- Replaced behavior. Read the removed lines in `getWorkspaceDiff` for that path as the old behavior. Match each conditional, side effect, default, error result, retry, cache use, order, and filter to a line in the new path. This check is for a path the diff replaced or deleted. When the old copy still remains beside the new one, leave the split to quality.",
   "- A removed property is a finding only when a caller can still reach that condition and the new path then does the wrong thing. A diff result with `truncated` set does not prove a property is gone. Record that limit in `notes`. The head file does not contain lines the diff removed.",

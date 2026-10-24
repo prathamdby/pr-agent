@@ -33,7 +33,7 @@ export const verificationInvestigationHarness = renderCodeModeHarness({
   nativeTools: ["execute", "submitVerification"],
   cellBoundary: "Submitting happens outside the cell: after inspection, call `submitVerification`.",
   extra: [
-    "This profile has no `listChangedFiles`, `findFiles`, `getWorkspaceBlame`, `resolveSymbol`, or Context7; the inventory names the paths to inspect.",
+    "This profile has no `listChangedFiles`, `findFiles`, `getWorkspaceBlame`, or `resolveSymbol`; the inventory names the paths to inspect.",
   ],
 });
 

@@ -4,7 +4,6 @@
 
 <p>
   <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="assets/badges/deepwiki.png" alt="Ask DeepWiki" height="48"></a>
-  <a href="https://context7.com/prathamdby/pr-agent"><img src="assets/badges/context7.png" alt="Ask Context7" height="48"></a>
   <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="assets/badges/opencode.png" alt="OpenCode Go" height="48"></a>
   <br>
   <a href="LICENSE"><img src="assets/badges/license.png" alt="MIT license" height="48"></a>
@@ -442,13 +441,6 @@ Repository searches, including `/triage`, share a bounded output budget. A trunc
 Duplicate deliveries retain local metadata only: incoming delivery ID, body fingerprint, and dedupe guard reason, not another body copy. `WEBHOOK_EVENTS_RETENTION_SECONDS` deletes this evidence by its own arrival age (30 days by default). `RETENTION_ENABLED=false` leaves it unpurged. These patterns do not prove malicious intent. See [duplicate-delivery inspection](docs/agent-work-ops.md#duplicate-delivery-evidence).
 
 <details>
-<summary>Context7</summary>
-
-Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
-
-</details>
-
-<details>
 <summary>Logging</summary>
 
 Coalesced CI deliveries keep their identities on your retained projection job. Worker logs still name the original delivery. See [the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution) to trace an absorbed delivery.
@@ -477,7 +469,6 @@ Env catalog: [docs/configuration.md](docs/configuration.md). See [ADR 0050](docs
 | Document                                             | What it covers                                |
 | ---------------------------------------------------- | --------------------------------------------- |
 | [DeepWiki](https://deepwiki.com/prathamdby/pr-agent) | Ask questions against this repository         |
-| [Context7](https://context7.com/prathamdby/pr-agent) | Ask questions against this repository         |
 | [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands          |
 | [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants        |
 | [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |

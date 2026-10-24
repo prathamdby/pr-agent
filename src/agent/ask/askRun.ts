@@ -6,11 +6,9 @@ import {
 } from "../../prompts/ask/prompt.ts";
 import { logInfo } from "../../evlog.ts";
 import { formatAskReply } from "./formatAskReply.ts";
-import { buildContext7Tools } from "../tools/context7Tools.ts";
 import {
   ASK_FAILURE_MESSAGE,
   ASK_META_REFUSAL,
-  CONTEXT7_RESPONSE_BYTES,
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.ts";
@@ -77,23 +75,14 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
   return runWithRateLimitCircuit(circuit, async () => {
     const { bundle } = buildAskRunSetup(params);
-
-    const ctx7 = buildContext7Tools({
-      apiKey: cfg.context7.apiKey,
-      maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
-    });
-    const tools = [...bundle.piTools, ...ctx7.piTools];
-    const executors = wrapExecutorsWithRateLimitCircuit({
-      ...bundle.executors,
-      ...ctx7.executors,
-    });
+    const executors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
 
     const session = await createFeaturePiSession({
       role: "ask",
       cfg,
       cwd: params.cwd,
       systemPrompt: buildAskSystemPrompt(),
-      tools,
+      tools: bundle.piTools,
       executors,
       sessionContext: params.sessionContext,
       hostSignal: params.signal,

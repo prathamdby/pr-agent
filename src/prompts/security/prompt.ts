@@ -14,7 +14,6 @@ export const automatedSecuritySystemPrompt = [
   "",
   "",
   "",
-  "- When a finding hinges on a framework or library's security behaviour, confirm it with `resolveLibraryId` then `getLibraryDocs` before reporting.",
   "",
   "",
   "",

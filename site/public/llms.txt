@@ -220,7 +220,6 @@ Duplicate evidence stays local: incoming delivery ID, body fingerprint, and dedu
 You own the GitHub App credentials.
 Review, description, ask, triage, verification, and CI-summary text leave your network only when the worker calls your configured provider.
 The GitHub App still talks to GitHub. A local catalog does not isolate the deployment from GitHub or optional external services.
-Optional CONTEXT7_API_KEY may call https://context7.com/api for library lookup.
 Structured logs use evlog. LOG_REDACT defaults to true and strips secret-shaped substrings.
 Agent event rows older than 30 days are deleted with the other cleanup. Set AGENT_EVENTS_RETENTION_SECONDS to 0 to keep them.
 A configured PostHog project receives one AI trace per worker execution. The trace includes credential-redacted prompts, reasoning, and tool arguments and results, each bounded and marked when cut. Tool spans include a SHA-256 of the redacted input, and execute includes a hash of the script. A cancelled or failed session also carries its last turns, last tool input and output, partial findings, and why it stopped. Repository text can still be sensitive. Removing POSTHOG_PROJECT_TOKEN records nothing and is the opt-out. The web process does not emit traces. Ordinary work and webhook events stay metadata.
@@ -270,6 +269,5 @@ DNS for AI Discovery is not in this repository. The operator's DNS host publishe
 - [PR Agent domain vocabulary](https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md): The words this project uses for work items, leases, and findings.
 - [Installation](https://github.com/prathamdby/pr-agent#installation): the deployment walkthrough.
 - [DeepWiki](https://deepwiki.com/prathamdby/pr-agent): ask questions against this repository.
-- [Context7](https://context7.com/prathamdby/pr-agent): ask questions against this repository.
 - [License](https://github.com/prathamdby/pr-agent/blob/main/LICENSE): MIT.
 
