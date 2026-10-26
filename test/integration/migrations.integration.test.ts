@@ -185,9 +185,9 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     const leaseIndex = await pool.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE indexname = 'pr_actor_leases_work_item_epoch_idx'",
     );
-    expect(leaseIndex.rows.map((row) => row.indexdef).join("\n")).toMatch(
-      /work_item_id IS NOT NULL/i,
-    );
+    const leaseIndexDef = leaseIndex.rows.map((row) => row.indexdef).join("\n");
+    expect(leaseIndexDef).toContain("(work_item_id, lease_epoch)");
+    expect(leaseIndexDef).toMatch(/work_item_id IS NOT NULL/i);
     const lifecycle = await pool.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE tablename = 'pr_review_lifecycle'",
     );
