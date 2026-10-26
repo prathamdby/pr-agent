@@ -1251,6 +1251,45 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.ledger?.accepted ?? []).toEqual([]);
   });
 
+  it("publishes the direct defect and omits the rewrite wish", async () => {
+    const direct: ReviewFinding = {
+      severity: "P1",
+      file: "src/correctness.ts",
+      startLine: 3,
+      endLine: 3,
+      title: "Await the persist before returning success",
+      detail: "Returning ok before persist finishes lets the caller observe a missing row.",
+      fixPrompt: "Await persist() before returning ok.",
+    };
+    const wish: ReviewFinding = {
+      severity: "P2",
+      file: "src/correctness.ts",
+      startLine: 9,
+      endLine: 9,
+      title: "You should also rewrite the helper",
+      detail: "Rewrite the helper so the file is shorter.",
+      fixPrompt: "Rewrite the helper.",
+    };
+    testState.judgmentBySource.set("correctness", [direct]);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve({
+      kind: "report",
+      specialist: "correctness",
+      durationMs: 1,
+      report: reported([direct, wish]),
+    });
+    for (const specialist of ["security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    const accepted = testState.ledger?.accepted ?? [];
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]?.placement.finding.title).toBe(direct.title);
+    expect(accepted[0]?.placement.finding.detail).toBe(direct.detail);
+    expect(accepted.map((item) => item.placement.finding.title)).not.toContain(wish.title);
+  });
+
   it("accepts every atomic finding judgment splits from a compound report", async () => {
     const compound: ReviewFinding = {
       severity: "P1",

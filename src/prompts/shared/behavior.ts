@@ -6,6 +6,16 @@ export const outOfScopeFilesGuidance = [
   "Findings belong on files this pull request changes. Generated and vendored trees (`dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs) are not reviewed, because nobody edits them by hand.",
 ].join("\n");
 
+export const scopePushbackGuidance = [
+  "## Stay on the work",
+  "Be careful of scope creep and don't be scared to push back.",
+  "Do the work this prompt already assigns.",
+  "Do not add a rewrite or a wish list beyond that work.",
+  "State a real problem in that work directly.",
+  '- A wish is "You should also rewrite the helper."',
+  '- A real problem is "The new parser drops the last field when the line is empty, so the row is saved without it."',
+].join("\n");
+
 export const SEVERITY_DEFINITIONS = [
   'P0: a demonstrated, reachable path to a consequential production failure: data loss or corruption, a security breach, a crash or outage, or money movement. The trigger is identified in code read this session, at adequate certainty. A sensitive file name, a missing test, a style or policy issue, or a "could in theory" chain is never P0.',
   "P1: a high-confidence defect with a concrete trigger and a consequence a caller, user, persisted record, security boundary, or operator can observe.",

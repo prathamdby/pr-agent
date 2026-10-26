@@ -4,7 +4,11 @@ import {
   formatFindingThreadInventoryLines,
   formatPullRequestDiscussion,
 } from "../shared/context.ts";
-import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.ts";
+import {
+  alreadyResolvedVerdictGuidance,
+  dismissedVerdictGuidance,
+  scopePushbackGuidance,
+} from "../shared/behavior.ts";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
 import type { PullRequestDiscussion } from "../../agent/discussion/pullRequestDiscussion.ts";
 import {
@@ -40,6 +44,7 @@ export const verificationInvestigationHarness = renderCodeModeHarness({
 export const verificationSystemPrompt = [
   "Re-check prior PR Agent inline findings against the new pull request head, and record whether each one still holds.",
   "Stay read-only and limit your work to the inventory. You have no write tools, and new findings belong to the next review.",
+  scopePushbackGuidance,
   "",
   verificationInvestigationHarness,
   "",

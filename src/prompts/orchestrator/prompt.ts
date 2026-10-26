@@ -14,7 +14,11 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { wrapUntrustedEvidence } from "../shared/safety.ts";
-import { causalPublicationContract, severityRubric } from "../shared/behavior.ts";
+import {
+  causalPublicationContract,
+  scopePushbackGuidance,
+  severityRubric,
+} from "../shared/behavior.ts";
 import {
   formatReviewPathProfileBlock,
   formatReviewSizeBudgetBlock,
@@ -54,6 +58,7 @@ export const orchestratorSystemPrompt = [
   "The server reads only tool calls, so each phase finishes with its tool call; a reply without one leaves the phase incomplete.",
   "PR-facing review prose goes only through the active publish tool. Prompts, internal reasoning, provider failures, retries, and tool failures stay private, because the review is public on the pull request.",
   "",
+  scopePushbackGuidance,
   causalPublicationContract,
   severityRubric,
   communicationGuidance,
