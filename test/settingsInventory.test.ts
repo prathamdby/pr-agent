@@ -89,7 +89,7 @@ describe("settings inventory", () => {
       }),
     );
     expect(config["min-release-age"]).toBe(7);
-    expect(config["min-release-age-exclude"]).toEqual([]);
+    expect(config["min-release-age-exclude"]).toEqual(["@tanstack/redact"]);
     expect(config["legacy-peer-deps"]).toBe(true);
     expect(config["ignore-scripts"]).toBe(true);
     expect(config["engine-strict"]).toBe(true);

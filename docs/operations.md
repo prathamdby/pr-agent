@@ -259,7 +259,7 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                               |
 | `npm run site:generate-og`                                    | Generate landing OG assets                                                                                                           |
 
-`npm run typecheck` runs `tsrs --noEmit -p tsconfig.json`. `npm run build` runs `tsrs -p tsconfig.build.json`. [`.oxlintrc.json`](../.oxlintrc.json) sets `options.typeAware` to false, so lint does not load `oxlint-tsgolint`. Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. There are no cooling exclusions. npm exclusions match package names/globs, not exact versions; any future exception needs a narrow name and a checked locked version.
+`npm run typecheck` runs `tsrs --noEmit -p tsconfig.json`. `npm run build` runs `tsrs -p tsconfig.build.json`. [`.oxlintrc.json`](../.oxlintrc.json) sets `options.typeAware` to false, so lint does not load `oxlint-tsgolint`. Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `min-release-age-exclude[]=@tanstack/redact`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. The exclusion is that one package name. npm exclusions match package names or globs, not exact versions. Every other package still waits seven days.
 
 Both lint scripts pass `--deny-warnings`. `npm run check:guards` locks suppression markers with `lint-suppressions(src)` (4) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
 
@@ -274,7 +274,7 @@ The Node adapter's installed `effect` and transitive
 `@effect/platform-node-shared` must also be `4.0.0`. `@effect/platform`
 must not be a direct dependency.
 
-The initial Effect 4 adapter migration required five temporary release-age exceptions. Those exceptions expired on October 8, 2026. The current npm policy has no exclusions.
+The initial Effect 4 adapter migration required five temporary release-age exceptions. Those exceptions expired on October 8, 2026. The current npm policy excludes only `@tanstack/redact`.
 
 `npm run test` explicitly runs this gate before Vitest. Lifecycle hooks are not used because dependency scripts stay disabled.
 

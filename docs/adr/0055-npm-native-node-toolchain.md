@@ -18,8 +18,10 @@ release becomes available.
 One root `package-lock.json` owns the backend and `site` workspace.
 Shared overrides stay at the root. `.npmrc` owns `min-release-age=7`,
 `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`.
-There are no release-age exclusions. Future exclusions match package names
-or globs, never exact versions, and require a narrow justification.
+`min-release-age-exclude` names only `@tanstack/redact`, so the landing
+build can install that package's current release. Every other package
+still waits seven days. Exclusions stay package names or globs, never
+exact versions.
 
 | Purpose                       | Installation                                                         |
 | ----------------------------- | -------------------------------------------------------------------- |
