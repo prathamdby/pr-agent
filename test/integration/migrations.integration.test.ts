@@ -54,6 +54,7 @@ const EXPECTED_MIGRATIONS = [
   "040_drop_agent_traces.sql",
   "041_drop_finding_history.sql",
   "042_pr_review_approvals_workflow_start_admits.sql",
+  "043_index_usage.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -165,8 +166,28 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     );
     const definitions = duplicateIndexes.rows.map((row) => row.indexdef).join("\n");
     expect(definitions).toContain("(received_at)");
-    expect(definitions).toContain("(delivery_id, received_at)");
-    expect(definitions).toContain("(body_sha256, received_at)");
+    expect(definitions).not.toContain("(delivery_id, received_at)");
+    expect(definitions).not.toContain("(body_sha256, received_at)");
+    const droppedIndexes = await pool.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE indexname = ANY($1::text[])`,
+      [
+        [
+          "github_installation_rate_limit_circuits_open_until_idx",
+          "webhook_delivery_duplicates_delivery_id_received_at_idx",
+          "webhook_delivery_duplicates_body_sha256_received_at_idx",
+          "agent_events_install_recorded_idx",
+          "github_head_ci_sources_retention_idx",
+          "pr_head_ci_state_projection_repair_pending_idx",
+        ],
+      ],
+    );
+    expect(droppedIndexes.rows).toEqual([]);
+    const leaseIndex = await pool.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE indexname = 'pr_actor_leases_work_item_epoch_idx'",
+    );
+    expect(leaseIndex.rows.map((row) => row.indexdef).join("\n")).toMatch(
+      /work_item_id IS NOT NULL/i,
+    );
     const lifecycle = await pool.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE tablename = 'pr_review_lifecycle'",
     );
