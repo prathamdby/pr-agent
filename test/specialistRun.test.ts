@@ -15,6 +15,7 @@ import {
   highStakesTrivialTrapGuidance,
   outOfScopeFilesGuidance,
   readOnlyReviewGuidance,
+  scopePushbackGuidance,
   severityRubric,
 } from "../src/prompts/shared/behavior.ts";
 import { communicationGuidance } from "../src/prompts/shared/communication.ts";
@@ -421,6 +422,7 @@ describe("runSpecialist", () => {
       agentInstructionFilesGuidance,
       repoPolicyGuidance,
       outOfScopeFilesGuidance,
+      scopePushbackGuidance,
       communicationGuidance,
       specialistFindingsReportContract,
     ] as const;

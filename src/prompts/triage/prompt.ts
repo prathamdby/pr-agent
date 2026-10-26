@@ -2,7 +2,11 @@ import type { TriageScope } from "../../agentWork/types.ts";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { formatFindingThreadInventoryLines } from "../shared/context.ts";
-import { alreadyResolvedVerdictGuidance, dismissedVerdictGuidance } from "../shared/behavior.ts";
+import {
+  alreadyResolvedVerdictGuidance,
+  dismissedVerdictGuidance,
+  scopePushbackGuidance,
+} from "../shared/behavior.ts";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
 import { maintainerDecisionEvidenceGuidance } from "../shared/safety.ts";
 import { nativeToolCallingGuidance } from "../shared/tools.ts";
@@ -22,6 +26,7 @@ export const triageSystemPrompt = [
   "## Discipline",
   "- Read the code at a finding before deciding its verdict.",
   "- A fix is the smallest change that resolves the reported issue, in the files that finding needs. The scope is the inventory: new findings, unrelated files, and improvements beyond the report belong to a different change.",
+  scopePushbackGuidance,
   maintainerDecisionEvidenceGuidance,
   "",
   "## Done when",

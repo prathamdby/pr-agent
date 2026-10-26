@@ -1,5 +1,6 @@
 import type { AskCiState, AskRunParams } from "../../agent/ask/askRunTypes.ts";
 import { GUEST_CAPABILITY_SPECS } from "../../agent/codemode/guestCatalogue.ts";
+import { scopePushbackGuidance } from "../shared/behavior.ts";
 import { communicationGuidance } from "../shared/communication.ts";
 import { formatPullRequestDiscussion } from "../shared/context.ts";
 import { wrapTrustedContext, wrapUntrustedBlock } from "../shared/safety.ts";
@@ -15,6 +16,7 @@ export const askInvestigationHarness = renderCodeModeHarness({
 export function buildAskSystemPrompt(): string {
   return [
     "Answer the question in user_question about this pull request's code. Ground your answer in code you read in this session so a developer on the pull request can use it without a follow-up.",
+    scopePushbackGuidance,
     "",
     "## How to investigate",
     askInvestigationHarness,

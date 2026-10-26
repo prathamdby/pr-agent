@@ -3,6 +3,7 @@ import {
   highStakesTrivialTrapGuidance,
   outOfScopeFilesGuidance,
   readOnlyReviewGuidance,
+  scopePushbackGuidance,
   severityRubric,
 } from "./behavior.ts";
 import { communicationGuidance } from "./communication.ts";
@@ -37,6 +38,8 @@ export const specialistSharedPrefix = [
   repoPolicyGuidance,
   "",
   outOfScopeFilesGuidance,
+  "",
+  scopePushbackGuidance,
   "",
   communicationGuidance,
   "",
