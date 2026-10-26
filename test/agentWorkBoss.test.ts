@@ -219,7 +219,7 @@ describe("ensureAgentQueues", () => {
     const denied = Object.assign(new Error("permission denied for schema pgboss"), {
       code: "42501",
     });
-    const executeSql = vi.fn(async () => {
+    const executeSql = vi.fn(async (_sql: string) => {
       throw denied;
     });
 
@@ -233,7 +233,7 @@ describe("ensureAgentQueues", () => {
   });
 
   it("continues queue startup when the job index already exists", async () => {
-    const executeSql = vi.fn(async () => {
+    const executeSql = vi.fn(async (_sql: string) => {
       throw Object.assign(new Error("relation already exists"), { code: "42P07" });
     });
 
