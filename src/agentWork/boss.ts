@@ -145,6 +145,30 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
 
   await retireLeftoverCiRefreshQueues(boss);
   await retireCodeIndexBuildQueue(boss);
+  await ensureJobNameSingletonKeyIndex(boss);
+}
+
+function isDuplicateRelationError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code === "42P07"
+  );
+}
+
+async function ensureJobNameSingletonKeyIndex(boss: Pick<PgBoss, "getDb">): Promise<void> {
+  try {
+    await boss.getDb().executeSql(
+      `CREATE INDEX IF NOT EXISTS job_name_singleton_key_idx
+         ON pgboss.job (name, singleton_key)
+         WHERE singleton_key IS NOT NULL`,
+    );
+  } catch (error) {
+    if (isDuplicateRelationError(error)) return;
+    throw error;
+  }
 }
 
 type RetiredQueueBoss = Pick<PgBoss, "getQueue" | "getQueueStats" | "deleteQueue">;

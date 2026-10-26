@@ -1,0 +1,10 @@
+CREATE INDEX pr_actor_leases_work_item_epoch_idx
+  ON pr_actor_leases (work_item_id, lease_epoch)
+  WHERE work_item_id IS NOT NULL;
+
+DROP INDEX github_installation_rate_limit_circuits_open_until_idx;
+DROP INDEX webhook_delivery_duplicates_delivery_id_received_at_idx;
+DROP INDEX webhook_delivery_duplicates_body_sha256_received_at_idx;
+DROP INDEX agent_events_install_recorded_idx;
+DROP INDEX github_head_ci_sources_retention_idx;
+DROP INDEX pr_head_ci_state_projection_repair_pending_idx;

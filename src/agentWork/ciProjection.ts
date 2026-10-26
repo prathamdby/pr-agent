@@ -103,7 +103,7 @@ async function mergeCiProjectionCorrelations(
            WHERE correlation <> '{}'::jsonb
         ))
       WHERE name = $1
-        AND singleton_key = $2
+        AND COALESCE(singleton_key, '') = $2
         AND singleton_on = 'epoch'::timestamp + '1s'::interval
           * ($3::float8 * floor((date_part('epoch', now()) + $3::float8) / $3::float8))
         AND state <> 'cancelled'

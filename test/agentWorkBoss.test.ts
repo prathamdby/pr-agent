@@ -134,6 +134,7 @@ describe("ensureAgentQueues", () => {
       getQueue: vi.fn(async () => ({ policy: "standard" })),
       getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
       deleteQueue: vi.fn(async () => undefined),
+      getDb: () => ({ executeSql: vi.fn(async () => ({ rows: [] })) }),
     } as unknown as PgBoss;
     const cfg = makeTestConfig();
 
@@ -192,6 +193,7 @@ describe("ensureAgentQueues", () => {
       getQueue: vi.fn(async (name: string) => ({ policy: policies[name] ?? "standard" })),
       getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
       deleteQueue: vi.fn(async () => undefined),
+      getDb: () => ({ executeSql: vi.fn(async () => ({ rows: [] })) }),
     } as unknown as PgBoss;
 
     await ensureAgentQueues(boss, makeTestConfig());
@@ -201,6 +203,47 @@ describe("ensureAgentQueues", () => {
       queue: REVIEW_QUEUE,
       policy: "key_strict_fifo",
     });
+  });
+
+  function bossWithJobIndex(executeSql: (sql: string) => Promise<{ rows: [] }>): PgBoss {
+    return {
+      createQueue: vi.fn(async () => undefined),
+      getQueue: vi.fn(async () => ({ policy: "standard" })),
+      getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
+      deleteQueue: vi.fn(async () => undefined),
+      getDb: () => ({ executeSql }),
+    } as unknown as PgBoss;
+  }
+
+  it("rejects queue startup when job index creation is denied", async () => {
+    const denied = Object.assign(new Error("permission denied for schema pgboss"), {
+      code: "42501",
+    });
+    const executeSql = vi.fn(async (_sql: string) => {
+      throw denied;
+    });
+
+    await expect(ensureAgentQueues(bossWithJobIndex(executeSql), makeTestConfig())).rejects.toBe(
+      denied,
+    );
+    expect(executeSql).toHaveBeenCalledTimes(1);
+    expect(executeSql.mock.calls[0]?.[0]).toEqual(
+      expect.stringContaining("job_name_singleton_key_idx"),
+    );
+  });
+
+  it("continues queue startup when the job index already exists", async () => {
+    const executeSql = vi.fn(async (_sql: string) => {
+      throw Object.assign(new Error("relation already exists"), { code: "42P07" });
+    });
+
+    await expect(
+      ensureAgentQueues(bossWithJobIndex(executeSql), makeTestConfig()),
+    ).resolves.toBeUndefined();
+    expect(executeSql).toHaveBeenCalledTimes(1);
+    expect(executeSql.mock.calls[0]?.[0]).toEqual(
+      expect.stringContaining("job_name_singleton_key_idx"),
+    );
   });
 });
 
