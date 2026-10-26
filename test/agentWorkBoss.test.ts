@@ -134,6 +134,7 @@ describe("ensureAgentQueues", () => {
       getQueue: vi.fn(async () => ({ policy: "standard" })),
       getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
       deleteQueue: vi.fn(async () => undefined),
+      getDb: () => ({ executeSql: vi.fn(async () => ({ rows: [] })) }),
     } as unknown as PgBoss;
     const cfg = makeTestConfig();
 
@@ -192,6 +193,7 @@ describe("ensureAgentQueues", () => {
       getQueue: vi.fn(async (name: string) => ({ policy: policies[name] ?? "standard" })),
       getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
       deleteQueue: vi.fn(async () => undefined),
+      getDb: () => ({ executeSql: vi.fn(async () => ({ rows: [] })) }),
     } as unknown as PgBoss;
 
     await ensureAgentQueues(boss, makeTestConfig());
