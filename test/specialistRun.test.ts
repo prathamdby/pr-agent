@@ -6,8 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerTurn } from "../src/agent/providers/interface.ts";
 import type { PiSession } from "../src/agent/runtime/types.ts";
 import { escalatedToolRounds, escalationForAttempt } from "../src/agentWork/retryPolicy.ts";
-import { orchestratorHarness, renderBriefMessage } from "../src/prompts/orchestrator/prompt.ts";
 import { buildAskSystemPrompt } from "../src/prompts/ask/prompt.ts";
+import { CI_SUMMARY_SYSTEM_PROMPT } from "../src/prompts/ci/prompt.ts";
+import { SUMMARIZATION_SYSTEM_PROMPT } from "../src/prompts/compaction/prompt.ts";
+import { descriptionSystemPrompt } from "../src/prompts/description/prompt.ts";
+import { BOUND_POLICY_JUDGE_SYSTEM_PROMPT } from "../src/prompts/judge/prompt.ts";
+import {
+  orchestratorHarness,
+  orchestratorSystemPrompt,
+  renderBriefMessage,
+} from "../src/prompts/orchestrator/prompt.ts";
+import { triageSystemPrompt } from "../src/prompts/triage/prompt.ts";
+import { verificationSystemPrompt } from "../src/prompts/verification/prompt.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
 import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
 import {
@@ -443,7 +453,9 @@ describe("runSpecialist", () => {
       expect(body.startsWith(identities[index] ?? "")).toBe(true);
       expect(createHash("sha256").update(body).digest("hex")).toBe(leftoverSha256[index]);
       for (const block of blocks) {
-        expect(prompt.indexOf(block)).toBe(prompt.lastIndexOf(block));
+        const at = prompt.indexOf(block);
+        expect(at).toBeGreaterThanOrEqual(0);
+        expect(at).toBe(prompt.lastIndexOf(block));
         expect(body.includes(block)).toBe(false);
       }
     });
@@ -467,6 +479,27 @@ describe("runSpecialist", () => {
     expect(automatedReviewTestsSystemPrompt.indexOf("For a coverage_gap finding")).toBeGreaterThan(
       automatedReviewTestsSystemPrompt.indexOf(severityRubric) + severityRubric.length,
     );
+  });
+
+  it("keeps the scope rule once in each review prompt", () => {
+    const carry = [
+      specialistSharedPrefix,
+      orchestratorSystemPrompt,
+      buildAskSystemPrompt(),
+      CI_SUMMARY_SYSTEM_PROMPT,
+      triageSystemPrompt,
+      verificationSystemPrompt,
+    ];
+    for (const prompt of carry) {
+      expect(prompt.split(scopePushbackGuidance).length - 1).toBe(1);
+    }
+    for (const prompt of [
+      descriptionSystemPrompt,
+      SUMMARIZATION_SYSTEM_PROMPT,
+      BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
+    ]) {
+      expect(prompt.includes(scopePushbackGuidance)).toBe(false);
+    }
   });
 
   async function rejectedTestsReport(report: Record<string, unknown>, cfg = makeTestConfig()) {
