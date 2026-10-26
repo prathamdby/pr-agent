@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { redact } from "@tanstack/redact/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -82,6 +83,7 @@ function serveMarkdownRoutesInDev(): Plugin {
 }
 
 export default defineConfig({
+  ssr: { noExternal: true },
   server: {
     port: 3000,
   },
@@ -106,6 +108,7 @@ export default defineConfig({
       },
     }),
     viteReact(),
+    redact(),
     nitro({
       preset: "vercel",
       vercel: {
