@@ -25,6 +25,23 @@ describe("sanitizeLogMessage", () => {
     expect(out).toContain("[redacted]");
   });
 
+  it("redacts a stateless installation token", () => {
+    const payload = "eyJpc3MiOiJnaXRodWIuY29tIiwiaWF0IjoxNzAwMDAwMDAwfQ";
+    const signature = "abcdefghijklmnopqrstuvwxyz0123456789-";
+    const token = `ghs_123456_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.${payload}.${signature}`;
+    const out = sanitizeLogMessage(`clone failed for ${token}`);
+    expect(out).toBe("clone failed for [redacted]");
+  });
+
+  it("leaves a bare ghs mention unchanged", () => {
+    expect(sanitizeLogMessage("ghs mention in a sentence")).toBe("ghs mention in a sentence");
+  });
+
+  it("preserves a ghs_ prefixed identifier", () => {
+    const text = "see ghs_installation_token_cache in the loader";
+    expect(sanitizeLogMessage(text)).toBe(text);
+  });
+
   it.each([
     "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     jwtLikeSecret,

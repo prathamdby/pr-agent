@@ -1212,7 +1212,7 @@ describe("posthog ai traces", () => {
     const trace = createSessionTrace(
       {
         ...sessionParams(cfg),
-        systemPrompt: `system ${privateKey} ghp_abcdefghijklmnopqrstuvwxyz012345 ghu_abcdefghijklmnopqrstuvwxyz012345 ghr_abcdefghijklmnopqrstuvwxyz012345 npm_abcdefghijklmnopqrstuvwxyz0123456789 mongodb://reader:mongo-secret@localhost/db redis://reader:redis-secret@localhost`,
+        systemPrompt: `system ${privateKey} ghp_abcdefghijklmnopqrstuvwxyz012345 ghu_abcdefghijklmnopqrstuvwxyz012345 ghr_abcdefghijklmnopqrstuvwxyz012345 npm_abcdefghijklmnopqrstuvwxyz0123456789 mongodb://reader:mongo-secret@localhost/db redis://reader:redis-secret@localhost ghs_123456_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiaWF0IjoxNzAwMDAwMDAwfQ.abcdefghijklmnopqrstuvwxyz0123456789-`,
       },
       model,
       "standalone",
@@ -1241,6 +1241,8 @@ describe("posthog ai traces", () => {
     expect(body).not.toContain("redis-secret");
     expect(body).not.toContain("sk_live_abcdefghijklmnopqrstuvwxyz");
     expect(body).not.toContain("trace-installation-token");
+    expect(body).not.toContain("eyJpc3MiOiJnaXRodWIuY29tIiwiaWF0IjoxNzAwMDAwMDAwfQ");
+    expect(body).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789-");
     expect(body).not.toContain("trace-pass");
     expect(body).toContain("[redacted]");
     expect(seen.every((event) => event.$ai_session_id == null)).toBe(true);
