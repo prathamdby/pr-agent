@@ -36,7 +36,7 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /(token|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi,
   /\b[Aa]uthorization\s*:\s*.+/gi,
   /\bghp_[A-Za-z0-9]{20,}\b/g,
-  /\bghs_[A-Za-z0-9._-]{20,}/g,
+  /\bghs_(?:[A-Za-z0-9._-]*\.[A-Za-z0-9._-]+|[A-Za-z0-9]{20,}\b)/g,
   /\bgh[oru]_[A-Za-z0-9]{20,}\b/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
   /\bsk-[A-Za-z0-9_-]{10,}\b/g,

@@ -37,6 +37,11 @@ describe("sanitizeLogMessage", () => {
     expect(sanitizeLogMessage("ghs mention in a sentence")).toBe("ghs mention in a sentence");
   });
 
+  it("preserves a ghs_ prefixed identifier", () => {
+    const text = "see ghs_installation_token_cache in the loader";
+    expect(sanitizeLogMessage(text)).toBe(text);
+  });
+
   it.each([
     "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
     jwtLikeSecret,
