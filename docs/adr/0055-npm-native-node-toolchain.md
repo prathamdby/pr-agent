@@ -6,7 +6,9 @@ Pin contributor tooling, CI, and Docker to Node 26.13.0 LTS with npm
 `>=11.19.1 <12`. The official
 `node:26.13.0-bookworm-slim` image supplies npm 11.20.0. Root `engines`
 and `devEngines` reject unsupported versions. The supported Node range is
-`^26.13.0`, not an unbounded minimum. Node 26.13.0 includes 26.12.1.
+`^26.13.0`, not an unbounded minimum. The floor is that pinned LTS
+release. The caret accepts 26.13.0 and later 26.x releases, and rejects
+every older runtime.
 
 The old `^24.21.0` floor lacked the fix for calling `digest()` after finalizing
 an HMAC stream, so do not re-digest a finalized HMAC. Webhook verification and
@@ -62,8 +64,8 @@ from an inherited layer is not an image-size or application-RSS optimization.
 
 CI uses setup-node and root-lockfile caching. The trusted guard workflow installs
 and executes only base-branch tooling. PR-head files remain inspection input.
-The Vercel Functions page lists 22.x and 24.x, so the next site deployment can
-fail. Vercel installs the site from the root lock and builds the workspace.
+The Vercel Functions page lists 22.x and 24.x, so the next site deployment
+fails. Vercel installs the site from the root lock and builds the workspace.
 `site/vercel.json` sets commands. Its schema does not accept `nodeVersion`. The
 hosted Node image can bundle npm below the required minimum. Bootstrap npm 11.19.1
 into `/tmp/pr-agent-npm` with release-age, engine, and lifecycle-script
