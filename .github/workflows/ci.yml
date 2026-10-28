@@ -109,6 +109,9 @@ jobs:
         run: git fetch --no-tags origin "$BASE_REF"
         env:
           BASE_REF: ${{ github.base_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
       - name: Check PR commit messages
         run: node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD
         env:

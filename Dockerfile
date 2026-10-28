@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24.22.0-bookworm-slim AS deps
+FROM node:26.13.0-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc .node-version ./
 COPY site/package.json ./site/package.json
 RUN --mount=type=cache,id=npm,target=/root/.npm \
   npm ci --workspaces=false
 
-FROM node:24.22.0-bookworm-slim AS prod-deps
+FROM node:26.13.0-bookworm-slim AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc .node-version ./
 COPY site/package.json ./site/package.json
@@ -20,7 +20,7 @@ COPY src ./src
 COPY migrations ./migrations
 RUN npm run build
 
-FROM node:24.22.0-bookworm-slim AS runtime
+FROM node:26.13.0-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production

@@ -59,7 +59,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^26.5.0",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "oxfmt": "^0.67.0",
     "oxlint": "1.82.0",
@@ -85,11 +85,11 @@
     },
     "runtime": {
       "name": "node",
-      "version": "^24.21.0",
+      "version": "^26.13.0",
       "onFail": "error"
     }
   },
   "engines": {
-    "node": "^24.21.0"
+    "node": "^26.13.0"
   }
 }
