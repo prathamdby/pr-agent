@@ -26,7 +26,10 @@ import { inTransaction } from "../../src/db/postgres.ts";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.ts";
+import {
+  cancelPendingPushFollowUp,
+  createReviewRescheduleWorkItem,
+} from "../../src/agentWork/reviewReschedule.ts";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.ts";
 import * as analytics from "../../src/analytics/index.ts";
 import * as workTelemetry from "../../src/analytics/workCompleted.ts";
@@ -4096,7 +4099,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const followUp = {
       webhookEventId: randomUUID(),
       replacementWorkItemId: followUpId,
-      state: "pending-enqueue",
+      state: "enqueued",
     };
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -4149,6 +4152,66 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       source: "auto",
     });
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+  });
+
+  it("every_push replaces a pending follow-up so parent failure cannot drop the push", async () => {
+    const ref = makePrRef("cadence-follow-up-pending");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "pending-enqueue",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-pending"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const parent = await getWorkItem(pool, runningId);
+    if (parent?.type !== "review") throw new Error("expected the slash parent");
+    await expect(cancelPendingPushFollowUp(pool, parent, new Error("terminal"))).rejects.toThrow(
+      /not confirmed/,
+    );
+    const { rows } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND source = 'auto' AND status = 'queued'`,
+      [key],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).not.toBe(followUpId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([rows[0]?.id]);
   });
 
   it("every_push replaces a slash follow-up that has left the queue", async () => {

@@ -28,7 +28,7 @@ Approval is the default, so trusted opens now spend review tokens; use `manual`
 to opt out. `auto` reviews every open and does not check trust. `once` is the default. A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
-`every_push` also starts a review for each later push to an open admitted pull request. A running `/review` finishes, and one follow-up then reviews the newest head. A later push keeps that follow-up while it is still queued. A follow-up that has left the queue is replaced by one new review. A push never cancels a slash review.
+`every_push` also starts a review for each later push to an open admitted pull request. A running `/review` finishes, and one follow-up then reviews the newest head. A later push keeps a follow-up that has already been enqueued. A follow-up that is still waiting to be enqueued, or has left the queue, is replaced by one new review. A push never cancels a slash review.
 An audit of this repository's last 60 merged pull requests counted 74 reviewed heads and 154 distinct CI-run head SHAs, about 2.1 times the `once` review volume. That audit was not remeasured for this change. The push count misses a push whose CI did not run, so 2.1 is a slight undercount of pushes and an upper bound on reviews only before supersede collapse and approval gating. Supersede still collapses a burst of pushes onto one surviving head. `FEATURE_VERIFICATION=off` never auto-resolves fixed threads, and a later review can still fail the check on findings that are already fixed.
 Custom trigger sets are intentionally not supported.
 
