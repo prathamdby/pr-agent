@@ -82,10 +82,12 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 export async function supersedeActiveAutoWork(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
+  options?: { readonly preserveQueuedIds?: readonly string[] },
 ): Promise<AutoWorkSupersedeResult> {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     autoWorkIntakeLockKey(target),
   ]);
+  const preserveQueuedIds = options?.preserveQueuedIds ?? [];
   const runningQuery = cancelRunningSql(target);
   const queued = await transition(client, {
     selector: supersedeSelector(target),
@@ -93,6 +95,11 @@ export async function supersedeActiveAutoWork(
     to: "superseded",
     returning: ["id", "execution_epoch", "head_sha", "source"],
     fence: unleasedFence(),
+    ...(preserveQueuedIds.length === 0
+      ? {}
+      : {
+          where: (bind) => `AND w.id <> ALL(${bind(preserveQueuedIds)}::uuid[])`,
+        }),
   });
   const running = await client.query<{
     id: string;

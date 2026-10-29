@@ -25,7 +25,10 @@ the head moves. Operators who want a review of each later push had to comment
    including a queued stale-head child. A running `/review` is stamped with
    `pushFollowUp` and finishes. The worker then schedules one automatic
    follow-up for the newest head. A second push while that marker is unset
-   does not insert another review.
+   does not insert another review. A later push leaves a still-queued
+   follow-up in place, so claim reads the newest head. A follow-up that has
+   left the queue is superseded, and intake inserts one new deferred-head
+   review.
 
 3. **Admission is stored evidence.** Under `approval`, an awaiting row skips
    the `every_push` insert, including a maintainer-only hold

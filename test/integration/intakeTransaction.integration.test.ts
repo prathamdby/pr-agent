@@ -4087,6 +4087,138 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(decision.rows[0]?.processing_decision).toBe("automated_review_supersede_requested");
   });
 
+  it("every_push keeps a queued slash follow-up and supersedes other auto work", async () => {
+    const ref = makePrRef("cadence-follow-up");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    const otherId = randomUUID();
+    const followUp = {
+      webhookEventId: randomUUID(),
+      replacementWorkItemId: followUpId,
+      state: "pending-enqueue",
+    };
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb),
+         ($10, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({ mode: "review", source: "slash", pushFollowUp: followUp }),
+        followUpId,
+        otherId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{ id: string; status: string; source: string }>(
+      `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.find((row) => row.id === runningId)).toMatchObject({
+      status: "running",
+      source: "slash",
+    });
+    expect(rows.find((row) => row.id === followUpId)).toMatchObject({
+      status: "queued",
+      source: "auto",
+    });
+    expect(rows.find((row) => row.id === otherId)).toMatchObject({
+      status: "superseded",
+      source: "auto",
+    });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+  });
+
+  it("every_push replaces a slash follow-up that has left the queue", async () => {
+    const ref = makePrRef("cadence-follow-up-running");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'running', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "enqueued",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-running"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{
+      id: string;
+      status: string;
+      source: string;
+      cancel_requested_at: Date | null;
+      head_sha: string;
+    }>(
+      `SELECT id, status, source, cancel_requested_at, head_sha
+         FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(rows.find((row) => row.id === runningId)?.status).toBe("running");
+    expect(rows.find((row) => row.id === followUpId)).toMatchObject({
+      status: "running",
+      cancel_requested_at: expect.any(Date),
+    });
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    expect(replacement?.head_sha).toBe("deferred-to-worker");
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
+  });
+
   it.each([false, true])(
     "approval mode: push changes the awaiting head and close/merge withdraws it (%s)",
     async (merged) => {
