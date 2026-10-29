@@ -131,7 +131,7 @@ These rules are followed without exception. They are grouped the way the site ap
 | `--font-sans` | `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | Everything except code                |
 | `--font-mono` | `"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`           | `code`, `pre`, `kbd`, commands, paths |
 
-Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand.
+Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand. The woff2 files are produced by `python3 site/scripts/subset-site-fonts.py` from the TTF masters. They keep Latin-1, Latin Extended-A, and the painted extras. Rerun the script when painted text gains a missing character or when a new weight or OpenType feature is used.
 
 Weights: 400 for body copy and ghost nav items, 500 for headings, buttons, and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
 
@@ -802,5 +802,5 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                                               |
 | `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                                                     |
 | `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                                                 |
-| `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                                             |
+| `site/public/fonts/`                  | Subset Geist and Geist Mono `woff2` plus licence                                                                      |
 | `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                                           |
