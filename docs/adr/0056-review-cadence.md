@@ -22,13 +22,14 @@ the head moves. Operators who want a review of each later push had to comment
 
 2. **A push never cancels a slash review.** `every_push` inserts one
    deferred-head automatic review when no slash review is queued or running,
-   including a queued stale-head child. A running `/review` is stamped with
-   `pushFollowUp` and finishes. The worker then schedules one automatic
+   including a queued stale-head child. It also inserts one when a running
+   `/review` has a follow-up that is still pending enqueue or has left the
+   queue. An enqueued follow-up stays queued, so claim reads the newest head.
+   A queued follow-up is superseded. A running follow-up receives a
+   cancellation request. A running `/review` without that marker is stamped
+   with `pushFollowUp` and finishes. The worker then schedules one automatic
    follow-up for the newest head. A second push while that marker is unset
-   does not insert another review. A later push leaves an enqueued
-   follow-up in place, so claim reads the newest head. A follow-up that is
-   still pending enqueue, or has left the queue, is superseded, and intake
-   inserts one new deferred-head review.
+   does not insert another review.
 
 3. **Admission is stored evidence.** Under `approval`, an awaiting row skips
    the `every_push` insert, including a maintainer-only hold
