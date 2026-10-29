@@ -172,9 +172,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           cache: npm
-          node-version-file: .node-version
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run fmt:check
-      - run: npm run check:site-design
-      - run: npm run site:build
+          node-version: 24
+      - run: node scripts/npm-ci-site.mjs --all
+      - run: node scripts/check-site-design.mjs
+      - run: node_modules/.bin/oxlint --deny-warnings
+      - run: node_modules/.bin/oxfmt --check
+      - run: npm run build --workspaces=false
+        working-directory: site

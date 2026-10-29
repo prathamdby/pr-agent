@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
-  "installCommand": "npm install --global --prefix /tmp/pr-agent-npm --ignore-scripts --engine-strict --min-release-age=7 npm@11.19.1 && cd .. && /tmp/pr-agent-npm/bin/npm ci --workspace=pr-agent-landing --include-workspace-root=false",
-  "buildCommand": "cd .. && /tmp/pr-agent-npm/bin/npm run --workspace=pr-agent-landing build"
+  "installCommand": "npm install --global --prefix /tmp/pr-agent-npm --ignore-scripts --engine-strict --min-release-age=7 npm@11.19.1 && cd .. && node scripts/npm-ci-site.mjs /tmp/pr-agent-npm/bin/npm",
+  "buildCommand": "/tmp/pr-agent-npm/bin/npm run build --workspaces=false"
 }

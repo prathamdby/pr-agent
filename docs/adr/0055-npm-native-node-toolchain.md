@@ -10,6 +10,12 @@ and `devEngines` reject unsupported versions. The supported Node range is
 release. The caret accepts 26.13.0 and later 26.x releases, and rejects
 every older runtime.
 
+The site workspace is the exception. Vercel Functions has no Node 26
+support yet, so `site/package.json` accepts `24.x` or the pinned
+`^26.13.0` range. Vercel selects 24.x. The `^26.13.0` arm lets root
+`npm ci` and the Docker image stay on Node 26.13.0 under `engine-strict`.
+Lift the `24.x` arm when Vercel offers Node 26.
+
 The old `^24.21.0` floor lacked the fix for calling `digest()` after finalizing
 an HMAC stream, so do not re-digest a finalized HMAC. Webhook verification and
 the inspected authentication dependencies use one-shot HMAC updates and digests.
@@ -64,8 +70,11 @@ from an inherited layer is not an image-size or application-RSS optimization.
 
 CI uses setup-node and root-lockfile caching. The trusted guard workflow installs
 and executes only base-branch tooling. PR-head files remain inspection input.
-The Vercel Functions page lists 22.x and 24.x, so the next site deployment
-fails. Vercel installs the site from the root lock and builds the workspace.
+Vercel Functions lists 22.x and 24.x and has no Node 26 support yet, so the
+site deploys on 24.x. The site install widens the root `devEngines` runtime
+to `>=24.0.0 <27` for that `npm ci`, then restores the committed `^26.13.0`
+pin. The build runs in `site/` with workspaces disabled, so it does not
+apply that pin. Lift this split when Vercel offers Node 26.
 `site/vercel.json` sets commands. Its schema does not accept `nodeVersion`. The
 hosted Node image can bundle npm below the required minimum. Bootstrap npm 11.19.1
 into `/tmp/pr-agent-npm` with release-age, engine, and lifecycle-script
