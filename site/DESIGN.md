@@ -224,11 +224,11 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 | `--color-text`           | gray-950  | Headings, primary copy                                                                                                                 |
 | `--color-text-secondary` | gray-700  | Body copy, nav, mock meta                                                                                                              |
 | `--color-text-tertiary`  | gray-500  | Small labels, step numbers, provider marks, the “No” mark                                                                              |
-| `--color-accent-solid`   | blue-600  | Primary button fill, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                                         |
+| `--color-accent-solid`   | blue-600  | Primary button fill and text selection, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                      |
 | `--color-accent-hover`   | blue-700  | Primary button hover                                                                                                                   |
 | `--color-accent-text`    | blue-700  | Accent text and icons on white: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                    |
 | `--color-accent-soft`    | blue-50   | Icon tile fill, command chips, the hero pill link badge                                                                                |
-| `--color-accent-bright`  | blue-500  | Deep end of the sky fold, the tint in the pricing band peak, `::selection` tint                                                        |
+| `--color-accent-bright`  | blue-500  | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
 | `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar, social marks, wordmark, the `$0` fill, and every cloud on a sky                       |
 | `--color-wash-strong`    | blue-200  | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
 | `--color-wash-mid`       | blue-100  | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
@@ -244,7 +244,7 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 Rules that go with the table:
 
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
-- `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
+- `::selection` uses `background: var(--color-accent-solid)` and `color: var(--color-on-accent)`, the same pair as `.btn-primary`.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
 - The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
 
