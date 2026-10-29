@@ -263,8 +263,8 @@
   }
 
   ::selection {
-    background: color-mix(in srgb, var(--color-accent-bright) 24%, transparent);
-    color: var(--color-text);
+    background: var(--color-accent-solid);
+    color: var(--color-on-accent);
   }
 
   .skip-link {
