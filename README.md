@@ -8,7 +8,7 @@
   <br>
   <a href="LICENSE"><img src="assets/badges/license.png" alt="MIT license" height="48"></a>
   <a href="#documentation"><img src="assets/badges/docs.png" alt="Documentation" height="48"></a>
-  <a href="#installation"><img src="assets/badges/node.png" alt="Node 24 LTS" height="48"></a>
+  <a href="#installation"><img src="assets/badges/node.png" alt="Node 26.13.0 LTS" height="48"></a>
 </p>
 
 </div>
@@ -406,7 +406,7 @@ npm run check:code
 
 Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases: `npm run test:integration:inventory`.
 
-For host development, install Node 24.22.0 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. The supported Node range is `^24.21.0`. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. Give web and worker distinct `PORT` values.
+For host development, install Node 26.13.0 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. The supported Node range is `^26.13.0`. The site is the exception. Vercel Functions has no Node 26 support yet, so the landing workspace also accepts Node 24 and the site CI job installs Node 24. Lift that exception when Vercel offers Node 26. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. Give web and worker distinct `PORT` values.
 
 One root `package-lock.json` covers the backend and landing workspace. Use `npm ci --workspaces=false` for backend build dependencies, `npm ci --omit=dev --workspaces=false` for backend production, or `npm ci --workspace=pr-agent-landing --include-workspace-root=false` for the site. `.npmrc` owns the seven-day release-age policy, disabled dependency lifecycle scripts, legacy peer resolution, and strict engines. The only release-age exclusion is `@tanstack/redact`.
 

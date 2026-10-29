@@ -2,18 +2,23 @@
 
 ## Decision
 
-Pin contributor tooling, CI, and Docker to Node 24.22.0 LTS with npm
+Pin contributor tooling, CI, and Docker to Node 26.13.0 LTS with npm
 `>=11.19.1 <12`. The official
-`node:24.22.0-bookworm-slim` image supplies npm 11.19.1. Root `engines`
+`node:26.13.0-bookworm-slim` image supplies npm 11.20.0. Root `engines`
 and `devEngines` reject unsupported versions. The supported Node range is
-`^24.21.0`, not an unbounded minimum. This admits Vercel's managed Node 24.21.0
-runtime without changing the preferred version or npm requirement.
+`^26.13.0`, not an unbounded minimum. The floor is that pinned LTS
+release. The caret accepts 26.13.0 and later 26.x releases, and rejects
+every older runtime.
 
-Node 24.21.0 lacks the 24.22.0 fix for calling `digest()` after finalizing an HMAC
-stream. Webhook verification and the inspected authentication dependencies use
-one-shot HMAC updates and digests. Do not re-digest finalized HMAC streams.
-Recheck the supported range when Node's announced October 21, 2026 security
-release becomes available.
+The site workspace is the exception. Vercel Functions has no Node 26
+support yet, so `site/package.json` accepts `24.x` or the pinned
+`^26.13.0` range. Vercel selects 24.x. The `^26.13.0` arm lets root
+`npm ci` and the Docker image stay on Node 26.13.0 under `engine-strict`.
+Lift the `24.x` arm when Vercel offers Node 26.
+
+The old `^24.21.0` floor lacked the fix for calling `digest()` after finalizing
+an HMAC stream, so do not re-digest a finalized HMAC. Webhook verification and
+the inspected authentication dependencies use one-shot HMAC updates and digests.
 
 One root `package-lock.json` owns the backend and `site` workspace.
 Shared overrides stay at the root. `.npmrc` owns `min-release-age=7`,
@@ -46,10 +51,9 @@ imports. Compilation rewrites those references to `.js`; production still
 runs `node dist/index.js`. The fff client chooses its real `.ts` source host
 or emitted `.js` host and forks with no inherited loader or environment.
 Environment and configuration edits can require a manual development restart.
-Keep a `.env` file present, even when empty and settings come from exported
-variables. Node 24.22.0's watcher can crash on shutdown after a source restart
-when `--env-file-if-exists` names an absent file. This reproduces without the
-application; it does not affect compiled production or non-watching source runs.
+On Node 26.13.0, `node --watch --env-file-if-exists=.env` prints `.env not
+found. Continuing without it.` and exits 0 after a source restart and shutdown
+when the file is absent.
 
 `npm run` forwards script arguments after `--`, for example
 `npm run dump-prompt -- all`. `test` explicitly checks Effect versions before
@@ -65,13 +69,17 @@ No package manager or compiler runs in the production process. Removing tooling
 from an inherited layer is not an image-size or application-RSS optimization.
 
 CI uses setup-node and root-lockfile caching. The trusted guard workflow installs
-and executes only base-branch tooling; PR-head files remain inspection input.
-Vercel selects Node 24 from `package.json` engines, installs the site from the root
-lock, and builds the workspace. `site/vercel.json` sets commands; its schema does
-not accept `nodeVersion`. The hosted Node image can bundle npm below the required
-minimum. Bootstrap npm 11.19.1 into `/tmp/pr-agent-npm` with release-age, engine,
-and lifecycle-script protections, then use that binary for both install and
-build. This leaves the hosted npm untouched and preserves repository
+and executes only base-branch tooling. PR-head files remain inspection input.
+Vercel Functions lists 22.x and 24.x and has no Node 26 support yet, so the
+site deploys on 24.x. The site install widens the root `devEngines` runtime
+to `>=24.0.0 <27` for that `npm ci`, then restores the committed `^26.13.0`
+pin. The build runs in `site/` with workspaces disabled, so it does not
+apply that pin. Lift this split when Vercel offers Node 26.
+`site/vercel.json` sets commands. Its schema does not accept `nodeVersion`. The
+hosted Node image can bundle npm below the required minimum. Bootstrap npm 11.19.1
+into `/tmp/pr-agent-npm` with release-age, engine, and lifecycle-script
+protections, then use that binary for both install and build. This leaves the
+hosted npm untouched and preserves repository
 `devEngines`. Dashboard overrides need a separate operator check.
 
 Every `.jsonc` file is a control-plane path, at any depth and case. The canonical
