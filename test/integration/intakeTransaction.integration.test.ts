@@ -76,8 +76,11 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../../src/settings/index.ts";
 import { hasDatabase, integrationPool } from "./db.ts";
 import type { AskJobData } from "../../src/agentWork/types.ts";
@@ -86,7 +89,14 @@ const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
 const ASK_INSTALLATION_ID = 6589001;
 const DATABASE_URL = process.env.DATABASE_URL!;
-const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
+const CLEANUP_QUEUES = [
+  ACK_QUEUE,
+  REVIEW_QUEUE,
+  CI_PROJECTION_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+] as const;
 
 const queueConfig: QueueConfig = makeTestConfig({
   queue: {
