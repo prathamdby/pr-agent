@@ -99,6 +99,13 @@ const testState = vi.hoisted(() => ({
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
   sentSendOptions: [] as PiSessionSendOptions[],
   specialistEscalations: [] as Array<EscalationPlan | undefined>,
+  ledgerOpens: {
+    review: new Set<string>(),
+    correctness: new Set<string>(),
+    security: new Set<string>(),
+    quality: new Set<string>(),
+    tests: new Set<string>(),
+  },
 }));
 
 const publishRecordMocks = vi.hoisted(() => ({
@@ -107,38 +114,53 @@ const publishRecordMocks = vi.hoisted(() => ({
 
 vi.mock("../src/agentWork/publishRecordRepository.ts", () => publishRecordMocks);
 
-vi.mock("../src/review/run/reviewRunSetup.ts", () => ({
-  buildReviewRunSetup: vi.fn((params: { trustedContext?: string }) => ({
-    orchestratorUserContent: params.trustedContext ?? "",
-    systemPrompt: "legacy prompt must not be used",
-    userContent: "Inspect the pull request.",
-    workspaceTools: { piTools: [], executors: {} },
-    createSpecialistWorkspaceTools: (
-      _label: string,
-      reviewThreads: () => readonly { readonly findingId: string }[],
-    ) => {
-      testState.specialistThreadSources.push(reviewThreads);
-      return { piTools: [], executors: {} };
+vi.mock("../src/review/run/reviewRunSetup.ts", () => {
+  const trackLedger = (key: "review" | "correctness" | "security" | "quality" | "tests") => ({
+    headSha: "a".repeat(40),
+    record: () => undefined,
+    noteOpened: (path: string) => {
+      testState.ledgerOpens[key].add(path);
     },
-    disposeSpillFiles: async () => [],
-    cachedDiffIndex: {
-      files: new Map(),
-      truncated: false,
-      listPullRequestFilesIngested: false,
-    },
-    trustedContext: params.trustedContext ?? "",
-    evidenceLedger: {
-      headSha: "a".repeat(40),
-      record: () => undefined,
-      noteOpened: () => undefined,
-      hasOpened: () => false,
-      openedPaths: () => [],
-      covers: () => true,
-      snapshot: () => [],
-    },
-    prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
-  })),
-}));
+    hasOpened: (path: string) => testState.ledgerOpens[key].has(path),
+    openedPaths: () => [...testState.ledgerOpens[key]],
+    covers: () => true,
+    snapshot: () => [],
+  });
+  return {
+    ledgerForFindingSource: (
+      source: string,
+      ledgers: { orchestrator: unknown; specialists: Record<string, unknown> },
+    ) => (source === "review" ? ledgers.orchestrator : ledgers.specialists[source]),
+    buildReviewRunSetup: vi.fn((params: { trustedContext?: string }) => ({
+      orchestratorUserContent: params.trustedContext ?? "",
+      systemPrompt: "legacy prompt must not be used",
+      userContent: "Inspect the pull request.",
+      workspaceTools: { piTools: [], executors: {} },
+      createSpecialistWorkspaceTools: (
+        _label: string,
+        reviewThreads: () => readonly { readonly findingId: string }[],
+      ) => {
+        testState.specialistThreadSources.push(reviewThreads);
+        return { piTools: [], executors: {} };
+      },
+      disposeSpillFiles: async () => [],
+      cachedDiffIndex: {
+        files: new Map(),
+        truncated: false,
+        listPullRequestFilesIngested: false,
+      },
+      trustedContext: params.trustedContext ?? "",
+      evidenceLedger: trackLedger("review"),
+      specialistLedgers: {
+        correctness: trackLedger("correctness"),
+        security: trackLedger("security"),
+        quality: trackLedger("quality"),
+        tests: trackLedger("tests"),
+      },
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+    })),
+  };
+});
 
 vi.mock("../src/review/orchestrator/specialistRun.ts", () => ({
   runSpecialist: vi.fn(
@@ -550,6 +572,7 @@ describe("reviewRunCoverage", () => {
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {
     testState.outcomes.clear();
+    for (const opened of Object.values(testState.ledgerOpens)) opened.clear();
     testState.publishOrder.length = 0;
     testState.activeSource = null;
     testState.summaryNotes.length = 0;
@@ -715,6 +738,7 @@ describe("runOrchestratedPrReview", () => {
               specialist,
               report: reported([item]),
               evidence: [],
+              ...(specialist === "correctness" ? { openedPaths: ["src/correctness.ts"] } : {}),
             }),
           );
         }
@@ -737,6 +761,7 @@ describe("runOrchestratedPrReview", () => {
             resultKind: "empty",
             evidence: [],
             judgmentDegraded: false,
+            openedPaths: ["src/security.ts"],
           },
         });
         rows.set(prepared.logicalKey, prepared);
@@ -783,6 +808,11 @@ describe("runOrchestratedPrReview", () => {
         }
         expect(firstPrompt).not.toContain("security-unique-cached-evidence");
         expect(testState.publishOrder).not.toContain("security");
+        expect([...testState.ledgerOpens.correctness]).toEqual(["src/correctness.ts"]);
+        expect([...testState.ledgerOpens.security]).toEqual(["src/security.ts"]);
+        expect(testState.ledgerOpens.tests.size).toBe(0);
+        expect(testState.ledgerOpens.quality.size).toBe(0);
+        expect(testState.ledgerOpens.review.size).toBe(0);
       }
       expect(load).toHaveBeenCalledWith("report/correctness");
     },

@@ -43,7 +43,7 @@ import {
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../run/reviewRunMetrics.ts";
-import { buildReviewRunSetup } from "../run/reviewRunSetup.ts";
+import { buildReviewRunSetup, ledgerForFindingSource } from "../run/reviewRunSetup.ts";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.ts";
 import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.ts";
 import {
@@ -68,6 +68,7 @@ import {
   SPECIALIST_IDS,
   specialistDonePhase,
   type FindingLedger,
+  type FindingSource,
   type OrchestratedRunState,
   type ReviewCoverage,
   type ReviewRunGate,
@@ -343,9 +344,17 @@ export async function runOrchestratedPrReview(
         }
       : {}),
   });
+  const sourceLedger = (source: FindingSource) =>
+    ledgerForFindingSource(source, {
+      orchestrator: setup.evidenceLedger,
+      specialists: setup.specialistLedgers,
+    });
   const unreadPathsNow = () =>
     unreadChangedPaths({
-      ledger: setup.evidenceLedger,
+      ledgers: [
+        setup.evidenceLedger,
+        ...SPECIALIST_IDS.map((specialist) => setup.specialistLedgers[specialist]),
+      ],
       changedFiles: params.workspace.reader.changedFiles,
       isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
     });
@@ -379,25 +388,20 @@ export async function runOrchestratedPrReview(
       const envelope = await recovery.load(`report/${specialist}`);
       if (envelope?.artifact.kind !== "report") continue;
       const artifact = envelope.artifact;
+      const reportLedger = setup.specialistLedgers[specialist];
       if (artifact.openedPaths) {
-        for (const path of artifact.openedPaths) setup.evidenceLedger.noteOpened(path);
+        for (const path of artifact.openedPaths) reportLedger.noteOpened(path);
       } else if (mustRestoreOpens) {
         recovery.discardEvidenceCache();
         continue;
       }
-      if (
-        !(await revalidateEvidenceDescriptors(
-          setup.evidenceLedger,
-          artifact.evidence,
-          readEvidence,
-        ))
-      ) {
+      if (!(await revalidateEvidenceDescriptors(reportLedger, artifact.evidence, readEvidence))) {
         recovery.discardEvidenceCache();
         continue;
       }
       const validated = assertFindingsHaveEvidence(
         artifact.report.findings,
-        setup.evidenceLedger,
+        reportLedger,
         params.headSha,
         {
           checkoutCoverage: params.workspace.reader.getCoverage(),
@@ -426,11 +430,12 @@ export async function runOrchestratedPrReview(
   for (const decision of recoveredDecisions) {
     const canonical = decision.prepared.artifact.canonical;
     if (canonical.kind !== "threads") continue;
+    const canonicalLedger = sourceLedger(canonical.source);
     if (canonical.openedPaths) {
-      for (const path of canonical.openedPaths) setup.evidenceLedger.noteOpened(path);
+      for (const path of canonical.openedPaths) canonicalLedger.noteOpened(path);
     }
     const evidenceOk = await revalidateEvidenceDescriptors(
-      setup.evidenceLedger,
+      canonicalLedger,
       canonical.evidence,
       readEvidence,
     );
@@ -551,11 +556,11 @@ export async function runOrchestratedPrReview(
           return undefined;
         }
       },
-      evidenceLedger: setup.evidenceLedger,
       checkoutCoverage: params.workspace.reader.getCoverage(),
       isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
     },
     inventory: findingInventory,
+    evidenceLedgerFor: sourceLedger,
     initialLedger:
       recoveredDecisions[0]?.prepared.artifact.canonical.kind === "threads"
         ? createFindingLedger(recoveredDecisions[0].prepared.artifact.canonical.ledgerBefore)
@@ -1273,7 +1278,7 @@ export async function runOrchestratedPrReview(
               ),
               shouldContinue: () => state.lifecycle.kind === "running",
               signal: combineAbortSignals([params.signal, controller.signal]),
-              evidenceLedger: setup.evidenceLedger,
+              evidenceLedger: setup.specialistLedgers[specialist],
               headSha: params.headSha,
               checkoutCoverage: params.workspace.reader.getCoverage(),
               isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
@@ -1282,10 +1287,8 @@ export async function runOrchestratedPrReview(
               createSession: params.createSession,
               onValidatedReport: recovery
                 ? async (report) => {
-                    const evidence = evidenceForCachedFindings(
-                      setup.evidenceLedger,
-                      report.findings,
-                    );
+                    const reportLedger = setup.specialistLedgers[specialist];
+                    const evidence = evidenceForCachedFindings(reportLedger, report.findings);
                     if (evidence === null) {
                       recovery.discardEvidenceCache();
                       return;
@@ -1295,7 +1298,7 @@ export async function runOrchestratedPrReview(
                       specialist,
                       report,
                       evidence,
-                      openedPaths: [...setup.evidenceLedger.openedPaths()],
+                      openedPaths: [...reportLedger.openedPaths()],
                     });
                   }
                 : undefined,

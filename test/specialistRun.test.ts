@@ -67,6 +67,7 @@ const runnerMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   behaviors: [] as AttemptBehavior[],
   sessions: [] as TestSession[],
+  submitResults: [] as unknown[],
   recordExecutionSpan: vi.fn(),
 }));
 
@@ -166,6 +167,7 @@ describe("runSpecialist", () => {
     vi.clearAllMocks();
     runnerMocks.behaviors.length = 0;
     runnerMocks.sessions.length = 0;
+    runnerMocks.submitResults.length = 0;
     vi.spyOn(Math, "random").mockReturnValue(0);
     runnerMocks.createSession.mockImplementation(async (params) => {
       const behavior = runnerMocks.behaviors.shift();
@@ -201,7 +203,9 @@ describe("runSpecialist", () => {
             });
           }
           if (behavior.kind === "no_report") return { text: "", end: "completed" as const };
-          await params.executors.submit_findings_report(behavior.report);
+          runnerMocks.submitResults.push(
+            await params.executors.submit_findings_report(behavior.report),
+          );
           return { text: "", end: "completed" as const };
         }),
         abort,
@@ -646,6 +650,44 @@ describe("runSpecialist", () => {
         }),
       ),
     ).resolves.toMatchObject({ kind: "report", report: neighbor });
+  });
+
+  it("drops a tests cite recorded only on another specialist ledger", async () => {
+    const security = createTestEvidenceLedger();
+    const tests = createTestEvidenceLedger();
+    seedEvidenceForFinding(security, finding);
+    runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
+
+    const dropped = await runSpecialist(
+      specialistArgs({
+        specialist: "tests",
+        evidenceLedger: tests,
+        headSha: tests.headSha,
+      }),
+    );
+
+    expect(dropped.kind).toBe("empty");
+    expect(runnerMocks.submitResults[0]).toMatchObject({
+      accepted: false,
+      droppedFindings: [{ reasonCode: "no_evidence", file: finding.file }],
+    });
+    expect(security.covers(finding.file, finding.startLine, finding.endLine)).toBe(true);
+    expect(tests.covers(finding.file, finding.startLine, finding.endLine)).toBe(false);
+
+    runnerMocks.behaviors.length = 0;
+    runnerMocks.sessions.length = 0;
+    runnerMocks.submitResults.length = 0;
+    seedEvidenceForFinding(tests, finding);
+    runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          specialist: "tests",
+          evidenceLedger: tests,
+          headSha: tests.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "report", report: testsFindingsReport });
   });
 
   it("accepts an invalidated test without testEvidence and a never-read path when the flag is off", async () => {

@@ -93,7 +93,7 @@ Notes:
   eligible CI sources and repair; retained failures are not automatically reopened.
 - `REVIEW_TESTS_EVIDENCE` is separate operator tuning, default off, not a
   `FEATURE_*` mode. When it is true, a tests coverage gap must name read paths
-  that have a content read in the run ledger. Path checks apply either way.
+  that have a content read recorded by that specialist. Path checks apply either way.
 - Recovery is part of review. It is not a ninth feature and not a `FEATURE_*`
   mode. A restart can reuse a validated brief or report. Evidence is read
   again. Publication uses the normal gates. It does not restore a transcript.

@@ -71,7 +71,7 @@ review with a base sha. Migration 037 is already applied by startup. See
 It accepts only `true` or `false`. Empty uses the default, and `1`, `yes`, or
 `TRUE` fail startup with `config.invalid_enum`. It is not a `FEATURE_*` mode.
 When it is `true`, each tests coverage-gap `read` path must have a content
-read in the run ledger. Path checks apply either way. A sensitive path is
+read recorded by that specialist. Path checks apply either way. A sensitive path is
 rejected even when the pull request changes it.
 
 `REVIEW_CHECK_FAIL_SEVERITY` defaults to `P2` and maps to

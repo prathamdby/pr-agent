@@ -16,7 +16,7 @@ import {
 } from "./reviewRecoverySchema.ts";
 
 export const REVIEW_CONTRACT_VERSION = "review-3";
-export const REVIEW_ARTIFACT_SCHEMA_VERSION = 7;
+export const REVIEW_ARTIFACT_SCHEMA_VERSION = 8;
 
 const hashSchema = v.pipe(v.string(), v.regex(/^[0-9a-f]{64}$/));
 const identityText = (max: number) =>

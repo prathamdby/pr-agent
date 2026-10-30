@@ -573,7 +573,7 @@ ORDER BY artifact_order
 LIMIT 100;
 ```
 
-Artifact schema version 7 replaces version 6. Older envelopes do not bind.
+Artifact schema version 8 replaces version 7. Older envelopes do not bind.
 An artifact is reusable only with current schema/contract, installation, work,
 resource, reviewed head/base, and effective input/policy/settings/model binding.
 A mismatch is a miss. Accepted operation receipts remain authoritative across

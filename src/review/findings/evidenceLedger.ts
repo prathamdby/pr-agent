@@ -214,7 +214,7 @@ export function createEvidenceLedger(headSha: string): EvidenceLedger {
 }
 
 export function unreadChangedPaths(params: {
-  readonly ledger: EvidenceLedger;
+  readonly ledgers: readonly EvidenceLedger[];
   readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
   readonly isPathInCheckout: (path: string) => boolean;
 }): readonly string[] {
@@ -223,7 +223,7 @@ export function unreadChangedPaths(params: {
     if (file.status === "deleted") continue;
     const path = normalizeEvidencePath(file.path);
     if (!params.isPathInCheckout(path)) continue;
-    if (params.ledger.hasOpened(path)) continue;
+    if (params.ledgers.some((ledger) => ledger.hasOpened(path))) continue;
     unread.push(path);
   }
   return unread;

@@ -85,9 +85,11 @@ describe("evidenceLedger", () => {
       { path: "src/missing.ts", status: "modified" },
     ];
     const isPathInCheckout = (path: string) => path !== "src/missing.ts";
-    expect(unreadChangedPaths({ ledger, changedFiles, isPathInCheckout })).toEqual(["src/a.ts"]);
+    expect(unreadChangedPaths({ ledgers: [ledger], changedFiles, isPathInCheckout })).toEqual([
+      "src/a.ts",
+    ]);
     ledger.noteOpened("src/a.ts");
-    expect(unreadChangedPaths({ ledger, changedFiles, isPathInCheckout })).toEqual([]);
+    expect(unreadChangedPaths({ ledgers: [ledger], changedFiles, isPathInCheckout })).toEqual([]);
   });
 
   it("treats a dot-slash open as the normalized changed path", () => {
@@ -95,7 +97,7 @@ describe("evidenceLedger", () => {
     ledger.noteOpened("./src/a.ts");
     expect(
       unreadChangedPaths({
-        ledger,
+        ledgers: [ledger],
         changedFiles: [{ path: "src/a.ts", status: "modified" }],
         isPathInCheckout: () => true,
       }),
@@ -122,5 +124,29 @@ describe("evidenceLedger", () => {
     expect(ledger.hasOpened("src/a.ts")).toBe(true);
     expect(ledger.hasOpened("src/empty.ts")).toBe(true);
     expect(ledger.covers("src/a.ts", 1, 1)).toBe(false);
+  });
+
+  it("treats a sibling open as read for coverage and unread for covers", () => {
+    const security = createEvidenceLedger(headSha);
+    const tests = createEvidenceLedger(headSha);
+    security.noteOpened("src/a.ts");
+    security.record({
+      path: "src/a.ts",
+      startLine: 1,
+      endLine: 2,
+      contentHash: hashNormalizedLineText("x"),
+      headSha,
+      tool: "readWorkspaceFile",
+    });
+    const changedFiles = [{ path: "src/a.ts", status: "modified" }];
+    expect(
+      unreadChangedPaths({
+        ledgers: [security, tests],
+        changedFiles,
+        isPathInCheckout: () => true,
+      }),
+    ).toEqual([]);
+    expect(tests.covers("src/a.ts", 1, 2)).toBe(false);
+    expect(security.covers("src/a.ts", 1, 2)).toBe(true);
   });
 });
