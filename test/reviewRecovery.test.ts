@@ -5,6 +5,11 @@ import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.t
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
 import {
+  createEvidenceLedger,
+  hashNormalizedLineText,
+  revalidateEvidenceDescriptors,
+} from "../src/review/findings/evidenceLedger.ts";
+import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
   parseReviewArtifactEnvelope,
@@ -289,7 +294,7 @@ describe("reaffirmed ledger snapshots", () => {
 describe("base policy provenance", () => {
   it("changes the digest when only a policy blob sha changes", () => {
     expect(REVIEW_CONTRACT_VERSION).toBe("review-3");
-    expect(REVIEW_ARTIFACT_SCHEMA_VERSION).toBe(7);
+    expect(REVIEW_ARTIFACT_SCHEMA_VERSION).toBe(8);
     const input = {
       cfg: makeTestConfig(),
       diff: [["src/a.ts", "patch"]],
@@ -341,6 +346,7 @@ describe("base policy provenance", () => {
     expect(parseReviewArtifactEnvelope(envelope)).toEqual(envelope);
     expect(parseReviewArtifactEnvelope({ ...envelope, contractVersion: "review-2" })).toBeNull();
     expect(parseReviewArtifactEnvelope({ ...envelope, schemaVersion: 6 })).toBeNull();
+    expect(parseReviewArtifactEnvelope({ ...envelope, schemaVersion: 7 })).toBeNull();
     const replayed = parseReviewArtifactEnvelope(envelope);
     expect(replayed?.artifact.kind).toBe("publication_prepared");
     if (replayed?.artifact.kind !== "publication_prepared") return;
@@ -348,5 +354,41 @@ describe("base policy provenance", () => {
       footers: [["src/a.ts:1", [".pr-agent/auth.mdc"]]],
       baseSha: storedBaseSha,
     });
+  });
+});
+
+describe("private evidence reread", () => {
+  it("writes a saved range only into the ledger named for that reread", async () => {
+    const headSha = "a".repeat(40);
+    const content = "saved line";
+    const descriptor = {
+      version: 1 as const,
+      kind: "file_range" as const,
+      path: "src/a.ts",
+      startLine: 1,
+      endLine: 1,
+      contentHash: hashNormalizedLineText(content),
+      headSha,
+    };
+    const read = async () => ({
+      path: "src/a.ts",
+      headSha,
+      tool: "readWorkspaceFile",
+      startLine: 1,
+      endLine: 1,
+      content,
+    });
+    const security = createEvidenceLedger(headSha);
+    const tests = createEvidenceLedger(headSha);
+    expect(await revalidateEvidenceDescriptors(security, [descriptor], read)).toBe(true);
+    expect(tests.snapshot()).toEqual([]);
+    expect(security.covers("src/a.ts", 1, 1)).toBe(true);
+    expect(tests.covers("src/a.ts", 1, 1)).toBe(false);
+
+    const again = createEvidenceLedger(headSha);
+    expect(await revalidateEvidenceDescriptors(again, [descriptor], read)).toBe(true);
+    const withoutTime = (ledger: ReturnType<typeof createEvidenceLedger>) =>
+      ledger.snapshot().map(({ recordedAt: _recordedAt, ...entry }) => entry);
+    expect(withoutTime(again)).toEqual(withoutTime(security));
   });
 });

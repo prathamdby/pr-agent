@@ -22,7 +22,7 @@ export const compactInvestigationMethod: readonly string[] = [
   "- In-repo rollout. When the diff changes a migration, backfill, or environment config, compare it with the sibling schema or paired config file in the checkout. Report it when those files disagree and a caller can hit the disagreement.",
   "A pattern match alone is not a finding: tie it to a reachable trigger and observable wrong behavior. A pattern that appears unchanged elsewhere may be deliberate. When citing a test, check that its assumptions match production behaviour.",
   "",
-  "Write each finding as two or three short sentences that stand alone, with its trigger, proving line, consequence, and violated invariant. Name the defect in the title and address its cause with the fix direction in fixPrompt. Bounded uncertainty can qualify a plausible P2 in one clause of detail but cannot replace the trigger or consequence. End a clean investigation with a no_findings report.",
+  "Name the defect in the title and address its cause with the fix direction in fixPrompt. Bounded uncertainty can qualify a plausible P2 in one clause of detail but cannot replace the trigger or consequence.",
 ];
 
 export const compactBugPatternCatalogue: readonly string[] = [
@@ -73,7 +73,6 @@ export const pathAndSizeGuidance = [
   "## Path and size guidance",
   "Use the trusted-context blocks in the user message to order the investigation: auth, migration, config, and security paths first, docs and tests after.",
   "On a large or truncated pull request, the order decides where to look first, not how many findings to report. Include every evidenced P0–P2 across the full diff.",
-  "Anchor each finding on a path in the PR's changed files when one exists, because only changed paths can receive inline review threads. For a coverage gap or missing test, cite the changed test path that should cover it, or the new test file the PR should add.",
 ].join("\n");
 
 export function buildAutomatedSystemPrompt(): string {
@@ -131,7 +130,7 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     "",
     "Finding fields:",
-    "- Each finding has suggestedSeverity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant). Judgment assigns the published severity.",
+    "- Each finding has suggestedSeverity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, names the defect, <=80 chars), and detail (per the detail contract below, naming the violated invariant).",
     reviewPayloadPerFindingContracts,
   ].join("\n");
 }

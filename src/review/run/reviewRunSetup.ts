@@ -3,7 +3,6 @@ import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts
 import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
-import { createAskPathGate } from "../../agent/ask/askSafety.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.ts";
 import {
   buildWorkspaceTools,
@@ -13,6 +12,11 @@ import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/re
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.ts";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.ts";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.ts";
+import {
+  SPECIALIST_IDS,
+  type FindingSource,
+  type SpecialistId,
+} from "../orchestrator/orchestratorTypes.ts";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -21,9 +25,17 @@ export type ReviewRunSetup = {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
+  readonly createSpecialistWorkspaceTools: (
+    specialist: SpecialistId,
+    reviewThreads: ReviewThreadSource,
+  ) => {
+    readonly piTools: PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  };
   readonly disposeSpillFiles: () => Promise<readonly string[]>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
+  readonly specialistLedgers: Readonly<Record<SpecialistId, EvidenceLedger>>;
   readonly prSurface: PrSurface;
   readonly bindReviewThreads: (source: ReviewThreadSource) => void;
 };
@@ -49,6 +61,28 @@ function wrapReviewToolExecutors(
   );
 }
 
+function codeModeWorkspaceView(
+  localTools: {
+    readonly piTools: readonly PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  },
+  options: {
+    readonly executorKind: Config["codeMode"]["executorKind"];
+    readonly evidenceLedger: EvidenceLedger;
+    readonly headSha: string;
+  },
+) {
+  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
+    executorKind: options.executorKind,
+    evidenceLedger: options.evidenceLedger,
+    headSha: options.headSha,
+  });
+  return {
+    piTools: [...bundle.piTools],
+    executors: wrapReviewToolExecutors(wrapExecutorsWithRateLimitCircuit(bundle.executors)),
+  };
+}
+
 function buildOrchestratorUserContent(params: {
   readonly owner: string;
   readonly repo: string;
@@ -68,6 +102,17 @@ function buildOrchestratorUserContent(params: {
   ].join("\n");
 }
 
+export function ledgerForFindingSource(
+  source: FindingSource,
+  ledgers: {
+    readonly orchestrator: EvidenceLedger;
+    readonly specialists: Readonly<Record<SpecialistId, EvidenceLedger>>;
+  },
+): EvidenceLedger {
+  if (source === "review") return ledgers.orchestrator;
+  return ledgers.specialists[source];
+}
+
 export function buildReviewRunSetup(params: {
   cfg: Config;
   prSurface: PrSurface;
@@ -85,27 +130,27 @@ export function buildReviewRunSetup(params: {
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
-  const pathGate = createAskPathGate();
+  const specialistLedgers = Object.fromEntries(
+    SPECIALIST_IDS.map((specialist) => [specialist, createEvidenceLedger(headSha)]),
+  ) as Record<SpecialistId, EvidenceLedger>;
   const reviewThreadSource: { current: ReviewThreadSource } = { current: () => [] };
-  const localTools = buildWorkspaceTools(params.workspace.reader, {
-    pathGate,
+  const specialistDisposals: Array<() => Promise<readonly string[]>> = [];
+  const investigationOptions = (toolCall: string, reviewThreads: ReviewThreadSource) => ({
     headSha,
-    reviewThreads: () => reviewThreadSource.current(),
+    reviewThreads,
     ...(params.workItemId != null
-      ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
+      ? { spillScope: { workItemId: params.workItemId, toolCall } }
       : {}),
   });
-  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
+  const localTools = buildWorkspaceTools(
+    params.workspace.reader,
+    investigationOptions("readWorkspaceFile", () => reviewThreadSource.current()),
+  );
+  const workspaceTools = codeModeWorkspaceView(localTools, {
     executorKind: cfg.codeMode.executorKind,
     evidenceLedger,
     headSha,
   });
-  const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
-  const wrappedExecutors = wrapReviewToolExecutors(rateLimitedExecutors);
-  const workspaceTools = {
-    piTools: [...bundle.piTools],
-    executors: wrappedExecutors,
-  };
 
   return {
     orchestratorUserContent: buildOrchestratorUserContent({
@@ -118,9 +163,27 @@ export function buildReviewRunSetup(params: {
     }),
     trustedContext: trustedContext ?? "",
     workspaceTools,
-    disposeSpillFiles: localTools.disposeSpillFiles,
+    createSpecialistWorkspaceTools(specialist, reviewThreads) {
+      const specialistLedger = specialistLedgers[specialist];
+      const tools = buildWorkspaceTools(
+        params.workspace.reader,
+        investigationOptions(`readWorkspaceFile:${specialist}`, reviewThreads),
+      );
+      specialistDisposals.push(tools.disposeSpillFiles);
+      return codeModeWorkspaceView(tools, {
+        executorKind: cfg.codeMode.executorKind,
+        evidenceLedger: specialistLedger,
+        headSha,
+      });
+    },
+    disposeSpillFiles: async () => {
+      const own = await localTools.disposeSpillFiles();
+      const extra = await Promise.all(specialistDisposals.splice(0).map((dispose) => dispose()));
+      return [...own, ...extra.flat()];
+    },
     cachedDiffIndex,
     evidenceLedger,
+    specialistLedgers,
     prSurface,
     bindReviewThreads(source) {
       reviewThreadSource.current = source;

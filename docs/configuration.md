@@ -71,7 +71,7 @@ review with a base sha. Migration 037 is already applied by startup. See
 It accepts only `true` or `false`. Empty uses the default, and `1`, `yes`, or
 `TRUE` fail startup with `config.invalid_enum`. It is not a `FEATURE_*` mode.
 When it is `true`, each tests coverage-gap `read` path must have a content
-read in the run ledger. Path checks apply either way. A sensitive path is
+read recorded by that specialist. Path checks apply either way. A sensitive path is
 rejected even when the pull request changes it.
 
 `REVIEW_CHECK_FAIL_SEVERITY` defaults to `P2` and maps to
@@ -561,6 +561,8 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `SESSION_TURN_RETRY_MAX`                     | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn                                                          |
 | `SESSION_TURN_RETRY_BASE_DELAY_MS`           | 250 — base delay before the first turn retry; doubles on each later retry                                                                                       |
 | `SESSION_OVERFLOW_COMPACT_MAX`               | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal                                                                |
+| `SPECIALIST_EXECUTE_NUDGE_AT`                | 3 identical `execute` results for one code. The next specialist request carries one nudge                                                                       |
+| `SPECIALIST_EXECUTE_STOP_AT`                 | 6 identical `execute` results for one code. That specialist's turn ends and a submitted report is kept. Other specialists continue                              |
 | `VALIDATION_REPAIR_ROUNDS`                   | 3                                                                                                                                                               |
 | `SUBMIT_ONLY_MAX_TOOL_ROUNDS`                | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                                                                          |
 | `PUBLISH_RECOVERY_ROUNDS`                    | 2 summary recovery sends                                                                                                                                        |

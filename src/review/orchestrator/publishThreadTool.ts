@@ -48,9 +48,11 @@ import {
   applyFindingLedgerDelta,
   createFindingLedger,
   type FindingLedger,
+  type FindingSource,
   type SpecialistId,
 } from "./orchestratorTypes.ts";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
+import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
 import type { RecoveryDecision } from "../recovery/reviewRecovery.ts";
 
 const findingIdsParam = v.pipe(
@@ -159,6 +161,7 @@ type PublishThreadToolParams = {
   readonly session: ReviewPublishSession;
   readonly inventory: FindingInventory;
   readonly policy?: Omit<FindingBatchInput, "source" | "ledger" | "reconciled">;
+  readonly evidenceLedgerFor?: (source: FindingSource) => EvidenceLedger;
   readonly initialLedger?: FindingLedger;
 };
 
@@ -420,6 +423,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     try {
       result = await publishFindingBatch(findings, session, {
         ...params.policy,
+        ...(params.evidenceLedgerFor ? { evidenceLedger: params.evidenceLedgerFor(source) } : {}),
         source,
         ledger,
         reconciled: { inventory, outcomes },
@@ -532,6 +536,9 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       if (canonical.kind !== "threads") return;
       const result = await publishFindingBatch([], session, {
         ...params.policy,
+        ...(params.evidenceLedgerFor
+          ? { evidenceLedger: params.evidenceLedgerFor(canonical.source) }
+          : {}),
         source: canonical.source,
         ledger,
         recoveryDecision: decision,

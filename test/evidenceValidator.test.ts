@@ -68,4 +68,20 @@ describe("assertFindingsHaveEvidence", () => {
     expect(result.rejected[0]?.reasonCode).toBe("no_evidence");
     expect(ledger.snapshot()).toEqual([]);
   });
+
+  it("rejects a cite recorded only on another specialist ledger", () => {
+    const security = createTestEvidenceLedger();
+    const tests = createTestEvidenceLedger();
+    const item = finding();
+    seedEvidenceForFinding(security, item);
+
+    const missing = assertFindingsHaveEvidence([item], tests, tests.headSha);
+    expect(missing.accepted).toEqual([]);
+    expect(missing.rejected[0]?.reasonCode).toBe("no_evidence");
+
+    seedEvidenceForFinding(tests, item);
+    const present = assertFindingsHaveEvidence([item], tests, tests.headSha);
+    expect(present.accepted).toEqual([item]);
+    expect(present.rejected).toEqual([]);
+  });
 });

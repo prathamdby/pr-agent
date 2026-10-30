@@ -95,7 +95,7 @@ export const automatedSecuritySystemPrompt = [
   "",
   "",
   "Finding fields:",
-  "- Each finding has suggestedSeverity P0|P1|P2|P3, file, startLine, endLine, title, and detail. Judgment assigns the published severity.",
+  "- Each finding has suggestedSeverity P0|P1|P2|P3, file, startLine, endLine, title, and detail.",
   "- Write an imperative title within the schema's 80-character limit.",
   "- Follow the detail contract below and name the exploit path and broken boundary.",
   reviewPayloadPerFindingContracts,

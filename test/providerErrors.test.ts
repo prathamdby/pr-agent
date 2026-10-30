@@ -55,7 +55,9 @@ describe("classifyProviderError", () => {
     ).toBe("cancelled");
     expect(classifyProviderError(new CodeModeHostHalt("CANCELLED", "cancelled"))).toBe("cancelled");
     expect(
-      classifyProviderError(new CodeModeHostHalt("TIMEOUT", "Code Mode exceeded 15000ms")),
+      classifyProviderError(
+        new CodeModeHostHalt("TIMEOUT", "Code Mode exceeded 15000ms", { reason: "cell_wall" }),
+      ),
     ).toBe("timeout");
   });
 

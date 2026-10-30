@@ -18,7 +18,7 @@ import {
   ORCHESTRATOR_PHASE_TOOLS,
   type OrchestratorPhaseTool,
 } from "../../review/orchestrator/phaseToolPolicy.ts";
-import { recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
+import { recordPromptCacheBreak, recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
 import { combineAbortSignals } from "../providers/interface.ts";
 import {
   exactUsageFromProviderUsage,
@@ -31,6 +31,7 @@ import { createSanitizedEventSink } from "./lifecycleSanitizer.ts";
 import {
   cacheIdentityFromAssignment,
   sessionCacheIdFromIdentity,
+  sessionRecordsPromptCacheBreak,
   specialistSharedCacheId,
   systemPromptStartsWithSpecialistPrefix,
 } from "./promptCachePolicy.ts";
@@ -41,6 +42,10 @@ import { ORCHESTRATOR_SESSION_PHASES, resolveThinkingLevel } from "./thinkingPol
 import { createSendActivity } from "./sendActivity.ts";
 import { createTurnToolBudget } from "./turnToolBudget.ts";
 import { createSessionCompaction } from "./sessionCompaction.ts";
+import {
+  createSpecialistExecuteRepeat,
+  specialistExecuteCalls,
+} from "./specialistExecuteRepeat.ts";
 import { isProviderRefusal, lastAssistant, runSessionTurn } from "./sessionTurnLoop.ts";
 import type { PiSession, PiSessionCreateParams } from "./types.ts";
 
@@ -93,6 +98,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const sessionMessages: AgentMessage[] = [
     { role: "system", content: params.systemPrompt, timestamp: Date.now() },
   ];
+  const executeRepeat = params.role === "specialist" ? createSpecialistExecuteRepeat() : undefined;
   const cacheIdentity = cacheIdentityFromAssignment(
     params.role,
     params.primary,
@@ -125,6 +131,16 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     timeoutMs: params.cfg.provider.promptTimeoutMs,
     maxRetries: params.cfg.provider.retryMax,
     maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
+    ...(sessionRecordsPromptCacheBreak(params.role)
+      ? {
+          recordCacheBreak: (observed) =>
+            recordPromptCacheBreak({
+              section: observed.section,
+              byte: observed.byte,
+              session: params.role,
+            }),
+        }
+      : {}),
   });
   const trace = createSessionTrace(params, model, sessionId, getAttempts);
   const tools = toCoreTools(
@@ -173,6 +189,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       const phaseRef = { current: opts.phase };
       let protocolInvalid = false;
       const budget = createTurnToolBudget(opts);
+      let repeatedExecuteStop = false;
       let finalText = "";
       let terminalProviderError: string | undefined;
       let refused = false;
@@ -227,7 +244,52 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         maxRetries: params.cfg.provider.retryMax,
         maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        finishTurn: budget.finishTurn,
+        finishTurn: async (
+          turn,
+        ): Promise<{ action: "continue" } | { action: "end" } | undefined> => {
+          const budgetDecision = await budget.finishTurn(turn);
+          if (!executeRepeat) return budgetDecision ?? undefined;
+          const action = executeRepeat.observe({
+            refused: turn.message.rawStopReason === "refusal",
+            calls: specialistExecuteCalls({
+              calls: turn.message.content.flatMap((part) =>
+                part.type === "toolCall"
+                  ? [{ id: part.id, name: part.name, arguments: part.arguments }]
+                  : [],
+              ),
+              results: turn.toolResults.map((result) => ({
+                toolCallId: result.toolCallId,
+                text: contentText(result.content),
+              })),
+            }),
+          });
+          if (action === "stop") {
+            repeatedExecuteStop = true;
+            return { action: "end" };
+          }
+          if (budgetDecision == null) return undefined;
+          return budgetDecision;
+        },
+        ...(compaction.prepareNextTurn || executeRepeat
+          ? {
+              prepareNextTurn: async (
+                turn: Parameters<NonNullable<AgentLoopConfig["prepareNextTurn"]>>[0],
+              ) => {
+                const prepared = await compaction.prepareNextTurn?.(turn);
+                const nudges = executeRepeat?.takeNudges() ?? [];
+                if (nudges.length === 0) return prepared;
+                const messages: AgentMessage[] = nudges.map((content) => ({
+                  role: "user",
+                  content,
+                  timestamp: Date.now(),
+                }));
+                return {
+                  ...prepared,
+                  messages: [...(prepared?.messages ?? []), ...messages],
+                };
+              },
+            }
+          : {}),
         beforeToolCall: async ({ assistantMessage, toolCall }) => {
           const calls = assistantMessage.content.filter((part) => part.type === "toolCall");
           const ids = calls.map((call) => call.id);
@@ -247,7 +309,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }
           return budget.beforeToolCall(toolCall.name);
         },
-        ...(compaction.prepareNextTurn ? { prepareNextTurn: compaction.prepareNextTurn } : {}),
       };
 
       const handleEvent = (event: AgentEvent) => {
@@ -375,14 +436,15 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Provider declined the request (stop_reason: refusal)",
           });
         }
-        if (terminalProviderError !== undefined && !budget.stopped) {
+        const turnStopped = budget.stopped || repeatedExecuteStop;
+        if (terminalProviderError !== undefined && !turnStopped) {
           throw new AppError({
             domain: "provider",
             kind: "request_failed",
             message: terminalProviderError,
           });
         }
-        if (loopError !== undefined && !budget.stopped) {
+        if (loopError !== undefined && !turnStopped) {
           throw toAppError(loopError, { domain: "provider", kind: "request_failed" });
         }
         const promptMeta = promptMetadataFromText(prompt);

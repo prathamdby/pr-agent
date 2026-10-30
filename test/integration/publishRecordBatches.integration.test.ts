@@ -877,6 +877,15 @@ try {
     it("treats unknown versions and damaged hashes as cache misses", async () => {
       const envelope = createReviewArtifactEnvelope(binding, { kind: "brief", brief });
       await store.save(envelope);
+      const report = createReviewArtifactEnvelope(binding, {
+        kind: "report",
+        specialist: "security",
+        report: { status: "no_findings", findings: [] },
+        evidence: [],
+        openedPaths: ["src/a.ts"],
+      });
+      await store.save(report);
+      expect(await store.load("report/security")).toEqual(await store.load("report/security"));
       await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
         binding.workItemId,
         JSON.stringify({ ...envelope, contractVersion: "future" }),
@@ -896,6 +905,12 @@ try {
       await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
         binding.workItemId,
         JSON.stringify({ ...envelope, schemaVersion: 0 }),
+      ]);
+      expect(await store.load("brief")).toBeNull();
+      expect(await store.save(envelope)).toBe("incompatible");
+      await pool.query("UPDATE review_run_artifacts SET envelope = $2 WHERE work_item_id = $1", [
+        binding.workItemId,
+        JSON.stringify({ ...envelope, schemaVersion: 7 }),
       ]);
       expect(await store.load("brief")).toBeNull();
       expect(await store.save(envelope)).toBe("incompatible");

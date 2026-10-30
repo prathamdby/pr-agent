@@ -13,9 +13,13 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { specialistSharedPrefix } from "../../prompts/shared/prefix.ts";
 import {
+  comparePromptCacheSections,
+  promptCacheSections,
   splitAnthropicSystemBlocks,
   systemPromptStartsWithSpecialistPrefix,
+  type PromptCacheBreak,
   type PromptCacheRetention,
+  type PromptCacheSections,
 } from "./promptCachePolicy.ts";
 
 const EMPTY_USAGE: Usage = {
@@ -33,6 +37,7 @@ export type SessionStreamDefaults = {
   readonly timeoutMs: number;
   readonly maxRetries: number;
   readonly maxRetryDelayMs: number;
+  readonly recordCacheBreak?: (observed: PromptCacheBreak) => void;
 };
 
 export type SessionStream = {
@@ -87,8 +92,18 @@ export function createSessionStreamFn(
 ): SessionStream {
   let lastOptions: SimpleStreamOptions | undefined;
   let attempts = 0;
+  let previousSections: PromptCacheSections | null = null;
   const streamFn: StreamFn = (model, context: Context, options) => {
     attempts += 1;
+    const sections = promptCacheSections({
+      systemText: requestSystemText(context),
+      tools: context.tools,
+      history: context.messages.filter((message) => message.role !== "system"),
+    });
+    if (previousSections && defaults.recordCacheBreak) {
+      defaults.recordCacheBreak(comparePromptCacheSections(previousSections, sections));
+    }
+    previousSections = sections;
     const merged: SimpleStreamOptions = {
       ...defaults,
       ...options,

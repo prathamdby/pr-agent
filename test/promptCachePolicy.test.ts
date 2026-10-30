@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
 import {
   DEFAULT_PROMPT_CACHE_POLICY,
   SESSION_CACHE_ID_MAX_LENGTH,
   cacheIdentityFromAssignment,
+  comparePromptCacheSections,
+  promptCacheSections,
   sessionCacheIdFromIdentity,
+  sessionRecordsPromptCacheBreak,
   specialistSharedCacheId,
   splitAnthropicSystemBlocks,
+  type PromptCacheBreak,
 } from "../src/agent/runtime/promptCachePolicy.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
 import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
@@ -226,6 +232,99 @@ describe("promptCachePolicy", () => {
       sessionCacheIdFromIdentity(cacheIdentityFromAssignment("orchestrator", pair)),
     );
     expect(SPECIALIST_IDS).not.toContain("shared");
+  });
+
+  it("names the section and byte of the first cache difference", () => {
+    const tools = [{ name: "execute", description: "run" }];
+    const history = [{ role: "user", text: "hello" }];
+    const base = promptCacheSections({
+      systemText: `${specialistSharedPrefix}\n\nrole body`,
+      tools,
+      history,
+    });
+    const roleBody = promptCacheSections({
+      systemText: `${specialistSharedPrefix}\n\nrolX body`,
+      tools,
+      history,
+    });
+    expect(comparePromptCacheSections(base, roleBody)).toEqual({ section: "role_body", byte: 3 });
+
+    const prefix = specialistSharedPrefix;
+    const changedPrefix = `${prefix.slice(0, 4)}X${prefix.slice(5)}`;
+    const sharedPrefix = promptCacheSections({
+      systemText: `${changedPrefix}\n\nrole body`,
+      tools,
+      history,
+    });
+    expect(comparePromptCacheSections(base, sharedPrefix)).toEqual({
+      section: "shared_prefix",
+      byte: 4,
+    });
+
+    const toolChange = promptCacheSections({
+      systemText: `${prefix}\n\nrole body`,
+      tools: [{ name: "execute", description: "ruX" }],
+      history,
+    });
+    const toolByte = Buffer.from(base.tool_definitions).indexOf(Buffer.from("run"));
+    expect(comparePromptCacheSections(base, toolChange)).toEqual({
+      section: "tool_definitions",
+      byte: toolByte + 2,
+    });
+
+    const historyChange = promptCacheSections({
+      systemText: `${prefix}\n\nrole body`,
+      tools,
+      history: [{ role: "user", text: "hXllo" }],
+    });
+    const historyByte = Buffer.from(base.history).indexOf(Buffer.from("hello"));
+    expect(comparePromptCacheSections(base, historyChange)).toEqual({
+      section: "history",
+      byte: historyByte + 1,
+    });
+
+    const appended = promptCacheSections({
+      systemText: `${prefix}\n\nrole body`,
+      tools,
+      history: [...history, { role: "assistant", text: "next" }],
+    });
+    expect(comparePromptCacheSections(base, appended)).toEqual({
+      section: "append_only",
+      byte: null,
+    });
+  });
+
+  it("records a cache break on the second request only", () => {
+    const recorded: PromptCacheBreak[] = [];
+    const session = createSessionStreamFn({ streamSimple: () => ({}) } as never, {
+      cacheRetention: "short",
+      sessionId: "session",
+      timeoutMs: 1,
+      maxRetries: 0,
+      maxRetryDelayMs: 0,
+      recordCacheBreak: (observed) => recorded.push(observed),
+    });
+    const context = (roleBody: string) =>
+      normalizeContext({
+        systemPrompt: `${specialistSharedPrefix}\n\n${roleBody}`,
+        messages: [{ role: "user", content: "hello", timestamp: 1 }],
+        tools: [],
+      });
+    session.streamFn({} as never, context("alpha"), undefined);
+    expect(recorded).toEqual([]);
+    session.streamFn({} as never, context("alXha"), undefined);
+    expect(recorded).toEqual([{ section: "role_body", byte: 2 }]);
+    expect(JSON.stringify(recorded)).not.toContain("alXha");
+    expect(JSON.stringify(recorded)).not.toContain(specialistSharedPrefix);
+  });
+
+  it("skips cache-break recording outside review sessions", () => {
+    expect(sessionRecordsPromptCacheBreak("specialist")).toBe(true);
+    expect(sessionRecordsPromptCacheBreak("orchestrator")).toBe(true);
+    expect(sessionRecordsPromptCacheBreak("ask")).toBe(false);
+    expect(sessionRecordsPromptCacheBreak("triage")).toBe(false);
+    expect(sessionRecordsPromptCacheBreak("description")).toBe(false);
+    expect(sessionRecordsPromptCacheBreak("verification")).toBe(false);
   });
 });
 

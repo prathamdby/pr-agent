@@ -1,4 +1,7 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.ts";
+import { emptyCodeModeCapHits, type CodeModeCapReason } from "../../agent/execution/hostHalt.ts";
+import type { AgentSessionRole } from "../../agent/runtime/types.ts";
+import type { PromptCacheBreak } from "../../agent/runtime/promptCachePolicy.ts";
 import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.ts";
 import { logInfo, tryUseLogger, type RequestLogger } from "../../evlog.ts";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.ts";
@@ -101,6 +104,10 @@ export type ReviewRunMetricsSnapshot = {
   readonly toolResultBytes: number;
   readonly toolResultCharacters: number;
   readonly modelTurnCount: number;
+  readonly codeModeCapHits: Record<CodeModeCapReason, number>;
+  readonly cacheBreakSection: PromptCacheBreak["section"] | null;
+  readonly cacheBreakByte: number | null;
+  readonly cacheBreakSession: AgentSessionRole | null;
   readonly promptBytes: number;
   readonly promptCharacters: number;
   readonly estimatedInputTokens: number;
@@ -156,6 +163,10 @@ type MutableReviewRunMetrics = {
   toolResultBytes: number;
   toolResultCharacters: number;
   modelTurnCount: number;
+  codeModeCapHits: Record<CodeModeCapReason, number>;
+  cacheBreakSection: PromptCacheBreak["section"] | null;
+  cacheBreakByte: number | null;
+  cacheBreakSession: AgentSessionRole | null;
   promptBytes: number;
   promptCharacters: number;
   estimatedInputTokens: number;
@@ -215,6 +226,10 @@ function createEmptyMetrics(meta: {
     toolResultBytes: 0,
     toolResultCharacters: 0,
     modelTurnCount: 0,
+    codeModeCapHits: emptyCodeModeCapHits(),
+    cacheBreakSection: null,
+    cacheBreakByte: null,
+    cacheBreakSession: null,
     promptBytes: 0,
     promptCharacters: 0,
     estimatedInputTokens: 0,
@@ -485,6 +500,19 @@ export function setReviewRunMetricFields(
   if (fields.severities !== undefined) metrics.severities = [...fields.severities];
 }
 
+export function recordPromptCacheBreak(observed: {
+  readonly section: PromptCacheBreak["section"];
+  readonly byte: number | null;
+  readonly session: AgentSessionRole;
+}): void {
+  const metrics = getOrInitMetrics();
+  if (!metrics) return;
+  if (metrics.cacheBreakSection != null && metrics.cacheBreakSection !== "append_only") return;
+  metrics.cacheBreakSection = observed.section;
+  metrics.cacheBreakByte = observed.byte;
+  metrics.cacheBreakSession = observed.session;
+}
+
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   const metrics = getOrInitMetrics();
   if (!metrics) return null;
@@ -523,6 +551,10 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     toolResultBytes: metrics.toolResultBytes,
     toolResultCharacters: metrics.toolResultCharacters,
     modelTurnCount: metrics.modelTurnCount,
+    codeModeCapHits: { ...metrics.codeModeCapHits },
+    cacheBreakSection: metrics.cacheBreakSection,
+    cacheBreakByte: metrics.cacheBreakByte,
+    cacheBreakSession: metrics.cacheBreakSession,
     promptBytes: metrics.promptBytes,
     promptCharacters: metrics.promptCharacters,
     estimatedInputTokens: metrics.estimatedInputTokens,
@@ -551,6 +583,13 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
       : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
+}
+
+export function recordCodeModeCapHit(reason: CodeModeCapReason | undefined): void {
+  if (reason == null) return;
+  const metrics = getOrInitMetrics();
+  if (!metrics) return;
+  metrics.codeModeCapHits[reason] += 1;
 }
 
 export function logReviewRunCompleted(extra?: Record<string, unknown>): void {

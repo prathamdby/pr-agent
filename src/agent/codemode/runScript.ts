@@ -13,6 +13,7 @@ import { combineAbortSignals } from "../providers/abortSignals.ts";
 import type { HostCallTracer } from "../providers/interface.ts";
 import { createCodeModeCapabilityBridge } from "./capabilities.ts";
 import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.ts";
+import { recordCodeModeCapHit } from "../../review/run/reviewRunMetrics.ts";
 import type { CodeModeResult } from "./result.ts";
 import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.ts";
 import { utf8ByteLength } from "../execution/json.ts";
@@ -199,6 +200,7 @@ export async function runCodeModeScript(params: {
             toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
           });
         }
+        recordCodeModeCapHit(cell.error.reason);
         return finish({
           ok: false,
           error: cell.error,
@@ -233,24 +235,29 @@ export async function runCodeModeScript(params: {
   } catch (error) {
     const toolCalls = bridge.toolCalls.map(({ tool, status }) => ({ tool, status }));
     if (isCodeModeHostHalt(error)) {
+      recordCodeModeCapHit(error.reason);
       return finish({
         ok: false,
         error: {
           code: error.code,
           message: error.message,
           ...(error.line != null ? { line: error.line } : {}),
+          ...(error.reason != null ? { reason: error.reason } : {}),
         },
         toolCalls,
       });
     }
     if (signal.aborted) {
+      const cancelled = hostAborted();
+      if (!cancelled) recordCodeModeCapHit("cell_wall");
       return finish({
         ok: false,
-        error: hostAborted()
+        error: cancelled
           ? { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE }
           : {
               code: "TIMEOUT",
               message: `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
+              reason: "cell_wall" as const,
             },
         toolCalls,
       });

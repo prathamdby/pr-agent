@@ -68,6 +68,12 @@ prompt-caching framework and no deferred-tool subsystem for this change.
   raw cache read/write totals, and optional `cacheWrite1hTokens` when the provider
   reports a 1h write split. Operators read cache quality without manual ratio
   arithmetic (see [operations.md](../operations.md)).
+- `review_run_completed` also carries `cacheBreakSection`, `cacheBreakByte`, and
+  `cacheBreakSession` for the first request whose prefix did not grow by append
+  only. `append_only` means later requests only extended history. The three
+  fields are a section name, a UTF-8 byte offset, and a session role. They do
+  not store prompt text, tool JSON, or repository content. A run with one
+  request leaves them null.
 - Anthropic deployments benefit mainly from stable tools and disabled short-job
   compaction; OpenAI-compatible deployments also benefit from stable session ids.
   Prefixed specialist sessions share one OpenAI cache id. Other sessions keep

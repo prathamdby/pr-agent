@@ -13,7 +13,6 @@ export function mockLocalPrWorkspace(
   const changedFiles = overrides?.changedFiles ?? [];
   const checkoutPaths = overrides?.checkoutPaths ?? new Set<string>();
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 0, fileCount: 0 };
-  let searchTruncated = false;
   return {
     rootDir: agentCwd,
     privateGitDir: `${agentCwd}/.git`,
@@ -41,11 +40,7 @@ export function mockLocalPrWorkspace(
           checkoutPaths,
           changedFiles,
           stats,
-          searchTruncated,
         }),
-      noteSearchTruncated: () => {
-        searchTruncated = true;
-      },
       lookupSymbol: () => [],
       getSymbolIndexStatus: () => ({ available: false }),
     },

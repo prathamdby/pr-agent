@@ -41,6 +41,11 @@ import { specialistInvestigationHarness } from "../src/prompts/shared/tools.ts";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
+import {
+  SPECIALIST_REPEATED_EXECUTE_NUDGE,
+  createSpecialistExecuteRepeat,
+  specialistExecuteCalls,
+} from "../src/agent/runtime/specialistExecuteRepeat.ts";
 import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 type AttemptBehavior =
@@ -61,6 +66,7 @@ const runnerMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   behaviors: [] as AttemptBehavior[],
   sessions: [] as TestSession[],
+  submitResults: [] as unknown[],
   recordExecutionSpan: vi.fn(),
 }));
 
@@ -160,6 +166,7 @@ describe("runSpecialist", () => {
     vi.clearAllMocks();
     runnerMocks.behaviors.length = 0;
     runnerMocks.sessions.length = 0;
+    runnerMocks.submitResults.length = 0;
     vi.spyOn(Math, "random").mockReturnValue(0);
     runnerMocks.createSession.mockImplementation(async (params) => {
       const behavior = runnerMocks.behaviors.shift();
@@ -195,7 +202,9 @@ describe("runSpecialist", () => {
             });
           }
           if (behavior.kind === "no_report") return { text: "", end: "completed" as const };
-          await params.executors.submit_findings_report(behavior.report);
+          runnerMocks.submitResults.push(
+            await params.executors.submit_findings_report(behavior.report),
+          );
           return { text: "", end: "completed" as const };
         }),
         abort,
@@ -437,10 +446,10 @@ describe("runSpecialist", () => {
       specialistFindingsReportContract,
     ] as const;
     const leftoverSha256 = [
-      "24eb167957c97d85ff9fe3b7d3857c1d45436647f475aceb5a4b1898656a29ed",
-      "fddb0244a5c71ea6023e0f3928009a502868d167124f781b74e1cdddd92182d6",
-      "01ad134591e990ed7a02655754f8a269787f0868c6e278c674c7635b8f985f08",
-      "81ab9e5e32a5110f71f43fd6c605a235ec539e6da69243f5c09a948946c48701",
+      "902a82903551a998b6f40fb6ee9a95b12a3fe045bec4fa0fd8f1ec0031002f88",
+      "e0941694f5262c4988a26b12ea9c6ddbc4739c3d53dcdaba9c9ec5c04cc1dbf0",
+      "36a203e03b2df9874a80118c2d64900719921792be56c4ab45e76492cb667cd8",
+      "4bed622a7f2116c562377c64cf1891aa56c572bc0874f7abe3c7b81d04451999",
     ] as const;
     expect(new Set(prompts).size).toBe(prompts.length);
     for (const sentence of identities) {
@@ -640,6 +649,44 @@ describe("runSpecialist", () => {
         }),
       ),
     ).resolves.toMatchObject({ kind: "report", report: neighbor });
+  });
+
+  it("drops a tests cite recorded only on another specialist ledger", async () => {
+    const security = createTestEvidenceLedger();
+    const tests = createTestEvidenceLedger();
+    seedEvidenceForFinding(security, finding);
+    runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
+
+    const dropped = await runSpecialist(
+      specialistArgs({
+        specialist: "tests",
+        evidenceLedger: tests,
+        headSha: tests.headSha,
+      }),
+    );
+
+    expect(dropped.kind).toBe("empty");
+    expect(runnerMocks.submitResults[0]).toMatchObject({
+      accepted: false,
+      droppedFindings: [{ reasonCode: "no_evidence", file: finding.file }],
+    });
+    expect(security.covers(finding.file, finding.startLine, finding.endLine)).toBe(true);
+    expect(tests.covers(finding.file, finding.startLine, finding.endLine)).toBe(false);
+
+    runnerMocks.behaviors.length = 0;
+    runnerMocks.sessions.length = 0;
+    runnerMocks.submitResults.length = 0;
+    seedEvidenceForFinding(tests, finding);
+    runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          specialist: "tests",
+          evidenceLedger: tests,
+          headSha: tests.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "report", report: testsFindingsReport });
   });
 
   it("accepts an invalidated test without testEvidence and a never-read path when the flag is off", async () => {
@@ -900,5 +947,74 @@ describe("runSpecialist", () => {
     expect(runnerMocks.createSession).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("nudges once at three identical executes and stops that session at six", () => {
+    const repeat = createSpecialistExecuteRepeat();
+    const same = (result = "value") => ({
+      toolName: "execute",
+      code: "return coverage",
+      result,
+    });
+    const feed = (
+      calls: readonly { toolName: string; code: string; result: string }[],
+      refused = false,
+    ) => {
+      const action = repeat.observe({ refused, calls });
+      return { action, nudges: repeat.takeNudges() };
+    };
+
+    expect(feed([same(), same()]).nudges).toEqual([]);
+    expect(feed([same()])).toEqual({
+      action: "continue",
+      nudges: [SPECIALIST_REPEATED_EXECUTE_NUDGE],
+    });
+    expect(feed([same()]).nudges).toEqual([]);
+    expect(feed([same()]).nudges).toEqual([]);
+    expect(feed([same()]).action).toBe("stop");
+
+    const changed = createSpecialistExecuteRepeat();
+    for (let index = 0; index < 7; index += 1) {
+      const action = changed.observe({
+        refused: false,
+        calls: [{ toolName: "execute", code: "return coverage", result: `r${index}` }],
+      });
+      expect(action).toBe("continue");
+      expect(changed.takeNudges()).toEqual([]);
+    }
+
+    const refused = createSpecialistExecuteRepeat();
+    expect(
+      refused.observe({
+        refused: true,
+        calls: [same(), same(), same(), same(), same(), same()],
+      }),
+    ).toBe("continue");
+    expect(refused.takeNudges()).toEqual([]);
+
+    const submit = createSpecialistExecuteRepeat();
+    expect(
+      submit.observe({
+        refused: false,
+        calls: Array.from({ length: 6 }, () => ({
+          toolName: "submit_findings_report",
+          code: "return coverage",
+          result: "same",
+        })),
+      }),
+    ).toBe("continue");
+    expect(submit.takeNudges()).toEqual([]);
+  });
+
+  it("counts an execute only when its result is paired by call id", () => {
+    expect(
+      specialistExecuteCalls({
+        calls: [
+          { id: "e1", name: "execute", arguments: { code: "return 1" } },
+          { id: "s1", name: "submit_findings_report", arguments: { status: "no_findings" } },
+        ],
+        results: [{ toolCallId: "e1", text: "1" }],
+      }),
+    ).toEqual([{ toolName: "execute", code: "return 1", result: "1" }]);
   });
 });

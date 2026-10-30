@@ -25,6 +25,7 @@ import {
   READ_SPILL_FILENAME_PREFIX,
 } from "../src/agent/tools/readWorkspaceTextFile.ts";
 import { createAskPathGate } from "../src/agent/ask/askSafety.ts";
+import { formatCheckoutCoverageBlock } from "../src/prompts/orchestrator/context.ts";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
 import {
   type LocalPrWorkspace,
@@ -95,7 +96,6 @@ function mockWorkspace(
   const changedFiles = [{ path: "src/changed.ts", status: "modified" as const }];
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
-  let searchTruncated = false;
   return {
     rootDir: agentCwd,
     privateGitDir,
@@ -127,11 +127,7 @@ function mockWorkspace(
           checkoutPaths: paths,
           changedFiles,
           stats,
-          searchTruncated,
         }),
-      noteSearchTruncated: () => {
-        searchTruncated = true;
-      },
       lookupSymbol: overrides?.lookupSymbol ?? (() => []),
       getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     },
@@ -160,6 +156,64 @@ describe("local workspace tools", () => {
     expect(byName.searchWorkspace).toContain("literal text");
     expect(byName.readWorkspaceFile).toContain("The same call returns the same note");
     expect(byName.getWorkspaceBlame).toContain("decides a finding");
+  });
+
+  it("keeps a frozen review-thread list when a later thread is published", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/admin.ts": "export const admin = true;\n",
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/admin.ts"]);
+      const historical = {
+        findingId: "f_hist",
+        severity: "P1",
+        lens: "security",
+        path: "src/admin.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Already open",
+        detail: "Present at dispatch",
+      };
+      const published = {
+        findingId: "f_new",
+        severity: "P1",
+        lens: "correctness",
+        path: "src/admin.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Published later",
+        detail: "This run",
+      };
+      const live = [historical];
+      const frozen = [...live];
+      const security = buildWorkspaceTools(workspace.reader, {
+        limits: testLimits(),
+        reviewThreads: () => frozen,
+      });
+      const summary = buildWorkspaceTools(workspace.reader, {
+        limits: testLimits(),
+        reviewThreads: () => live,
+      });
+      live.push(published);
+
+      const securityRead = await security.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+      const summaryRead = await summary.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+
+      expect(securityRead).toMatchObject({
+        reviewThreads: [expect.objectContaining({ findingId: "f_hist" })],
+      });
+      expect(JSON.stringify(securityRead)).not.toContain("f_new");
+      expect(summaryRead).toMatchObject({
+        reviewThreads: expect.arrayContaining([
+          expect.objectContaining({ findingId: "f_hist" }),
+          expect.objectContaining({ findingId: "f_new" }),
+        ]),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("readWorkspaceFile returns full content under the response cap", async () => {
@@ -2299,6 +2353,31 @@ describe("local workspace tools", () => {
           coverage: expect.objectContaining({ searchTruncated: true }),
           warning: expect.stringContaining("search truncated"),
         });
+      });
+
+      it("records search truncation on the view that searched", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "renewLease();\nrenewLease();\n",
+          "src/b.ts": "renewLease();\nLEASE_TTL_SECONDS;\n",
+          "src/c.ts": "renewLease();\nLEASE_TTL_SECONDS;\nlease_epoch;\n",
+          "src/d.ts": "unrelated();\n",
+        });
+        const security = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const quality = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        await security.executors.searchWorkspace?.({
+          query: "renewLease",
+          terms: ["renewLease", "LEASE_TTL_SECONDS"],
+          maxResults: 2,
+        });
+
+        expect(formatCheckoutCoverageBlock(security.checkoutCoverage())).toContain(
+          "Last search truncated: yes",
+        );
+        expect(formatCheckoutCoverageBlock(quality.checkoutCoverage())).not.toContain(
+          "Last search truncated: yes",
+        );
+        expect(workspace.reader.getCoverage()).not.toHaveProperty("searchTruncated");
       });
 
       it("finds files by fuzzy path, including paths fff does not index", async () => {

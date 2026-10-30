@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import * as evlog from "../src/evlog.ts";
+import {
+  initReviewRunMetrics,
+  snapshotReviewRunMetrics,
+} from "../src/review/run/reviewRunMetrics.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
 import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.ts";
 import {
@@ -33,6 +38,7 @@ describe("Code Mode", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
+      expect(result.error.reason).toBe("guest_cpu");
     }
     expect(elapsedMs).toBeLessThan(1000);
   });
@@ -122,7 +128,10 @@ describe("Code Mode", () => {
     });
     const after = process.memoryUsage().heapUsed;
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    if (!result.ok) {
+      expect(result.error.code).toBe("LIMIT_EXCEEDED");
+      expect(result.error.reason).toBe("allocation");
+    }
     expect(after - before).toBeLessThan(8 * 1024 * 1024);
   });
 
@@ -189,11 +198,19 @@ describe("Code Mode", () => {
   });
 
   it("restores CodeModeHostHalt from a worker hostResult payload", () => {
-    const halt = new CodeModeHostHalt("LIMIT_EXCEEDED", "too many calls", 4);
+    const halt = new CodeModeHostHalt("LIMIT_EXCEEDED", "too many calls", {
+      line: 4,
+      reason: "workspace_calls",
+    });
     const posted = encodeHostCallFailure(halt);
     expect(posted).toEqual({
       ok: false,
-      halt: { code: "LIMIT_EXCEEDED", message: "too many calls", line: 4 },
+      halt: {
+        code: "LIMIT_EXCEEDED",
+        message: "too many calls",
+        line: 4,
+        reason: "workspace_calls",
+      },
     });
     const restored = decodeHostCallFailure(posted);
     expect(isCodeModeHostHalt(restored)).toBe(true);
@@ -201,6 +218,7 @@ describe("Code Mode", () => {
       expect(restored.code).toBe("LIMIT_EXCEEDED");
       expect(restored.message).toBe("too many calls");
       expect(restored.line).toBe(4);
+      expect(restored.reason).toBe("workspace_calls");
     }
   });
 
@@ -253,8 +271,35 @@ describe("Code Mode", () => {
       },
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    if (!result.ok) {
+      expect(result.error.code).toBe("LIMIT_EXCEEDED");
+      expect(result.error.reason).toBe("workspace_calls");
+    }
     expect(calls).toBe(CODE_MODE_MAX_TOOL_CALLS);
+  });
+
+  it("counts a workspace-call halt once and leaves pool queue at zero", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({ provider: "openai", model: "m", mode: "review" });
+      const result = await runCodeModeScript({
+        executorKind: "in_process",
+        code: `
+          for (let i = 0; i < 30; i = i + 1) {
+            await tools.listChangedFiles();
+          }
+        `,
+        capabilities: {
+          listChangedFiles: async () => ({ files: [] }),
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.reason).toBe("workspace_calls");
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.modelTurnCount).toBe(0);
+      expect(snapshot?.codeModeCapHits.workspace_calls).toBe(1);
+      expect(snapshot?.codeModeCapHits.pool_queue).toBe(0);
+    });
   });
 
   it("truncates oversized script output", async () => {
@@ -667,7 +712,47 @@ describe("Code Mode", () => {
     if (!firstResult.ok) {
       expect(firstResult.error.code).toBe("EXECUTION_ERROR");
       expect(firstResult.error.message).toBe("Code Mode session state conflict");
+      expect(firstResult.error.reason).toBeUndefined();
     }
+  });
+
+  it("commits overlapping cells when each cell has its own store", async () => {
+    const firstSession = createExecutionSessionStore();
+    const secondSession = createExecutionSessionStore();
+    let releaseFirst: (() => void) | undefined;
+    const first = runCodeModeScript({
+      executorKind: "in_process",
+      code: 'state.owner = "first"; await tools.readWorkspaceFile({ path: "a.ts" }); state.owner',
+      session: firstSession,
+      capabilities: {
+        readWorkspaceFile: async () =>
+          new Promise((resolve) => {
+            releaseFirst = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
+          }),
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    const second = runCodeModeScript({
+      executorKind: "in_process",
+      code: 'state.owner = "second"; await tools.readWorkspaceFile({ path: "b.ts" }); state.owner',
+      session: secondSession,
+      capabilities: {
+        readWorkspaceFile: async () => ({ path: "b.ts", content: "y", startLine: 1, endLine: 1 }),
+      },
+    });
+    const secondResult = await second;
+    releaseFirst?.();
+    const firstResult = await first;
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.ok).toBe(true);
+    if (firstResult.ok) expect(firstResult.output).toBe("first");
+    if (secondResult.ok) expect(secondResult.output).toBe("second");
+    expect(firstSession.data).toMatchObject({ owner: "first" });
+    expect(secondSession.data).toMatchObject({ owner: "second" });
+    expect(JSON.stringify(firstSession.data)).not.toContain("second");
+    expect(JSON.stringify(secondSession.data)).not.toContain("first");
   });
 
   it("keeps a truncated file read as a string and records only delivered lines", async () => {

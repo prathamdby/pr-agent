@@ -49,6 +49,7 @@ export function createExecutionSessionStore(initial: JsonObject = {}): Execution
         throw new CodeModeHostHalt(
           "LIMIT_EXCEEDED",
           `Explicit state exceeds ${CODE_MODE_STATE_MAX_BYTES} bytes`,
+          { reason: "state_bytes" },
         );
       }
       data = next;

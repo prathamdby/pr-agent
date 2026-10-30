@@ -181,7 +181,6 @@ async function dumpAll() {
         changedFileCount: 0,
         changeSetTruncated: false,
       }),
-      noteSearchTruncated: unavailable,
       findFiles: unavailable,
       lookupSymbol: unavailable,
       getSymbolIndexStatus: () => ({ available: false }),
