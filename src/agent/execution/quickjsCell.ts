@@ -20,7 +20,7 @@ import {
   CODE_MODE_TIMEOUT_MS,
 } from "../../settings/index.ts";
 import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "./hostHalt.ts";
-import type { CodeModeErrorCode } from "./hostHalt.ts";
+import type { CodeModeCapReason, CodeModeErrorCode } from "./hostHalt.ts";
 import { injectLastExpressionReturn } from "./injectReturn.ts";
 import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
@@ -54,6 +54,7 @@ export type QuickJsCellFailure = {
     readonly code: CodeModeErrorCode;
     readonly message: string;
     readonly line?: number;
+    readonly reason?: CodeModeCapReason;
   };
 };
 
@@ -86,17 +87,22 @@ function dumpError(vm: QuickJSContext, handle: QuickJSHandle): { name?: string; 
 function mapGuestFailure(error: { name?: string; message: string }): {
   code: CodeModeErrorCode;
   message: string;
+  reason?: CodeModeCapReason;
 } {
   const message = error.message;
   const lower = message.toLowerCase();
   if (/interrupted/i.test(lower) || error.name === "InternalError") {
-    return { code: "EXECUTION_BUDGET_EXCEEDED", message: "Execution interrupt budget exceeded" };
+    return {
+      code: "EXECUTION_BUDGET_EXCEEDED",
+      message: "Execution interrupt budget exceeded",
+      reason: "guest_cpu",
+    };
   }
   if (/out of memory|memory limit|stack overflow/i.test(lower)) {
     return { code: "LIMIT_EXCEEDED", message };
   }
   if (/LIMIT_EXCEEDED/.test(message)) {
-    return { code: "LIMIT_EXCEEDED", message };
+    return { code: "LIMIT_EXCEEDED", message, reason: "allocation" };
   }
   if (/ACCESS_DENIED|FILE_NOT_FOUND|SEARCH_TRUNCATED|TOOL_INPUT_INVALID|UNKNOWN:/.test(message)) {
     return { code: "TOOL_FAILURE", message };
@@ -121,10 +127,18 @@ function jsonToHandle(vm: QuickJSContext, value: unknown): QuickJSHandle {
 
 function haltFromInterrupt(reason: "abort" | "cpu" | "timeout"): CodeModeHostHalt {
   if (reason === "cpu") {
-    return new CodeModeHostHalt("EXECUTION_BUDGET_EXCEEDED", "Execution interrupt budget exceeded");
+    return new CodeModeHostHalt(
+      "EXECUTION_BUDGET_EXCEEDED",
+      "Execution interrupt budget exceeded",
+      {
+        reason: "guest_cpu",
+      },
+    );
   }
   if (reason === "timeout") {
-    return new CodeModeHostHalt("TIMEOUT", `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`);
+    return new CodeModeHostHalt("TIMEOUT", `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`, {
+      reason: "cell_wall",
+    });
   }
   return hostCancelHalt();
 }
@@ -297,7 +311,11 @@ async function pumpUntilSettled(
       const dumped = dumpError(vm, jobs.error);
       const mapped = mapGuestFailure(dumped);
       jobs.dispose();
-      throw new CodeModeHostHalt(mapped.code, mapped.message);
+      throw new CodeModeHostHalt(
+        mapped.code,
+        mapped.message,
+        mapped.reason == null ? undefined : { reason: mapped.reason },
+      );
     }
     if (jobs.alive) jobs.dispose();
     const raced = await Promise.race([
@@ -313,7 +331,11 @@ async function pumpUntilSettled(
       const dumped = dumpError(vm, finished.error);
       const mapped = mapGuestFailure(dumped);
       finished.error.dispose();
-      throw new CodeModeHostHalt(mapped.code, mapped.message);
+      throw new CodeModeHostHalt(
+        mapped.code,
+        mapped.message,
+        mapped.reason == null ? undefined : { reason: mapped.reason },
+      );
     }
     const output = vm.dump(finished.value);
     finished.value.dispose();
@@ -325,6 +347,7 @@ function failResult(error: {
   code: CodeModeErrorCode;
   message: string;
   line?: number;
+  reason?: CodeModeCapReason;
 }): QuickJsCellFailure {
   return {
     ok: false,
@@ -332,6 +355,7 @@ function failResult(error: {
       code: error.code,
       message: error.message,
       ...(error.line != null ? { line: error.line } : {}),
+      ...(error.reason != null ? { reason: error.reason } : {}),
     },
   };
 }
@@ -341,12 +365,14 @@ export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJs
     return failResult({
       code: "LIMIT_EXCEEDED",
       message: `Source exceeds ${CODE_MODE_MAX_SOURCE_BYTES} bytes`,
+      reason: "source_bytes",
     });
   }
   if (utf8ByteLength(params.state) > CODE_MODE_STATE_MAX_BYTES) {
     return failResult({
       code: "LIMIT_EXCEEDED",
       message: `Explicit state exceeds ${CODE_MODE_STATE_MAX_BYTES} bytes`,
+      reason: "state_bytes",
     });
   }
   const QuickJS = await loadWasm();

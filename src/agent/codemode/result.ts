@@ -1,4 +1,4 @@
-import type { CodeModeErrorCode } from "../execution/hostHalt.ts";
+import type { CodeModeCapReason, CodeModeErrorCode } from "../execution/hostHalt.ts";
 
 export type CodeModeToolCallStatus = "completed" | "error";
 
@@ -21,6 +21,7 @@ export type CodeModeFailure = {
     readonly code: CodeModeErrorCode;
     readonly message: string;
     readonly line?: number;
+    readonly reason?: CodeModeCapReason;
   };
   readonly toolCalls: ReadonlyArray<Pick<CodeModeToolCall, "tool" | "status">>;
 };

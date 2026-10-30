@@ -1,4 +1,5 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.ts";
+import { emptyCodeModeCapHits, type CodeModeCapReason } from "../../agent/execution/hostHalt.ts";
 import type { AgentSessionRole } from "../../agent/runtime/types.ts";
 import type { PromptCacheBreak } from "../../agent/runtime/promptCachePolicy.ts";
 import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.ts";
@@ -103,6 +104,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly toolResultBytes: number;
   readonly toolResultCharacters: number;
   readonly modelTurnCount: number;
+  readonly codeModeCapHits: Record<CodeModeCapReason, number>;
   readonly cacheBreakSection: PromptCacheBreak["section"] | null;
   readonly cacheBreakByte: number | null;
   readonly cacheBreakSession: AgentSessionRole | null;
@@ -161,6 +163,7 @@ type MutableReviewRunMetrics = {
   toolResultBytes: number;
   toolResultCharacters: number;
   modelTurnCount: number;
+  codeModeCapHits: Record<CodeModeCapReason, number>;
   cacheBreakSection: PromptCacheBreak["section"] | null;
   cacheBreakByte: number | null;
   cacheBreakSession: AgentSessionRole | null;
@@ -223,6 +226,7 @@ function createEmptyMetrics(meta: {
     toolResultBytes: 0,
     toolResultCharacters: 0,
     modelTurnCount: 0,
+    codeModeCapHits: emptyCodeModeCapHits(),
     cacheBreakSection: null,
     cacheBreakByte: null,
     cacheBreakSession: null,
@@ -547,6 +551,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     toolResultBytes: metrics.toolResultBytes,
     toolResultCharacters: metrics.toolResultCharacters,
     modelTurnCount: metrics.modelTurnCount,
+    codeModeCapHits: { ...metrics.codeModeCapHits },
     cacheBreakSection: metrics.cacheBreakSection,
     cacheBreakByte: metrics.cacheBreakByte,
     cacheBreakSession: metrics.cacheBreakSession,
@@ -578,6 +583,13 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
       : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
+}
+
+export function recordCodeModeCapHit(reason: CodeModeCapReason | undefined): void {
+  if (reason == null) return;
+  const metrics = getOrInitMetrics();
+  if (!metrics) return;
+  metrics.codeModeCapHits[reason] += 1;
 }
 
 export function logReviewRunCompleted(extra?: Record<string, unknown>): void {

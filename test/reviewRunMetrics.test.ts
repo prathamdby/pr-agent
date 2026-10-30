@@ -5,11 +5,13 @@ import {
   promptCacheSections,
 } from "../src/agent/runtime/promptCachePolicy.ts";
 import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
+import { emptyCodeModeCapHits } from "../src/agent/execution/hostHalt.ts";
 import {
   deriveCacheExcellenceMetrics,
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordAgentTurnMetrics,
+  recordCodeModeCapHit,
   recordPromptCacheBreak,
   recordReviewMetric,
   setReviewRunMetricFields,
@@ -416,5 +418,32 @@ describe("reviewRunMetrics", () => {
       expect(snapshot?.providerOutputTokens).toBe(12);
       expect(snapshot?.modelTurnCount).toBe(1);
     });
+  });
+
+  it("counts one workspace-call halt beside model turns", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const infoSpy = vi.spyOn(evlog, "logInfo");
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
+      recordCodeModeCapHit("workspace_calls");
+      recordCodeModeCapHit(undefined);
+      logReviewRunCompleted();
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.modelTurnCount).toBe(0);
+      expect(snapshot?.codeModeCapHits).toEqual({
+        ...emptyCodeModeCapHits(),
+        workspace_calls: 1,
+      });
+    });
+    const payload = infoSpy.mock.calls.find(([event]) => event === "review_run_completed")?.[1];
+    expect(payload).toMatchObject({
+      modelTurnCount: 0,
+      codeModeCapHits: { workspace_calls: 1, pool_queue: 0 },
+    });
+    infoSpy.mockRestore();
   });
 });

@@ -166,6 +166,7 @@ export function createCodeModeCapabilityBridge(params: {
       throw new CodeModeHostHalt(
         "LIMIT_EXCEEDED",
         `Workspace capability call budget exceeded (${CODE_MODE_MAX_TOOL_CALLS})`,
+        { reason: "workspace_calls" },
       );
     }
     admittedCalls += 1;

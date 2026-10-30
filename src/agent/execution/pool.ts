@@ -170,7 +170,9 @@ export async function acquireExecutor(
     return createLease(kind);
   }
   if (waiters.length >= CODE_MODE_EXECUTOR_QUEUE_LENGTH) {
-    throw new CodeModeHostHalt("LIMIT_EXCEEDED", "Executor pool queue is full");
+    throw new CodeModeHostHalt("LIMIT_EXCEEDED", "Executor pool queue is full", {
+      reason: "pool_queue",
+    });
   }
   return await new Promise<ExecutorLease>((resolve, reject) => {
     const waiter: Waiter = { kind, resolve, reject };
@@ -178,7 +180,11 @@ export async function acquireExecutor(
     const timer = setTimeout(() => {
       const index = waiters.indexOf(waiter);
       if (index >= 0) waiters.splice(index, 1);
-      reject(new CodeModeHostHalt("TIMEOUT", "Timed out waiting for an executor"));
+      reject(
+        new CodeModeHostHalt("TIMEOUT", "Timed out waiting for an executor", {
+          reason: "pool_wait",
+        }),
+      );
     }, CODE_MODE_EXECUTOR_QUEUE_WAIT_MS);
     const onAbort = () => {
       const index = waiters.indexOf(waiter);

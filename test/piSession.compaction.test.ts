@@ -178,11 +178,11 @@ describe("createFeaturePiSession compaction by role", () => {
     return config;
   }
 
-  it("omits prepareNextTurn for orchestrator and specialist", async () => {
+  it("omits prepareNextTurn for the orchestrator and keeps the specialist nudge hook", async () => {
     const orchestrator = await sendForRole("orchestrator");
     const specialist = await sendForRole("specialist");
     expect(orchestrator.prepareNextTurn).toBeUndefined();
-    expect(specialist.prepareNextTurn).toBeUndefined();
+    expect(typeof specialist.prepareNextTurn).toBe("function");
     expect(orchestrator).toMatchObject({
       maxRetries: 2,
       maxRetryDelayMs: 60_000,
