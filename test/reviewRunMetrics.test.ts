@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.ts";
 import {
+  comparePromptCacheSections,
+  promptCacheSections,
+} from "../src/agent/runtime/promptCachePolicy.ts";
+import { specialistSharedPrefix } from "../src/prompts/shared/prefix.ts";
+import {
   deriveCacheExcellenceMetrics,
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordAgentTurnMetrics,
+  recordPromptCacheBreak,
   recordReviewMetric,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
@@ -218,6 +224,51 @@ describe("reviewRunMetrics", () => {
       cacheWriteAmplification: null,
     });
     expect(JSON.stringify(payload)).not.toMatch(/submitReview|password|BEGIN RSA/i);
+    expect(payload).toMatchObject({
+      cacheBreakSection: null,
+      cacheBreakByte: null,
+      cacheBreakSession: null,
+    });
+    infoSpy.mockRestore();
+  });
+
+  it("names the first role-body cache break without the prompt", async () => {
+    const fixture = "role-body-fixture-not-for-logs";
+    const changed = `${fixture.slice(0, 4)}X${fixture.slice(5)}`;
+    const base = promptCacheSections({
+      systemText: `${specialistSharedPrefix}\n\n${fixture}`,
+      tools: [],
+      history: [{ role: "user", text: "hello" }],
+    });
+    const next = promptCacheSections({
+      systemText: `${specialistSharedPrefix}\n\n${changed}`,
+      tools: [],
+      history: [{ role: "user", text: "hello" }],
+    });
+    const observed = comparePromptCacheSections(base, next);
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const infoSpy = vi.spyOn(evlog, "logInfo");
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
+      recordPromptCacheBreak({ section: "append_only", byte: null, session: "orchestrator" });
+      recordPromptCacheBreak({ ...observed, session: "specialist" });
+      recordPromptCacheBreak({ section: "history", byte: 1, session: "orchestrator" });
+      logReviewRunCompleted();
+    });
+    const payload = infoSpy.mock.calls.find(([event]) => event === "review_run_completed")?.[1];
+    expect(observed).toEqual({ section: "role_body", byte: 4 });
+    expect(payload).toMatchObject({
+      cacheBreakSection: "role_body",
+      cacheBreakByte: 4,
+      cacheBreakSession: "specialist",
+      modelTurnCount: 0,
+    });
+    expect(JSON.stringify(payload)).not.toContain(fixture);
+    expect(JSON.stringify(payload)).not.toContain(specialistSharedPrefix);
     infoSpy.mockRestore();
   });
 

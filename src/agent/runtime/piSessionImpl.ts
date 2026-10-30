@@ -18,7 +18,7 @@ import {
   ORCHESTRATOR_PHASE_TOOLS,
   type OrchestratorPhaseTool,
 } from "../../review/orchestrator/phaseToolPolicy.ts";
-import { recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
+import { recordPromptCacheBreak, recordReviewMetric } from "../../review/run/reviewRunMetrics.ts";
 import { combineAbortSignals } from "../providers/interface.ts";
 import {
   exactUsageFromProviderUsage,
@@ -31,6 +31,7 @@ import { createSanitizedEventSink } from "./lifecycleSanitizer.ts";
 import {
   cacheIdentityFromAssignment,
   sessionCacheIdFromIdentity,
+  sessionRecordsPromptCacheBreak,
   specialistSharedCacheId,
   systemPromptStartsWithSpecialistPrefix,
 } from "./promptCachePolicy.ts";
@@ -125,6 +126,16 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     timeoutMs: params.cfg.provider.promptTimeoutMs,
     maxRetries: params.cfg.provider.retryMax,
     maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
+    ...(sessionRecordsPromptCacheBreak(params.role)
+      ? {
+          recordCacheBreak: (observed) =>
+            recordPromptCacheBreak({
+              section: observed.section,
+              byte: observed.byte,
+              session: params.role,
+            }),
+        }
+      : {}),
   });
   const trace = createSessionTrace(params, model, sessionId, getAttempts);
   const tools = toCoreTools(

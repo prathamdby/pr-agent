@@ -134,6 +134,100 @@ export function splitAnthropicSystemBlocks(params: unknown, prefix: string): unk
   return next;
 }
 
+export const PROMPT_CACHE_SECTIONS = [
+  "shared_prefix",
+  "role_body",
+  "tool_definitions",
+  "history",
+] as const;
+
+export type PromptCacheSectionName = (typeof PROMPT_CACHE_SECTIONS)[number];
+
+export type PromptCacheSections = {
+  readonly shared_prefix: string;
+  readonly role_body: string;
+  readonly tool_definitions: string;
+  readonly history: string;
+};
+
+export type PromptCacheBreak =
+  | { readonly section: "append_only"; readonly byte: null }
+  | { readonly section: PromptCacheSectionName; readonly byte: number };
+
+export function sessionRecordsPromptCacheBreak(role: AgentSessionRole): boolean {
+  switch (role) {
+    case "orchestrator":
+    case "specialist":
+    case "ci_summary":
+      return true;
+    case "ask":
+    case "description":
+    case "triage":
+    case "verification":
+      return false;
+    default: {
+      const exhaustive: never = role;
+      return exhaustive;
+    }
+  }
+}
+
+export function promptCacheSections(input: {
+  readonly systemText: string;
+  readonly tools: unknown;
+  readonly history: unknown;
+}): PromptCacheSections {
+  const prefix = specialistSharedPrefix;
+  const separatorAt = prefix.length;
+  const rest = input.systemText.slice(separatorAt);
+  const splitAtPrefix =
+    prefix.length > 0 && (input.systemText.startsWith(prefix) || rest.startsWith("\n\n"));
+  const sharedPrefix = splitAtPrefix ? input.systemText.slice(0, prefix.length) : "";
+  let roleBody = splitAtPrefix ? rest : input.systemText;
+  if (splitAtPrefix && roleBody.startsWith("\n\n")) roleBody = roleBody.slice(2);
+  return {
+    shared_prefix: sharedPrefix,
+    role_body: roleBody,
+    tool_definitions: JSON.stringify(input.tools ?? []),
+    history: Array.isArray(input.history)
+      ? input.history.map((message) => JSON.stringify(message)).join("\n")
+      : JSON.stringify(input.history ?? []),
+  };
+}
+
+function firstByteDifference(previous: string, next: string): number | null {
+  const left = Buffer.from(previous);
+  const right = Buffer.from(next);
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    if (left[index] !== right[index]) return index;
+  }
+  return left.length === right.length ? null : length;
+}
+
+function isBytePrefix(previous: string, next: string): boolean {
+  const left = Buffer.from(previous);
+  const right = Buffer.from(next);
+  return right.length >= left.length && right.subarray(0, left.length).equals(left);
+}
+
+export function comparePromptCacheSections(
+  previous: PromptCacheSections,
+  next: PromptCacheSections,
+): PromptCacheBreak {
+  for (const section of PROMPT_CACHE_SECTIONS) {
+    if (section === "history") {
+      if (isBytePrefix(previous.history, next.history))
+        return { section: "append_only", byte: null };
+      const byte = firstByteDifference(previous.history, next.history);
+      return { section: "history", byte: byte ?? 0 };
+    }
+    const byte = firstByteDifference(previous[section], next[section]);
+    if (byte != null) return { section, byte };
+  }
+  return { section: "append_only", byte: null };
+}
+
 function sanitizeSessionCacheIdPart(part: string): string {
   const cleaned = part
     .replace(/[^A-Za-z0-9._-]+/g, "-")
