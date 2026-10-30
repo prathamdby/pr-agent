@@ -25,6 +25,7 @@ import {
   READ_SPILL_FILENAME_PREFIX,
 } from "../src/agent/tools/readWorkspaceTextFile.ts";
 import { createAskPathGate } from "../src/agent/ask/askSafety.ts";
+import { formatCheckoutCoverageBlock } from "../src/prompts/orchestrator/context.ts";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
 import {
   type LocalPrWorkspace,
@@ -95,7 +96,6 @@ function mockWorkspace(
   const changedFiles = [{ path: "src/changed.ts", status: "modified" as const }];
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
-  let searchTruncated = false;
   return {
     rootDir: agentCwd,
     privateGitDir,
@@ -127,11 +127,7 @@ function mockWorkspace(
           checkoutPaths: paths,
           changedFiles,
           stats,
-          searchTruncated,
         }),
-      noteSearchTruncated: () => {
-        searchTruncated = true;
-      },
       lookupSymbol: overrides?.lookupSymbol ?? (() => []),
       getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     },
@@ -2299,6 +2295,31 @@ describe("local workspace tools", () => {
           coverage: expect.objectContaining({ searchTruncated: true }),
           warning: expect.stringContaining("search truncated"),
         });
+      });
+
+      it("records search truncation on the view that searched", async () => {
+        const { workspace } = await setup({
+          "src/a.ts": "renewLease();\nrenewLease();\n",
+          "src/b.ts": "renewLease();\nLEASE_TTL_SECONDS;\n",
+          "src/c.ts": "renewLease();\nLEASE_TTL_SECONDS;\nlease_epoch;\n",
+          "src/d.ts": "unrelated();\n",
+        });
+        const security = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        const quality = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+
+        await security.executors.searchWorkspace?.({
+          query: "renewLease",
+          terms: ["renewLease", "LEASE_TTL_SECONDS"],
+          maxResults: 2,
+        });
+
+        expect(formatCheckoutCoverageBlock(security.checkoutCoverage())).toContain(
+          "Last search truncated: yes",
+        );
+        expect(formatCheckoutCoverageBlock(quality.checkoutCoverage())).not.toContain(
+          "Last search truncated: yes",
+        );
+        expect(workspace.reader.getCoverage()).not.toHaveProperty("searchTruncated");
       });
 
       it("finds files by fuzzy path, including paths fff does not index", async () => {

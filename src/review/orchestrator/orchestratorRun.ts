@@ -1259,7 +1259,7 @@ export async function runOrchestratedPrReview(
                 ),
                 setup.trustedContext,
               ),
-              workspaceTools: setup.workspaceTools,
+              workspaceTools: setup.createSpecialistWorkspaceTools(specialist),
               timeoutMs: Math.max(
                 0,
                 Math.min(params.cfg.review.specialistTimeoutMs, params.timing.remainingModelMs()),

@@ -3,7 +3,6 @@ import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts
 import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
-import { createAskPathGate } from "../../agent/ask/askSafety.ts";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.ts";
 import {
   buildWorkspaceTools,
@@ -18,6 +17,10 @@ export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
   readonly trustedContext: string;
   readonly workspaceTools: {
+    readonly piTools: PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  };
+  readonly createSpecialistWorkspaceTools: (label: string) => {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
@@ -47,6 +50,28 @@ function wrapReviewToolExecutors(
         wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args, ctx))),
     ]),
   );
+}
+
+function codeModeWorkspaceView(
+  localTools: {
+    readonly piTools: readonly PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  },
+  options: {
+    readonly executorKind: Config["codeMode"]["executorKind"];
+    readonly evidenceLedger: EvidenceLedger;
+    readonly headSha: string;
+  },
+) {
+  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
+    executorKind: options.executorKind,
+    evidenceLedger: options.evidenceLedger,
+    headSha: options.headSha,
+  });
+  return {
+    piTools: [...bundle.piTools],
+    executors: wrapReviewToolExecutors(wrapExecutorsWithRateLimitCircuit(bundle.executors)),
+  };
 }
 
 function buildOrchestratorUserContent(params: {
@@ -85,27 +110,24 @@ export function buildReviewRunSetup(params: {
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
-  const pathGate = createAskPathGate();
   const reviewThreadSource: { current: ReviewThreadSource } = { current: () => [] };
-  const localTools = buildWorkspaceTools(params.workspace.reader, {
-    pathGate,
+  const specialistDisposals: Array<() => Promise<readonly string[]>> = [];
+  const investigationOptions = (toolCall: string) => ({
     headSha,
     reviewThreads: () => reviewThreadSource.current(),
     ...(params.workItemId != null
-      ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
+      ? { spillScope: { workItemId: params.workItemId, toolCall } }
       : {}),
   });
-  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, {
+  const localTools = buildWorkspaceTools(
+    params.workspace.reader,
+    investigationOptions("readWorkspaceFile"),
+  );
+  const workspaceTools = codeModeWorkspaceView(localTools, {
     executorKind: cfg.codeMode.executorKind,
     evidenceLedger,
     headSha,
   });
-  const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
-  const wrappedExecutors = wrapReviewToolExecutors(rateLimitedExecutors);
-  const workspaceTools = {
-    piTools: [...bundle.piTools],
-    executors: wrappedExecutors,
-  };
 
   return {
     orchestratorUserContent: buildOrchestratorUserContent({
@@ -118,7 +140,23 @@ export function buildReviewRunSetup(params: {
     }),
     trustedContext: trustedContext ?? "",
     workspaceTools,
-    disposeSpillFiles: localTools.disposeSpillFiles,
+    createSpecialistWorkspaceTools(label) {
+      const tools = buildWorkspaceTools(
+        params.workspace.reader,
+        investigationOptions(`readWorkspaceFile:${label}`),
+      );
+      specialistDisposals.push(tools.disposeSpillFiles);
+      return codeModeWorkspaceView(tools, {
+        executorKind: cfg.codeMode.executorKind,
+        evidenceLedger,
+        headSha,
+      });
+    },
+    disposeSpillFiles: async () => {
+      const own = await localTools.disposeSpillFiles();
+      const extra = await Promise.all(specialistDisposals.splice(0).map((dispose) => dispose()));
+      return [...own, ...extra.flat()];
+    },
     cachedDiffIndex,
     evidenceLedger,
     prSurface,

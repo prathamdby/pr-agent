@@ -420,6 +420,10 @@ async function searchRankedTerms(
     readonly maxOutputBytes: number;
     readonly allowedPaths: readonly string[];
   },
+  view: {
+    readonly recordSearchTruncated: () => void;
+    readonly checkoutCoverage: () => CheckoutCoverage;
+  },
 ) {
   const fullCoverage = params.allowedPaths.length === workspace.sortedCheckoutPaths.length;
   const results = await Promise.all(
@@ -463,8 +467,8 @@ async function searchRankedTerms(
       ({ result }) =>
         result.truncated || result.matches.length > LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
     ) || matches.length > params.maxResults;
-  if (truncated) workspace.noteSearchTruncated();
-  const coverage = workspace.getCoverage();
+  if (truncated) view.recordSearchTruncated();
+  const coverage = view.checkoutCoverage();
   const warning = truncated ? coverageWarning(coverage) : undefined;
   return {
     files: ranked.slice(0, params.maxResults).map(([path, file]) => ({
@@ -494,6 +498,7 @@ function buildInvestigationTools(
   piTools: PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
   disposeSpillFiles: () => Promise<readonly string[]>;
+  checkoutCoverage: () => CheckoutCoverage;
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
@@ -501,6 +506,14 @@ function buildInvestigationTools(
   const headSha = opts?.headSha ?? evidenceLedger?.headSha;
   const readReviewThreads = opts?.reviewThreads;
   const seenReviewThreadPaths = new Set<string>();
+  let searchTruncated = false;
+  const recordSearchTruncated = () => {
+    searchTruncated = true;
+  };
+  const checkoutCoverage = (): CheckoutCoverage => {
+    const coverage = workspace.getCoverage();
+    return searchTruncated ? { ...coverage, searchTruncated: true } : coverage;
+  };
   const spillPaths: string[] = [];
   const withReviewThreads = <T extends Record<string, unknown>>(
     payload: T,
@@ -567,7 +580,7 @@ function buildInvestigationTools(
               path: readPath,
               refused: true,
               reason: result.reason,
-              coverage: workspace.getCoverage(),
+              coverage: checkoutCoverage(),
               ...(note ? { note } : {}),
             },
             readPath,
@@ -636,7 +649,7 @@ function buildInvestigationTools(
             path: normalized,
             refused: true,
             reason: MISSING_FROM_CHECKOUT_REASON,
-            coverage: workspace.getCoverage(),
+            coverage: checkoutCoverage(),
             ...(similarPaths.length > 0 ? { similarPaths } : {}),
           },
           normalized,
@@ -683,12 +696,16 @@ function buildInvestigationTools(
         return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
       }
       if (terms?.length) {
-        return searchRankedTerms(workspace, {
-          terms: [...new Set([query, ...terms])],
-          maxResults,
-          maxOutputBytes: limits.searchMaxTotalBytes,
-          allowedPaths,
-        });
+        return searchRankedTerms(
+          workspace,
+          {
+            terms: [...new Set([query, ...terms])],
+            maxResults,
+            maxOutputBytes: limits.searchMaxTotalBytes,
+            allowedPaths,
+          },
+          { recordSearchTruncated, checkoutCoverage },
+        );
       }
       const fullCoverage = allowedPaths.length === workspace.sortedCheckoutPaths.length;
       const result = fullCoverage
@@ -704,11 +721,9 @@ function buildInvestigationTools(
             paths: allowedPaths,
           });
       const truncated = result.truncated || result.matches.length > maxResults;
-      if (truncated) {
-        workspace.noteSearchTruncated();
-      }
+      if (truncated) recordSearchTruncated();
       const matchedFiles = new Set(result.matches.map((match) => match.path));
-      const coverage = workspace.getCoverage();
+      const coverage = checkoutCoverage();
       const warning = truncated ? coverageWarning(coverage) : undefined;
       return {
         matches: result.matches.slice(0, maxResults),
@@ -767,7 +782,7 @@ function buildInvestigationTools(
           path: normalized,
           refused: true,
           reason: MISSING_FROM_CHECKOUT_REASON,
-          coverage: workspace.getCoverage(),
+          coverage: checkoutCoverage(),
           blame: null,
         };
       }
@@ -777,7 +792,7 @@ function buildInvestigationTools(
           path: normalized,
           refused: true,
           reason: refusal.reason,
-          coverage: workspace.getCoverage(),
+          coverage: checkoutCoverage(),
           blame: null,
         };
       }
@@ -854,6 +869,7 @@ function buildInvestigationTools(
   };
   return {
     ...defineToolset(tools),
+    checkoutCoverage,
     disposeSpillFiles: async () => {
       const paths = spillPaths.splice(0, spillPaths.length);
       const outcomes = await Promise.allSettled(

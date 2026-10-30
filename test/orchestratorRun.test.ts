@@ -112,6 +112,7 @@ vi.mock("../src/review/run/reviewRunSetup.ts", () => ({
     systemPrompt: "legacy prompt must not be used",
     userContent: "Inspect the pull request.",
     workspaceTools: { piTools: [], executors: {} },
+    createSpecialistWorkspaceTools: () => ({ piTools: [], executors: {} }),
     disposeSpillFiles: async () => [],
     cachedDiffIndex: {
       files: new Map(),
@@ -334,7 +335,6 @@ const workspace: LocalPrWorkspace = {
         changedFiles: [],
         stats: { truncated: false },
       }),
-    noteSearchTruncated: () => undefined,
     lookupSymbol: () => [],
     getSymbolIndexStatus: () => ({ available: false }),
   },

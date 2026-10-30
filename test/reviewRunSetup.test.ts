@@ -34,7 +34,6 @@ const workspace: LocalPrWorkspace = {
         changedFiles: [],
         stats: { truncated: false },
       }),
-    noteSearchTruncated: () => undefined,
     lookupSymbol: () => [],
     getSymbolIndexStatus: () => ({ available: false }),
   },
@@ -42,7 +41,7 @@ const workspace: LocalPrWorkspace = {
 };
 
 describe("buildReviewRunSetup", () => {
-  it("exposes exploration tools and the injected PrSurface", () => {
+  it("exposes exploration tools and the injected PrSurface", async () => {
     const prSurface = createFakePrSurface({
       owner: "o",
       repo: "r",
@@ -66,6 +65,16 @@ describe("buildReviewRunSetup", () => {
     );
     expect(setup.orchestratorUserContent).not.toContain("submitReview");
     expect(setup.prSurface).toBe(prSurface);
+    const security = setup.createSpecialistWorkspaceTools("security");
+    const quality = setup.createSpecialistWorkspaceTools("quality");
+    expect(security.piTools.map((tool) => tool.name)).toContain("execute");
+    expect(quality.piTools.map((tool) => tool.name)).toContain("execute");
+    const securityState = await security.executors.execute?.({
+      code: 'state.owner = "security"; state.owner',
+    });
+    const qualityState = await quality.executors.execute?.({ code: "state.owner" });
+    expect(String(securityState)).toContain("security");
+    expect(String(qualityState)).not.toContain("security");
   });
 
   it("returns execute, omits library-doc tools, and does not call fetch", () => {

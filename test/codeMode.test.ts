@@ -670,6 +670,45 @@ describe("Code Mode", () => {
     }
   });
 
+  it("commits overlapping cells when each cell has its own store", async () => {
+    const firstSession = createExecutionSessionStore();
+    const secondSession = createExecutionSessionStore();
+    let releaseFirst: (() => void) | undefined;
+    const first = runCodeModeScript({
+      executorKind: "in_process",
+      code: 'state.owner = "first"; await tools.readWorkspaceFile({ path: "a.ts" }); state.owner',
+      session: firstSession,
+      capabilities: {
+        readWorkspaceFile: async () =>
+          new Promise((resolve) => {
+            releaseFirst = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
+          }),
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    const second = runCodeModeScript({
+      executorKind: "in_process",
+      code: 'state.owner = "second"; await tools.readWorkspaceFile({ path: "b.ts" }); state.owner',
+      session: secondSession,
+      capabilities: {
+        readWorkspaceFile: async () => ({ path: "b.ts", content: "y", startLine: 1, endLine: 1 }),
+      },
+    });
+    const secondResult = await second;
+    releaseFirst?.();
+    const firstResult = await first;
+    expect(firstResult.ok).toBe(true);
+    expect(secondResult.ok).toBe(true);
+    if (firstResult.ok) expect(firstResult.output).toBe("first");
+    if (secondResult.ok) expect(secondResult.output).toBe("second");
+    expect(firstSession.data).toMatchObject({ owner: "first" });
+    expect(secondSession.data).toMatchObject({ owner: "second" });
+    expect(JSON.stringify(firstSession.data)).not.toContain("second");
+    expect(JSON.stringify(secondSession.data)).not.toContain("first");
+  });
+
   it("keeps a truncated file read as a string and records only delivered lines", async () => {
     const headSha = "abc123";
     const lines = Array.from(

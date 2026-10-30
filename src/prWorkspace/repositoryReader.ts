@@ -92,7 +92,6 @@ export type PinnedRepositoryReader = RepositoryReader & {
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly isPathInCheckout: (path: string) => boolean;
   readonly getCoverage: () => CheckoutCoverage;
-  readonly noteSearchTruncated: () => void;
   readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
   readonly lookupSymbol: (name: string, maxResults?: number) => readonly SymbolIndexEntry[];
   readonly getSymbolIndexStatus: () => SymbolIndexStatus;
@@ -570,7 +569,6 @@ export function createPinnedRepositoryReader(params: {
       workTree: agentCwd,
       timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     });
-  let searchTruncated = false;
   const blameCache = new Map<string, Promise<string>>();
 
   function isPathInCheckout(path: string): boolean {
@@ -586,12 +584,7 @@ export function createPinnedRepositoryReader(params: {
         truncated: stats.truncated,
         warning: stats.warning,
       },
-      searchTruncated,
     });
-  }
-
-  function noteSearchTruncated(): void {
-    searchTruncated = true;
   }
 
   async function getDiffForPath(path: string): Promise<string> {
@@ -644,13 +637,7 @@ export function createPinnedRepositoryReader(params: {
         { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
       ),
   });
-  const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
-    const result = await fffSearch.search(grepParams);
-    if (result.truncated) {
-      noteSearchTruncated();
-    }
-    return result;
-  };
+  const grepLiteral = (grepParams: GitGrepWorkspaceParams) => fffSearch.search(grepParams);
 
   const lookupSymbol = (name: string, maxResults = LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS) =>
     querySymbolIndex(symbolIndex, name, maxResults);
@@ -670,7 +657,6 @@ export function createPinnedRepositoryReader(params: {
     getBlameForPath,
     isPathInCheckout,
     getCoverage,
-    noteSearchTruncated,
     findFiles: fffSearch.findFiles,
     lookupSymbol,
     getSymbolIndexStatus,
