@@ -26,7 +26,10 @@ import { inTransaction } from "../../src/db/postgres.ts";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.ts";
+import {
+  cancelPendingPushFollowUp,
+  createReviewRescheduleWorkItem,
+} from "../../src/agentWork/reviewReschedule.ts";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.ts";
 import * as analytics from "../../src/analytics/index.ts";
 import * as workTelemetry from "../../src/analytics/workCompleted.ts";
@@ -73,8 +76,11 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../../src/settings/index.ts";
 import { hasDatabase, integrationPool } from "./db.ts";
 import type { AskJobData } from "../../src/agentWork/types.ts";
@@ -83,7 +89,14 @@ const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
 const ASK_INSTALLATION_ID = 6589001;
 const DATABASE_URL = process.env.DATABASE_URL!;
-const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
+const CLEANUP_QUEUES = [
+  ACK_QUEUE,
+  REVIEW_QUEUE,
+  CI_PROJECTION_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+] as const;
 
 const queueConfig: QueueConfig = makeTestConfig({
   queue: {
@@ -4085,6 +4098,198 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ["delivery-cadence-slash"],
     );
     expect(decision.rows[0]?.processing_decision).toBe("automated_review_supersede_requested");
+  });
+
+  it("every_push keeps a queued slash follow-up and supersedes other auto work", async () => {
+    const ref = makePrRef("cadence-follow-up");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    const otherId = randomUUID();
+    const followUp = {
+      webhookEventId: randomUUID(),
+      replacementWorkItemId: followUpId,
+      state: "enqueued",
+    };
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb),
+         ($10, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({ mode: "review", source: "slash", pushFollowUp: followUp }),
+        followUpId,
+        otherId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{ id: string; status: string; source: string }>(
+      `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.find((row) => row.id === runningId)).toMatchObject({
+      status: "running",
+      source: "slash",
+    });
+    expect(rows.find((row) => row.id === followUpId)).toMatchObject({
+      status: "queued",
+      source: "auto",
+    });
+    expect(rows.find((row) => row.id === otherId)).toMatchObject({
+      status: "superseded",
+      source: "auto",
+    });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+  });
+
+  it("every_push replaces a pending follow-up so parent failure cannot drop the push", async () => {
+    const ref = makePrRef("cadence-follow-up-pending");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "pending-enqueue",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-pending"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const parent = await getWorkItem(pool, runningId);
+    if (parent?.type !== "review") throw new Error("expected the slash parent");
+    await expect(cancelPendingPushFollowUp(pool, parent, new Error("terminal"))).rejects.toThrow(
+      /not confirmed/,
+    );
+    const { rows } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND source = 'auto' AND status = 'queued'`,
+      [key],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).not.toBe(followUpId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([rows[0]?.id]);
+  });
+
+  it("every_push replaces a slash follow-up that has left the queue", async () => {
+    const ref = makePrRef("cadence-follow-up-running");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'running', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "enqueued",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-running"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    const { rows } = await pool.query<{
+      id: string;
+      status: string;
+      source: string;
+      cancel_requested_at: Date | null;
+      head_sha: string;
+    }>(
+      `SELECT id, status, source, cancel_requested_at, head_sha
+         FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(rows.find((row) => row.id === runningId)?.status).toBe("running");
+    expect(rows.find((row) => row.id === followUpId)).toMatchObject({
+      status: "running",
+      cancel_requested_at: expect.any(Date),
+    });
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    expect(replacement?.head_sha).toBe("deferred-to-worker");
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
   });
 
   it.each([false, true])(

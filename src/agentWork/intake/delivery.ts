@@ -125,7 +125,15 @@ type ActiveSlashReview = {
   readonly id: string;
   readonly status: "queued" | "running";
   readonly hasFollowUp: boolean;
+  readonly followUpReplacementId: string | null;
+  readonly followUpEnqueued: boolean;
 };
+
+const WORK_ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function followUpReplacementId(value: string | null): string | null {
+  return value != null && WORK_ITEM_ID.test(value) ? value : null;
+}
 
 async function lockActiveSlashReviews(
   client: PoolClient,
@@ -135,8 +143,13 @@ async function lockActiveSlashReviews(
     id: string;
     status: "queued" | "running";
     has_follow_up: boolean;
+    follow_up_replacement_id: string | null;
+    follow_up_state: string | null;
   }>(
-    `SELECT id, status, (payload ? 'pushFollowUp') AS has_follow_up
+    `SELECT id, status,
+            (payload ? 'pushFollowUp') AS has_follow_up,
+            payload->'pushFollowUp'->>'replacementWorkItemId' AS follow_up_replacement_id,
+            payload->'pushFollowUp'->>'state' AS follow_up_state
        FROM agent_work_items
       WHERE resource_key = $1
         AND source = 'slash'
@@ -150,6 +163,8 @@ async function lockActiveSlashReviews(
     id: row.id,
     status: row.status,
     hasFollowUp: row.has_follow_up,
+    followUpReplacementId: followUpReplacementId(row.follow_up_replacement_id),
+    followUpEnqueued: row.follow_up_state === "enqueued",
   }));
 }
 
@@ -255,7 +270,22 @@ async function applyEveryPushReviewSupersede(
   if (slashRows.length === 0) {
     return insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId);
   }
-  const superseded = await supersedeActiveAutoWork(client, { kind: "review", resourceKey });
+  const followUpIds = [
+    ...new Set(
+      slashRows.flatMap((row) =>
+        row.followUpReplacementId == null ? [] : [row.followUpReplacementId],
+      ),
+    ),
+  ];
+  const superseded = await supersedeActiveAutoWork(
+    client,
+    { kind: "review", resourceKey },
+    {
+      preserveQueuedIds: followUpIds.filter((id) =>
+        slashRows.some((row) => row.followUpReplacementId === id && row.followUpEnqueued),
+      ),
+    },
+  );
   tx.deferWorkLifecycle(ref, superseded.lifecycleChanges, "auto_replacement", correlation);
   const events: DeferredIntakeEvent[] = [];
   if (superseded.supersededIds.length > 0) {
@@ -275,7 +305,20 @@ async function applyEveryPushReviewSupersede(
   const runningIds = slashRows
     .filter((row) => row.status === "running" && !row.hasFollowUp)
     .map((row) => row.id);
-  if (runningIds.length === 0) return events;
+  if (runningIds.length === 0) {
+    if (followUpIds.length === 0) return events;
+    const queuedFollowUp = await client.query(
+      `SELECT id FROM agent_work_items
+        WHERE id = ANY($1::uuid[])
+          AND status = 'queued'`,
+      [followUpIds],
+    );
+    if ((queuedFollowUp.rowCount ?? 0) > 0) return events;
+    return [
+      ...events,
+      ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),
+    ];
+  }
   const stamped = await client.query(
     `UPDATE agent_work_items
         SET payload = payload || $2::jsonb, updated_at = now()
