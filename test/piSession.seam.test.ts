@@ -1,11 +1,22 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { makeTestConfig } from "./helpers/config.ts";
 import type { AgentLifecycleEvent } from "../src/agent/runtime/types.ts";
+import { SPECIALIST_REPEATED_EXECUTE_NUDGE } from "../src/prompts/shared/repair.ts";
 
 const runAgentLoop = vi.hoisted(() => vi.fn());
+const realAgentLoop = vi.hoisted(
+  () =>
+    ({
+      current: undefined as typeof import("@earendil-works/pi-agent-core").runAgentLoop | undefined,
+    }) as {
+      current: typeof import("@earendil-works/pi-agent-core").runAgentLoop | undefined;
+    },
+);
 
 vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
+  realAgentLoop.current = actual.runAgentLoop;
   return {
     ...actual,
     runAgentLoop,
@@ -678,6 +689,73 @@ describe("createPiSession seam", () => {
     });
     expect(againExecute?.block).toBe(true);
 
+    await session.dispose();
+  });
+
+  it("carries one repeated-execute nudge into the next request and ends the sixth", async () => {
+    const real = realAgentLoop.current;
+    expect(real).toBeTypeOf("function");
+    const requests: string[] = [];
+    runAgentLoop.mockImplementation(async (prompts, context, config, emit, signal) => {
+      let turn = 0;
+      return real!(prompts, context, config, emit, signal, async (_model, llmContext) => {
+        turn += 1;
+        requests.push(JSON.stringify(llmContext.messages));
+        const stream = createAssistantMessageEventStream();
+        const message: AssistantMessage = {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: `exec-${turn}`,
+              name: "execute",
+              arguments: { code: "return coverage" },
+            },
+          ],
+          api: "openai-completions",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          stopReason: "toolUse",
+          timestamp: 1,
+          usage: {
+            input: 1,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 2,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+        };
+        stream.end(message);
+        return stream;
+      });
+    });
+    const session = await createPiSession({
+      role: "specialist",
+      specialistId: "security",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      systemPrompt: "system",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
+      tools: [],
+      executors: {},
+    });
+
+    const turn = await session.send("review", { phase: "specialist", checkpointId: "cp" });
+
+    const copies = (payload: string) => payload.split(SPECIALIST_REPEATED_EXECUTE_NUDGE).length - 1;
+    expect(requests).toHaveLength(6);
+    expect(copies(requests[0] ?? "")).toBe(0);
+    expect(copies(requests[1] ?? "")).toBe(0);
+    expect(copies(requests[2] ?? "")).toBe(0);
+    expect(copies(requests[3] ?? "")).toBe(1);
+    expect(copies(requests[4] ?? "")).toBe(1);
+    expect(copies(requests[5] ?? "")).toBe(1);
+    expect(turn.end).toBe("completed");
     await session.dispose();
   });
 

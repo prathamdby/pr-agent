@@ -1,11 +1,9 @@
-import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
+import { SPECIALIST_REPEATED_EXECUTE_NUDGE } from "../../prompts/shared/repair.ts";
+import { SPECIALIST_EXECUTE_NUDGE_AT, SPECIALIST_EXECUTE_STOP_AT } from "../../settings/index.ts";
 import { isRecord } from "../../util/typeGuards.ts";
+import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
 
-const NUDGE_AT = 3;
-const STOP_AT = 6;
-
-export const SPECIALIST_REPEATED_EXECUTE_NUDGE =
-  "This execute code returned the same result three times. Use that result or submit the findings report. Do not run this same code again.";
+export { SPECIALIST_REPEATED_EXECUTE_NUDGE };
 
 export type RepeatedExecuteCall = {
   readonly toolName: string;
@@ -65,8 +63,10 @@ export function createSpecialistExecuteRepeat() {
         const count = prior != null && prior.result === call.result ? prior.count + 1 : 1;
         const nudged = prior?.nudged === true;
         streaks.set(call.code, { result: call.result, count, nudged });
-        if (!nudged && count >= NUDGE_AT && count < STOP_AT) nudgeCodes.push(call.code);
-        if (count >= STOP_AT) stop = true;
+        if (!nudged && count >= SPECIALIST_EXECUTE_NUDGE_AT && count < SPECIALIST_EXECUTE_STOP_AT) {
+          nudgeCodes.push(call.code);
+        }
+        if (count >= SPECIALIST_EXECUTE_STOP_AT) stop = true;
       }
       pendingCodes = stop ? [] : nudgeCodes;
       return stop ? "stop" : "continue";

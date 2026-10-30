@@ -436,21 +436,15 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Provider declined the request (stop_reason: refusal)",
           });
         }
-        if (repeatedExecuteStop) {
-          throw new AppError({
-            domain: "review",
-            kind: "specialist_repeated_execute",
-            message: "Specialist repeated one execute result six times",
-          });
-        }
-        if (terminalProviderError !== undefined && !budget.stopped) {
+        const turnStopped = budget.stopped || repeatedExecuteStop;
+        if (terminalProviderError !== undefined && !turnStopped) {
           throw new AppError({
             domain: "provider",
             kind: "request_failed",
             message: terminalProviderError,
           });
         }
-        if (loopError !== undefined && !budget.stopped) {
+        if (loopError !== undefined && !turnStopped) {
           throw toAppError(loopError, { domain: "provider", kind: "request_failed" });
         }
         const promptMeta = promptMetadataFromText(prompt);

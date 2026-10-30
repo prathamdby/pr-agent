@@ -41,7 +41,6 @@ import { specialistInvestigationHarness } from "../src/prompts/shared/tools.ts";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
-import { AppError } from "../src/errors/appError.ts";
 import {
   SPECIALIST_REPEATED_EXECUTE_NUDGE,
   createSpecialistExecuteRepeat,
@@ -1005,28 +1004,6 @@ describe("runSpecialist", () => {
       }),
     ).toBe("continue");
     expect(submit.takeNudges()).toEqual([]);
-  });
-
-  it("returns review.specialist_repeated_execute without another session", async () => {
-    runnerMocks.behaviors.push({
-      kind: "error",
-      error: new AppError({
-        domain: "review",
-        kind: "specialist_repeated_execute",
-        message: "Specialist repeated one execute result six times",
-      }),
-    });
-
-    const outcome = await runSpecialist(specialistArgs());
-
-    expect(outcome).toMatchObject({
-      kind: "error",
-      error: { code: "review.specialist_repeated_execute" },
-    });
-    expect(runnerMocks.createSession).toHaveBeenCalledTimes(1);
-    expect(runnerMocks.sessions[0]?.send.mock.calls[0]?.[0]).not.toContain(
-      SPECIALIST_REPEATED_EXECUTE_NUDGE,
-    );
   });
 
   it("counts an execute only when its result is paired by call id", () => {

@@ -561,6 +561,8 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `SESSION_TURN_RETRY_MAX`                     | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn                                                          |
 | `SESSION_TURN_RETRY_BASE_DELAY_MS`           | 250 — base delay before the first turn retry; doubles on each later retry                                                                                       |
 | `SESSION_OVERFLOW_COMPACT_MAX`               | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal                                                                |
+| `SPECIALIST_EXECUTE_NUDGE_AT`                | 3 identical `execute` results for one code. The next specialist request carries one nudge                                                                       |
+| `SPECIALIST_EXECUTE_STOP_AT`                 | 6 identical `execute` results for one code. That specialist's turn ends and a submitted report is kept. Other specialists continue                              |
 | `VALIDATION_REPAIR_ROUNDS`                   | 3                                                                                                                                                               |
 | `SUBMIT_ONLY_MAX_TOOL_ROUNDS`                | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                                                                          |
 | `PUBLISH_RECOVERY_ROUNDS`                    | 2 summary recovery sends                                                                                                                                        |

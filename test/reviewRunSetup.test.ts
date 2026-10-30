@@ -2,7 +2,8 @@ import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryRea
 import { describe, expect, it, vi } from "vitest";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
 import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.ts";
-import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.ts";
+import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.ts";
+import { buildReviewRunSetup, ledgerForFindingSource } from "../src/review/run/reviewRunSetup.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
@@ -171,5 +172,53 @@ describe("buildReviewRunSetup", () => {
     expect(output).toContain("Source: tool.searchWorkspace");
     expect(output).toContain("&lt;/untrusted_evidence&gt;");
     expect(output).toContain('"truncated": true');
+  });
+
+  it("keeps a security read off the tests ledger", async () => {
+    const prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
+    const setup = buildReviewRunSetup({
+      cfg: makeTestConfig(),
+      prSurface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      workspace: {
+        ...workspace,
+        reader: {
+          ...workspace.reader,
+          checkoutPaths: new Set(["src/secure.ts"]),
+          sortedCheckoutPaths: ["src/secure.ts"],
+          isPathInCheckout: (path: string) => path === "src/secure.ts",
+          readFile: async () => ({
+            content: "const token = secret;\n",
+            size: 22,
+            startLine: 1,
+            endLine: 1,
+            truncated: false,
+            returnedBytes: 22,
+            clampedLines: [],
+          }),
+        },
+      },
+    });
+    const ledgers = {
+      orchestrator: setup.evidenceLedger,
+      specialists: setup.specialistLedgers,
+    };
+    expect(ledgerForFindingSource("review", ledgers)).toBe(setup.evidenceLedger);
+    const seen = new Set([setup.evidenceLedger]);
+    for (const id of SPECIALIST_IDS) {
+      const ledger = ledgerForFindingSource(id, ledgers);
+      expect(ledger).toBe(setup.specialistLedgers[id]);
+      expect(seen.has(ledger)).toBe(false);
+      seen.add(ledger);
+    }
+    const security = setup.createSpecialistWorkspaceTools("security", () => []);
+    await security.executors.execute?.({
+      code: 'await tools.readWorkspaceFile({ path: "src/secure.ts", startLine: 1, maxLines: 5 })',
+    });
+    expect(setup.specialistLedgers.security.covers("src/secure.ts", 1, 1)).toBe(true);
+    expect(setup.specialistLedgers.tests.covers("src/secure.ts", 1, 1)).toBe(false);
   });
 });
