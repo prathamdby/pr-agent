@@ -1,5 +1,5 @@
 import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.ts";
-import { AppError } from "../../errors/appError.ts";
+import { AppError, isAppError } from "../../errors/appError.ts";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
 import { emitWorkSpan, safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.ts";
 import { specialistSpanFromContext } from "../../analytics/workSpan.ts";
@@ -505,6 +505,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
     }
 
     if (
+      isRepeatedExecute(lastError) ||
       isCancelAbortError(lastError) ||
       isProviderRefusalError(lastError) ||
       classification === "cancelled" ||
@@ -534,6 +535,15 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
     ordinaryRetryUsed = true;
   }
 
+  if (isRepeatedExecute(lastError)) {
+    return {
+      kind: "error",
+      specialist: params.specialist,
+      durationMs: Date.now() - startedAtMs,
+      error: lastError,
+    };
+  }
+
   return failureOutcome({
     specialist: params.specialist,
     startedAtMs,
@@ -542,6 +552,10 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
     classification,
     cause: lastError,
   });
+}
+
+function isRepeatedExecute(error: unknown): error is AppError {
+  return isAppError(error) && error.kind === "specialist_repeated_execute";
 }
 
 export async function runSpecialist(params: RunSpecialistParams): Promise<SpecialistOutcome> {

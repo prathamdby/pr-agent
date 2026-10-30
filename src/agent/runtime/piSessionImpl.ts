@@ -42,6 +42,10 @@ import { ORCHESTRATOR_SESSION_PHASES, resolveThinkingLevel } from "./thinkingPol
 import { createSendActivity } from "./sendActivity.ts";
 import { createTurnToolBudget } from "./turnToolBudget.ts";
 import { createSessionCompaction } from "./sessionCompaction.ts";
+import {
+  createSpecialistExecuteRepeat,
+  specialistExecuteCalls,
+} from "./specialistExecuteRepeat.ts";
 import { isProviderRefusal, lastAssistant, runSessionTurn } from "./sessionTurnLoop.ts";
 import type { PiSession, PiSessionCreateParams } from "./types.ts";
 
@@ -94,6 +98,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const sessionMessages: AgentMessage[] = [
     { role: "system", content: params.systemPrompt, timestamp: Date.now() },
   ];
+  const executeRepeat = params.role === "specialist" ? createSpecialistExecuteRepeat() : undefined;
   const cacheIdentity = cacheIdentityFromAssignment(
     params.role,
     params.primary,
@@ -184,6 +189,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       const phaseRef = { current: opts.phase };
       let protocolInvalid = false;
       const budget = createTurnToolBudget(opts);
+      let repeatedExecuteStop = false;
       let finalText = "";
       let terminalProviderError: string | undefined;
       let refused = false;
@@ -238,7 +244,52 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         maxRetries: params.cfg.provider.retryMax,
         maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        finishTurn: budget.finishTurn,
+        finishTurn: async (
+          turn,
+        ): Promise<{ action: "continue" } | { action: "end" } | undefined> => {
+          const budgetDecision = await budget.finishTurn(turn);
+          if (!executeRepeat) return budgetDecision ?? undefined;
+          const action = executeRepeat.observe({
+            refused: turn.message.rawStopReason === "refusal",
+            calls: specialistExecuteCalls({
+              calls: turn.message.content.flatMap((part) =>
+                part.type === "toolCall"
+                  ? [{ id: part.id, name: part.name, arguments: part.arguments }]
+                  : [],
+              ),
+              results: turn.toolResults.map((result) => ({
+                toolCallId: result.toolCallId,
+                text: contentText(result.content),
+              })),
+            }),
+          });
+          if (action === "stop") {
+            repeatedExecuteStop = true;
+            return { action: "end" };
+          }
+          if (budgetDecision == null) return undefined;
+          return budgetDecision;
+        },
+        ...(compaction.prepareNextTurn || executeRepeat
+          ? {
+              prepareNextTurn: async (
+                turn: Parameters<NonNullable<AgentLoopConfig["prepareNextTurn"]>>[0],
+              ) => {
+                const prepared = await compaction.prepareNextTurn?.(turn);
+                const nudges = executeRepeat?.takeNudges() ?? [];
+                if (nudges.length === 0) return prepared;
+                const messages: AgentMessage[] = nudges.map((content) => ({
+                  role: "user",
+                  content,
+                  timestamp: Date.now(),
+                }));
+                return {
+                  ...prepared,
+                  messages: [...(prepared?.messages ?? []), ...messages],
+                };
+              },
+            }
+          : {}),
         beforeToolCall: async ({ assistantMessage, toolCall }) => {
           const calls = assistantMessage.content.filter((part) => part.type === "toolCall");
           const ids = calls.map((call) => call.id);
@@ -258,7 +309,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }
           return budget.beforeToolCall(toolCall.name);
         },
-        ...(compaction.prepareNextTurn ? { prepareNextTurn: compaction.prepareNextTurn } : {}),
       };
 
       const handleEvent = (event: AgentEvent) => {
@@ -384,6 +434,13 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             domain: "provider",
             kind: "refusal",
             message: "Provider declined the request (stop_reason: refusal)",
+          });
+        }
+        if (repeatedExecuteStop) {
+          throw new AppError({
+            domain: "review",
+            kind: "specialist_repeated_execute",
+            message: "Specialist repeated one execute result six times",
           });
         }
         if (terminalProviderError !== undefined && !budget.stopped) {

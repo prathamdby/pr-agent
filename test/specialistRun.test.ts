@@ -41,6 +41,12 @@ import { specialistInvestigationHarness } from "../src/prompts/shared/tools.ts";
 import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
+import { AppError } from "../src/errors/appError.ts";
+import {
+  SPECIALIST_REPEATED_EXECUTE_NUDGE,
+  createSpecialistExecuteRepeat,
+  specialistExecuteCalls,
+} from "../src/agent/runtime/specialistExecuteRepeat.ts";
 import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 type AttemptBehavior =
@@ -900,5 +906,96 @@ describe("runSpecialist", () => {
     expect(runnerMocks.createSession).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("nudges once at three identical executes and stops that session at six", () => {
+    const repeat = createSpecialistExecuteRepeat();
+    const same = (result = "value") => ({
+      toolName: "execute",
+      code: "return coverage",
+      result,
+    });
+    const feed = (
+      calls: readonly { toolName: string; code: string; result: string }[],
+      refused = false,
+    ) => {
+      const action = repeat.observe({ refused, calls });
+      return { action, nudges: repeat.takeNudges() };
+    };
+
+    expect(feed([same(), same()]).nudges).toEqual([]);
+    expect(feed([same()])).toEqual({
+      action: "continue",
+      nudges: [SPECIALIST_REPEATED_EXECUTE_NUDGE],
+    });
+    expect(feed([same()]).nudges).toEqual([]);
+    expect(feed([same()]).nudges).toEqual([]);
+    expect(feed([same()]).action).toBe("stop");
+
+    const changed = createSpecialistExecuteRepeat();
+    for (let index = 0; index < 7; index += 1) {
+      const action = changed.observe({
+        refused: false,
+        calls: [{ toolName: "execute", code: "return coverage", result: `r${index}` }],
+      });
+      expect(action).toBe("continue");
+      expect(changed.takeNudges()).toEqual([]);
+    }
+
+    const refused = createSpecialistExecuteRepeat();
+    expect(
+      refused.observe({
+        refused: true,
+        calls: [same(), same(), same(), same(), same(), same()],
+      }),
+    ).toBe("continue");
+    expect(refused.takeNudges()).toEqual([]);
+
+    const submit = createSpecialistExecuteRepeat();
+    expect(
+      submit.observe({
+        refused: false,
+        calls: Array.from({ length: 6 }, () => ({
+          toolName: "submit_findings_report",
+          code: "return coverage",
+          result: "same",
+        })),
+      }),
+    ).toBe("continue");
+    expect(submit.takeNudges()).toEqual([]);
+  });
+
+  it("returns review.specialist_repeated_execute without another session", async () => {
+    runnerMocks.behaviors.push({
+      kind: "error",
+      error: new AppError({
+        domain: "review",
+        kind: "specialist_repeated_execute",
+        message: "Specialist repeated one execute result six times",
+      }),
+    });
+
+    const outcome = await runSpecialist(specialistArgs());
+
+    expect(outcome).toMatchObject({
+      kind: "error",
+      error: { code: "review.specialist_repeated_execute" },
+    });
+    expect(runnerMocks.createSession).toHaveBeenCalledTimes(1);
+    expect(runnerMocks.sessions[0]?.send.mock.calls[0]?.[0]).not.toContain(
+      SPECIALIST_REPEATED_EXECUTE_NUDGE,
+    );
+  });
+
+  it("counts an execute only when its result is paired by call id", () => {
+    expect(
+      specialistExecuteCalls({
+        calls: [
+          { id: "e1", name: "execute", arguments: { code: "return 1" } },
+          { id: "s1", name: "submit_findings_report", arguments: { status: "no_findings" } },
+        ],
+        results: [{ toolCallId: "e1", text: "1" }],
+      }),
+    ).toEqual([{ toolName: "execute", code: "return 1", result: "1" }]);
   });
 });

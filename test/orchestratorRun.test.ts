@@ -429,6 +429,19 @@ function empty(specialist: SpecialistId): SpecialistOutcome {
   return { kind: "empty", specialist, durationMs: 1 };
 }
 
+function repeatedExecute(specialist: SpecialistId): SpecialistOutcome {
+  return {
+    kind: "error",
+    specialist,
+    durationMs: 1,
+    error: new AppError({
+      domain: "review",
+      kind: "specialist_repeated_execute",
+      message: "Specialist repeated one execute result six times",
+    }),
+  };
+}
+
 function failed(specialist: SpecialistId, message = `${specialist} failed`): SpecialistOutcome {
   return {
     kind: "error",
@@ -1590,6 +1603,19 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: security specialist failed."]);
+  });
+
+  it("keeps the other specialists running after a repeated execute stop", async () => {
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("security")?.resolve(repeatedExecute("security"));
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
+    testState.outcomes.get("quality")?.resolve(report("quality"));
+    testState.outcomes.get("tests")?.resolve(report("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.publishOrder).toEqual(["correctness", "quality", "tests", "summary"]);
     expect(testState.summaryNotes).toEqual(["Coverage partial: security specialist failed."]);
   });
 

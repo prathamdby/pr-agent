@@ -137,6 +137,7 @@ export const APP_ERROR_KINDS = {
     "specialist_invalid_report",
     "specialist_not_started",
     "specialist_promise_rejected",
+    "specialist_repeated_execute",
     "specialist_stopped",
     "specialist_timeout",
     "stale_head_replacement_exhausted",
