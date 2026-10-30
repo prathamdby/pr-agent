@@ -94,6 +94,7 @@ const testState = vi.hoisted(() => ({
   publishedBatchCount: 0,
   judgmentBySource: new Map<SpecialistId, readonly ReviewFinding[]>(),
   judgmentPrompts: [] as string[],
+  specialistThreadSources: [] as Array<() => readonly { readonly findingId: string }[]>,
   synthesisPublishesSummary: true,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
   sentSendOptions: [] as PiSessionSendOptions[],
@@ -112,7 +113,13 @@ vi.mock("../src/review/run/reviewRunSetup.ts", () => ({
     systemPrompt: "legacy prompt must not be used",
     userContent: "Inspect the pull request.",
     workspaceTools: { piTools: [], executors: {} },
-    createSpecialistWorkspaceTools: () => ({ piTools: [], executors: {} }),
+    createSpecialistWorkspaceTools: (
+      _label: string,
+      reviewThreads: () => readonly { readonly findingId: string }[],
+    ) => {
+      testState.specialistThreadSources.push(reviewThreads);
+      return { piTools: [], executors: {} };
+    },
     disposeSpillFiles: async () => [],
     cachedDiffIndex: {
       files: new Map(),
@@ -558,6 +565,7 @@ describe("runOrchestratedPrReview", () => {
     testState.publishedBatchCount = 0;
     testState.judgmentBySource.clear();
     testState.judgmentPrompts.length = 0;
+    testState.specialistThreadSources.length = 0;
     testState.progressUrlResolvers.length = 0;
     publishRecordMocks.getSummaryCommentGithubId.mockReset();
     publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
@@ -1223,6 +1231,43 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.judgmentPrompts[0]).toContain("Consider extracting a helper");
     expect(testState.publishOrder).toEqual(["quality", "summary"]);
     expect(testState.ledger?.accepted ?? []).toEqual([]);
+  });
+
+  it("hides a finding published after dispatch from specialist reads", async () => {
+    const historical = acceptedPlacement(
+      "posted",
+      "security",
+      finding("security", { file: "src/history.ts", title: "Already open" }),
+    );
+    const summaryOnly = acceptedPlacement(
+      "summary_only",
+      "quality",
+      finding("quality", { file: "src/summary-only.ts", title: "Summary only" }),
+    );
+    const published = finding("correctness");
+    testState.judgmentBySource.set("correctness", [published]);
+    const run = runOrchestratedPrReview({
+      ...params(),
+      resumedPlacements: [historical, summaryOnly],
+    });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    for (const specialist of ["security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+
+    const publishedId = legacyFindingId(`correctness-0-${published.file}`);
+    const specialistIds = testState.specialistThreadSources.flatMap((source) =>
+      source().map((thread) => thread.findingId),
+    );
+    expect(testState.specialistThreadSources).toHaveLength(4);
+    expect(specialistIds).toContain(historical.findingId);
+    expect(specialistIds).not.toContain(publishedId);
+    expect(specialistIds).not.toContain(summaryOnly.findingId);
+    expect(testState.ledger?.accepted.map((entry) => entry.findingId)).toEqual(
+      expect.arrayContaining([historical.findingId, summaryOnly.findingId, publishedId]),
+    );
   });
 
   it("does not accept a generic coverage recommendation when judgment drops it", async () => {

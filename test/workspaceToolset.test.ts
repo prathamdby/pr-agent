@@ -158,6 +158,64 @@ describe("local workspace tools", () => {
     expect(byName.getWorkspaceBlame).toContain("decides a finding");
   });
 
+  it("keeps a frozen review-thread list when a later thread is published", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/admin.ts": "export const admin = true;\n",
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/admin.ts"]);
+      const historical = {
+        findingId: "f_hist",
+        severity: "P1",
+        lens: "security",
+        path: "src/admin.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Already open",
+        detail: "Present at dispatch",
+      };
+      const published = {
+        findingId: "f_new",
+        severity: "P1",
+        lens: "correctness",
+        path: "src/admin.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Published later",
+        detail: "This run",
+      };
+      const live = [historical];
+      const frozen = [...live];
+      const security = buildWorkspaceTools(workspace.reader, {
+        limits: testLimits(),
+        reviewThreads: () => frozen,
+      });
+      const summary = buildWorkspaceTools(workspace.reader, {
+        limits: testLimits(),
+        reviewThreads: () => live,
+      });
+      live.push(published);
+
+      const securityRead = await security.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+      const summaryRead = await summary.executors.readWorkspaceFile?.({ path: "src/admin.ts" });
+
+      expect(securityRead).toMatchObject({
+        reviewThreads: [expect.objectContaining({ findingId: "f_hist" })],
+      });
+      expect(JSON.stringify(securityRead)).not.toContain("f_new");
+      expect(summaryRead).toMatchObject({
+        reviewThreads: expect.arrayContaining([
+          expect.objectContaining({ findingId: "f_hist" }),
+          expect.objectContaining({ findingId: "f_new" }),
+        ]),
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile returns full content under the response cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

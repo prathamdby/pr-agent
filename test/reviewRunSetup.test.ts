@@ -65,8 +65,8 @@ describe("buildReviewRunSetup", () => {
     );
     expect(setup.orchestratorUserContent).not.toContain("submitReview");
     expect(setup.prSurface).toBe(prSurface);
-    const security = setup.createSpecialistWorkspaceTools("security");
-    const quality = setup.createSpecialistWorkspaceTools("quality");
+    const security = setup.createSpecialistWorkspaceTools("security", () => []);
+    const quality = setup.createSpecialistWorkspaceTools("quality", () => []);
     expect(security.piTools.map((tool) => tool.name)).toContain("execute");
     expect(quality.piTools.map((tool) => tool.name)).toContain("execute");
     const securityState = await security.executors.execute?.({

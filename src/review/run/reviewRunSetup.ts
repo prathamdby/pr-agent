@@ -20,7 +20,10 @@ export type ReviewRunSetup = {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
-  readonly createSpecialistWorkspaceTools: (label: string) => {
+  readonly createSpecialistWorkspaceTools: (
+    label: string,
+    reviewThreads: ReviewThreadSource,
+  ) => {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
@@ -112,16 +115,16 @@ export function buildReviewRunSetup(params: {
   const evidenceLedger = createEvidenceLedger(headSha);
   const reviewThreadSource: { current: ReviewThreadSource } = { current: () => [] };
   const specialistDisposals: Array<() => Promise<readonly string[]>> = [];
-  const investigationOptions = (toolCall: string) => ({
+  const investigationOptions = (toolCall: string, reviewThreads: ReviewThreadSource) => ({
     headSha,
-    reviewThreads: () => reviewThreadSource.current(),
+    reviewThreads,
     ...(params.workItemId != null
       ? { spillScope: { workItemId: params.workItemId, toolCall } }
       : {}),
   });
   const localTools = buildWorkspaceTools(
     params.workspace.reader,
-    investigationOptions("readWorkspaceFile"),
+    investigationOptions("readWorkspaceFile", () => reviewThreadSource.current()),
   );
   const workspaceTools = codeModeWorkspaceView(localTools, {
     executorKind: cfg.codeMode.executorKind,
@@ -140,10 +143,10 @@ export function buildReviewRunSetup(params: {
     }),
     trustedContext: trustedContext ?? "",
     workspaceTools,
-    createSpecialistWorkspaceTools(label) {
+    createSpecialistWorkspaceTools(label, reviewThreads) {
       const tools = buildWorkspaceTools(
         params.workspace.reader,
-        investigationOptions(`readWorkspaceFile:${label}`),
+        investigationOptions(`readWorkspaceFile:${label}`, reviewThreads),
       );
       specialistDisposals.push(tools.disposeSpillFiles);
       return codeModeWorkspaceView(tools, {

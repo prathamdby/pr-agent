@@ -1231,6 +1231,10 @@ export async function runOrchestratedPrReview(
           });
         }
         await markReconDoneAndTick();
+        const threadsAtDispatch = openReviewThreads(
+          findingInventory,
+          acceptedOpenThreads(publishThread.getLedger()),
+        );
 
         const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
         for (const specialist of SPECIALIST_IDS) {
@@ -1259,7 +1263,10 @@ export async function runOrchestratedPrReview(
                 ),
                 setup.trustedContext,
               ),
-              workspaceTools: setup.createSpecialistWorkspaceTools(specialist),
+              workspaceTools: setup.createSpecialistWorkspaceTools(
+                specialist,
+                () => threadsAtDispatch,
+              ),
               timeoutMs: Math.max(
                 0,
                 Math.min(params.cfg.review.specialistTimeoutMs, params.timing.remainingModelMs()),
