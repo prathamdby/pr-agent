@@ -443,10 +443,10 @@ describe("runSpecialist", () => {
       specialistFindingsReportContract,
     ] as const;
     const leftoverSha256 = [
-      "24eb167957c97d85ff9fe3b7d3857c1d45436647f475aceb5a4b1898656a29ed",
-      "fddb0244a5c71ea6023e0f3928009a502868d167124f781b74e1cdddd92182d6",
-      "01ad134591e990ed7a02655754f8a269787f0868c6e278c674c7635b8f985f08",
-      "81ab9e5e32a5110f71f43fd6c605a235ec539e6da69243f5c09a948946c48701",
+      "902a82903551a998b6f40fb6ee9a95b12a3fe045bec4fa0fd8f1ec0031002f88",
+      "e0941694f5262c4988a26b12ea9c6ddbc4739c3d53dcdaba9c9ec5c04cc1dbf0",
+      "36a203e03b2df9874a80118c2d64900719921792be56c4ab45e76492cb667cd8",
+      "4bed622a7f2116c562377c64cf1891aa56c572bc0874f7abe3c7b81d04451999",
     ] as const;
     expect(new Set(prompts).size).toBe(prompts.length);
     for (const sentence of identities) {
