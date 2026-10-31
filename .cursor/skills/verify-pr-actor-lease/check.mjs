@@ -182,6 +182,15 @@ function checkAnchors() {
       "findInFlightMutatingIntent does not recover another work item without operation_key equality.",
     );
   }
+  const callerHoldsLiveLease =
+    lookup != null &&
+    lookup.includes("live.work_item_id = caller.id") &&
+    lookup.includes("live.expires_at > now()");
+  if (!callerHoldsLiveLease) {
+    fail(
+      "findInFlightMutatingIntent recovers another work item without the caller holding the live lease.",
+    );
+  }
 
   const migration = readRepo("migrations/016_agent_runtime_durability.sql");
   requireIncludes("operation_intents", migration, "UNIQUE (work_item_id, operation_key)");

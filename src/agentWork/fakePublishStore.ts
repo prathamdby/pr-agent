@@ -124,14 +124,17 @@ export function createFakePublishStore(): PublishIntentStore {
     },
 
     async findInFlightMutatingIntent(_client, params) {
+      const caller = rows.get(rowKey(params.workItemId, params.operationKey));
+      const callerHoldsLease = caller?.leaseEpoch != null;
       const match = [...rows.values()]
-        .filter(
-          (row) =>
-            row.status === "pending" &&
-            row.detail.__mutating === true &&
-            !Object.hasOwn(row.detail, "__result") &&
-            (row.workItemId !== params.workItemId || row.operationKey === params.operationKey),
-        )
+        .filter((row) => {
+          if (row.status !== "pending" || row.detail.__mutating !== true) return false;
+          if (Object.hasOwn(row.detail, "__result")) return false;
+          if (row.workItemId === params.workItemId) {
+            return row.operationKey === params.operationKey;
+          }
+          return callerHoldsLease;
+        })
         .toSorted((a, b) => a.createdAtMs - b.createdAtMs)[0];
       return match ? toRow(match) : null;
     },

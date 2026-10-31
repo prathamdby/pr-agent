@@ -236,7 +236,20 @@ export async function findInFlightMutatingIntent(
         AND i.status = 'pending'
         AND i.detail->'__mutating' = 'true'::jsonb
         AND NOT (i.detail ? '__result')
-        AND (i.work_item_id <> $1 OR i.operation_key = $2)
+        AND (
+          (i.work_item_id = $1 AND i.operation_key = $2)
+          OR (
+            i.work_item_id <> $1
+            AND EXISTS (
+              SELECT 1
+                FROM pr_actor_leases live
+               WHERE live.resource_key = caller.resource_key
+                 AND live.work_type = caller.type
+                 AND live.work_item_id = caller.id
+                 AND live.expires_at > now()
+            )
+          )
+        )
       ORDER BY i.created_at ASC
       LIMIT 1`,
     [params.workItemId, params.operationKey],

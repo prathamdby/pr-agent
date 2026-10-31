@@ -74,6 +74,7 @@ import {
 } from "../../src/agentWork/prActorLease.ts";
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.ts";
 import {
+  askReplyOperationKey,
   deterministicInlineBatchId,
   publishOnce,
   reviewInlineBatchOperationKey,
@@ -183,6 +184,30 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       [id, OWNER, resourceKey],
     );
     await claimWorkForExecution(pool, id);
+    return id;
+  }
+
+  async function insertRunningAsk(resourceKey: string, commentId: number): Promise<string> {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'ask', 'slash', 'queued', $2, 'r', 1, 1, 'h', NULL, $3,
+         jsonb_build_object(
+           'source', 'slash',
+           'question', 'synthetic question',
+           'commentId', $4::int,
+           'replyTarget', jsonb_build_object('kind', 'prConversation', 'prNumber', 1)
+         )
+       )`,
+      [id, OWNER, resourceKey, commentId],
+    );
+    if ((await claimWorkForExecution(pool, id)) == null) {
+      throw new Error("expected the ask claim");
+    }
     return id;
   }
 
@@ -3905,6 +3930,53 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         firstComments,
         successorComments,
       }),
+    );
+  });
+
+  it("posts a second unleased ask while the first reply is in flight", async () => {
+    const resourceKey = `${OWNER}/ask-live-${randomUUID().slice(0, 8)}#1`;
+    const firstId = await insertRunningAsk(resourceKey, 11);
+    const secondId = await insertRunningAsk(resourceKey, 22);
+    const firstKey = askReplyOperationKey(resourceKey, 11);
+    const secondKey = askReplyOperationKey(resourceKey, 22);
+    expect(secondKey).not.toBe(firstKey);
+    let releaseFirstMutate: () => void = () => undefined;
+    const firstMutateReleased = new Promise<void>((resolve) => {
+      releaseFirstMutate = resolve;
+    });
+    let markEntered: () => void = () => undefined;
+    const firstMutateEntered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const firstDone = publishOnce({
+      fence: fenceForEpoch(null),
+      client: pool,
+      workItemId: firstId,
+      operationKey: firstKey,
+      mutationKind: "github.ask_reply",
+      mutate: async () => {
+        markEntered();
+        await firstMutateReleased;
+        return { commentId: 11 };
+      },
+    });
+    await firstMutateEntered;
+    const second = await publishOnce({
+      fence: fenceForEpoch(null),
+      client: pool,
+      workItemId: secondId,
+      operationKey: secondKey,
+      mutationKind: "github.ask_reply",
+      mutate: async () => ({ commentId: 22 }),
+    });
+    expect(second).toEqual({ commentId: 22 });
+    const firstDuring = await intentRepository.getOperationIntent(pool, firstId, firstKey);
+    expect(firstDuring?.status).toBe("pending");
+    expect(firstDuring?.detail.unknownResolution).toBeUndefined();
+    releaseFirstMutate();
+    await expect(firstDone).resolves.toEqual({ commentId: 11 });
+    expect((await intentRepository.getOperationIntent(pool, secondId, secondKey))?.status).toBe(
+      "reconciled",
     );
   });
 
