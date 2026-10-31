@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsrs -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "dev": "node --watch --env-file-if-exists=.env src/index.ts",
+    "dev": "node --watch $( [ -f .env ] && printf '%s' --env-file=.env ) src/index.ts",
     "typecheck": "tsrs --noEmit -p tsconfig.json",
     "lint": "oxlint --deny-warnings",
     "lint:backend": "oxlint --deny-warnings --ignore-pattern 'site/**'",
@@ -59,7 +59,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
     "oxfmt": "^0.67.0",
     "oxlint": "1.82.0",
@@ -85,11 +85,11 @@
     },
     "runtime": {
       "name": "node",
-      "version": "^26.13.0",
+      "version": "^24.22.2",
       "onFail": "error"
     }
   },
   "engines": {
-    "node": "^26.13.0"
+    "node": "^24.22.2"
   }
 }
