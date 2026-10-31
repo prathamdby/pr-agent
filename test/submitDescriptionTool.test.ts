@@ -12,6 +12,7 @@ vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
   persistOperationIntent: vi.fn(),
   mergeOperationIntentDetail: vi.fn(),
   reconcileOperationIntent: vi.fn(),
+  findInFlightMutatingIntent: vi.fn(async () => null),
 }));
 
 import {

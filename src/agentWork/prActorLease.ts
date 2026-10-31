@@ -139,7 +139,8 @@ export async function isPrActorLeaseHeld(
     `SELECT 1 AS ok
        FROM pr_actor_leases
       WHERE work_item_id = $1
-        AND lease_epoch = $2`,
+        AND lease_epoch = $2
+        AND expires_at > now()`,
     [workItemId, leaseEpoch],
   );
   return row != null;
@@ -156,6 +157,7 @@ export async function lockPrActorLeaseForUpdate(
        FROM pr_actor_leases
       WHERE work_item_id = $1
         AND lease_epoch = $2
+        AND expires_at > now()
       FOR UPDATE`,
     [workItemId, leaseEpoch],
   );

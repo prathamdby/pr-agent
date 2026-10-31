@@ -171,6 +171,7 @@ export function withPrSurfaceMutationBoundary(
     return boundary
       .run(selected, async () => {
         throwIfAborted(boundary.signal);
+        await boundary.confirmLeaseHeld();
         return mutate();
       })
       .then(selected.decodeResult);
