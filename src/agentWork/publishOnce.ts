@@ -38,6 +38,7 @@ export type PublishIntentStore = Pick<
   | "reconcileOperationIntent"
   | "getOperationIntent"
   | "listPendingOperationIntents"
+  | "findInFlightMutatingIntent"
   | "findRetainedDescriptionSurfaceIdentity"
 >;
 
@@ -235,6 +236,15 @@ function leaseEpochDetail<T>(
   return params.leaseEpoch == null ? {} : { leaseEpoch: params.leaseEpoch };
 }
 
+function inFlightReconcileTarget<T>(params: PublishOnceParams<T>, intent: OperationIntentRow) {
+  return {
+    workItemId: intent.workItemId,
+    operationKey: intent.operationKey,
+    leaseHolderWorkItemId: params.workItemId,
+    ...leaseEpochDetail(params),
+  };
+}
+
 function allowsUndefinedSuccess<T>(params: PublishOnceParams<T>): boolean {
   return params.allowsUndefinedResult === true || params.recover == null;
 }
@@ -247,11 +257,9 @@ async function finishWithStashedResult<T>(
   if (intent.status !== "reconciled") {
     await assertMutationReady(params);
     await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
+      ...inFlightReconcileTarget(params, intent),
       status: "reconciled",
       publishRecordId: params.publishRecordId,
-      ...leaseEpochDetail(params),
       detail: {
         ...resolveReconcileDetail(params),
         [OPERATION_INTENT_RESULT_KEY]: intent.detail[OPERATION_INTENT_RESULT_KEY],
@@ -298,11 +306,9 @@ async function recoverByExactEvidence<T>(
     [OPERATION_INTENT_RESULT_KEY]: recovery.value === undefined ? null : recovery.value,
   };
   await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
-    workItemId: params.workItemId,
-    operationKey: params.operationKey,
+    ...inFlightReconcileTarget(params, intent),
     status: "reconciled",
     publishRecordId: recovery.publishRecordId ?? publishRecordId,
-    ...leaseEpochDetail(params),
     detail: resultDetail,
   });
   return { found: true, value };
@@ -310,17 +316,16 @@ async function recoverByExactEvidence<T>(
 
 async function finishVoidSuccess<T>(
   params: PublishOnceParams<T>,
+  intent: OperationIntentRow,
   extraDetail: Record<string, unknown>,
   publishRecordId?: string | null,
 ): Promise<unknown> {
   const value = decodePublishResult(params, undefined);
   await assertMutationReady(params);
   await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
-    workItemId: params.workItemId,
-    operationKey: params.operationKey,
+    ...inFlightReconcileTarget(params, intent),
     status: "reconciled",
     publishRecordId: publishRecordId ?? params.publishRecordId,
-    ...leaseEpochDetail(params),
     detail: {
       ...resolveReconcileDetail(params),
       ...extraDetail,
@@ -359,7 +364,7 @@ async function recoverAfterMutatingWithoutResult<T>(
 ): Promise<unknown> {
   let publishRecordId: string | null;
   try {
-    publishRecordId = await findCompletedPublishRecordId(params.client, params.workItemId, intent);
+    publishRecordId = await findCompletedPublishRecordId(params.client, intent.workItemId, intent);
   } catch (error) {
     throw new AppError({
       domain: "operation_intent",
@@ -387,6 +392,7 @@ async function recoverAfterMutatingWithoutResult<T>(
   if (publishRecordId != null && allowsUndefinedSuccess(params)) {
     return finishVoidSuccess(
       params,
+      intent,
       {
         reconciledFromPublishRecord: true,
         recoveredAfterMutating: true,
@@ -398,10 +404,8 @@ async function recoverAfterMutatingWithoutResult<T>(
   const resolved = await (params.store ?? postgresPublishStore).reconcileOperationIntent(
     params.client,
     {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
+      ...inFlightReconcileTarget(params, intent),
       status: "outcome_unknown",
-      ...leaseEpochDetail(params),
       detail: {
         ...resolveReconcileDetail(params),
         [OPERATION_INTENT_MUTATING_KEY]: false,
@@ -417,7 +421,7 @@ async function recoverAfterMutatingWithoutResult<T>(
       domain: "operation_intent",
       kind: "reconcile_no_row",
       message: "Unknown mutation resolution returned no row",
-      context: { workItemId: params.workItemId, operationKey: params.operationKey },
+      context: { workItemId: intent.workItemId, operationKey: intent.operationKey },
     });
   }
   throw unknownOutcomeError(
@@ -584,7 +588,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     const recovered = await recoverByExactEvidence(params, intent, null);
     if (recovered.found) return recovered.value;
     if (allowsUndefinedSuccess(params)) {
-      return finishVoidSuccess(params, {}, intent.publishRecordId);
+      return finishVoidSuccess(params, intent, {}, intent.publishRecordId);
     }
     throw unknownOutcomeError(
       params,
@@ -597,8 +601,12 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     return recoverAfterMutatingWithoutResult(params, intent);
   }
 
-  if (intent.status !== "failed" && intent.detail[OPERATION_INTENT_MUTATING_KEY] === true) {
-    return recoverAfterMutatingWithoutResult(params, intent);
+  const inFlight = await (params.store ?? postgresPublishStore).findInFlightMutatingIntent(
+    params.client,
+    { workItemId: params.workItemId, operationKey: params.operationKey },
+  );
+  if (inFlight != null) {
+    return recoverAfterMutatingWithoutResult(params, inFlight);
   }
 
   await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(params.client, {

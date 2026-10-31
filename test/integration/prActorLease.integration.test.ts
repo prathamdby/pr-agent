@@ -73,7 +73,11 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.ts";
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.ts";
-import { publishOnce } from "../../src/agentWork/publishOnce.ts";
+import {
+  deterministicInlineBatchId,
+  publishOnce,
+  reviewInlineBatchOperationKey,
+} from "../../src/agentWork/publishOnce.ts";
 import {
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
@@ -3753,13 +3757,19 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       let successor: { readonly id: string; readonly epoch: number } | undefined;
       let holderAtFirstSend: string | null | undefined;
       let moved = false;
-      const originalAssert = leaseRepository.assertPrActorLeaseHeld;
-      vi.spyOn(leaseRepository, "assertPrActorLeaseHeld").mockImplementation(
-        async (db, workItemId, leaseEpoch) => {
-          await originalAssert(db, workItemId, leaseEpoch);
-          if (moved || workItemId !== firstId) return;
-          const intent = await intentRepository.getOperationIntent(pool, firstId, operationKey);
-          if (intent?.detail.__mutating !== true) return;
+
+      const firstError = await publishOnce({
+        fence: fenceForEpoch(firstLease.leaseEpoch),
+        client: pool,
+        workItemId: firstId,
+        operationKey,
+        mutationKind: "review_summary",
+        leaseEpoch: firstLease.leaseEpoch,
+        mutate: async () => {
+          holderAtFirstSend = (await getLeaseRow(resourceKey)).work_item_id;
+          const commentId = githubComments.length + 1;
+          githubComments.push(commentId);
+          if (moved) return { commentId };
           moved = true;
           if (trace === "supersede/cancel-clear") {
             const client = await pool.connect();
@@ -3780,20 +3790,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           const acquired = await acquire(resourceKey, successorId);
           if (!acquired.acquired) throw new Error(`successor missed the lease after ${trace}`);
           successor = { id: successorId, epoch: acquired.leaseEpoch };
-        },
-      );
-
-      const firstError = await publishOnce({
-        fence: fenceForEpoch(firstLease.leaseEpoch),
-        client: pool,
-        workItemId: firstId,
-        operationKey,
-        mutationKind: "review_summary",
-        leaseEpoch: firstLease.leaseEpoch,
-        mutate: async () => {
-          holderAtFirstSend = (await getLeaseRow(resourceKey)).work_item_id;
-          const commentId = githubComments.length + 1;
-          githubComments.push(commentId);
           return { commentId };
         },
       }).then(
@@ -3816,7 +3812,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           githubComments.push(commentId);
           return { commentId };
         },
-      });
+      }).catch(() => undefined);
 
       console.info(
         "lease-double-send-evidence",
@@ -3835,6 +3831,84 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect(githubComments).toEqual([1]);
     },
   );
+
+  it("does not post a second inline batch while the first mutate is in flight", async () => {
+    const resourceKey = `${OWNER}/inline-batch-${randomUUID().slice(0, 8)}#1`;
+    const findingIds = ["finding-a", "finding-b"];
+    const headSha = "h";
+    const firstId = await insertRunningWorkItem(resourceKey);
+    const firstLease = await acquire(resourceKey, firstId);
+    if (!firstLease.acquired) throw new Error("expected the inline-batch lease");
+    const firstKey = reviewInlineBatchOperationKey(
+      deterministicInlineBatchId({ workItemId: firstId, headSha, findingIds }),
+    );
+    let releaseFirstMutate: () => void = () => undefined;
+    const firstMutateReleased = new Promise<void>((resolve) => {
+      releaseFirstMutate = resolve;
+    });
+    let markEntered: () => void = () => undefined;
+    const firstMutateEntered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const firstComments: number[] = [];
+    const successorComments: number[] = [];
+    const firstDone = publishOnce({
+      fence: fenceForEpoch(firstLease.leaseEpoch),
+      client: pool,
+      workItemId: firstId,
+      operationKey: firstKey,
+      mutationKind: "review_inline",
+      leaseEpoch: firstLease.leaseEpoch,
+      mutate: async () => {
+        markEntered();
+        await firstMutateReleased;
+        firstComments.push(1);
+        return { commentId: 1 };
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await firstMutateEntered;
+    await pool.query(
+      `UPDATE pr_actor_leases
+          SET expires_at = now() - interval '1 second'
+        WHERE resource_key = $1 AND work_type = 'review'`,
+      [resourceKey],
+    );
+    const successorId = await insertRunningWorkItem(resourceKey);
+    const acquired = await acquire(resourceKey, successorId);
+    if (!acquired.acquired) throw new Error("successor missed the inline-batch lease");
+    const successorKey = reviewInlineBatchOperationKey(
+      deterministicInlineBatchId({ workItemId: successorId, headSha, findingIds }),
+    );
+    expect(successorKey).not.toBe(firstKey);
+    await publishOnce({
+      fence: fenceForEpoch(acquired.leaseEpoch),
+      client: pool,
+      workItemId: successorId,
+      operationKey: successorKey,
+      mutationKind: "review_inline",
+      leaseEpoch: acquired.leaseEpoch,
+      mutate: async () => {
+        successorComments.push(1);
+        return { commentId: 2 };
+      },
+    }).catch(() => undefined);
+    expect(successorComments).toEqual([]);
+    releaseFirstMutate();
+    await firstDone;
+    expect(firstComments).toEqual([1]);
+    console.info(
+      "lease-inline-batch-evidence",
+      JSON.stringify({
+        firstKey,
+        successorKey,
+        firstComments,
+        successorComments,
+      }),
+    );
+  });
 
   it("does not post a GitHub summary when the lease row is expired", async () => {
     const resourceKey = `${OWNER}/expired-held-${randomUUID().slice(0, 8)}#1`;

@@ -208,6 +208,39 @@ export async function mergeOperationIntentDetail(
   return row ? mapRow(row) : null;
 }
 
+export async function findInFlightMutatingIntent(
+  client: Pool | PoolClient,
+  params: { readonly workItemId: string; readonly operationKey: string },
+): Promise<OperationIntentRow | null> {
+  const row = await queryOne<{
+    id: string;
+    work_item_id: string;
+    operation_key: string;
+    mutation_kind: string;
+    status: OperationIntentStatus;
+    publish_record_id: string | null;
+    lease_epoch: string | number | null;
+    detail: Record<string, unknown>;
+  }>(
+    client,
+    `SELECT i.id, i.work_item_id, i.operation_key, i.mutation_kind, i.status,
+            i.publish_record_id, i.lease_epoch, i.detail
+       FROM operation_intents i
+       JOIN agent_work_items owner_item ON owner_item.id = i.work_item_id
+       JOIN agent_work_items caller ON caller.id = $1
+      WHERE owner_item.resource_key = caller.resource_key
+        AND owner_item.type = caller.type
+        AND i.status = 'pending'
+        AND i.detail->'__mutating' = 'true'::jsonb
+        AND NOT (i.detail ? '__result')
+        AND (i.work_item_id <> $1 OR i.operation_key = $2)
+      ORDER BY i.created_at ASC
+      LIMIT 1`,
+    [params.workItemId, params.operationKey],
+  );
+  return row ? mapRow(row) : null;
+}
+
 export async function reconcileOperationIntent(
   client: Pool | PoolClient,
   params: {
@@ -216,12 +249,14 @@ export async function reconcileOperationIntent(
     readonly status: Exclude<OperationIntentStatus, "pending">;
     readonly publishRecordId?: string | null;
     readonly leaseEpoch?: number | null;
+    readonly leaseHolderWorkItemId?: string;
     readonly detail?: Record<string, unknown>;
   },
 ): Promise<OperationIntentRow | null> {
+  const leaseHolderWorkItemId = params.leaseHolderWorkItemId ?? params.workItemId;
   const row = await fencedWrite(
     client,
-    params.workItemId,
+    leaseHolderWorkItemId,
     params.leaseEpoch,
     { before: true },
     () =>
@@ -250,7 +285,7 @@ export async function reconcileOperationIntent(
         AND operation_key = $2
         AND ($6::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases
-           WHERE work_item_id = $1 AND lease_epoch = $6
+           WHERE work_item_id = $7 AND lease_epoch = $6
         ))
       RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
         [
@@ -260,6 +295,7 @@ export async function reconcileOperationIntent(
           params.publishRecordId ?? null,
           params.detail ? JSON.stringify(params.detail) : null,
           params.leaseEpoch ?? null,
+          leaseHolderWorkItemId,
         ],
       ),
   );

@@ -123,10 +123,23 @@ export function createFakePublishStore(): PublishIntentStore {
       );
     },
 
+    async findInFlightMutatingIntent(_client, params) {
+      const match = [...rows.values()]
+        .filter(
+          (row) =>
+            row.status === "pending" &&
+            row.detail.__mutating === true &&
+            !Object.hasOwn(row.detail, "__result") &&
+            (row.workItemId !== params.workItemId || row.operationKey === params.operationKey),
+        )
+        .toSorted((a, b) => a.createdAtMs - b.createdAtMs)[0];
+      return match ? toRow(match) : null;
+    },
+
     async reconcileOperationIntent(client, params) {
       return fencedWrite(
         client,
-        params.workItemId,
+        params.leaseHolderWorkItemId ?? params.workItemId,
         params.leaseEpoch,
         { before: true },
         async () => {

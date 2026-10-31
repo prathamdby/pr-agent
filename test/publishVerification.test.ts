@@ -51,6 +51,10 @@ vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
     (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
       publishStoreState.store.listPendingOperationIntents(...args),
   ),
+  findInFlightMutatingIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.findInFlightMutatingIntent>) =>
+      publishStoreState.store.findInFlightMutatingIntent(...args),
+  ),
 }));
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
