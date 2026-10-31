@@ -3285,12 +3285,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const successorId = await insertRunningWorkItem(resourceKey);
     const acquisition = await acquire(resourceKey, parentId);
     if (!acquisition.acquired) throw new Error("expected parent lease acquisition to succeed");
-    await pool.query(
-      `UPDATE pr_actor_leases
-          SET expires_at = now() - interval '1 second'
-        WHERE resource_key = $1 AND work_type = 'review'`,
-      [resourceKey],
-    );
     const parent = await getWorkItem(pool, parentId);
     if (parent?.type !== "review") throw new Error("expected review parent");
 
@@ -3347,7 +3341,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       await expect(handoff).resolves.toMatchObject({
         replacementWorkItemId: expect.any(String),
       });
-      await expect(takeover).resolves.toEqual({ acquired: true, leaseEpoch: 2 });
+      await expect(takeover).resolves.toEqual({
+        acquired: false,
+        heldByWorkItemId: parentId,
+        leaseEpoch: 1,
+      });
     } finally {
       if (blockerOpen) await blocker.query("ROLLBACK");
       await handoff?.catch(() => undefined);

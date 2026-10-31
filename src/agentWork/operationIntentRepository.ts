@@ -121,6 +121,7 @@ export async function persistOperationIntent(
                 FROM pr_actor_leases
                WHERE work_item_id = $2
                  AND lease_epoch = $5
+                 AND expires_at > now()
             )
      ON CONFLICT (work_item_id, operation_key) DO UPDATE SET
        lease_epoch = COALESCE(EXCLUDED.lease_epoch, operation_intents.lease_epoch),
@@ -131,6 +132,7 @@ export async function persistOperationIntent(
                FROM pr_actor_leases
               WHERE work_item_id = EXCLUDED.work_item_id
                 AND lease_epoch = $5
+                AND expires_at > now()
            )
      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
         [
@@ -195,6 +197,7 @@ export async function mergeOperationIntentDetail(
         AND ($3::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases
            WHERE work_item_id = $1 AND lease_epoch = $3
+             AND expires_at > now()
         ))
       RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
         [
@@ -286,6 +289,7 @@ export async function reconcileOperationIntent(
         AND ($6::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases
            WHERE work_item_id = $7 AND lease_epoch = $6
+             AND expires_at > now()
         ))
       RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
         [

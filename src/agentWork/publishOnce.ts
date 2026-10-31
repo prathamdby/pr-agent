@@ -806,6 +806,7 @@ async function recordPublishStep(
           WHERE $7::bigint IS NULL OR EXISTS (
             SELECT 1 FROM pr_actor_leases
              WHERE work_item_id = $2 AND lease_epoch = $7
+               AND expires_at > now()
           )
 					 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
 				 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
@@ -840,6 +841,7 @@ async function recordPublishStep(
 				             SELECT 1 FROM pr_actor_leases
 				              WHERE work_item_id = EXCLUDED.work_item_id
 				                AND lease_epoch = EXCLUDED.lease_epoch
+				                AND expires_at > now()
 				           ))`,
         [
           crypto.randomUUID(),

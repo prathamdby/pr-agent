@@ -37,7 +37,8 @@ export function lostRunningWorkLivenessSql(
 export function leaseFenceSql(workItemIdColumn: string, epochParam: string): string {
   return `AND (${epochParam}::bigint IS NULL OR EXISTS (
 	          SELECT 1 FROM pr_actor_leases l
-	          WHERE l.work_item_id = ${workItemIdColumn} AND l.lease_epoch = ${epochParam}))`;
+	          WHERE l.work_item_id = ${workItemIdColumn} AND l.lease_epoch = ${epochParam}
+	            AND l.expires_at > now()))`;
 }
 
 type TransitionRow = {

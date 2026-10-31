@@ -42,7 +42,8 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    each mutation. Execution surfaces reread durable cancellation at entry and
    immediately before the mutation callback, then assert ownership again because
    takeover may occur during that read. The last check reads `pr_actor_leases`
-   after `throwIfAborted` and before the GitHub call. The existing signal check
+   after `throwIfAborted` and before the GitHub call. An expired row is not
+   ownership. The existing signal check
    remains. A call already inside the HTTP client stays in flight.
    Terminal hooks omit only the durable cancellation read so verdict cleanup can
    run. Neither cancellation nor takeover can withdraw a request already in flight.
