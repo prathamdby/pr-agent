@@ -123,6 +123,7 @@ export type PrSurfaceMutation = {
 
 export type PrSurfaceMutationBoundary = {
   readonly signal: AbortSignal;
+  readonly confirmLeaseHeld: () => Promise<void>;
   readonly run: (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => Promise<unknown>;
 };
 

@@ -41,7 +41,9 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    boundary. The boundary writes an epoch-bound `operation_intents` row before
    each mutation. Execution surfaces reread durable cancellation at entry and
    immediately before the mutation callback, then assert ownership again because
-   takeover may occur during that read. The existing signal check remains.
+   takeover may occur during that read. The last check reads `pr_actor_leases`
+   after `throwIfAborted` and before the GitHub call. The existing signal check
+   remains. A call already inside the HTTP client stays in flight.
    Terminal hooks omit only the durable cancellation read so verdict cleanup can
    run. Neither cancellation nor takeover can withdraw a request already in flight.
    A final gate failure before delegation stays retryable because no request

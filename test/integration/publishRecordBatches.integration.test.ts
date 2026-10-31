@@ -313,7 +313,9 @@ raw.surface.publishThreadBatch = async (review) => {
 };
 const signal = new AbortController().signal;
 const surface = withPrSurfaceMutationBoundary(raw.surface, {
-  signal, run: async (mutation, mutate) => {
+  signal,
+  confirmLeaseHeld: () => Promise.resolve(),
+  run: async (mutation, mutate) => {
     if (!(await isPrActorLeaseHeld(pool, item.id, lease.leaseEpoch)) || await shouldSkipWork(pool, item))
       throw new AppError({ domain: "agent_work", kind: "execution_aborted", message: "proof execution fenced" });
     return publishOnce({
@@ -2495,6 +2497,7 @@ try {
           {
             mutationBoundary: {
               signal: new AbortController().signal,
+              confirmLeaseHeld: () => Promise.resolve(),
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
                 publishOnce<T>({
                   fence: fenceForEpoch(null),
@@ -2596,6 +2599,7 @@ try {
           {
             mutationBoundary: {
               signal: new AbortController().signal,
+              confirmLeaseHeld: () => Promise.resolve(),
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
                 publishOnce<T>({
                   fence: fenceForEpoch(null),
@@ -2650,6 +2654,7 @@ try {
         {
           mutationBoundary: {
             signal: new AbortController().signal,
+            confirmLeaseHeld: () => Promise.resolve(),
             run: (mutation, mutate) =>
               publishOnce({
                 fence: fenceForEpoch(null),
@@ -2836,6 +2841,7 @@ try {
         {
           mutationBoundary: {
             signal: new AbortController().signal,
+            confirmLeaseHeld: () => Promise.resolve(),
             run: (mutation, mutate) =>
               publishOnce({
                 fence: fenceForEpoch(null),
@@ -3266,6 +3272,7 @@ try {
           await claimWorkForExecution(pool, workItemId, 1);
           const fenced = withPrSurfaceMutationBoundary(surface, {
             signal: job.signal,
+            confirmLeaseHeld: () => Promise.resolve(),
             run: (mutation, mutate) =>
               publishOnce({
                 fence: fenceForEpoch(1),

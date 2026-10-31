@@ -201,7 +201,7 @@ export async function acquireAndClaimWorkItem(params: {
   }
 }
 
-function createLeaseMutationBoundary(params: {
+export function createLeaseMutationBoundary(params: {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly resourceKey: string;
@@ -225,6 +225,8 @@ function createLeaseMutationBoundary(params: {
 
   return {
     signal: params.signal,
+    confirmLeaseHeld: () =>
+      assertPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch),
     run: async (mutation: PrSurfaceMutation, mutate: () => Promise<unknown>) => {
       await assertNotCancelled(mutation.operationKey);
       let mutationStarted = false;

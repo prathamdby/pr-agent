@@ -359,6 +359,7 @@ function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
 function passthroughMutationBoundary(): PrSurfaceMutationBoundary {
   return {
     signal: new AbortController().signal,
+    confirmLeaseHeld: () => Promise.resolve(),
     run: (_mutation, mutate) => mutate(),
   };
 }

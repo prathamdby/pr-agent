@@ -614,6 +614,9 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
   let mutateSucceeded = false;
   try {
     await assertMutationReady(params);
+    if (params.leaseEpoch != null) {
+      await assertPrActorLeaseHeld(params.client, params.workItemId, params.leaseEpoch);
+    }
     const result = await params.mutate();
     mutateSucceeded = true;
     decodePublishResult(params, result);
