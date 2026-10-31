@@ -95,7 +95,7 @@ Durable reconcile does not commit for a stale or expired epoch while `FenceOn` i
 
 ## Sync commit
 
-Last confirmed at `7ae8340b874125565620b80865599c9885003fa6`.
+Last confirmed at `4743ee7ba78f4dfe20ca2e9953d561227c768221`.
 
 ## What this does not cover
 
