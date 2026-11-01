@@ -1044,12 +1044,18 @@ export async function runOrchestratedPrReview(
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);
+    if (outcome.kind === "report" || outcome.kind === "empty") {
+      const seeded = state.failedSpecialists.indexOf(outcome.specialist);
+      if (seeded >= 0) state.failedSpecialists.splice(seeded, 1);
+    }
     if (outcome.kind === "empty") {
       state.specialists[outcome.specialist] = { phase: "no_findings" };
       await writeTick();
     } else if (outcome.kind === "error") {
       state.specialists[outcome.specialist] = { phase: "failed" };
-      state.failedSpecialists.push(outcome.specialist);
+      if (!state.failedSpecialists.includes(outcome.specialist)) {
+        state.failedSpecialists.push(outcome.specialist);
+      }
       const failure = classifyFailure(outcome.error, {
         phase: "specialist",
         toolName: outcome.specialist,

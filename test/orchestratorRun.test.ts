@@ -38,6 +38,7 @@ import {
   openReviewRecovery,
   snapshotFindingLedger,
 } from "../src/review/recovery/reviewRecovery.ts";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
@@ -299,7 +300,10 @@ vi.mock("../src/review/publish/publishSummaryOnly.ts", () => ({
     async (
       _session: unknown,
       input: { readonly payload: Record<string, unknown>; readonly coverage?: ReviewCoverage },
-    ) => {
+    ): Promise<
+      | { readonly kind: "published"; readonly summaryCommentId: number }
+      | { readonly kind: "stopped"; readonly reason: "superseded" }
+    > => {
       testState.publishOrder.push("summary");
       testState.deterministicSummaries.push(input.payload);
       testState.summaryCoverages.push(input.coverage);
@@ -1631,6 +1635,97 @@ describe("runOrchestratedPrReview", () => {
 
   it("publishes the failure notice and no summary when every specialist fails", async () => {
     const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(failed("correctness"));
+    testState.outcomes.get("security")?.resolve(failed("security"));
+    testState.outcomes.get("quality")?.resolve(failed("quality"));
+    testState.outcomes.get("tests")?.resolve(failed("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: false });
+    expect(testState.publishOrder).toEqual([]);
+    expect(testState.failureNotices).toBe(1);
+  });
+
+  function recoveryWithSeededFailures(failed: readonly SpecialistId[]) {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const summary = createReviewArtifactEnvelope(binding, {
+      kind: "final_summary",
+      payload: reviewPayloadFromFindings([]),
+      dependencies: [],
+      inputs: {
+        kind: "summary",
+        ledger: snapshotFindingLedger(createFindingLedger()),
+        coverage: { kind: "partial", failed: [...failed], note: "seeded" },
+        staleReview: false,
+        judgmentDegraded: false,
+        briefFallback: false,
+      },
+    });
+    return openReviewRecovery(binding, {
+      load: async (key) => (key === summary.logicalKey ? summary : null),
+      save: async () => "stored",
+    });
+  }
+
+  it("does not post a failure notice when seeded specialists succeed", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["correctness", "security", "quality"]),
+    });
+    testState.outcomes.get("correctness")?.resolve(empty("correctness"));
+    testState.outcomes.get("security")?.resolve(report("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(failed("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: tests specialist failed."]);
+  });
+
+  it("counts a seeded failure once in the coverage note", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["correctness"]),
+    });
+    testState.outcomes.get("correctness")?.resolve(failed("correctness"));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: correctness specialist failed."]);
+  });
+
+  it("posts the failure notice when a seeded specialist fails with the others", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["tests"]),
+    });
     testState.outcomes.get("correctness")?.resolve(failed("correctness"));
     testState.outcomes.get("security")?.resolve(failed("security"));
     testState.outcomes.get("quality")?.resolve(failed("quality"));
