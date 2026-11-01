@@ -319,6 +319,7 @@ describe("review work definition", () => {
     mocks.completed.mockImplementation(
       async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
     );
+    vi.spyOn(verdictOwner, "ownCheckCloseIntents").mockResolvedValue([null, null]);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
       mocks.lightweight,
@@ -1496,6 +1497,30 @@ describe("review work definition", () => {
         ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
       ),
     ).toHaveLength(0);
+  });
+
+  it("skips the terminal failure close when the close intent is terminal unknown", async () => {
+    mocks.completed.mockImplementation(async (...args: unknown[]) => {
+      if (args[4] === "summary_comment") {
+        return { ownVerdictKind: "published", ownCheckFailing: false };
+      }
+      return { status: "in_progress" };
+    });
+    vi.mocked(verdictOwner.ownCheckCloseIntents).mockResolvedValue([
+      { status: "outcome_unknown", detail: { unknownResolution: "terminal" } },
+      null,
+    ]);
+    configureExecution(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        durableSurfaceBundle.surface,
+        new Error("dead"),
+      );
+    });
+
+    await runExecution();
+
+    expect(verdictMethods.close).not.toHaveBeenCalled();
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {

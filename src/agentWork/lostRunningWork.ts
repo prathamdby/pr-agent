@@ -1,6 +1,6 @@
 import { productionInstallationSurface } from "./installationSurface.ts";
-import { unfencedSurface, unleasedFence } from "./writeFence.ts";
-import { lostRunningWorkLivenessSql, transition } from "./workItemTransitions.ts";
+import { unfencedSurface } from "./writeFence.ts";
+import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
 import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import {
@@ -11,8 +11,17 @@ import {
   isAnyReviewLens,
 } from "../settings/index.ts";
 import { logWarn } from "../evlog.ts";
-import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.ts";
-import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.ts";
+import {
+  reviewVerdict,
+  asTerminalOwnCheckStatus,
+  isOwnCheckOpen,
+  ownCheckCloseIntents,
+} from "./reviewVerdict.ts";
+import {
+  getWorkItemCore,
+  markLostRunningWorkFailed,
+  transitionCancelRequestedLostRunning,
+} from "./workItemStateRepository.ts";
 import type { LostRunningWorkItem } from "./workerHealth.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import {
@@ -132,7 +141,12 @@ async function closeOpenOwnVerdict(params: {
     resourceKey: core.resourceKey,
     reviewLens: core.reviewLens,
   }).completed("check_run");
-  if (record?.legacyClosed || (record?.selected == null && !isOwnCheckOpen(checkDetail))) return;
+  const closeIntents = await ownCheckCloseIntents(params.pool, identity);
+  if (
+    record?.legacyClosed ||
+    (record?.selected == null && !isOwnCheckOpen(checkDetail, closeIntents))
+  )
+    return;
   const saved = await loadGithubCapabilityObservation(params.pool, core);
   const available = availableInstallationCapabilities({
     appId: params.cfg.github.appId,
@@ -213,15 +227,7 @@ async function finishCancelRequestedRunningWork(pool: Pool): Promise<void> {
     [STALE_QUEUED_WORK_BATCH_SIZE],
   );
   for (const row of rows.rows) {
-    await transition(pool, {
-      selector: { id: row.id },
-      from: ["running"],
-      to: row.linked ? "superseded" : "cancelled",
-      fence: unleasedFence(),
-      where: () =>
-        `AND w.cancel_requested_at IS NOT NULL
-        ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
-    });
+    await transitionCancelRequestedLostRunning(pool, row);
   }
 }
 

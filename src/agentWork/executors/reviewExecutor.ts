@@ -7,7 +7,12 @@ import { renderFailureNoticeWithFindings } from "../../review/run/reviewRunFallb
 import { loadFindingInventoryOrUnavailable } from "../../review/findingIdentity/findingInventory.ts";
 import { buildFindingView } from "../../review/findingIdentity/findingLifecycle.ts";
 import { runReviewForWorkItem } from "../../review/runReviewForWorkItem.ts";
-import { isOwnCheckOpen, ownVerdictFromSummaryDetail, reviewVerdict } from "../reviewVerdict.ts";
+import {
+  isOwnCheckOpen,
+  ownCheckCloseIntents,
+  ownVerdictFromSummaryDetail,
+  reviewVerdict,
+} from "../reviewVerdict.ts";
 import { getProgressCommentOwner } from "../publishRecordRepository.ts";
 import {
   cancelPendingPushFollowUp,
@@ -64,7 +69,12 @@ export function createReviewWorkExecution({
         reviewLens: reviewLens,
       }).completed("check_run");
       if (summaryDetail != null) {
-        if (!isOwnCheckOpen(checkDetail)) return;
+        const closeIntents = await ownCheckCloseIntents(pool, {
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens,
+        });
+        if (!isOwnCheckOpen(checkDetail, closeIntents)) return;
         await reviewVerdict({
           pool,
           prSurface,

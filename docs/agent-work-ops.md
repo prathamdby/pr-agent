@@ -445,8 +445,9 @@ or `outcome_unknown` before the boundary's terminal resolution) or a saved void
 result but no reconstructible verdict log
 `review_own_verdict_legacy_unresolved`. An intent the boundary already resolved
 `outcome_unknown` with `unknownResolution: terminal` is inert and does not block
-the terminal close. The diagnostics repair lane does not select that check, and
-a later close does not call GitHub or repeat `review_check_run_complete_failed`.
+the terminal close. The diagnostics repair lane and the terminal-failure hook
+both treat that check as not open, and a later close does not call GitHub or
+repeat `review_check_run_complete_failed`.
 The remote check can stay unfinished. Inspect the remote check and saved
 evidence; do not delete an intent or selection to force another close.
 
