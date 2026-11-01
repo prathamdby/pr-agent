@@ -1700,6 +1700,46 @@ describe("publishVerificationFailure", () => {
     );
   });
 
+  it("clears the failure signal when stripping the comment fails", async () => {
+    const nextHead = "c".repeat(40);
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+      pool: pool({
+        threads: {},
+        failureSignal: { headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" },
+      }),
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      injectVerificationFailureIntoCiCell(
+        reviewSummaryBody({ withCiCell: true }),
+        renderVerificationFailureBlock(),
+      ),
+      88,
+    );
+    vi.spyOn(params.prSurface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: nextHead,
+      leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
+    });
+
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "verification_thread_actions",
+        detail: { threads: {} },
+      }),
+    );
+  });
+
   it("records again on a second failure and still does not edit", async () => {
     const params = baseParams({
       inventory: [thread],

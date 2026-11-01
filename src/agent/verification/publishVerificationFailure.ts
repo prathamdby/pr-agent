@@ -1,4 +1,6 @@
 import { createPublishContext } from "../../agentWork/publishOnce.ts";
+import { logWarn } from "../../evlog.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.ts";
@@ -175,7 +177,16 @@ async function stripStoredVerificationFailure(
   if (comment == null || !isReviewSummaryBody(comment.body)) return;
   const next = withoutVerificationFailureBlock(comment.body);
   if (next == null) return;
-  await params.prSurface.editComment(commentId, next);
+  try {
+    await params.prSurface.editComment(commentId, next);
+  } catch (error) {
+    logWarn("verification_failure_strip_failed", {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      commentId,
+      message: errorMessage(error),
+    });
+  }
 }
 
 export async function clearVerificationFailureSignal(
