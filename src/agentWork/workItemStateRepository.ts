@@ -367,6 +367,21 @@ export async function updateRunningWorkHeadSha(
   return (result.rowCount ?? 0) > 0;
 }
 
+export async function transitionCancelRequestedLostRunning(
+  pool: Pool,
+  row: { readonly id: string; readonly linked: boolean },
+): Promise<void> {
+  await transition(pool, {
+    selector: { id: row.id },
+    from: ["running"],
+    to: row.linked ? "superseded" : "cancelled",
+    fence: unleasedFence(),
+    where: () =>
+      `AND w.cancel_requested_at IS NOT NULL
+      ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+  });
+}
+
 export async function markLostRunningWorkFailed(
   pool: Pool,
   id: string,
@@ -382,7 +397,7 @@ export async function markLostRunningWorkFailed(
         client,
         `SELECT resource_key, type FROM agent_work_items
           WHERE id = $1
-            AND type IN ('review', 'description', 'triage', 'verification')
+            AND type IN ('review', 'description', 'triage', 'verification', 'ask')
             AND status = 'running' AND cancel_requested_at IS NULL`,
         [id],
       );
@@ -413,7 +428,7 @@ export async function markLostRunningWorkFailed(
         to: "failed",
         unlessCancelRequested: true,
         lastError: "worker_lost",
-        where: (bind) => `AND w.type IN ('review', 'description', 'triage', 'verification')
+        where: (bind) => `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
             AND w.started_at IS NOT NULL
             AND w.started_at < statement_timestamp() - (${bind(minAgeSeconds)} * interval '1 second')
             ${lostRunningWorkLivenessSql("statement_timestamp()")}`,

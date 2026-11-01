@@ -38,6 +38,7 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  ASK_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
@@ -149,6 +150,27 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
   it("flags a queued review with no live lease and no pg-boss job", async () => {
     const { id } = await insertAgedQueuedWork();
     expect(await staleIds()).toContain(id);
+  });
+
+  it("leaves a queued ask without a job non-terminal", async () => {
+    const { id } = await insertAgedQueuedWork();
+    await pool.query("UPDATE agent_work_items SET type = 'ask', source = 'slash' WHERE id = $1", [
+      id,
+    ]);
+    expect(await staleIds()).not.toContain(id);
+    const before = await pool.query(
+      "SELECT status, last_error FROM agent_work_items WHERE id = $1",
+      [id],
+    );
+    await reconcileLostRunningWork({
+      cfg: makeTestConfig(),
+      pool,
+      items: [],
+    });
+    expect(
+      (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
+        .rows,
+    ).toEqual(before.rows);
   });
 
   it("does not flag a queued review that still has an intake job waiting", async () => {
@@ -701,7 +723,14 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         await reconcileLostRunningWork({ cfg, pool, items });
         expect(
           (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual(cancelled.rows);
+        ).toEqual([
+          {
+            ...cancelled.rows[0],
+            status: "cancelled",
+            completed_at: expect.any(Date),
+            updated_at: expect.any(Date),
+          },
+        ]);
         expect(token).not.toHaveBeenCalled();
         expect(factory).not.toHaveBeenCalled();
         expect(
@@ -1344,7 +1373,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     },
   );
 
-  it.each(["review", "description", "triage", "verification"] as const)(
+  it.each(["review", "description", "triage", "verification", "ask"] as const)(
     "fails truly lost %s work and retries a failed review close",
     async (workType) => {
       const cfg = makeTestConfig({
@@ -1356,7 +1385,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         `UPDATE agent_work_items
             SET type = $2, source = $3, status = 'running', started_at = created_at
           WHERE id = $1`,
-        [id, workType, workType === "triage" ? "slash" : "auto"],
+        [id, workType, workType === "triage" || workType === "ask" ? "slash" : "auto"],
       );
       const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
@@ -1389,6 +1418,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
             description: DESCRIPTION_QUEUE,
             triage: TRIAGE_QUEUE,
             verification: VERIFICATION_QUEUE,
+            ask: ASK_QUEUE,
           }[workType],
           JSON.stringify({ owner: OWNER, workItemId: id }),
           randomUUID(),
