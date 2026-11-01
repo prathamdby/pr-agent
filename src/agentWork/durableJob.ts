@@ -528,30 +528,31 @@ export async function runDurableWorkItem<T extends WorkType>(
     if (installation) seededInstallation = installation;
   }
 
-  if (await shouldSkipWork(spec.pool, core)) {
+  async function assignInstallationPolicyForCancel(
+    itemCore: Pick<TypedCore, "id" | "installationId" | "owner" | "repo">,
+    signal: AbortSignal,
+  ): Promise<boolean> {
     try {
-      await assignInstallationPolicy(core, jobSignal);
+      await assignInstallationPolicy(itemCore, signal);
+      return true;
     } catch (error) {
       logWarn("agent_work_capability_policy_failed", {
         type: spec.type,
-        workItemId: core.id,
+        workItemId: itemCore.id,
         message: errorMessage(error),
       });
+      return false;
     }
-    await markCancelledAndInvokeHook(core, "skipped_before_claim");
+  }
+
+  if (await shouldSkipWork(spec.pool, core)) {
+    const policyReady = await assignInstallationPolicyForCancel(core, jobSignal);
+    await markCancelledAndInvokeHook(core, "skipped_before_claim", undefined, policyReady);
     return;
   }
   if (jobSignal.aborted) {
-    try {
-      await assignInstallationPolicy(core, jobSignal);
-    } catch (error) {
-      logWarn("agent_work_capability_policy_failed", {
-        type: spec.type,
-        workItemId: core.id,
-        message: errorMessage(error),
-      });
-    }
-    await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
+    const policyReady = await assignInstallationPolicyForCancel(core, jobSignal);
+    await markCancelledAndInvokeHook(core, "job_aborted_before_claim", undefined, policyReady);
     return;
   }
 
@@ -1040,16 +1041,8 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     try {
       if (jobSignal.aborted) {
-        try {
-          await assignInstallationPolicy(item, executionSignal);
-        } catch (error) {
-          logWarn("agent_work_capability_policy_failed", {
-            type: spec.type,
-            workItemId: item.id,
-            message: errorMessage(error),
-          });
-        }
-        await markCancelledAndInvokeHook(item, "job_aborted", seededInstallation);
+        const policyReady = await assignInstallationPolicyForCancel(item, executionSignal);
+        await markCancelledAndInvokeHook(item, "job_aborted", seededInstallation, policyReady);
         return;
       }
       if (!(await opened.owns())) {

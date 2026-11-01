@@ -423,6 +423,42 @@ describe("runDurableWorkItem", () => {
     expect(capabilitiesRepository.saveGithubCapabilityObservation).toHaveBeenCalled();
   });
 
+  it("cancels a pre-claim ask without GitHub when the capability policy lookup fails", async () => {
+    const ask = makeAskWorkItem();
+    mockFetchedItem(ask);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
+    vi.mocked(installationSurface.preflight).mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "preflight_unavailable",
+        message: "metadata timeout",
+      }),
+    );
+    const onCancelled = vi.fn(async () => {
+      throw new Error("cancel hook called");
+    });
+    await runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).ask.contextPolicy,
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "ask",
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+      }),
+      execute: vi.fn(),
+      onCancelled,
+    });
+    expect(onCancelled).not.toHaveBeenCalled();
+    expect(createPrSurface).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, ask.id, null);
+    expect(capabilitiesRepository.recordGithubCapabilityDenial).not.toHaveBeenCalled();
+    expect(capabilitiesRepository.saveGithubCapabilityObservation).not.toHaveBeenCalled();
+  });
+
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
     const item = makeItem();
     mockFetchedItem(item);
