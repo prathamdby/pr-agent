@@ -25,6 +25,7 @@ import {
 import {
   STATUS_FAILED,
   STATUS_NO_FINDINGS,
+  STATUS_NOT_JUDGED,
   STATUS_RUNNING,
   STATUS_WAITING,
 } from "../src/review/statusCopy.ts";
@@ -194,6 +195,27 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toContain("0 threads");
     expect(body).not.toContain("no findings");
     expect(parseProgressRevisionState(body)?.revision).toBe(3);
+  });
+
+  it("renders an unjudged specialist as not judged", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      tickState: {
+        kind: "specialists",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "unjudged" },
+          security: { phase: "running" },
+          quality: { phase: "running" },
+          tests: { phase: "running" },
+        },
+      },
+    });
+
+    expect(body).toContain(STATUS_NOT_JUDGED);
+    expect(body).not.toContain(STATUS_NO_FINDINGS);
   });
 
   it("renders failed specialist coverage explicitly", () => {

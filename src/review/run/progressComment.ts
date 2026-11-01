@@ -9,6 +9,7 @@ import {
   STATUS_DONE,
   STATUS_FAILED,
   STATUS_NO_FINDINGS,
+  STATUS_NOT_JUDGED,
   STATUS_RUNNING,
   STATUS_WAITING,
   statusFindings,
@@ -91,6 +92,8 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
       return STATUS_NO_FINDINGS;
     case "failed":
       return STATUS_FAILED;
+    case "unjudged":
+      return STATUS_NOT_JUDGED;
     default: {
       const exhaustive: never = state;
       return exhaustive;

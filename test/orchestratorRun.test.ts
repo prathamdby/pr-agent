@@ -1556,7 +1556,10 @@ describe("runOrchestratedPrReview", () => {
 
   it("leaves an unjudged correctness finding unpublished", async () => {
     testState.judgmentSkipsPublishRemaining = 1;
-    const run = runOrchestratedPrReview(params());
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
     testState.outcomes.get("correctness")?.resolve({
       kind: "report",
       specialist: "correctness",
@@ -1573,6 +1576,9 @@ describe("runOrchestratedPrReview", () => {
     });
     expect(testState.publishOrder).toEqual(["summary"]);
     expect(testState.ledger?.accepted ?? []).toEqual([]);
+    expect(
+      testState.ticks.some((tick) => tick.specialists?.correctness?.phase === "unjudged"),
+    ).toBe(true);
   });
 
   it("leaves an unjudged tests finding unpublished", async () => {
