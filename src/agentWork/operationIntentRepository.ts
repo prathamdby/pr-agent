@@ -270,22 +270,23 @@ export async function reconcileOperationIntent(
   },
 ): Promise<OperationIntentRow | null> {
   const leaseHolderWorkItemId = params.leaseHolderWorkItemId ?? params.workItemId;
+  type IntentSqlRow = {
+    id: string;
+    work_item_id: string;
+    operation_key: string;
+    mutation_kind: string;
+    status: OperationIntentStatus;
+    publish_record_id: string | null;
+    lease_epoch: string | number | null;
+    detail: Record<string, unknown>;
+  };
   const row = await fencedWrite(
     client,
     leaseHolderWorkItemId,
     params.leaseEpoch,
     { before: true },
-    () =>
-      queryOne<{
-        id: string;
-        work_item_id: string;
-        operation_key: string;
-        mutation_kind: string;
-        status: OperationIntentStatus;
-        publish_record_id: string | null;
-        lease_epoch: string | number | null;
-        detail: Record<string, unknown>;
-      }>(
+    async () => {
+      const updated = await queryOne<IntentSqlRow>(
         client,
         `UPDATE operation_intents
         SET status = $3,
@@ -299,6 +300,11 @@ export async function reconcileOperationIntent(
             updated_at = now()
       WHERE work_item_id = $1
         AND operation_key = $2
+        AND (
+          status = 'pending'
+          OR status = $3
+          OR (status = 'outcome_unknown' AND $3 = 'reconciled')
+        )
         AND ($6::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases
            WHERE work_item_id = $7 AND lease_epoch = $6
@@ -314,7 +320,20 @@ export async function reconcileOperationIntent(
           params.leaseEpoch ?? null,
           leaseHolderWorkItemId,
         ],
-      ),
+      );
+      if (updated != null) return updated;
+      if (params.status !== "outcome_unknown" && params.status !== "failed") return null;
+      const current = await queryOne<IntentSqlRow>(
+        client,
+        `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail
+         FROM operation_intents
+        WHERE work_item_id = $1
+          AND operation_key = $2
+          AND status = 'reconciled'`,
+        [params.workItemId, params.operationKey],
+      );
+      return current;
+    },
   );
   return row ? mapRow(row) : null;
 }
