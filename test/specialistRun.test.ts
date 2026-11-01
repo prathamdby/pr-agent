@@ -508,7 +508,9 @@ describe("runSpecialist", () => {
       automatedReviewTestsSystemPrompt,
     ]) {
       const body = prompt.slice(specialistSharedPrefix.length + 2);
-      expect(body).not.toContain("does not own every carrier the diff touches");
+      for (const phrase of correctnessScatteredStateLocks) {
+        expect(body).not.toContain(phrase);
+      }
       expect(body).not.toContain("two fields that can disagree");
     }
     expect(automatedReviewTestsSystemPrompt.indexOf("For a coverage_gap finding")).toBeGreaterThan(
