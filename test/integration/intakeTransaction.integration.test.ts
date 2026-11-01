@@ -4114,7 +4114,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(decision.rows[0]?.processing_decision).toBe("automated_review_supersede_requested");
   });
 
-  it("every_push keeps a queued slash follow-up and supersedes other auto work", async () => {
+  it("every_push replaces an enqueued follow-up with no review job and supersedes other auto work", async () => {
     const ref = makePrRef("cadence-follow-up");
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const runningId = randomUUID();
@@ -4162,20 +4162,25 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
       [key],
     );
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.find((row) => row.id === runningId)).toMatchObject({
       status: "running",
       source: "slash",
     });
     expect(rows.find((row) => row.id === followUpId)).toMatchObject({
-      status: "queued",
+      status: "superseded",
       source: "auto",
     });
     expect(rows.find((row) => row.id === otherId)).toMatchObject({
       status: "superseded",
       source: "auto",
     });
-    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    expect(replacement?.id).not.toBe(otherId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
   });
 
   it("commits a slash follow-up child with its review job", async () => {
