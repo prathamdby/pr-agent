@@ -2374,7 +2374,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           }),
         );
         const requested = await getWorkItem(pool, workItemId);
-        expect(requested?.status).toBe("running");
+        expect(requested?.status).toBe("superseded");
         expect(requested?.cancelRequestedAt).not.toBeNull();
       }
       if (mode === "legacy_cancel" || mode === "request_cancel") {
@@ -2613,6 +2613,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           expect(row?.status).toBe("running");
         } else if (mode === "read_failure" || mode === "remote_failure") {
           expect(row?.status).toBe("queued");
+        } else if (mode === "request_cancel") {
+          expect(row?.status).toBe("superseded");
+          expect(row?.cancelRequestedAt).not.toBeNull();
         } else {
           expect(row?.status).toBe("cancelled");
           expect(row?.cancelRequestedAt).not.toBeNull();
@@ -2625,7 +2628,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               expect.anything(),
               expect.anything(),
             );
-          } else if (mode !== "request_cancel") {
+          } else {
             expect(terminal.rows[0]?.last_error).toBe("Cancelled by slash /cancel");
             if (row?.type === "review") {
               expect(row.payload.cancelAttribution).toEqual({
@@ -4391,7 +4394,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       status: string;
       cancel_requested_at: Date | null;
     }>(`SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1`, [runningId]);
-    expect(runningRow[0]?.status).toBe("running");
+    expect(runningRow[0]?.status).toBe("superseded");
     expect(runningRow[0]?.cancel_requested_at).not.toBeNull();
 
     expect((await getLeaseRowFor(resourceKey, "review"))?.work_item_id).toBeNull();

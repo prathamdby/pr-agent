@@ -1818,9 +1818,13 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         pool,
         items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
       });
-      expect((await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows).toEqual(
-        before.rows,
-      );
+      const after = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      if (status === "cancel_requested") {
+        expect(after.rows[0]?.status).toBe("cancelled");
+        expect(after.rows[0]?.cancel_requested_at).toEqual(before.rows[0]?.cancel_requested_at);
+      } else {
+        expect(after.rows).toEqual(before.rows);
+      }
       expect(factory).not.toHaveBeenCalled();
       expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
         [],

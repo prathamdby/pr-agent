@@ -1,5 +1,6 @@
 import { productionInstallationSurface } from "./installationSurface.ts";
-import { unfencedSurface } from "./writeFence.ts";
+import { unfencedSurface, unleasedFence } from "./writeFence.ts";
+import { lostRunningWorkLivenessSql, transition } from "./workItemTransitions.ts";
 import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import {
@@ -200,11 +201,36 @@ async function closeOpenOwnVerdict(params: {
   }).repairIfOpen();
 }
 
+async function finishCancelRequestedRunningWork(pool: Pool): Promise<void> {
+  const rows = await pool.query<{ id: string; linked: boolean }>(
+    `SELECT w.id::text AS id, (w.superseded_by IS NOT NULL) AS linked
+       FROM agent_work_items w
+      WHERE w.status = 'running'
+        AND w.cancel_requested_at IS NOT NULL
+        ${lostRunningWorkLivenessSql("statement_timestamp()")}
+      ORDER BY w.started_at ASC NULLS LAST
+      LIMIT $1`,
+    [STALE_QUEUED_WORK_BATCH_SIZE],
+  );
+  for (const row of rows.rows) {
+    await transition(pool, {
+      selector: { id: row.id },
+      from: ["running"],
+      to: row.linked ? "superseded" : "cancelled",
+      fence: unleasedFence(),
+      where: () =>
+        `AND w.cancel_requested_at IS NOT NULL
+        ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+    });
+  }
+}
+
 export async function reconcileLostRunningWork(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly items: readonly LostRunningWorkItem[];
 }): Promise<void> {
+  await finishCancelRequestedRunningWork(params.pool);
   const seen = new Set<string>();
   for (const item of params.items) {
     seen.add(item.workItemId);
