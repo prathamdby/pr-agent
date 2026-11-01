@@ -28,11 +28,27 @@ function mockClient(options?: {
         linkedIds = (params?.[1] as readonly string[]) ?? [];
         return { rows: [], rowCount: 0 };
       }
-      if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
-        return { rows: queuedIds.map((id) => ({ id })), rowCount: queuedIds.length };
+      if (sql.includes("w.status = 'running'") && sql.includes("superseded")) {
+        return {
+          rows: runningIds.map((id) => ({
+            id,
+            execution_epoch: null,
+            head_sha: "h",
+            source: "auto",
+          })),
+          rowCount: runningIds.length,
+        };
       }
-      if (sql.includes("cancel_requested_at")) {
-        return { rows: runningIds.map((id) => ({ id })), rowCount: runningIds.length };
+      if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
+        return {
+          rows: queuedIds.map((id) => ({
+            id,
+            execution_epoch: null,
+            head_sha: "h",
+            source: "auto",
+          })),
+          rowCount: queuedIds.length,
+        };
       }
       return { rows: [], rowCount: 0 };
     }),

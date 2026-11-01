@@ -75,15 +75,26 @@ import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts"
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.ts";
 import type { VerificationPayload } from "../src/review/triageSchema.ts";
-import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_STUB_MARKER } from "../src/settings/index.ts";
-import { renderCiSummaryCell } from "../src/review/ci/ciSummaryCell.ts";
+import {
+  REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_FAILURE_TEXT,
+  VERIFICATION_STUB_MARKER,
+} from "../src/settings/index.ts";
+import {
+  injectVerificationFailureIntoCiCell,
+  renderCiSummaryCell,
+  renderVerificationFailureBlock,
+} from "../src/review/ci/ciSummaryCell.ts";
 import {
   publishTestPrSurface,
   resolveThreadIds,
   editReviewCommentEvents,
 } from "./helpers/publishPrSurface.ts";
 
-import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.ts";
+import {
+  advancePrHeadCiRevisionForVerificationSignal,
+  isEffectiveVerificationSignalTransition,
+} from "../src/agentWork/prHeadCiState.ts";
 import {
   operationIntentMarker,
   verificationObjectionAnswerOperationKey,
@@ -1638,14 +1649,22 @@ describe("publishVerificationFailure", () => {
     expect(controls.replies).toHaveLength(0);
   });
 
-  it("clears the record without editing comments", async () => {
+  it("clears the record and strips the stored failure block", async () => {
+    const nextHead = "b".repeat(40);
     const params = baseParams({
       inventory: [thread],
       payload: { verdicts: [] },
+      pool: pool({
+        threads: {},
+        failureSignal: { headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" },
+      }),
     });
     controls.setProgressComment(
       REVIEW_SUMMARY_SENTINEL,
-      reviewSummaryBody({ withCiCell: true }),
+      injectVerificationFailureIntoCiCell(
+        reviewSummaryBody({ withCiCell: true }),
+        renderVerificationFailureBlock(),
+      ),
       88,
     );
 
@@ -1654,7 +1673,7 @@ describe("publishVerificationFailure", () => {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
-      headSha: HEAD_SHA,
+      headSha: nextHead,
       leaseEpoch: 1,
       boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
@@ -1664,10 +1683,96 @@ describe("publishVerificationFailure", () => {
       expect.anything(),
       expect.objectContaining({
         step: "verification_failure",
-        detail: { headSha: HEAD_SHA, active: false },
+        detail: { headSha: nextHead, active: false },
       }),
     );
+    expect(advancePrHeadCiRevisionForVerificationSignal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ headSha: nextHead, effective: false }),
+    );
+    const edits = conversationEdits();
+    expect(edits).toHaveLength(1);
+    expect(edits[0]?.commentId).toBe(88);
+    expect(edits[0]?.body).not.toContain(VERIFICATION_FAILURE_TEXT);
+    expect(edits[0]?.body).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).not.toContain(
+      VERIFICATION_FAILURE_TEXT,
+    );
+  });
+
+  it("clears the failure signal when stripping the comment fails", async () => {
+    const nextHead = "c".repeat(40);
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+      pool: pool({
+        threads: {},
+        failureSignal: { headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" },
+      }),
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      injectVerificationFailureIntoCiCell(
+        reviewSummaryBody({ withCiCell: true }),
+        renderVerificationFailureBlock(),
+      ),
+      88,
+    );
+    vi.spyOn(params.prSurface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: nextHead,
+      leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
+    });
+
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "verification_thread_actions",
+        detail: { threads: {} },
+      }),
+    );
+  });
+
+  it("clears the failure signal when listing the summary comment fails", async () => {
+    const nextHead = "d".repeat(40);
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+      pool: pool({
+        threads: {},
+        failureSignal: { headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" },
+      }),
+    });
+    vi.spyOn(params.prSurface, "listConversationComments").mockRejectedValueOnce(
+      new Error("list 403"),
+    );
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: nextHead,
+      leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
+    });
+
     expect(conversationEdits()).toHaveLength(0);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "verification_thread_actions",
+        detail: { threads: {} },
+      }),
+    );
   });
 
   it("records again on a second failure and still does not edit", async () => {

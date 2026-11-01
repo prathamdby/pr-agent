@@ -3,6 +3,7 @@ export const STATUS_RUNNING = "⏳ Running";
 export const STATUS_DONE = "✅ Done";
 export const STATUS_NO_FINDINGS = "✅ No findings";
 export const STATUS_FAILED = "⚠️ Failed";
+export const STATUS_NOT_JUDGED = "Not judged";
 
 export function statusFindings(count: number): string {
   if (count <= 0) return STATUS_NO_FINDINGS;

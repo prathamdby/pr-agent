@@ -456,6 +456,16 @@ describe("review check run lifecycle", () => {
     expect(isOwnCheckOpen({ status: "completed" })).toBe(true);
     expect(isOwnCheckOpen({ status: "completed", conclusion: "failure" })).toBe(false);
     expect(isOwnCheckOpen({ conclusion: "success" })).toBe(false);
+    expect(
+      isOwnCheckOpen({ status: "in_progress" }, [
+        { status: "outcome_unknown", detail: { unknownResolution: "terminal" } },
+      ]),
+    ).toBe(false);
+    expect(
+      isOwnCheckOpen({ status: "in_progress" }, [
+        { status: "outcome_unknown", detail: { unknownResolution: "retryable" } },
+      ]),
+    ).toBe(true);
   });
 
   it("replays a stored summary verdict without guessing unpublished", () => {

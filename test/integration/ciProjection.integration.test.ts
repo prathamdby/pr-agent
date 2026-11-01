@@ -37,6 +37,7 @@ import { getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
 import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.ts";
 import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.ts";
+import { availableInstallationCapabilities } from "../../src/github/installationCapabilities.ts";
 import * as appAuth from "../../src/github/appAuth.ts";
 import * as installationToken from "../../src/github/installationToken.ts";
 import * as prSurface from "../../src/github/prSurface.ts";
@@ -2873,6 +2874,20 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       if (scenario === "head-error") {
         vi.spyOn(fake.surface, "getHeadSha").mockRejectedValue(new Error("test_head_unavailable"));
       }
+      await saveGithubCapabilityObservation(pool, {
+        installationId: item.installationId,
+        owner: OWNER,
+        repo: REPO,
+        observation: availableInstallationCapabilities(
+          {
+            appId: cfg.github.appId,
+            installationId: item.installationId,
+            owner: OWNER,
+            repo: REPO,
+          },
+          "1",
+        ),
+      });
       const job = {
         ...makeDurableJobMetadata(item.id),
         data: { kind: "verification" as const, workItemId: item.id },

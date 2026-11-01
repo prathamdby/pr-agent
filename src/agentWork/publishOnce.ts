@@ -337,6 +337,8 @@ async function finishVoidSuccess<T>(
 
 const UNKNOWN_MUTATION_MESSAGE =
   "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden";
+const RECONCILED_REMUTATE_MESSAGE =
+  "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden";
 
 function unknownOutcomeError<T>(
   params: PublishOnceParams<T>,
@@ -590,11 +592,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     if (allowsUndefinedSuccess(params)) {
       return finishVoidSuccess(params, intent, {}, intent.publishRecordId);
     }
-    throw unknownOutcomeError(
-      params,
-      "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
-      true,
-    );
+    throw unknownOutcomeError(params, RECONCILED_REMUTATE_MESSAGE, true);
   }
 
   if (intent.status === "outcome_unknown") {
@@ -1095,7 +1093,11 @@ export function createPublishContext(
           context: { workItemId: workItemId(), operationKey: intent.operationKey },
         });
       }
-      throw unknownOutcomeError(params, UNKNOWN_MUTATION_MESSAGE, true);
+      throw unknownOutcomeError(
+        params,
+        resolved.status === "reconciled" ? RECONCILED_REMUTATE_MESSAGE : UNKNOWN_MUTATION_MESSAGE,
+        true,
+      );
     },
     adopt: async (params: {
       readonly operationKey: string;

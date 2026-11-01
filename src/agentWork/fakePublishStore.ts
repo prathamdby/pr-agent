@@ -149,8 +149,23 @@ export function createFakePublishStore(): PublishIntentStore {
           const key = rowKey(params.workItemId, params.operationKey);
           const existing = rows.get(key);
           if (!existing) return null;
+          const nextStatus = params.status;
+          const currentStatus = existing.status;
+          const statusChangeAllowed =
+            currentStatus === "pending" ||
+            currentStatus === nextStatus ||
+            (currentStatus === "outcome_unknown" && nextStatus === "reconciled");
+          if (!statusChangeAllowed) {
+            if (
+              currentStatus === "reconciled" &&
+              (nextStatus === "outcome_unknown" || nextStatus === "failed")
+            ) {
+              return toRow(existing);
+            }
+            return null;
+          }
           if (params.leaseEpoch != null) existing.leaseEpoch = params.leaseEpoch;
-          existing.status = params.status;
+          existing.status = nextStatus;
           if (params.publishRecordId !== undefined && params.publishRecordId !== null) {
             existing.publishRecordId = params.publishRecordId;
           }

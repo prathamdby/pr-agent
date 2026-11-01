@@ -1326,6 +1326,182 @@ describe("publishTriage push outcomes", () => {
     ).toBe("reconciled");
   });
 
+  it("resumes a reconciled push when the stored head is ahead of the pre-push head", async () => {
+    const baseHead = "a".repeat(40);
+    const pushedHead = "abcdef123456";
+    await publishStoreState.store.persistOperationIntent(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      mutationKind: "github.triage_push",
+      detail: {
+        pushPlan: {
+          pushOutcome: "pushed",
+          baseHeadSha: baseHead,
+          headRef: "main",
+          pushedHeadSha: pushedHead,
+          pushedShas: [pushedHead],
+          commits: [{ sha: pushedHead, subject: "fix: guard user", diff: "+ok\n" }],
+          payload: { verdicts: [fixedVerdict] },
+          threadRootCommentIds: [1],
+        },
+      },
+    });
+    await publishStoreState.store.reconcileOperationIntent(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      status: "reconciled",
+    });
+    const workItemPool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM agent_work_items")) {
+          return {
+            rows: [
+              {
+                id: "wi",
+                webhook_event_id: null,
+                type: "triage",
+                source: "slash",
+                status: "running",
+                owner: "o",
+                repo: "r",
+                pr_number: 1,
+                installation_id: 42,
+                head_sha: baseHead,
+                review_lens: null,
+                resource_key: "o/r#1",
+                attempt_count: 1,
+                cancel_requested_at: null,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    } as unknown as Pool;
+    const fake = publishTestPrSurface();
+    fake.controls.setPullRequestBranchInfo({ headRef: "main", sameRepo: true });
+    fake.controls.setHeadSha(pushedHead);
+    fake.controls.setPushedCommits([{ sha: pushedHead, subject: "fix: guard user" }]);
+
+    const result = await recoverTriagePublication({
+      pool: workItemPool,
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: baseHead,
+      headRef: "main",
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
+    expect(
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool(),
+          "wi",
+          triagePushOperationKey("o/r#1"),
+        )
+      )?.status,
+    ).toBe("reconciled");
+  });
+
+  it("keeps a reconciled push reconciled when recovery cannot rebuild it", async () => {
+    const baseHead = "a".repeat(40);
+    const pushedHead = "abcdef123456";
+    await publishStoreState.store.persistOperationIntent(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      mutationKind: "github.triage_push",
+      detail: {
+        pushPlan: {
+          pushOutcome: "pushed",
+          baseHeadSha: baseHead,
+          headRef: "main",
+          pushedHeadSha: pushedHead,
+          pushedShas: [pushedHead],
+          commits: [{ sha: pushedHead, subject: "fix: guard user", diff: "+ok\n" }],
+          payload: { verdicts: [fixedVerdict] },
+          threadRootCommentIds: [1],
+        },
+      },
+    });
+    await publishStoreState.store.reconcileOperationIntent(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      status: "reconciled",
+    });
+    const workItemPool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM agent_work_items")) {
+          return {
+            rows: [
+              {
+                id: "wi",
+                webhook_event_id: null,
+                type: "triage",
+                source: "slash",
+                status: "running",
+                owner: "o",
+                repo: "r",
+                pr_number: 1,
+                installation_id: 42,
+                head_sha: baseHead,
+                review_lens: null,
+                resource_key: "o/r#1",
+                attempt_count: 1,
+                cancel_requested_at: null,
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    } as unknown as Pool;
+    const fake = publishTestPrSurface();
+    fake.controls.setPullRequestBranchInfo({ headRef: "main", sameRepo: true });
+    fake.controls.setHeadSha("b".repeat(40));
+    fake.controls.setPushedCommits([]);
+
+    await expect(
+      recoverTriagePublication({
+        pool: workItemPool,
+        workItemId: "wi",
+        leaseEpoch: 1,
+        resourceKey: "o/r#1",
+        installationId: 42,
+        prSurface: fake.surface,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: baseHead,
+        headRef: "main",
+        inventory: [thread],
+        resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+        previouslyResolvedCount: 0,
+      }),
+    ).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+      message:
+        "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
+    });
+    expect(
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool(),
+          "wi",
+          triagePushOperationKey("o/r#1"),
+        )
+      )?.status,
+    ).toBe("reconciled");
+  });
+
   it("does not treat an unknown push-intent outcome as a push result", async () => {
     await publishStoreState.store.persistOperationIntent(pool(), {
       workItemId: "wi",

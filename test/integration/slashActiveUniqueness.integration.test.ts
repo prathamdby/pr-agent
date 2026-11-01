@@ -22,7 +22,6 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.ts";
 import {
-  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
 } from "../../src/agentWork/reviewReschedule.ts";
@@ -1940,7 +1939,20 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     if (parent?.type !== "review") throw new Error("expected review parent");
     const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
 
-    const first = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
+    const orphanId = randomUUID();
+    const orphanKey = prResourceKey(OWNER, repo, 59);
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES (
+         $1, $2, 'review', 'slash', 'queued', $3, $4, 59, 4242, 'sha-orphan', 'review', $5, 0,
+         '{"mode":"review","source":"slash"}'::jsonb
+       )`,
+      [orphanId, webhookEventId, OWNER, repo, orphanKey],
+    );
+
+    const first = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch, boss);
     const second = await createReviewRescheduleWorkItem(
       pool,
       {
@@ -1954,6 +1966,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         },
       },
       leaseEpoch,
+      boss,
     );
     expect(second.replacementWorkItemId).toBe(first.replacementWorkItemId);
 
@@ -1962,7 +1975,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     if (persisted?.type !== "review") throw new Error("expected review parent");
     expect(persisted.payload.staleHeadReplacement).toEqual({
       replacementWorkItemId: first.replacementWorkItemId,
-      state: "pending-enqueue",
+      state: "enqueued",
     });
 
     const { rows: replacements } = await pool.query<{ id: string; status: string }>(
@@ -1971,22 +1984,15 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       [resourceKey, parentId],
     );
     expect(replacements).toEqual([{ id: first.replacementWorkItemId, status: "queued" }]);
-
-    await cancelPendingStaleHeadReplacement(
-      pool,
-      persisted,
-      new Error("parent terminal before enqueue"),
+    await expect(
+      boss.findJobs(REVIEW_QUEUE, { id: first.replacementWorkItemId }),
+    ).resolves.toHaveLength(1);
+    const orphan = await pool.query<{ status: string }>(
+      "SELECT status FROM agent_work_items WHERE id = $1",
+      [orphanId],
     );
-
-    const { rows: afterCancel } = await pool.query<{ id: string; status: string }>(
-      `SELECT id, status FROM agent_work_items
-        WHERE resource_key = $1 AND id <> $2`,
-      [resourceKey, parentId],
-    );
-    expect(afterCancel).toEqual([{ id: first.replacementWorkItemId, status: "cancelled" }]);
-    await expect(boss.findJobs(REVIEW_QUEUE, { id: first.replacementWorkItemId })).resolves.toEqual(
-      [],
-    );
+    expect(orphan.rows).toEqual([{ status: "queued" }]);
+    await expect(boss.findJobs(REVIEW_QUEUE, { id: orphanId })).resolves.toEqual([]);
   });
 
   it("migration cleanup cancels non-replacement duplicates and preserves a replacement pair", async () => {

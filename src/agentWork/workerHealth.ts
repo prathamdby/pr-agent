@@ -271,7 +271,7 @@ export async function collectQueueDiagnostics(params: {
               w.type AS work_type,
               EXTRACT(EPOCH FROM ($1::timestamptz - w.started_at)) AS age_seconds
          FROM agent_work_items w
-        WHERE w.type IN ('review', 'description', 'triage', 'verification')
+        WHERE w.type IN ('review', 'description', 'triage', 'verification', 'ask')
           AND w.status = 'running'
           AND w.started_at IS NOT NULL
           AND w.started_at < $1::timestamptz - ($2 * interval '1 second')

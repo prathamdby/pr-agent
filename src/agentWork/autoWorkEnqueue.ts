@@ -56,26 +56,20 @@ function supersedeSelector(target: AutoWorkSupersedeTarget): TransitionSelector 
     : { resourceKey: target.resourceKey, type: target.kind, source: "auto" };
 }
 
-function cancelRunningSql(target: AutoWorkSupersedeTarget): {
-  sql: string;
-  params: unknown[];
-} {
+function supersededLifecycle(
+  target: AutoWorkSupersedeTarget,
+  row: {
+    readonly id: string;
+    readonly head_sha: string;
+    readonly source: WorkSource;
+  },
+): AutoWorkLifecycleChange {
   return {
-    sql: `WITH prior AS MATERIALIZED (
-            SELECT id, cancel_requested_at
-              FROM agent_work_items
-             WHERE resource_key = $1
-               AND ${target.kind === "review" ? "review_lens" : "type"} = $2
-               AND source = 'auto' AND status = 'running'
-             FOR UPDATE
-          )
-          UPDATE agent_work_items w
-             SET cancel_requested_at = COALESCE(w.cancel_requested_at, now()), updated_at = now()
-            FROM prior
-           WHERE w.id = prior.id AND w.status = 'running'
-          RETURNING w.id, w.execution_epoch, w.head_sha, w.source,
-                    (prior.cancel_requested_at IS NULL) AS cancel_changed`,
-    params: [target.resourceKey, target.kind],
+    id: row.id,
+    headSha: row.head_sha,
+    source: row.source,
+    workType: target.kind,
+    lifecycleStatus: "superseded",
   };
 }
 
@@ -88,9 +82,9 @@ export async function supersedeActiveAutoWork(
     autoWorkIntakeLockKey(target),
   ]);
   const preserveQueuedIds = options?.preserveQueuedIds ?? [];
-  const runningQuery = cancelRunningSql(target);
+  const selector = supersedeSelector(target);
   const queued = await transition(client, {
-    selector: supersedeSelector(target),
+    selector,
     from: ["queued"],
     to: "superseded",
     returning: ["id", "execution_epoch", "head_sha", "source"],
@@ -101,14 +95,16 @@ export async function supersedeActiveAutoWork(
           where: (bind) => `AND w.id <> ALL(${bind(preserveQueuedIds)}::uuid[])`,
         }),
   });
-  const running = await client.query<{
-    id: string;
-    execution_epoch: string | number | null;
-    head_sha: string;
-    source: WorkSource;
-    cancel_changed: boolean;
-  }>(runningQuery.sql, runningQuery.params);
-  const holders = [...queued.rows, ...running.rows]
+  const running = await transition(client, {
+    selector,
+    from: ["running"],
+    to: "superseded",
+    requestCancel: true,
+    returning: ["id", "execution_epoch", "head_sha", "source"],
+    fence: unleasedFence(),
+  });
+  const rows = [...queued.rows, ...running.rows];
+  const holders = rows
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);
   await releasePrActorLeaseHeldByWorkItems(client, {
@@ -117,25 +113,8 @@ export async function supersedeActiveAutoWork(
     holders,
   });
   return {
-    supersededIds: [...queued.rows, ...running.rows].map((r) => r.id),
-    lifecycleChanges: [
-      ...queued.rows.map((row) => ({
-        id: row.id,
-        headSha: row.head_sha,
-        source: row.source,
-        workType: target.kind,
-        lifecycleStatus: "superseded" as const,
-      })),
-      ...running.rows
-        .filter((row) => row.cancel_changed)
-        .map((row) => ({
-          id: row.id,
-          headSha: row.head_sha,
-          source: row.source,
-          workType: target.kind,
-          lifecycleStatus: "cancel_requested" as const,
-        })),
-    ],
+    supersededIds: rows.map((row) => row.id),
+    lifecycleChanges: rows.map((row) => supersededLifecycle(target, row)),
   };
 }
 

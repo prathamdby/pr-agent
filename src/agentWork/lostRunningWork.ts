@@ -1,5 +1,6 @@
 import { productionInstallationSurface } from "./installationSurface.ts";
 import { unfencedSurface } from "./writeFence.ts";
+import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
 import { createPublishContext } from "./publishOnce.ts";
 import type { Pool } from "pg";
 import {
@@ -10,8 +11,17 @@ import {
   isAnyReviewLens,
 } from "../settings/index.ts";
 import { logWarn } from "../evlog.ts";
-import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.ts";
-import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.ts";
+import {
+  reviewVerdict,
+  asTerminalOwnCheckStatus,
+  isOwnCheckOpen,
+  ownCheckCloseIntents,
+} from "./reviewVerdict.ts";
+import {
+  getWorkItemCore,
+  markLostRunningWorkFailed,
+  transitionCancelRequestedLostRunning,
+} from "./workItemStateRepository.ts";
 import type { LostRunningWorkItem } from "./workerHealth.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import {
@@ -131,7 +141,12 @@ async function closeOpenOwnVerdict(params: {
     resourceKey: core.resourceKey,
     reviewLens: core.reviewLens,
   }).completed("check_run");
-  if (record?.legacyClosed || (record?.selected == null && !isOwnCheckOpen(checkDetail))) return;
+  const closeIntents = await ownCheckCloseIntents(params.pool, identity);
+  if (
+    record?.legacyClosed ||
+    (record?.selected == null && !isOwnCheckOpen(checkDetail, closeIntents))
+  )
+    return;
   const saved = await loadGithubCapabilityObservation(params.pool, core);
   const available = availableInstallationCapabilities({
     appId: params.cfg.github.appId,
@@ -200,11 +215,28 @@ async function closeOpenOwnVerdict(params: {
   }).repairIfOpen();
 }
 
+async function finishCancelRequestedRunningWork(pool: Pool): Promise<void> {
+  const rows = await pool.query<{ id: string; linked: boolean }>(
+    `SELECT w.id::text AS id, (w.superseded_by IS NOT NULL) AS linked
+       FROM agent_work_items w
+      WHERE w.status = 'running'
+        AND w.cancel_requested_at IS NOT NULL
+        ${lostRunningWorkLivenessSql("statement_timestamp()")}
+      ORDER BY w.started_at ASC NULLS LAST
+      LIMIT $1`,
+    [STALE_QUEUED_WORK_BATCH_SIZE],
+  );
+  for (const row of rows.rows) {
+    await transitionCancelRequestedLostRunning(pool, row);
+  }
+}
+
 export async function reconcileLostRunningWork(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly items: readonly LostRunningWorkItem[];
 }): Promise<void> {
+  await finishCancelRequestedRunningWork(params.pool);
   const seen = new Set<string>();
   for (const item of params.items) {
     seen.add(item.workItemId);

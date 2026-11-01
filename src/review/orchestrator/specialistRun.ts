@@ -220,8 +220,8 @@ function buildSubmitTool(
       report = { ...report, status, findings };
       if (filtered.rejected.length > 0 && !evidenceFeedbackSent) {
         evidenceFeedbackSent = true;
-        state.report = report;
-        state.validationError = null;
+        state.validationError =
+          "These findings cite lines that no file read or diff result in this session returned, so they were dropped. To keep a dropped finding, read the cited lines, then call submit_findings_report again with the complete report. If the lines do not support it, leave it out.";
         return {
           accepted: false,
           recorded: { findings: findings.length },
@@ -232,8 +232,7 @@ function buildSubmitTool(
             endLine: entry.finding.endLine,
             reasonCode: entry.reasonCode,
           })),
-          error:
-            "These findings cite lines that no file read or diff result in this session returned, so they were dropped. The rest of the report is recorded. To keep a dropped finding, read the cited lines, then call submit_findings_report again with the complete report. If the lines do not support it, leave it out.",
+          error: state.validationError,
         };
       }
     }

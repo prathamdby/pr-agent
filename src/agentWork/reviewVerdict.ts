@@ -840,7 +840,44 @@ export async function closeReviewVerdictsForWorkItems(
 
 export type TerminalOwnCheckStatus = "completed" | "failed" | "cancelled" | "superseded";
 
-export function isOwnCheckOpen(detail: Record<string, unknown> | null): boolean {
+export function ownCheckCloseIsTerminal(
+  intent: { readonly status: string; readonly detail: Record<string, unknown> } | null | undefined,
+): boolean {
+  return intent?.status === "outcome_unknown" && intent.detail.unknownResolution === "terminal";
+}
+
+export async function ownCheckCloseIntents(
+  client: Pool | PoolClient,
+  params: {
+    readonly workItemId: string;
+    readonly resourceKey: string;
+    readonly reviewLens: AnyReviewLens;
+  },
+): Promise<
+  readonly (
+    | { readonly status: string; readonly detail: Record<string, unknown> }
+    | null
+    | undefined
+  )[]
+> {
+  const parent = await getOperationIntent(
+    client,
+    params.workItemId,
+    ownVerdictCloseOperationKey(params),
+  );
+  const child = await getDelegatedOwnVerdictFinish(client, params);
+  return [parent, child];
+}
+
+export function isOwnCheckOpen(
+  detail: Record<string, unknown> | null,
+  closeIntents?: readonly (
+    | { readonly status: string; readonly detail: Record<string, unknown> }
+    | null
+    | undefined
+  )[],
+): boolean {
+  if (closeIntents?.some((intent) => ownCheckCloseIsTerminal(intent))) return false;
   if (detail == null) return true;
   if (isRecord(detail.selectedOwnVerdict)) {
     const checkResolved =
@@ -1040,7 +1077,8 @@ export function reviewVerdict(params: ReviewVerdictParams) {
         resourceKey: params.resourceKey,
         reviewLens: params.reviewLens,
       }).completed("check_run");
-      if (record?.selected == null && !isOwnCheckOpen(detail)) return;
+      const closeIntents = await ownCheckCloseIntents(params.pool, params);
+      if (record?.selected == null && !isOwnCheckOpen(detail, closeIntents)) return;
       const core = await getWorkItemCore(params.pool, params.workItemId);
       const status = core == null ? null : asTerminalOwnCheckStatus(core.status);
       if (status == null) return;

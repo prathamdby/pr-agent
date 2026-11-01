@@ -49,7 +49,7 @@ import {
 import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
 type AttemptBehavior =
-  | { readonly kind: "report"; readonly report: Record<string, unknown> }
+  | { readonly kind: "report"; readonly report: Record<string, unknown>; readonly once?: boolean }
   | { readonly kind: "error"; readonly error: Error }
   | { readonly kind: "pending_create"; readonly settleAfterMs: number }
   | { readonly kind: "pending_send"; readonly settleAfterMs: number }
@@ -195,6 +195,7 @@ describe("runSpecialist", () => {
         });
       }
       let rejectPending: ((error: Error) => void) | undefined;
+      let submittedReport = false;
       const abort = vi.fn(async () => {
         rejectPending?.(new Error("specialist session aborted"));
       });
@@ -213,6 +214,8 @@ describe("runSpecialist", () => {
             });
           }
           if (behavior.kind === "no_report") return { text: "", end: "completed" as const };
+          if (behavior.once && submittedReport) return { text: "", end: "completed" as const };
+          submittedReport = true;
           runnerMocks.submitResults.push(
             await params.executors.submit_findings_report(behavior.report),
           );
@@ -748,20 +751,34 @@ describe("runSpecialist", () => {
   });
 
   it("keeps the evidence gate authoritative over an otherwise valid report", async () => {
-    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+    runnerMocks.behaviors.push(
+      { kind: "report", report: findingsReport, once: true },
+      { kind: "report", report: findingsReport, once: true },
+    );
     const evidenceLedger = createTestEvidenceLedger();
 
-    await expect(
-      runSpecialist(
-        specialistArgs({
-          evidenceLedger,
-          headSha: evidenceLedger.headSha,
-        }),
-      ),
-    ).resolves.toMatchObject({
-      kind: "empty",
+    const outcome = await runSpecialist(
+      specialistArgs({
+        evidenceLedger,
+        headSha: evidenceLedger.headSha,
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      kind: "error",
       specialist: "correctness",
+      error: { cause: { kind: "specialist_invalid_report" } },
     });
+    expect(runnerMocks.submitResults[0]).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining("complete report"),
+    });
+    expect(runnerMocks.submitResults[0]).toMatchObject({
+      error: expect.not.stringContaining("The rest of the report is recorded"),
+    });
+    const repairPrompt = String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0]);
+    expect(repairPrompt).toContain("complete report");
+    expect(repairPrompt).not.toContain("The rest of the report is recorded");
   });
 
   it("uses one fresh-session retry after an ordinary failure", async () => {

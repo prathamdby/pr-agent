@@ -53,6 +53,7 @@ A change that only renames a local variable outside those snippets is out of sco
 | `RecoverInFlight` | `findInFlightMutatingIntent` selects one pending `__mutating` row for the resource and work type when the caller holds the live lease (`work_item_id` and `expires_at > now()`). The caller's own row still matches on operation key. Another work item's row is returned only for that holder, so the operation key may differ. `publishOnceBody` recovers that row and does not call `mutate()`. |
 | `Arm`             | `assertPrActorLeaseHeld` in `createLeaseMutationBoundary`. `isPrActorLeaseHeld` matches work item, epoch, and `expires_at > now()`.                                                                                                                                                                                                                                                                |
 | `AbortGate`       | `throwIfAborted` in `withPrSurfaceMutationBoundary`, then `confirmLeaseHeld`, then the GitHub call. A send requires `Held`.                                                                                                                                                                                                                                                                        |
+| `TerminalClose`   | `closeReviewVerdict` when `leaseEpoch` is null and the work item is already terminal. `publishOnce` skips the lease assert. The action fires only when no worker is `Held`, no worker is in `held`, `mutating`, or `armed`, and no send has happened. It then counts as that one GitHub send.                                                                                                      |
 | `Reconcile`       | `reconcileOperationIntent` and `recordPublishStep`. Both use `Held`, including `expires_at > now()`. With `FenceOn`, the write commits only while `Held` is true.                                                                                                                                                                                                                                  |
 | `Release`         | `releasePrActorLease`. Matches `lease_epoch` only. A stale epoch changes zero rows.                                                                                                                                                                                                                                                                                                                |
 | `Pause`           | A TLC stutter so a finished state has a successor. No worker runs this step.                                                                                                                                                                                                                                                                                                                       |
@@ -95,7 +96,7 @@ Durable reconcile does not commit for a stale or expired epoch while `FenceOn` i
 
 ## Sync commit
 
-Last confirmed at `4743ee7ba78f4dfe20ca2e9953d561227c768221`.
+Last confirmed with `TerminalClose` in the model. TLC reported safety, exactly-once, and supersede passed. `broken-fence.cfg` still violates `NoStaleDurable`.
 
 ## What this does not cover
 

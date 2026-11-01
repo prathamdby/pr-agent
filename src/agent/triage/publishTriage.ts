@@ -513,10 +513,19 @@ export async function recoverTriagePublication(
       return ctx.failClosed(intent);
   }
   const inventory = retainedPublicationInventory(push, params);
-  if (inventory == null || !storedPushMatchesPublication(push, { ...params, inventory })) {
+  const publicationParams = inventory == null ? null : { ...params, inventory };
+  const matches =
+    publicationParams != null && storedPushMatchesPublication(push, publicationParams);
+  const reconciledHeadMiss =
+    intent?.status === "reconciled" &&
+    publicationParams != null &&
+    !matches &&
+    storedPushMatchesPublication(push, publicationParams, { prePushHead: true });
+  if (!matches && !reconciledHeadMiss) {
     if (intent != null) return ctx.failClosed(intent);
     return null;
   }
+  if (inventory == null) return null;
   await assertTriagePublicationActive(params);
   if (intent != null) {
     try {
@@ -596,9 +605,11 @@ function retainedPublicationInventory(
 function storedPushMatchesPublication(
   push: StoredTriagePushDetail,
   params: RecoveryTriageParams,
+  options?: { readonly prePushHead?: boolean },
 ): boolean {
   if (push.pushOutcome === "stale" || push.pushOutcome === "closed") return false;
-  if (push.pushedHeadSha?.toLowerCase() !== params.headSha.toLowerCase()) return false;
+  if (!options?.prePushHead && push.pushedHeadSha?.toLowerCase() !== params.headSha.toLowerCase())
+    return false;
   if (push.headRef != null && push.headRef !== params.headRef) return false;
   const verdictIds = new Set(push.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
   if (

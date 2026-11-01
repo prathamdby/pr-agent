@@ -3589,6 +3589,10 @@ try {
             expect(lookup).not.toHaveBeenCalled();
           }
         } else {
+          expect(error).toMatchObject({
+            message:
+              "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
+          });
           expect(intent?.status).toBe("reconciled");
           expect(reconcile).not.toHaveBeenCalled();
         }

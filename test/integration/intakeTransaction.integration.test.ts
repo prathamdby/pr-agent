@@ -26,9 +26,11 @@ import { inTransaction } from "../../src/db/postgres.ts";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.ts";
+import { saveGithubCapabilityObservation } from "../../src/agentWork/githubCapabilityRepository.ts";
+import { availableInstallationCapabilities } from "../../src/github/installationCapabilities.ts";
 import {
-  cancelPendingPushFollowUp,
   createReviewRescheduleWorkItem,
+  schedulePushFollowUp,
 } from "../../src/agentWork/reviewReschedule.ts";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.ts";
 import * as analytics from "../../src/analytics/index.ts";
@@ -187,6 +189,23 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
 
+  async function grantInstallation(ref: PrRef): Promise<void> {
+    await saveGithubCapabilityObservation(pool, {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      observation: availableInstallationCapabilities(
+        {
+          appId: intakeCfg.github.appId,
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+        },
+        "1",
+      ),
+    });
+  }
+
   beforeEach(() => {
     vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
       id: 9001,
@@ -318,7 +337,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       );
       expect(capture).toHaveBeenCalledExactlyOnceWith({
         distinctId: `installation:${ref.installationId}`,
-        event: status === "queued" ? "work item superseded" : "work lifecycle",
+        event: "work item superseded",
         properties: expect.objectContaining({
           work_item_id: original,
           owner: ref.owner,
@@ -327,32 +346,24 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           head_sha: ref.headSha,
           work_type: "review",
           source: "intake",
-          ...(status === "queued"
-            ? { outcome: "superseded" }
-            : {
-                lifecycle_status: "cancel_requested",
-                trigger_source: "auto",
-                delivery_id: h.delivery,
-              }),
+          outcome: "superseded",
           reason: "auto_replacement",
         }),
       });
-      if (status === "queued")
-        expect(terminal).toHaveBeenCalledExactlyOnceWith({
-          workItemId: original,
-          installationId: ref.installationId,
-          owner: ref.owner,
-          repo: ref.repo,
-          prNumber: ref.prNumber,
-          headSha: ref.headSha,
-          workType: "review",
-          outcome: "superseded",
-          reason: "auto_replacement",
-          source: "intake",
-        });
-      else expect(terminal).not.toHaveBeenCalled();
+      expect(terminal).toHaveBeenCalledExactlyOnceWith({
+        workItemId: original,
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        prNumber: ref.prNumber,
+        headSha: ref.headSha,
+        workType: "review",
+        outcome: "superseded",
+        reason: "auto_replacement",
+        source: "intake",
+      });
       const committed = await getWorkItem(pool, original);
-      expect(committed?.status).toBe(status === "queued" ? "superseded" : "running");
+      expect(committed?.status).toBe("superseded");
       expect(committed?.cancelRequestedAt != null).toBe(status === "running");
       capture.mockClear();
       terminal.mockClear();
@@ -1327,6 +1338,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         await publishGate;
         return replyAt(replyTarget, body);
       });
+      await grantInstallation(ref);
       const executions = jobs.map((job) =>
         createWorkDefinitions({
           cfg: intakeCfg,
@@ -1432,6 +1444,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         reused: false,
       }),
     );
+    await grantInstallation(ref);
     for (const job of jobs) {
       await createWorkDefinitions({
         cfg: intakeCfg,
@@ -1693,6 +1706,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       await publishGate;
       return replyAt(replyTarget, body);
     });
+    await grantInstallation(ref);
     const execution = createWorkDefinitions({
       cfg: intakeCfg,
       pool: pool,
@@ -4100,7 +4114,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(decision.rows[0]?.processing_decision).toBe("automated_review_supersede_requested");
   });
 
-  it("every_push keeps a queued slash follow-up and supersedes other auto work", async () => {
+  it("every_push replaces an enqueued follow-up with no review job and supersedes other auto work", async () => {
     const ref = makePrRef("cadence-follow-up");
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const runningId = randomUUID();
@@ -4148,23 +4162,98 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
       [key],
     );
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.find((row) => row.id === runningId)).toMatchObject({
       status: "running",
       source: "slash",
     });
     expect(rows.find((row) => row.id === followUpId)).toMatchObject({
-      status: "queued",
+      status: "superseded",
       source: "auto",
     });
     expect(rows.find((row) => row.id === otherId)).toMatchObject({
       status: "superseded",
       source: "auto",
     });
-    await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    expect(replacement?.id).not.toBe(otherId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
   });
 
-  it("every_push replaces a pending follow-up so parent failure cannot drop the push", async () => {
+  it("commits a slash follow-up child with its review job", async () => {
+    const ref = makePrRef("cadence-follow-up-commit");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const eventId = randomUUID();
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [key]);
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, 'pull_request', 'sha', 'accepted')`,
+      [eventId, `follow-up-${eventId}`],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'queued', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: { webhookEventId: eventId },
+        }),
+      ],
+    );
+    const acquisition = await acquirePrActorLease(pool, {
+      resourceKey: key,
+      workType: "review",
+      workItemId: runningId,
+      holderId: "follow-up-commit",
+      ttlSeconds: 900,
+    });
+    if (!acquisition.acquired) throw new Error("expected parent lease");
+    await claimWorkForExecution(pool, runningId, acquisition.leaseEpoch);
+    const parent = await getWorkItem(pool, runningId);
+    if (parent?.type !== "review") throw new Error("expected the slash parent");
+    const result = await schedulePushFollowUp({
+      pool,
+      item: parent,
+      payload: parent.payload,
+      reviewCadence: "every_push",
+      prSurface: { getHeadSha: async () => "live-head" },
+      boundHeadSha: ref.headSha,
+      leaseEpoch: acquisition.leaseEpoch,
+      pullRequestClosed: false,
+      boss,
+    });
+    expect(result).toMatchObject({ kind: "rescheduled" });
+    if (result == null) throw new Error("expected a follow-up");
+    const child = await getWorkItem(pool, result.replacementWorkItemId);
+    expect(child).toMatchObject({ status: "queued", source: "auto" });
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([result.replacementWorkItemId]);
+    const stored = await getWorkItem(pool, runningId);
+    if (stored?.type !== "review") throw new Error("expected the slash parent");
+    expect(stored.payload.pushFollowUp).toMatchObject({
+      replacementWorkItemId: result.replacementWorkItemId,
+      state: "enqueued",
+    });
+    await result.afterComplete(boss);
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(jobs.length);
+  });
+
+  it("every_push replaces a queued follow-up that has no review job", async () => {
     const ref = makePrRef("cadence-follow-up-pending");
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const runningId = randomUUID();
@@ -4210,18 +4299,76 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
     const parent = await getWorkItem(pool, runningId);
     if (parent?.type !== "review") throw new Error("expected the slash parent");
-    await expect(cancelPendingPushFollowUp(pool, parent, new Error("terminal"))).rejects.toThrow(
-      /not confirmed/,
+    expect(parent.payload.pushFollowUp?.replacementWorkItemId).toBe(followUpId);
+    const { rows } = await pool.query<{ id: string; status: string; source: string }>(
+      `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    expect(rows.find((row) => row.id === followUpId)?.status).toBe("superseded");
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
+  });
+
+  it("every_push keeps a queued follow-up that already has a review job", async () => {
+    const ref = makePrRef("cadence-follow-up-live-job");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "pending-enqueue",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO pgboss.job (id, name, state, data)
+       VALUES ($1::uuid, $2, 'created', $3::jsonb)`,
+      [randomUUID(), REVIEW_QUEUE, JSON.stringify({ workItemId: followUpId })],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-live-job"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
     );
     const { rows } = await pool.query<{ id: string; status: string }>(
       `SELECT id, status FROM agent_work_items
         WHERE resource_key = $1 AND source = 'auto' AND status = 'queued'`,
       [key],
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.id).not.toBe(followUpId);
+    expect(rows).toEqual([{ id: followUpId, status: "queued" }]);
     const jobs = await reviewJobsFor(ref);
-    expect(jobs.map((job) => job.data.workItemId)).toEqual([rows[0]?.id]);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([followUpId]);
   });
 
   it("every_push replaces a slash follow-up that has left the queue", async () => {
@@ -4282,7 +4429,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
     expect(rows.find((row) => row.id === runningId)?.status).toBe("running");
     expect(rows.find((row) => row.id === followUpId)).toMatchObject({
-      status: "running",
+      status: "superseded",
       cancel_requested_at: expect.any(Date),
     });
     expect(replacement?.id).toEqual(expect.any(String));

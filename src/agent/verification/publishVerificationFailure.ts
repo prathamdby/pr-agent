@@ -1,4 +1,6 @@
 import { createPublishContext } from "../../agentWork/publishOnce.ts";
+import { logWarn } from "../../evlog.ts";
+import { errorMessage } from "../../errors/errorMessage.ts";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.ts";
@@ -7,6 +9,8 @@ import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.
 import {
   LEGACY_REVIEW_SUMMARY_SENTINELS,
   REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_FAILURE_END,
+  VERIFICATION_FAILURE_START,
   VERIFICATION_PUBLISH_LENS,
 } from "../../settings/index.ts";
 import { requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
@@ -155,6 +159,36 @@ export async function publishVerificationFailure(
   return signal;
 }
 
+function withoutVerificationFailureBlock(body: string): string | null {
+  const start = body.indexOf(VERIFICATION_FAILURE_START);
+  if (start < 0) return null;
+  const end = body.indexOf(VERIFICATION_FAILURE_END, start + VERIFICATION_FAILURE_START.length);
+  if (end < 0) return null;
+  return body.slice(0, start) + body.slice(end + VERIFICATION_FAILURE_END.length);
+}
+
+async function stripStoredVerificationFailure(
+  params: PublishVerificationFailureParams,
+  commentId: number,
+): Promise<void> {
+  if (commentId <= 0) return;
+  try {
+    const comments = await botOwnedComments(params.prSurface);
+    const comment = comments.find((item) => item.id === commentId);
+    if (comment == null || !isReviewSummaryBody(comment.body)) return;
+    const next = withoutVerificationFailureBlock(comment.body);
+    if (next == null) return;
+    await params.prSurface.editComment(commentId, next);
+  } catch (error) {
+    logWarn("verification_failure_strip_failed", {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      commentId,
+      message: errorMessage(error),
+    });
+  }
+}
+
 export async function clearVerificationFailureSignal(
   params: PublishVerificationFailureParams,
 ): Promise<void> {
@@ -163,5 +197,6 @@ export async function clearVerificationFailureSignal(
     resourceKey: params.resourceKey,
   });
   if (ledger.failureSignal == null) return;
+  await stripStoredVerificationFailure(params, ledger.failureSignal.commentId);
   await persistLedger(params, clearVerificationFailureSignalFromLedger(ledger));
 }

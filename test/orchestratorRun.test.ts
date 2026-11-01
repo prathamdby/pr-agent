@@ -38,6 +38,8 @@ import {
   openReviewRecovery,
   snapshotFindingLedger,
 } from "../src/review/recovery/reviewRecovery.ts";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
+import { renderReviewProgressComment } from "../src/review/run/progressComment.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
@@ -82,6 +84,7 @@ const testState = vi.hoisted(() => ({
   ticks: [] as Array<{
     readonly progressRevision: number;
     readonly kind: string;
+    readonly reason?: string;
     readonly recon?: string;
     readonly specialists?: Record<string, { phase: string }>;
   }>,
@@ -274,6 +277,7 @@ vi.mock("../src/review/orchestrator/stubTick.ts", () => ({
       progressRevision: number;
       tickState: {
         kind: string;
+        reason?: "superseded" | "stale_head" | "host_abort";
         recon?: string;
         specialists?: Record<string, { phase: string }>;
       };
@@ -281,6 +285,7 @@ vi.mock("../src/review/orchestrator/stubTick.ts", () => ({
       testState.ticks.push({
         progressRevision: params.progressRevision,
         kind: params.tickState.kind,
+        ...(params.tickState.kind === "terminal" ? { reason: params.tickState.reason } : {}),
         recon: params.tickState.recon,
         specialists: params.tickState.specialists,
       });
@@ -299,7 +304,10 @@ vi.mock("../src/review/publish/publishSummaryOnly.ts", () => ({
     async (
       _session: unknown,
       input: { readonly payload: Record<string, unknown>; readonly coverage?: ReviewCoverage },
-    ) => {
+    ): Promise<
+      | { readonly kind: "published"; readonly summaryCommentId: number }
+      | { readonly kind: "stopped"; readonly reason: "superseded" }
+    > => {
       testState.publishOrder.push("summary");
       testState.deterministicSummaries.push(input.payload);
       testState.summaryCoverages.push(input.coverage);
@@ -1556,7 +1564,10 @@ describe("runOrchestratedPrReview", () => {
 
   it("leaves an unjudged correctness finding unpublished", async () => {
     testState.judgmentSkipsPublishRemaining = 1;
-    const run = runOrchestratedPrReview(params());
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
     testState.outcomes.get("correctness")?.resolve({
       kind: "report",
       specialist: "correctness",
@@ -1573,6 +1584,9 @@ describe("runOrchestratedPrReview", () => {
     });
     expect(testState.publishOrder).toEqual(["summary"]);
     expect(testState.ledger?.accepted ?? []).toEqual([]);
+    expect(
+      testState.ticks.some((tick) => tick.specialists?.correctness?.phase === "unjudged"),
+    ).toBe(true);
   });
 
   it("leaves an unjudged tests finding unpublished", async () => {
@@ -1625,6 +1639,97 @@ describe("runOrchestratedPrReview", () => {
 
   it("publishes the failure notice and no summary when every specialist fails", async () => {
     const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(failed("correctness"));
+    testState.outcomes.get("security")?.resolve(failed("security"));
+    testState.outcomes.get("quality")?.resolve(failed("quality"));
+    testState.outcomes.get("tests")?.resolve(failed("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: false });
+    expect(testState.publishOrder).toEqual([]);
+    expect(testState.failureNotices).toBe(1);
+  });
+
+  function recoveryWithSeededFailures(failed: readonly SpecialistId[]) {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const summary = createReviewArtifactEnvelope(binding, {
+      kind: "final_summary",
+      payload: reviewPayloadFromFindings([]),
+      dependencies: [],
+      inputs: {
+        kind: "summary",
+        ledger: snapshotFindingLedger(createFindingLedger()),
+        coverage: { kind: "partial", failed: [...failed], note: "seeded" },
+        staleReview: false,
+        judgmentDegraded: false,
+        briefFallback: false,
+      },
+    });
+    return openReviewRecovery(binding, {
+      load: async (key) => (key === summary.logicalKey ? summary : null),
+      save: async () => "stored",
+    });
+  }
+
+  it("does not post a failure notice when seeded specialists succeed", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["correctness", "security", "quality"]),
+    });
+    testState.outcomes.get("correctness")?.resolve(empty("correctness"));
+    testState.outcomes.get("security")?.resolve(report("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(failed("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: tests specialist failed."]);
+  });
+
+  it("counts a seeded failure once in the coverage note", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["correctness"]),
+    });
+    testState.outcomes.get("correctness")?.resolve(failed("correctness"));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: correctness specialist failed."]);
+  });
+
+  it("posts the failure notice when a seeded specialist fails with the others", async () => {
+    vi.mocked(publishReviewSummaryOnly).mockResolvedValueOnce({
+      kind: "stopped",
+      reason: "superseded",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recovery: recoveryWithSeededFailures(["tests"]),
+    });
     testState.outcomes.get("correctness")?.resolve(failed("correctness"));
     testState.outcomes.get("security")?.resolve(failed("security"));
     testState.outcomes.get("quality")?.resolve(failed("quality"));
@@ -2029,6 +2134,7 @@ describe("runOrchestratedPrReview", () => {
       {
         progressRevision: 7,
         kind: "terminal",
+        reason: "superseded",
         recon: "done",
         specialists: {
           correctness: { phase: "running" },
@@ -2038,6 +2144,43 @@ describe("runOrchestratedPrReview", () => {
         },
       },
     ]);
+  });
+
+  it("stops when the host signal is already aborted and the gate continues", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      signal: controller.signal,
+      gate: { check: async () => ({ kind: "continue" }) },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.signals.size).toBe(0);
+    expect(testState.publishOrder).toEqual([]);
+    const terminal = testState.ticks.find((tick) => tick.kind === "terminal");
+    expect(terminal?.reason).toBe("host_abort");
+    expect(terminal?.recon).toBe("running");
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "a".repeat(40),
+      source: "auto",
+      tickState: {
+        kind: "terminal",
+        reason: "host_abort",
+        recon: "running",
+        specialists: {
+          correctness: { phase: "waiting" },
+          security: { phase: "waiting" },
+          quality: { phase: "waiting" },
+          tests: { phase: "waiting" },
+        },
+      },
+    });
+    expect(body).toContain("Stopped. The host aborted this run.");
+    expect(body).toContain("stale=false");
   });
 
   it("aborts a recon send when the host signal fires mid-stream", async () => {

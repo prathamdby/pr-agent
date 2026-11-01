@@ -242,12 +242,14 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(pool, parent, LEASE_EPOCH);
+    const result = await buildStaleReviewRescheduleResult(pool, parent, LEASE_EPOCH, boss);
     const insertParams = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),
     )?.[1] as unknown[] | undefined;
     expect(insertParams?.[2]).toBe("auto");
+    const sendsBeforeComplete = send.mock.calls.length;
     await result.afterComplete(boss);
+    expect(send.mock.calls.length).toBe(sendsBeforeComplete);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -301,8 +303,11 @@ describe("createReviewRescheduleWorkItem", () => {
         },
       }),
       LEASE_EPOCH,
+      boss,
     );
+    const sendsBeforeComplete = send.mock.calls.length;
     await result.afterComplete(boss);
+    expect(send.mock.calls.length).toBe(sendsBeforeComplete);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -317,7 +322,7 @@ describe("stale-head shared helpers", () => {
     const pool = fakePool(query);
 
     await expect(
-      tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH),
+      tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH, {} as PgBoss),
     ).resolves.toBeNull();
   });
 
@@ -333,7 +338,10 @@ describe("stale-head shared helpers", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = fakePool(query);
 
-    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH);
+    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH, {
+      send: vi.fn().mockResolvedValue("job-id"),
+      findJobs: vi.fn().mockResolvedValue([]),
+    } as unknown as PgBoss);
     expect(result).toMatchObject({
       kind: "rescheduled",
       replacementWorkItemId: "generated-replacement",
@@ -699,6 +707,11 @@ describe("schedulePushFollowUp", () => {
     }> = {},
   ) {
     const calls: string[] = [];
+    const send = vi.fn(async () => "job-1");
+    const boss = {
+      send,
+      findJobs: vi.fn(async () => []),
+    } as unknown as PgBoss;
     const prSurface = {
       getHeadSha: vi.fn(async () => {
         calls.push("head");
@@ -717,8 +730,9 @@ describe("schedulePushFollowUp", () => {
       boundHeadSha: overrides.boundHeadSha ?? boundHeadSha,
       leaseEpoch: overrides.leaseEpoch === undefined ? LEASE_EPOCH : overrides.leaseEpoch,
       pullRequestClosed: overrides.pullRequestClosed ?? false,
+      boss,
     });
-    return { result, calls, prSurface };
+    return { result, calls, prSurface, boss, send };
   }
 
   it("returns the original skip for once, auto source, a stale replacement, a closed pull request, an equal head, and a missing lease", async () => {
@@ -764,9 +778,14 @@ describe("schedulePushFollowUp", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ replacement_id: "child-1" }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = fakePool(query);
-    const { result, calls } = await schedule(parent(), pool);
+    const { result, calls, send, boss } = await schedule(parent(), pool);
 
     expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-1" });
+    expect(send).toHaveBeenCalled();
+    const sendCount = send.mock.calls.length;
+    if (result == null) throw new Error("expected a follow-up");
+    await result.afterComplete(boss);
+    expect(send).toHaveBeenCalledTimes(sendCount);
     expect(calls).toEqual(["head", "lock"]);
     const insert = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),

@@ -3,6 +3,7 @@ import {
   type Features,
   type Config,
   DEFERRED_HEAD_SHA,
+  REVIEW_QUEUE,
   IGNORED_REVIEW_APPROVAL_MAINTAINER_REQUIRED,
   IGNORED_REVIEW_APPROVAL_NOT_AWAITING,
   REVIEW_APPROVED,
@@ -126,7 +127,6 @@ type ActiveSlashReview = {
   readonly status: "queued" | "running";
   readonly hasFollowUp: boolean;
   readonly followUpReplacementId: string | null;
-  readonly followUpEnqueued: boolean;
 };
 
 const WORK_ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -144,12 +144,10 @@ async function lockActiveSlashReviews(
     status: "queued" | "running";
     has_follow_up: boolean;
     follow_up_replacement_id: string | null;
-    follow_up_state: string | null;
   }>(
     `SELECT id, status,
             (payload ? 'pushFollowUp') AS has_follow_up,
-            payload->'pushFollowUp'->>'replacementWorkItemId' AS follow_up_replacement_id,
-            payload->'pushFollowUp'->>'state' AS follow_up_state
+            payload->'pushFollowUp'->>'replacementWorkItemId' AS follow_up_replacement_id
        FROM agent_work_items
       WHERE resource_key = $1
         AND source = 'slash'
@@ -164,7 +162,6 @@ async function lockActiveSlashReviews(
     status: row.status,
     hasFollowUp: row.has_follow_up,
     followUpReplacementId: followUpReplacementId(row.follow_up_replacement_id),
-    followUpEnqueued: row.follow_up_state === "enqueued",
   }));
 }
 
@@ -257,6 +254,29 @@ async function everyPushReviewAdmitted(
   return reviewPushAdmitted(client, resourceKey);
 }
 
+async function followUpIdsWithLiveReviewJob(
+  client: PoolClient,
+  followUpIds: readonly string[],
+): Promise<string[]> {
+  if (followUpIds.length === 0) return [];
+  const result = await client.query<{ id: string }>(
+    `SELECT ids.id
+       FROM unnest($1::uuid[]) AS ids(id)
+      WHERE EXISTS (
+        SELECT 1 FROM pgboss.job j
+         WHERE j.name = $2
+           AND j.state IN ('created', 'active', 'retry')
+           AND (
+             j.id = ids.id
+             OR j.singleton_key = ids.id::text
+             OR j.data @> jsonb_build_object('workItemId', ids.id::text)
+           )
+      )`,
+    [followUpIds, REVIEW_QUEUE],
+  );
+  return result.rows.map((row) => row.id);
+}
+
 async function applyEveryPushReviewSupersede(
   boss: PgBoss,
   tx: DeliveryTx,
@@ -277,13 +297,12 @@ async function applyEveryPushReviewSupersede(
       ),
     ),
   ];
+  const preservedFollowUpIds = await followUpIdsWithLiveReviewJob(client, followUpIds);
   const superseded = await supersedeActiveAutoWork(
     client,
     { kind: "review", resourceKey },
     {
-      preserveQueuedIds: followUpIds.filter((id) =>
-        slashRows.some((row) => row.followUpReplacementId === id && row.followUpEnqueued),
-      ),
+      preserveQueuedIds: preservedFollowUpIds,
     },
   );
   tx.deferWorkLifecycle(ref, superseded.lifecycleChanges, "auto_replacement", correlation);
@@ -307,13 +326,15 @@ async function applyEveryPushReviewSupersede(
     .map((row) => row.id);
   if (runningIds.length === 0) {
     if (followUpIds.length === 0) return events;
-    const queuedFollowUp = await client.query(
-      `SELECT id FROM agent_work_items
-        WHERE id = ANY($1::uuid[])
-          AND status = 'queued'`,
-      [followUpIds],
-    );
-    if ((queuedFollowUp.rowCount ?? 0) > 0) return events;
+    if (preservedFollowUpIds.length > 0) {
+      const queuedFollowUp = await client.query(
+        `SELECT id FROM agent_work_items
+          WHERE id = ANY($1::uuid[])
+            AND status = 'queued'`,
+        [preservedFollowUpIds],
+      );
+      if ((queuedFollowUp.rowCount ?? 0) > 0) return events;
+    }
     return [
       ...events,
       ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),

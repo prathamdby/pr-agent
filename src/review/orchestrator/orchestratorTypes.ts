@@ -62,13 +62,14 @@ export type SpecialistRunPhase =
   | { readonly phase: "running" }
   | { readonly phase: "done"; readonly findingsAccepted: number }
   | { readonly phase: "no_findings" }
-  | { readonly phase: "failed" };
+  | { readonly phase: "failed" }
+  | { readonly phase: "unjudged" };
 
 export type ReconRunPhase = "running" | "done";
 
 type OrchestratedRunLifecycle =
   | { readonly kind: "running" }
-  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" }
+  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" | "host_abort" }
   | {
       readonly kind: "stopped";
       readonly reason: "cancelled";
@@ -88,7 +89,6 @@ export type OrchestratedRunState = {
   readonly outcomes: Partial<Record<SpecialistId, SpecialistOutcome>>;
   readonly completionOrder: SpecialistId[];
   readonly failedSpecialists: SpecialistId[];
-  readonly unjudgedSpecialists: SpecialistId[];
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;

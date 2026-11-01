@@ -186,7 +186,6 @@ function initialState(): OrchestratedRunState {
     outcomes: {},
     completionOrder: [],
     failedSpecialists: [],
-    unjudgedSpecialists: [],
     briefFallback: false,
     judgment: "model",
     lifecycle: { kind: "running" },
@@ -461,16 +460,17 @@ export async function runOrchestratedPrReview(
       : undefined,
   });
   const state = initialState();
+  const unjudgedFromPhases = (): SpecialistId[] =>
+    SPECIALIST_IDS.filter((id) => state.specialists[id].phase === "unjudged");
   const coverageNow = (): ReviewCoverage =>
-    reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), state.unjudgedSpecialists);
+    reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), unjudgedFromPhases());
   const restoreCoverageLists = (coverage: ReviewCoverage): void => {
     if (coverage.kind !== "partial") return;
     for (const specialist of coverage.failed ?? []) {
       if (!state.failedSpecialists.includes(specialist)) state.failedSpecialists.push(specialist);
     }
     for (const specialist of coverage.unjudged ?? []) {
-      if (!state.unjudgedSpecialists.includes(specialist))
-        state.unjudgedSpecialists.push(specialist);
+      state.specialists[specialist] = { phase: "unjudged" };
     }
   };
   const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
@@ -1044,12 +1044,18 @@ export async function runOrchestratedPrReview(
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);
+    if (outcome.kind === "report" || outcome.kind === "empty") {
+      const seeded = state.failedSpecialists.indexOf(outcome.specialist);
+      if (seeded >= 0) state.failedSpecialists.splice(seeded, 1);
+    }
     if (outcome.kind === "empty") {
       state.specialists[outcome.specialist] = { phase: "no_findings" };
       await writeTick();
     } else if (outcome.kind === "error") {
       state.specialists[outcome.specialist] = { phase: "failed" };
-      state.failedSpecialists.push(outcome.specialist);
+      if (!state.failedSpecialists.includes(outcome.specialist)) {
+        state.failedSpecialists.push(outcome.specialist);
+      }
       const failure = classifyFailure(outcome.error, {
         phase: "specialist",
         toolName: outcome.specialist,
@@ -1080,9 +1086,7 @@ export async function runOrchestratedPrReview(
     }
     state.judgment = "degraded";
     recovery?.setJudgmentDegraded(true);
-    if (!state.unjudgedSpecialists.includes(outcome.specialist)) {
-      state.unjudgedSpecialists.push(outcome.specialist);
-    }
+    state.specialists[outcome.specialist] = { phase: "unjudged" };
     setReviewRunMetricFields({ judgmentDegraded: true });
     recovery?.setCoverage(coverageNow());
     if (agentEvents) {
@@ -1113,10 +1117,6 @@ export async function runOrchestratedPrReview(
       });
     }
     if (cause.reason === "judgment_unavailable") await retireSession();
-    state.specialists[outcome.specialist] = {
-      phase: "done",
-      findingsAccepted: countAcceptedForSource(publishThread.getLedger(), outcome.specialist),
-    };
     await writeTick();
   };
 
@@ -1215,7 +1215,12 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "stop_on_host_abort": {
-        await stopFromGateResult(await params.gate.check());
+        const stopped = await stopFromGateResult(await params.gate.check());
+        if (!stopped) {
+          state.lifecycle = { kind: "stopped", reason: "host_abort" };
+          abortSpecialists();
+          await retireSession();
+        }
         break;
       }
       case "dispatch_specialists": {
