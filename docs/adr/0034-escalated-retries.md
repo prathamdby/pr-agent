@@ -67,6 +67,15 @@ including intake. Dispatch abort or lease loss alone emits nonterminal execution
 stop metadata. Audit and PostHog are independent, and no historical telemetry is
 backfilled. This amends decision 6's exclusion of intake lifecycle terminals.
 
+A started run that is later cancelled, a lost running row the sweeper finishes
+because cancel was already requested, and a run the lost-running pass marks
+`worker_lost`, also emit one `"work completed"` event with numeric `duration_ms`
+from the original `started_at`. `outcome` is `cancelled`, `superseded`, or
+`failed`. A cancel before the executor starts, a rejected completion mark, and
+intake supersede of queued work that never runs still emit no `"work completed"`
+event. Resume keeps `started_at`, so a recovered run that finishes later includes
+the whole wall clock in that one event.
+
 Amendment to decision 7: concurrent closes select one durable review verdict
 before publication, including acknowledgement. Null and omitted epochs require
 terminal work; numeric epochs keep their live fences. Repair retains that

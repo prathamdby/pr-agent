@@ -370,8 +370,8 @@ export async function updateRunningWorkHeadSha(
 export async function transitionCancelRequestedLostRunning(
   pool: Pool,
   row: { readonly id: string; readonly linked: boolean },
-): Promise<void> {
-  await transition(pool, {
+): Promise<boolean> {
+  const result = await transition(pool, {
     selector: { id: row.id },
     from: ["running"],
     to: row.linked ? "superseded" : "cancelled",
@@ -380,6 +380,7 @@ export async function transitionCancelRequestedLostRunning(
       `AND w.cancel_requested_at IS NOT NULL
       ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
   });
+  return result.rowCount > 0;
 }
 
 export async function markLostRunningWorkFailed(

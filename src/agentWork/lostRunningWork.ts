@@ -2,6 +2,7 @@ import { productionInstallationSurface } from "./installationSurface.ts";
 import { unfencedSurface } from "./writeFence.ts";
 import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
 import { createPublishContext } from "./publishOnce.ts";
+import { recordLostRunningTerminal } from "./durableJob.ts";
 import type { Pool } from "pg";
 import {
   type Config,
@@ -227,7 +228,16 @@ async function finishCancelRequestedRunningWork(pool: Pool): Promise<void> {
     [STALE_QUEUED_WORK_BATCH_SIZE],
   );
   for (const row of rows.rows) {
-    await transitionCancelRequestedLostRunning(pool, row);
+    if (!(await transitionCancelRequestedLostRunning(pool, row))) continue;
+    const core = await getWorkItemCore(pool, row.id);
+    if (core == null) continue;
+    await recordLostRunningTerminal(
+      pool,
+      core,
+      row.linked
+        ? { kind: "superseded", reason: "cancel_requested" }
+        : { kind: "cancelled", reason: "cancel_requested" },
+    );
   }
 }
 
@@ -249,6 +259,14 @@ export async function reconcileLostRunningWork(params: {
         params.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
       );
       if (!marked) continue;
+      await recordLostRunningTerminal(params.pool, core, {
+        kind: "failure",
+        failure: {
+          failureDomain: "internal",
+          errorKind: "unknown",
+          errorMessage: "worker_lost",
+        },
+      });
       if (core.type !== "review") continue;
       await closeOpenOwnVerdict({
         cfg: params.cfg,

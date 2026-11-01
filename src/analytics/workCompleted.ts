@@ -116,7 +116,9 @@ export type WorkCompletion =
       readonly publish: PublishTelemetry;
     } & ReviewProfileFields &
       ReviewCompletionOutcome)
-  | { readonly kind: "failure"; readonly failure: WorkFailureReason };
+  | { readonly kind: "failure"; readonly failure: WorkFailureReason }
+  | { readonly kind: "cancelled"; readonly reason: string }
+  | { readonly kind: "superseded"; readonly reason: string };
 
 export type RecordWorkCompletedInput = {
   readonly item: {
@@ -246,6 +248,8 @@ function completionProperties(
           : {}),
       };
     case "failure":
+    case "cancelled":
+    case "superseded":
       return {};
     case "review-profile":
       return {
@@ -284,7 +288,14 @@ function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | 
 export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
   const { item, completion, ci } = input;
   const profile = completion.kind === "review-profile" ? completion : undefined;
-  const outcome = completion.kind === "failure" ? "failed" : completion.outcome;
+  const outcome =
+    completion.kind === "failure"
+      ? "failed"
+      : completion.kind === "cancelled"
+        ? "cancelled"
+        : completion.kind === "superseded"
+          ? "superseded"
+          : completion.outcome;
   const degradedReason =
     outcome === "degraded"
       ? completion.kind === "review-profile" && completion.outcome === "degraded"
@@ -305,7 +316,10 @@ export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
       work_item_id: item.id,
       work_type: input.workType,
       outcome: ciUnavailable ? "degraded" : outcome,
-      reason: effectiveDegradedReason ?? failure?.errorKind ?? outcome,
+      reason:
+        completion.kind === "cancelled" || completion.kind === "superseded"
+          ? completion.reason
+          : (effectiveDegradedReason ?? failure?.errorKind ?? outcome),
       duration_ms: profile?.durationMs ?? input.durationMs,
       attempt_count: profile?.attemptCount ?? input.attemptCount,
       owner: item.owner,

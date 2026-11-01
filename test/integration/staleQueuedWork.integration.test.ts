@@ -24,6 +24,7 @@ import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepositor
 import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.ts";
 import { runMigrations } from "../../src/db/migrations.ts";
 import { inTransaction } from "../../src/db/postgres.ts";
+import * as analytics from "../../src/analytics/index.ts";
 import * as evlog from "../../src/evlog.ts";
 import * as installationToken from "../../src/github/installationToken.ts";
 import * as prSurface from "../../src/github/prSurface.ts";
@@ -1434,6 +1435,11 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         lostRunningMinAgeSeconds: minAgeSeconds,
       });
       expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      const completedEvents = () =>
+        capture.mock.calls
+          .map(([event]) => event)
+          .filter((event) => event.event === "work completed");
       await reconcileLostRunningWork({
         cfg,
         pool,
@@ -1446,7 +1452,28 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       expect(result.rows).toEqual([
         { status: "failed", last_error: "worker_lost", completed_at: expect.any(Date) },
       ]);
+      expect(completedEvents()).toHaveLength(1);
+      expect(completedEvents()[0]).toMatchObject({
+        event: "work completed",
+        properties: {
+          work_item_id: id,
+          work_type: workType,
+          outcome: "failed",
+          error_kind: "unknown",
+          error_message: "worker_lost",
+          attempt_count: 0,
+        },
+      });
+      const duration = completedEvents()[0]?.properties?.duration_ms;
+      expect(duration).toEqual(expect.any(Number));
+      expect(duration).toBeGreaterThan(0);
       if (workType !== "review") {
+        await reconcileLostRunningWork({
+          cfg,
+          pool,
+          items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
+        });
+        expect(completedEvents()).toHaveLength(1);
         expect(factory).not.toHaveBeenCalled();
         return;
       }
@@ -1466,6 +1493,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       ).toEqual([expect.objectContaining({ status: expect.objectContaining({ state: "error" }) })]);
       await reconcileLostRunningWork({ cfg, pool, items: snapshot.lostRunningWorkItems });
       expect(finish).toHaveBeenCalledTimes(2);
+      expect(completedEvents()).toHaveLength(1);
     },
   );
 
@@ -1868,17 +1896,44 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         await pool.query("UPDATE agent_work_items SET status = $2 WHERE id = $1", [id, status]);
       }
       const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
       await reconcileLostRunningWork({
         cfg,
         pool,
         items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
       });
       const after = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      const completions = capture.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.event === "work completed");
       if (status === "cancel_requested") {
         expect(after.rows[0]?.status).toBe("cancelled");
         expect(after.rows[0]?.cancel_requested_at).toEqual(before.rows[0]?.cancel_requested_at);
+        expect(completions).toHaveLength(1);
+        expect(completions[0]).toMatchObject({
+          properties: {
+            work_item_id: id,
+            work_type: "review",
+            outcome: "cancelled",
+            reason: "cancel_requested",
+            attempt_count: 0,
+          },
+        });
+        const duration = completions[0]?.properties?.duration_ms;
+        expect(duration).toEqual(expect.any(Number));
+        expect(duration).toBeGreaterThan(0);
+        capture.mockClear();
+        await reconcileLostRunningWork({
+          cfg,
+          pool,
+          items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
+        });
+        expect(
+          capture.mock.calls.filter(([event]) => event.event === "work completed"),
+        ).toHaveLength(0);
       } else {
         expect(after.rows).toEqual(before.rows);
+        expect(completions).toHaveLength(0);
       }
       expect(factory).not.toHaveBeenCalled();
       expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
@@ -1892,6 +1947,48 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       }
     },
   );
+
+  it("sends superseded duration when a lost cancel request is linked", async () => {
+    const cfg = makeTestConfig();
+    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+    const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
+    const successor = await insertAgedQueuedWork();
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'running',
+              started_at = created_at,
+              cancel_requested_at = now(),
+              superseded_by = $2
+        WHERE id = $1`,
+      [id, successor.id],
+    );
+    const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+    await reconcileLostRunningWork({ cfg, pool, items: [] });
+    expect(
+      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
+    ).toEqual([{ status: "superseded" }]);
+    const completions = capture.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.event === "work completed");
+    expect(completions).toHaveLength(1);
+    expect(completions[0]).toMatchObject({
+      properties: {
+        work_item_id: id,
+        work_type: "review",
+        outcome: "superseded",
+        reason: "cancel_requested",
+        attempt_count: 0,
+      },
+    });
+    const duration = completions[0]?.properties?.duration_ms;
+    expect(duration).toEqual(expect.any(Number));
+    expect(duration).toBeGreaterThan(0);
+    capture.mockClear();
+    await reconcileLostRunningWork({ cfg, pool, items: [] });
+    expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toHaveLength(
+      0,
+    );
+  });
 
   it("uses current mark time for an expired lease changed after an older snapshot", async () => {
     const cfg = makeTestConfig();

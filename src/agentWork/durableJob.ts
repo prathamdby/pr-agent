@@ -56,7 +56,7 @@ import {
   type RetryDisposition,
 } from "./retryPolicy.ts";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.ts";
-import { inTransaction } from "../db/postgres.ts";
+import { inTransaction, queryOne } from "../db/postgres.ts";
 import { isWorkItemType } from "./types.ts";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.ts";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.ts";
@@ -368,6 +368,37 @@ function passthroughMutationBoundary(): PrSurfaceMutationBoundary {
   };
 }
 
+export async function recordLostRunningTerminal(
+  pool: Pool,
+  core: AgentWorkItemCore,
+  completion: Extract<WorkCompletion, { kind: "failure" | "cancelled" | "superseded" }>,
+): Promise<void> {
+  try {
+    const timing = await queryOne<{ started_at: Date | null }>(
+      pool,
+      `SELECT started_at FROM agent_work_items WHERE id = $1`,
+      [core.id],
+    );
+    if (timing?.started_at == null) return;
+    const startedAt = timing.started_at;
+    if (!(startedAt instanceof Date) || !Number.isFinite(startedAt.getTime())) return;
+    const ci = await loadCiWorkTelemetry(pool, core.owner, core.repo, core.headSha);
+    recordWorkCompleted({
+      item: core,
+      workType: core.type,
+      completion,
+      ci,
+      durationMs: durationMsFromClaim({ startedAt }),
+      attemptCount: core.attemptCount,
+    });
+  } catch (error) {
+    logWarn("lost_running_work_completion_telemetry_failed", {
+      workItemId: core.id,
+      message: sanitizeLogMessage(errorMessage(error)),
+    });
+  }
+}
+
 export async function runDurableWorkItem<T extends WorkType>(
   spec: DurableJobSpec<T>,
 ): Promise<void> {
@@ -384,6 +415,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   let reviewCapabilities: ReviewCapabilityPolicy | undefined;
   let boundHeadSha: string | undefined;
   let workClaim: WorkClaim | undefined;
+  let executionStarted = false;
   let workspaceCheckout: WorkspaceCheckoutProperties | undefined;
   const executionId = randomUUID();
   const recordWorkspaceCheckout = (properties: WorkspaceCheckoutProperties) => {
@@ -469,8 +501,37 @@ export async function runDurableWorkItem<T extends WorkType>(
         executionId,
         attemptCount: workClaim?.attemptCount ?? itemCore.attemptCount,
       });
+      await recordStartedCancellation(itemCore, reason);
     }
     if (notifyHook) await invokeCancelledHook(itemCore, reason, installation);
+  }
+
+  async function recordStartedCancellation(itemCore: TypedCore, reason: string): Promise<void> {
+    const claim = workClaim;
+    if (!executionStarted || claim == null) return;
+    try {
+      const ci = await loadCiWorkTelemetry(
+        spec.pool,
+        itemCore.owner,
+        itemCore.repo,
+        itemCore.headSha,
+      );
+      recordWorkCompleted({
+        item: itemCore,
+        workType: spec.type,
+        completion: { kind: "cancelled", reason },
+        ci,
+        durationMs: durationMsFromClaim(claim),
+        attemptCount: claim.attemptCount,
+        ...(workspaceCheckout != null ? { workspaceCheckout } : {}),
+      });
+    } catch (error) {
+      logWarn("agent_work_completion_telemetry_failed", {
+        type: spec.type,
+        workItemId: itemCore.id,
+        message: sanitizeLogMessage(errorMessage(error)),
+      });
+    }
   }
 
   const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
@@ -1143,7 +1204,10 @@ export async function runDurableWorkItem<T extends WorkType>(
           provider: spec.cfg.models.provider,
           model: spec.cfg.models.model,
         },
-        () => spec.execute(item, execution),
+        () => {
+          executionStarted = true;
+          return spec.execute(item, execution);
+        },
       );
       await completeDurableExecution(result);
     } catch (error) {

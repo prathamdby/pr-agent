@@ -350,9 +350,75 @@ describe("durableJob analytics forwarding", () => {
           properties: { work_item_id: item.id, source: "worker", outcome: "cancelled" },
         });
       }
+      const completions = capture?.mock.calls.filter(([event]) => event.event === "work completed");
+      if (leaseMode === "leased" && changed) {
+        expect(completions).toHaveLength(1);
+        const properties = completions?.[0]?.[0].properties as { duration_ms?: unknown };
+        expect(completions?.[0]?.[0]).toMatchObject({
+          properties: {
+            work_item_id: item.id,
+            work_type: "review",
+            outcome: "cancelled",
+            reason: "skipped_after_execute",
+          },
+        });
+        expect(properties.duration_ms).toEqual(expect.any(Number));
+        expect(properties.duration_ms).toBeGreaterThan(0);
+      } else {
+        expect(completions ?? []).toHaveLength(0);
+      }
       expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     },
   );
+
+  it("omits work completed when a cancel wins after claim and before the executor", async () => {
+    const item = makeReviewWorkItem({ installationId: 99 });
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+    const abort = new AbortController();
+    const job = { ...reviewJob(item.id, 0, 3), signal: abort.signal };
+    vi.mocked(repo.claimWorkForExecution).mockImplementation(async () => {
+      abort.abort();
+      return {
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+        resumed: false,
+      };
+    });
+    vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
+    const execute = vi.fn(async () => ({ kind: "completed" as const }));
+    await runDurableWorkItem({
+      type: "review",
+      cfg,
+      pool,
+      boss,
+      job,
+      prActorLease: { queue: "agent-work-review" },
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: vi.fn().mockImplementation(async (_pool, fn) => fn(pool)),
+        startLeaseRenewal: vi.fn(() => () => undefined),
+        startCancelObserve: vi.fn(() => () => undefined),
+      }),
+      contextPolicy: { commenterId: () => undefined },
+      resolveHeadSha: async () => ({ headSha: item.headSha }),
+      execute,
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalled();
+    const capture = mockPostHog.instances[0]?.capture;
+    const terminals = capture?.mock.calls.filter(
+      ([event]) => event.event === "work item cancelled",
+    );
+    expect(terminals).toHaveLength(1);
+    expect(terminals?.[0]?.[0]).toMatchObject({
+      properties: { work_item_id: item.id, source: "worker", outcome: "cancelled" },
+    });
+    const completions = capture?.mock.calls.filter(([event]) => event.event === "work completed");
+    expect(completions ?? []).toHaveLength(0);
+    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+  });
 
   it("does not infer terminal cancellation after lease ownership is lost", async () => {
     const item = makeReviewWorkItem({ installationId: 99 });
