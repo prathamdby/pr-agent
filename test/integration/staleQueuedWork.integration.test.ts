@@ -1923,7 +1923,11 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         expect(duration).toEqual(expect.any(Number));
         expect(duration).toBeGreaterThan(0);
         capture.mockClear();
-        await reconcileLostRunningWork({ cfg, pool, items: [] });
+        await reconcileLostRunningWork({
+          cfg,
+          pool,
+          items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
+        });
         expect(
           capture.mock.calls.filter(([event]) => event.event === "work completed"),
         ).toHaveLength(0);
