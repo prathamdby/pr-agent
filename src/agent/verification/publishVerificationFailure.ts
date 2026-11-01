@@ -172,12 +172,12 @@ async function stripStoredVerificationFailure(
   commentId: number,
 ): Promise<void> {
   if (commentId <= 0) return;
-  const comments = await botOwnedComments(params.prSurface);
-  const comment = comments.find((item) => item.id === commentId);
-  if (comment == null || !isReviewSummaryBody(comment.body)) return;
-  const next = withoutVerificationFailureBlock(comment.body);
-  if (next == null) return;
   try {
+    const comments = await botOwnedComments(params.prSurface);
+    const comment = comments.find((item) => item.id === commentId);
+    if (comment == null || !isReviewSummaryBody(comment.body)) return;
+    const next = withoutVerificationFailureBlock(comment.body);
+    if (next == null) return;
     await params.prSurface.editComment(commentId, next);
   } catch (error) {
     logWarn("verification_failure_strip_failed", {

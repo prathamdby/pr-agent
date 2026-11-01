@@ -1740,6 +1740,41 @@ describe("publishVerificationFailure", () => {
     );
   });
 
+  it("clears the failure signal when listing the summary comment fails", async () => {
+    const nextHead = "d".repeat(40);
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+      pool: pool({
+        threads: {},
+        failureSignal: { headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" },
+      }),
+    });
+    vi.spyOn(params.prSurface, "listConversationComments").mockRejectedValueOnce(
+      new Error("list 403"),
+    );
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: nextHead,
+      leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(0);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "verification_thread_actions",
+        detail: { threads: {} },
+      }),
+    );
+  });
+
   it("records again on a second failure and still does not edit", async () => {
     const params = baseParams({
       inventory: [thread],
