@@ -1176,6 +1176,7 @@ export async function runReviewForWorkItem(
     boundHeadSha: env.headSha,
     leaseEpoch: env.leaseEpoch,
     pullRequestClosed: pullRequestClosed(env.pullRequest),
+    boss,
   });
   return followUp ?? finished;
 }

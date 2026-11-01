@@ -421,6 +421,7 @@ export async function schedulePushFollowUp(args: {
   readonly boundHeadSha: string;
   readonly leaseEpoch: number | null;
   readonly pullRequestClosed: boolean;
+  readonly boss: PgBoss;
 }): Promise<StaleReviewRescheduleResult | null> {
   if (args.reviewCadence !== "every_push") return null;
   if (args.payload.source !== "slash") return null;
@@ -430,20 +431,22 @@ export async function schedulePushFollowUp(args: {
   if (args.pullRequestClosed) return null;
   const liveHeadSha = await args.prSurface.getHeadSha();
   if (liveHeadSha === args.boundHeadSha) return null;
-  const created = await createPushFollowUpWorkItem(args.pool, args.item, leaseEpoch);
+  const created = await createPushFollowUpWorkItem(args.pool, args.item, leaseEpoch, args.boss);
   if (created == null) return null;
+  logInfo("review_push_follow_up_scheduled", {
+    owner: args.item.owner,
+    repo: args.item.repo,
+    pr: args.item.prNumber,
+    reviewLens: args.item.reviewLens,
+    previousWorkItemId: args.item.id,
+    replacementWorkItemId: created.replacementWorkItemId,
+    previousHeadSha: args.item.headSha,
+    replacementHeadSha: DEFERRED_HEAD_SHA,
+  });
   return {
     kind: "rescheduled",
     replacementWorkItemId: created.replacementWorkItemId,
-    afterComplete: (boss) =>
-      enqueuePushFollowUp(
-        args.pool,
-        boss,
-        args.item,
-        created.replacementWorkItemId,
-        created.webhookEventId,
-        leaseEpoch,
-      ),
+    afterComplete: async () => {},
   };
 }
 
@@ -451,6 +454,7 @@ async function createPushFollowUpWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
   leaseEpoch: number,
+  boss: PgBoss,
 ): Promise<{ replacementWorkItemId: string; webhookEventId: string } | null> {
   return inTransaction(pool, async (client) => {
     await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
@@ -537,6 +541,7 @@ async function createPushFollowUpWorkItem(
       resourceKey: item.resourceKey,
       reviewLens: item.reviewLens,
     });
+    await writePushFollowUpJobs(client, boss, item, replacementWorkItemId, followUp.webhookEventId);
     return { replacementWorkItemId, webhookEventId: followUp.webhookEventId };
   });
 }
@@ -561,67 +566,53 @@ async function markPushFollowUpEnqueued(
   );
 }
 
-async function enqueuePushFollowUp(
-  pool: Pool,
+async function writePushFollowUpJobs(
+  client: PoolClient,
   boss: PgBoss,
   item: ReviewWorkItem,
   workItemId: string,
   webhookEventId: string,
-  leaseEpoch: number,
 ): Promise<void> {
   const reviewLens = item.reviewLens;
-  await inTransaction(pool, async (client) => {
-    await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
-    const db = pgBossDb(client);
-    const reviewData: ReviewJobData = {
-      kind: "review",
-      workItemId,
-      webhookEventId,
-    };
-    await ensureDeterministicJob(
-      boss,
-      REVIEW_QUEUE,
-      reviewData,
-      {
-        db,
-        id: workItemId,
-        group: { id: installationGroupId(item.installationId) },
-      },
+  const db = pgBossDb(client);
+  const reviewData: ReviewJobData = {
+    kind: "review",
+    workItemId,
+    webhookEventId,
+  };
+  await ensureDeterministicJob(
+    boss,
+    REVIEW_QUEUE,
+    reviewData,
+    {
       db,
-    );
-    const ackData: AckJobData = {
-      kind: "ack",
-      workItemId,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      targets: [],
-      progress: { lens: reviewLens, headSha: DEFERRED_HEAD_SHA, source: "auto" },
-      webhookEventId,
-    };
-    await ensureDeterministicJob(
-      boss,
-      ACK_QUEUE,
-      ackData,
-      {
-        db,
-        id: workItemId,
-        priority: 100,
-        group: { id: installationGroupId(item.installationId) },
-      },
-      db,
-    );
-    await markPushFollowUpEnqueued(client, item.id, workItemId, webhookEventId);
-  });
-  logInfo("review_push_follow_up_scheduled", {
+      id: workItemId,
+      group: { id: installationGroupId(item.installationId) },
+    },
+    db,
+  );
+  const ackData: AckJobData = {
+    kind: "ack",
+    workItemId,
+    installationId: item.installationId,
     owner: item.owner,
     repo: item.repo,
-    pr: item.prNumber,
-    reviewLens,
-    previousWorkItemId: item.id,
-    replacementWorkItemId: workItemId,
-    previousHeadSha: item.headSha,
-    replacementHeadSha: DEFERRED_HEAD_SHA,
-  });
+    prNumber: item.prNumber,
+    targets: [],
+    progress: { lens: reviewLens, headSha: DEFERRED_HEAD_SHA, source: "auto" },
+    webhookEventId,
+  };
+  await ensureDeterministicJob(
+    boss,
+    ACK_QUEUE,
+    ackData,
+    {
+      db,
+      id: workItemId,
+      priority: 100,
+      group: { id: installationGroupId(item.installationId) },
+    },
+    db,
+  );
+  await markPushFollowUpEnqueued(client, item.id, workItemId, webhookEventId);
 }
