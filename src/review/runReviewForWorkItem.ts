@@ -167,6 +167,7 @@ function reviewRunGate(args: {
 
 async function scheduleStaleHeadReplacement(args: {
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly item: ReviewWorkItem;
   readonly leaseEpoch: number | null;
   readonly beforeBuild?: () => Promise<void>;
@@ -184,12 +185,14 @@ async function scheduleStaleHeadReplacement(args: {
   }
   await args.beforeBuild?.();
   return (
-    (await tryBuildStaleReviewRescheduleResult(args.pool, args.item, args.leaseEpoch)) ?? undefined
+    (await tryBuildStaleReviewRescheduleResult(args.pool, args.item, args.leaseEpoch, args.boss)) ??
+    undefined
   );
 }
 
 async function handleStaleHeadReschedule(args: {
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -207,6 +210,7 @@ async function handleStaleHeadReschedule(args: {
   }
   return scheduleStaleHeadReplacement({
     pool,
+    boss: args.boss,
     item,
     leaseEpoch,
     beforeBuild: async () => {
@@ -320,6 +324,7 @@ async function runLightweightCompletionOrSkip(args: {
     }
     const reschedule = await scheduleStaleHeadReplacement({
       pool,
+      boss,
       item,
       leaseEpoch,
       beforeBuild: () =>
@@ -906,6 +911,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     if (payload.source === "slash" || payload.source === "auto") {
       const reschedule = await scheduleStaleHeadReplacement({
         pool,
+        boss,
         item,
         leaseEpoch,
         beforeBuild: async () => {
@@ -954,6 +960,7 @@ async function runClaimedReview(args: {
   const commitStatusEnabled = cfg.features.commitStatus;
   const staleHeadResult = await handleStaleHeadReschedule({
     pool,
+    boss,
     item,
     reviewLens,
     payload,

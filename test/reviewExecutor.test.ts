@@ -808,6 +808,7 @@ describe("review work definition", () => {
       pool,
       expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001" }),
       1,
+      boss,
     );
   });
 
@@ -832,6 +833,7 @@ describe("review work definition", () => {
       pool,
       expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
+      boss,
     );
   });
 
@@ -862,6 +864,7 @@ describe("review work definition", () => {
       pool,
       expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
+      boss,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
     expect(
@@ -971,6 +974,7 @@ describe("review work definition", () => {
       pool,
       expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001", source: "auto" }),
       1,
+      boss,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });

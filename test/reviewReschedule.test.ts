@@ -242,12 +242,14 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(pool, parent, LEASE_EPOCH);
+    const result = await buildStaleReviewRescheduleResult(pool, parent, LEASE_EPOCH, boss);
     const insertParams = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),
     )?.[1] as unknown[] | undefined;
     expect(insertParams?.[2]).toBe("auto");
+    const sendsBeforeComplete = send.mock.calls.length;
     await result.afterComplete(boss);
+    expect(send.mock.calls.length).toBe(sendsBeforeComplete);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -301,8 +303,11 @@ describe("createReviewRescheduleWorkItem", () => {
         },
       }),
       LEASE_EPOCH,
+      boss,
     );
+    const sendsBeforeComplete = send.mock.calls.length;
     await result.afterComplete(boss);
+    expect(send.mock.calls.length).toBe(sendsBeforeComplete);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -317,7 +322,7 @@ describe("stale-head shared helpers", () => {
     const pool = fakePool(query);
 
     await expect(
-      tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH),
+      tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH, {} as PgBoss),
     ).resolves.toBeNull();
   });
 
@@ -333,7 +338,10 @@ describe("stale-head shared helpers", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = fakePool(query);
 
-    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH);
+    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH, {
+      send: vi.fn().mockResolvedValue("job-id"),
+      findJobs: vi.fn().mockResolvedValue([]),
+    } as unknown as PgBoss);
     expect(result).toMatchObject({
       kind: "rescheduled",
       replacementWorkItemId: "generated-replacement",

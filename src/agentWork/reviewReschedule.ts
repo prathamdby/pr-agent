@@ -92,21 +92,13 @@ export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
   leaseEpoch: number,
+  boss: PgBoss,
 ): Promise<StaleReviewRescheduleResult> {
-  const replacement = await createReviewRescheduleWorkItem(pool, item, leaseEpoch);
+  const replacement = await createReviewRescheduleWorkItem(pool, item, leaseEpoch, boss);
   return {
     kind: "rescheduled",
     replacementWorkItemId: replacement.replacementWorkItemId,
-    afterComplete: async (boss) => {
-      await enqueueReviewReschedule(
-        pool,
-        boss,
-        item,
-        replacement.replacementWorkItemId,
-        replacement.headSha,
-        leaseEpoch,
-      );
-    },
+    afterComplete: async () => {},
   };
 }
 
@@ -114,9 +106,10 @@ export async function tryBuildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
   leaseEpoch: number,
+  boss: PgBoss,
 ): Promise<StaleReviewRescheduleResult | null> {
   try {
-    return await buildStaleReviewRescheduleResult(pool, item, leaseEpoch);
+    return await buildStaleReviewRescheduleResult(pool, item, leaseEpoch, boss);
   } catch (error) {
     if (isStaleHeadParentNotReschedulable(error)) return null;
     throw error;
@@ -127,6 +120,7 @@ export async function createReviewRescheduleWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
   leaseEpoch: number,
+  boss?: PgBoss,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
     await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
@@ -237,10 +231,14 @@ export async function createReviewRescheduleWorkItem(
       resourceKey: item.resourceKey,
       reviewLens,
     });
+    const headSha = insertResult.rows[0].head_sha;
+    if (boss) {
+      await writeReviewRescheduleJobs(client, boss, item, replacementWorkItemId, headSha);
+    }
 
     return {
       replacementWorkItemId,
-      headSha: insertResult.rows[0].head_sha,
+      headSha,
     };
   });
 }
@@ -289,6 +287,58 @@ async function ensureDeterministicJob(
   });
 }
 
+async function writeReviewRescheduleJobs(
+  client: PoolClient,
+  boss: PgBoss,
+  item: ReviewWorkItem,
+  workItemId: string,
+  replacementHeadSha: string,
+): Promise<void> {
+  const reviewLens = item.reviewLens;
+  const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
+  const db = pgBossDb(client);
+  const reviewData: ReviewJobData = {
+    kind: "review",
+    workItemId,
+    ...correlation,
+  };
+  await ensureDeterministicJob(
+    boss,
+    REVIEW_QUEUE,
+    reviewData,
+    {
+      db,
+      id: workItemId,
+      group: { id: installationGroupId(item.installationId) },
+    },
+    db,
+  );
+  const ackData: AckJobData = {
+    kind: "ack",
+    workItemId,
+    installationId: item.installationId,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+    targets: [],
+    progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
+    ...correlation,
+  };
+  await ensureDeterministicJob(
+    boss,
+    ACK_QUEUE,
+    ackData,
+    {
+      db,
+      id: workItemId,
+      priority: 100,
+      group: { id: installationGroupId(item.installationId) },
+    },
+    db,
+  );
+  await markStaleHeadReplacementEnqueued(client, item.id, workItemId);
+}
+
 export async function enqueueReviewReschedule(
   pool: Pool,
   boss: PgBoss,
@@ -298,53 +348,10 @@ export async function enqueueReviewReschedule(
   leaseEpoch: number,
 ): Promise<void> {
   const reviewLens = item.reviewLens;
-  const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
 
   await inTransaction(pool, async (client) => {
     await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
-    const db = pgBossDb(client);
-
-    const reviewData: ReviewJobData = {
-      kind: "review",
-      workItemId,
-      ...correlation,
-    };
-    await ensureDeterministicJob(
-      boss,
-      REVIEW_QUEUE,
-      reviewData,
-      {
-        db,
-        id: workItemId,
-        group: { id: installationGroupId(item.installationId) },
-      },
-      db,
-    );
-
-    const ackData: AckJobData = {
-      kind: "ack",
-      workItemId,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
-      ...correlation,
-    };
-    await ensureDeterministicJob(
-      boss,
-      ACK_QUEUE,
-      ackData,
-      {
-        db,
-        id: workItemId,
-        priority: 100,
-        group: { id: installationGroupId(item.installationId) },
-      },
-      db,
-    );
-    await markStaleHeadReplacementEnqueued(client, item.id, workItemId);
+    await writeReviewRescheduleJobs(client, boss, item, workItemId, replacementHeadSha);
   });
 
   logInfo("review_stale_head_rescheduled", {
