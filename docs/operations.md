@@ -332,6 +332,8 @@ together; do not mix old and new verdict/projector consumers.
 
 Before each new review execution, a repository-specific App-JWT installation
 lookup checks identity, association, suspension, and endpoint permission levels.
+Ask, description, triage, and verification load that same policy before they
+write, including a cancel that runs before the work is claimed.
 Metadata and a required cold mint/refresh share a two-second total deadline,
 with transport abort and no request retries or inline throttle wait. No boot
 account scan or test mutation is performed. Missing essential PR/code reads or

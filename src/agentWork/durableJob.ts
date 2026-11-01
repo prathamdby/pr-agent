@@ -73,12 +73,16 @@ import {
 import { errorMessage } from "../errors/errorMessage.ts";
 import {
   assertEssentialInstallationCapabilities,
+  capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
   essentialInstallationOperations,
+  unknownInstallationCapabilities,
+  type InstallationCapabilities,
   type ReviewCapabilityPolicy,
 } from "../github/installationCapabilities.ts";
 import {
   changeGithubPreflightFailureCount,
+  loadGithubCapabilityObservation,
   nextGithubCapabilityObservationGeneration,
   recordGithubCapabilityDenial,
   saveGithubCapabilityObservation,
@@ -472,11 +476,81 @@ export async function runDurableWorkItem<T extends WorkType>(
   const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
   if (!workItemAccepted(core, spec)) return;
 
+  async function assignInstallationPolicy(
+    itemCore: Pick<TypedCore, "installationId" | "owner" | "repo">,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (reviewCapabilities != null) return;
+    if (
+      spec.type !== "ask" &&
+      spec.type !== "description" &&
+      spec.type !== "triage" &&
+      spec.type !== "verification" &&
+      spec.type !== "review"
+    )
+      return;
+    const scope = {
+      installationId: itemCore.installationId,
+      owner: itemCore.owner,
+      repo: itemCore.repo,
+    };
+    const stored = await loadGithubCapabilityObservation(spec.pool, scope);
+    let observation: InstallationCapabilities;
+    let installation: InstallationToken | undefined;
+    if (stored != null && !capabilityObservationUnconfirmed(stored.capabilities)) {
+      const unknown = unknownInstallationCapabilities(
+        { ...scope, appId: spec.cfg.github.appId },
+        String(stored.generation),
+      );
+      observation = {
+        ...unknown,
+        availability: { ...unknown.availability, ...stored.capabilities },
+      };
+      installation = await runtime.installationSurface.token(spec.cfg, itemCore.installationId);
+    } else {
+      const preflight = await runtime.installationSurface.preflight({
+        cfg: spec.cfg,
+        ...scope,
+        signal,
+        generation: await nextGithubCapabilityObservationGeneration(spec.pool),
+      });
+      observation = preflight.observation;
+      installation = preflight.installation;
+      await saveGithubCapabilityObservation(spec.pool, { ...scope, observation });
+    }
+    reviewCapabilities = createReviewCapabilityPolicy(observation, async (operation) => {
+      await recordGithubCapabilityDenial(spec.pool, {
+        ...scope,
+        generation: Number(observation.generation),
+        operation,
+      });
+    });
+    if (installation) seededInstallation = installation;
+  }
+
   if (await shouldSkipWork(spec.pool, core)) {
+    try {
+      await assignInstallationPolicy(core, jobSignal);
+    } catch (error) {
+      logWarn("agent_work_capability_policy_failed", {
+        type: spec.type,
+        workItemId: core.id,
+        message: errorMessage(error),
+      });
+    }
     await markCancelledAndInvokeHook(core, "skipped_before_claim");
     return;
   }
   if (jobSignal.aborted) {
+    try {
+      await assignInstallationPolicy(core, jobSignal);
+    } catch (error) {
+      logWarn("agent_work_capability_policy_failed", {
+        type: spec.type,
+        workItemId: core.id,
+        message: errorMessage(error),
+      });
+    }
     await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
     return;
   }
@@ -965,6 +1039,15 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     try {
       if (jobSignal.aborted) {
+        try {
+          await assignInstallationPolicy(item, executionSignal);
+        } catch (error) {
+          logWarn("agent_work_capability_policy_failed", {
+            type: spec.type,
+            workItemId: item.id,
+            message: errorMessage(error),
+          });
+        }
         await markCancelledAndInvokeHook(item, "job_aborted", seededInstallation);
         return;
       }
@@ -1001,28 +1084,13 @@ export async function runDurableWorkItem<T extends WorkType>(
           }
           return;
         }
-        const preflight = await runtime.installationSurface.preflight({
-          cfg: spec.cfg,
-          installationId: item.installationId,
-          owner: item.owner,
-          repo: item.repo,
-          signal: executionSignal,
-          generation: await nextGithubCapabilityObservationGeneration(spec.pool),
-        });
-        const observation = preflight.observation;
-        const scope = { installationId: item.installationId, owner: item.owner, repo: item.repo };
-        const observedEssentialAccess = essentialInstallationOperations.every(
-          (operation) => observation.availability[operation] !== "unknown",
-        );
-        await saveGithubCapabilityObservation(spec.pool, { ...scope, observation });
-        reviewCapabilities = createReviewCapabilityPolicy(observation, async (operation) => {
-          await recordGithubCapabilityDenial(spec.pool, {
-            ...scope,
-            generation: Number(observation.generation),
-            operation,
-          });
-        });
-        seededInstallation = preflight.installation;
+        await assignInstallationPolicy(item, executionSignal);
+        const observation = reviewCapabilities?.observation;
+        const observedEssentialAccess =
+          observation != null &&
+          essentialInstallationOperations.every(
+            (operation) => observation.availability[operation] !== "unknown",
+          );
         if (!seededInstallation) {
           ensureReviewAccess();
           throw new AppError({
@@ -1039,7 +1107,11 @@ export async function runDurableWorkItem<T extends WorkType>(
           });
         }
       } else {
-        seededInstallation = await runtime.installationSurface.token(spec.cfg, item.installationId);
+        await assignInstallationPolicy(item, executionSignal);
+        seededInstallation ??= await runtime.installationSurface.token(
+          spec.cfg,
+          item.installationId,
+        );
       }
       const execution = await prepareDurableExecution(seededInstallation);
       if (!execution) return;

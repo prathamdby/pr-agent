@@ -63,9 +63,12 @@ import { DEFERRED_HEAD_SHA } from "../src/settings/index.ts";
 import { coreOf } from "./helpers/executorDurableHarness.ts";
 import type { PoolClient } from "pg";
 import { availableInstallationCapabilities } from "../src/github/installationCapabilities.ts";
+import { createPrSurface } from "../src/github/prSurface.ts";
+import { createPrSurfaceImpl } from "../src/github/prSurfaceImpl.ts";
 
 vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
   nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  loadGithubCapabilityObservation: vi.fn(async () => null),
   recordGithubCapabilityDenial: vi.fn(async () => true),
   saveGithubCapabilityObservation: vi.fn(async () => true),
   changeGithubPreflightFailureCount: vi.fn(async () => 0),
@@ -342,6 +345,54 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).toHaveBeenCalledTimes(1);
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("denies a pre-claim ask cancel before the GitHub call", async () => {
+    const ask = makeAskWorkItem();
+    mockFetchedItem(ask);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
+    const available = availableInstallationCapabilities(
+      {
+        appId: cfg.github.appId,
+        installationId: ask.installationId,
+        owner: ask.owner,
+        repo: ask.repo,
+      },
+      "1",
+    );
+    vi.mocked(installationSurface.preflight).mockResolvedValue({
+      observation: {
+        ...available,
+        availability: { ...available.availability, commentsWrite: "denied" },
+      },
+      installation: await installationSurface.token(cfg, ask.installationId),
+    });
+    vi.mocked(createPrSurface).mockImplementationOnce((params) => createPrSurfaceImpl(params));
+    let denial: unknown;
+    await runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).ask.contextPolicy,
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "ask",
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+      }),
+      execute: vi.fn(),
+      onCancelled: async (_item, surface) => {
+        try {
+          await surface.replyAt(ask.payload.replyTarget, "cancelled");
+        } catch (error) {
+          denial = error;
+          throw error;
+        }
+      },
+    });
+    expect(denial).toMatchObject({ code: "github.essential_access_denied" });
+    expect(capabilitiesRepository.saveGithubCapabilityObservation).toHaveBeenCalled();
   });
 
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {

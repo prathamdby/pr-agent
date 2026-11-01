@@ -198,6 +198,7 @@ vi.mock("../src/github/appAuth.ts", async (importOriginal) => ({
 }));
 vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
   nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  loadGithubCapabilityObservation: vi.fn(async () => null),
   recordGithubCapabilityDenial: vi.fn(async () => true),
   saveGithubCapabilityObservation: vi.fn(async () => true),
   changeGithubPreflightFailureCount: vi.fn(async () => 0),
