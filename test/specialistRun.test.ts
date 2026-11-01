@@ -460,7 +460,7 @@ describe("runSpecialist", () => {
       specialistFindingsReportContract,
     ] as const;
     const leftoverSha256 = [
-      "902a82903551a998b6f40fb6ee9a95b12a3fe045bec4fa0fd8f1ec0031002f88",
+      "3ad89236c80655db2a7138605db1ecd8c8c242f3b2769a2fa1b5b2f7a5545725",
       "e0941694f5262c4988a26b12ea9c6ddbc4739c3d53dcdaba9c9ec5c04cc1dbf0",
       "36a203e03b2df9874a80118c2d64900719921792be56c4ab45e76492cb667cd8",
       "4bed622a7f2116c562377c64cf1891aa56c572bc0874f7abe3c7b81d04451999",
