@@ -39,6 +39,7 @@ import {
   snapshotFindingLedger,
 } from "../src/review/recovery/reviewRecovery.ts";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
+import { renderReviewProgressComment } from "../src/review/run/progressComment.ts";
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
@@ -83,6 +84,7 @@ const testState = vi.hoisted(() => ({
   ticks: [] as Array<{
     readonly progressRevision: number;
     readonly kind: string;
+    readonly reason?: string;
     readonly recon?: string;
     readonly specialists?: Record<string, { phase: string }>;
   }>,
@@ -275,6 +277,7 @@ vi.mock("../src/review/orchestrator/stubTick.ts", () => ({
       progressRevision: number;
       tickState: {
         kind: string;
+        reason?: "superseded" | "stale_head" | "host_abort";
         recon?: string;
         specialists?: Record<string, { phase: string }>;
       };
@@ -282,6 +285,7 @@ vi.mock("../src/review/orchestrator/stubTick.ts", () => ({
       testState.ticks.push({
         progressRevision: params.progressRevision,
         kind: params.tickState.kind,
+        ...(params.tickState.kind === "terminal" ? { reason: params.tickState.reason } : {}),
         recon: params.tickState.recon,
         specialists: params.tickState.specialists,
       });
@@ -2130,6 +2134,7 @@ describe("runOrchestratedPrReview", () => {
       {
         progressRevision: 7,
         kind: "terminal",
+        reason: "superseded",
         recon: "done",
         specialists: {
           correctness: { phase: "running" },
@@ -2139,6 +2144,43 @@ describe("runOrchestratedPrReview", () => {
         },
       },
     ]);
+  });
+
+  it("stops when the host signal is already aborted and the gate continues", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      signal: controller.signal,
+      gate: { check: async () => ({ kind: "continue" }) },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.signals.size).toBe(0);
+    expect(testState.publishOrder).toEqual([]);
+    const terminal = testState.ticks.find((tick) => tick.kind === "terminal");
+    expect(terminal?.reason).toBe("host_abort");
+    expect(terminal?.recon).toBe("running");
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "a".repeat(40),
+      source: "auto",
+      tickState: {
+        kind: "terminal",
+        reason: "host_abort",
+        recon: "running",
+        specialists: {
+          correctness: { phase: "waiting" },
+          security: { phase: "waiting" },
+          quality: { phase: "waiting" },
+          tests: { phase: "waiting" },
+        },
+      },
+    });
+    expect(body).toContain("Stopped. The host aborted this run.");
+    expect(body).toContain("stale=false");
   });
 
   it("aborts a recon send when the host signal fires mid-stream", async () => {

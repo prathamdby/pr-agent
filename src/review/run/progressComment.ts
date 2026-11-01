@@ -57,7 +57,7 @@ export type SpecialistTickState =
     } & ProgressRoster)
   | ({
       readonly kind: "terminal";
-      readonly reason: "superseded" | "stale_head";
+      readonly reason: "superseded" | "stale_head" | "host_abort";
     } & ProgressRoster);
 
 const SPECIALIST_LABELS: Record<SpecialistId, string> = {
@@ -118,7 +118,10 @@ export function formatReviewQueuePosition(position: ReviewQueuePosition): string
   return `#${position.position} of ${position.total}`;
 }
 
-function terminalProgressNote(reason: "superseded" | "stale_head", source: WorkSource): string {
+function terminalProgressNote(
+  reason: "superseded" | "stale_head" | "host_abort",
+  source: WorkSource,
+): string {
   switch (reason) {
     case "stale_head":
       return "Superseded. Rescheduled for new head.";
@@ -126,6 +129,8 @@ function terminalProgressNote(reason: "superseded" | "stale_head", source: WorkS
       return source === "slash"
         ? "Superseded. Rescheduled for new head."
         : "Superseded by a newer pull request update.";
+    case "host_abort":
+      return "Stopped. The host aborted this run.";
     default: {
       const exhaustive: never = reason;
       return exhaustive;

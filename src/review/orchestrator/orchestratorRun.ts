@@ -1215,7 +1215,12 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "stop_on_host_abort": {
-        await stopFromGateResult(await params.gate.check());
+        const stopped = await stopFromGateResult(await params.gate.check());
+        if (!stopped) {
+          state.lifecycle = { kind: "stopped", reason: "host_abort" };
+          abortSpecialists();
+          await retireSession();
+        }
         break;
       }
       case "dispatch_specialists": {

@@ -69,7 +69,7 @@ export type ReconRunPhase = "running" | "done";
 
 type OrchestratedRunLifecycle =
   | { readonly kind: "running" }
-  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" }
+  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" | "host_abort" }
   | {
       readonly kind: "stopped";
       readonly reason: "cancelled";
