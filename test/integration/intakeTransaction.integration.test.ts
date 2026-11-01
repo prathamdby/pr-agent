@@ -4248,7 +4248,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(jobs.length);
   });
 
-  it("every_push preserves a pending follow-up and does not insert a second review", async () => {
+  it("every_push replaces a queued follow-up that has no review job", async () => {
     const ref = makePrRef("cadence-follow-up-pending");
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const runningId = randomUUID();
@@ -4295,13 +4295,75 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const parent = await getWorkItem(pool, runningId);
     if (parent?.type !== "review") throw new Error("expected the slash parent");
     expect(parent.payload.pushFollowUp?.replacementWorkItemId).toBe(followUpId);
+    const { rows } = await pool.query<{ id: string; status: string; source: string }>(
+      `SELECT id, status, source FROM agent_work_items WHERE resource_key = $1`,
+      [key],
+    );
+    expect(rows.find((row) => row.id === followUpId)?.status).toBe("superseded");
+    const replacement = rows.find((row) => row.source === "auto" && row.status === "queued");
+    expect(replacement?.id).toEqual(expect.any(String));
+    expect(replacement?.id).not.toBe(followUpId);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([replacement?.id]);
+  });
+
+  it("every_push keeps a queued follow-up that already has a review job", async () => {
+    const ref = makePrRef("cadence-follow-up-live-job");
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const runningId = randomUUID();
+    const followUpId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES
+         ($1, 'review', 'slash', 'running', $2, $3, $4, $5, $6, 'review', $7, $8::jsonb),
+         ($9, 'review', 'auto', 'queued', $2, $3, $4, $5, 'deferred-to-worker', 'review', $7, '{"mode":"review","source":"auto"}'::jsonb)`,
+      [
+        runningId,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.installationId,
+        ref.headSha,
+        key,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          pushFollowUp: {
+            webhookEventId: randomUUID(),
+            replacementWorkItemId: followUpId,
+            state: "pending-enqueue",
+          },
+        }),
+        followUpId,
+      ],
+    );
+    await pool.query(
+      `INSERT INTO pgboss.job (id, name, state, data)
+       VALUES ($1::uuid, $2, 'created', $3::jsonb)`,
+      [randomUUID(), REVIEW_QUEUE, JSON.stringify({ workItemId: followUpId })],
+    );
+    const cfg = makeTestConfig({
+      features: { ...intakeCfg.features, review: "auto", reviewCadence: "every_push" },
+    });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-cadence-follow-up-live-job"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
     const { rows } = await pool.query<{ id: string; status: string }>(
       `SELECT id, status FROM agent_work_items
         WHERE resource_key = $1 AND source = 'auto' AND status = 'queued'`,
       [key],
     );
     expect(rows).toEqual([{ id: followUpId, status: "queued" }]);
-    await expect(reviewJobsFor(ref)).resolves.toEqual([]);
+    const jobs = await reviewJobsFor(ref);
+    expect(jobs.map((job) => job.data.workItemId)).toEqual([followUpId]);
   });
 
   it("every_push replaces a slash follow-up that has left the queue", async () => {
