@@ -1469,6 +1469,31 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     },
   );
 
+  it("fails a lost ask while the lease table is exclusively locked", async () => {
+    const minAgeSeconds = 1200;
+    const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
+    await pool.query(
+      `UPDATE agent_work_items
+          SET type = 'ask', source = 'slash', status = 'running', started_at = created_at
+        WHERE id = $1`,
+      [id],
+    );
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("LOCK TABLE pr_actor_leases IN EXCLUSIVE MODE");
+      expect(await workState.markLostRunningWorkFailed(pool, id, minAgeSeconds)).toBe(true);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    const result = await pool.query<{ status: string; last_error: string }>(
+      "SELECT status, last_error FROM agent_work_items WHERE id = $1",
+      [id],
+    );
+    expect(result.rows).toEqual([{ status: "failed", last_error: "worker_lost" }]);
+  });
+
   it.each(["lock", "admission"] as const)(
     "repairs a terminal verdict deferred by %s without a new work delivery",
     async (mode) => {

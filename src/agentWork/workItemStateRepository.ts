@@ -1,5 +1,5 @@
 import { fencedWrite } from "./fencedWrite.ts";
-import { unleasedFence } from "./writeFence.ts";
+import { UNLEASED_WORK_TYPES, unleasedFence } from "./writeFence.ts";
 import type { Pool, PoolClient } from "pg";
 import { inTransaction, queryOne } from "../db/postgres.ts";
 import { logWarn } from "../evlog.ts";
@@ -404,12 +404,15 @@ export async function markLostRunningWorkFailed(
       if (!target) return false;
 
       protectedQuery = true;
-      const leaseSql = `SELECT 1 FROM pr_actor_leases
-        WHERE resource_key = $1 AND work_type = $2 FOR UPDATE NOWAIT`;
-      const lease = await client.query(leaseSql, [target.resource_key, target.type]);
-      if (lease.rows.length === 0) {
-        await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
-        await client.query(leaseSql, [target.resource_key, target.type]);
+      const unleased = (UNLEASED_WORK_TYPES as readonly string[]).includes(target.type);
+      if (!unleased) {
+        const leaseSql = `SELECT 1 FROM pr_actor_leases
+          WHERE resource_key = $1 AND work_type = $2 FOR UPDATE NOWAIT`;
+        const lease = await client.query(leaseSql, [target.resource_key, target.type]);
+        if (lease.rows.length === 0) {
+          await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
+          await client.query(leaseSql, [target.resource_key, target.type]);
+        }
       }
       await client.query("LOCK TABLE pgboss.job IN SHARE MODE NOWAIT");
       await client.query("LOCK TABLE agent_work_items IN ROW EXCLUSIVE MODE NOWAIT");
