@@ -330,6 +330,34 @@ describe("runDurableWorkItem", () => {
     expect(repo.beginWorkAttempt).not.toHaveBeenCalled();
   });
 
+  it("fails a preflight miss when the pg-boss retry is already spent", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(installationSurface.preflight).mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "preflight_unavailable",
+        message: "metadata timeout",
+      }),
+    );
+    vi.mocked(capabilitiesRepository.changeGithubPreflightFailureCount).mockResolvedValueOnce(1);
+    const execute = vi.fn().mockResolvedValue(completedResult());
+
+    await runReviewWorkItem({
+      execute,
+      job: makeJob(cfg.queue.retryLimit, cfg.queue.retryLimit),
+    });
+
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ code: "github.preflight_unavailable" }),
+      1,
+    );
+    expect(repo.beginWorkAttempt).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("does not probe or spend the preflight budget during shared-circuit deferral", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(getSharedRateLimitCircuit).mockResolvedValue({

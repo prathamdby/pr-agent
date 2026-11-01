@@ -221,6 +221,8 @@ from agent_work_items where id = $1;
 `github.preflight_unavailable` is unknown access, not missing permission.
 Its durable counter is lease-fenced and bounded by `QUEUE_RETRY_LIMIT + 1`;
 `github.preflight_exhausted` means that access check stayed unavailable.
+A miss still under that count fails the item when the job has no pg-boss
+retry left.
 These failures never spend model attempts or trigger model escalation.
 Successful preflight resets the counter. Shared-circuit deferral probes nothing
 and spends no probe count. Do not reset counts, clear intents, or invent receipts

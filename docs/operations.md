@@ -348,7 +348,9 @@ never confirmed missing permissions. `github.preflight_unavailable` retries
 against a lease-fenced `QUEUE_RETRY_LIMIT + 1` budget that survives restarts and
 lease hops, resets on successful preflight, and never spends model attempts or
 triggers escalation. Exhaustion is `github.preflight_exhausted`, not permission
-missing. Shared-circuit deferral probes nothing and spends no probe count.
+missing. A miss still under that count fails the work item when the pg-boss job
+has no retry left. Shared-circuit deferral probes nothing and spends no probe
+count.
 Confirmed essential denial is `github.essential_access_denied`.
 
 CI source availability is installation-scoped. Denied or incomplete Checks or

@@ -991,7 +991,8 @@ export async function runDurableWorkItem<T extends WorkType>(
       const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
       const budgetRemains =
         preflightFailureCount != null
-          ? preflightFailureCount < maxAttempts(spec.cfg)
+          ? preflightFailureCount < maxAttempts(spec.cfg) &&
+            spec.job.retryCount < spec.job.retryLimit
           : (!workAdmissionAcknowledged || attemptCount < maxAttempts(spec.cfg)) &&
             spec.job.retryCount < spec.job.retryLimit;
       const mayRetry =
