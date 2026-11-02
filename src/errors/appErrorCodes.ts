@@ -90,6 +90,7 @@ export const APP_ERROR_KINDS = {
     "insufficient_free_space",
     "invalid_sha",
     "path_traversal",
+    "search_hit_invalid",
     "sensitive_path",
     "symlink_escape",
     "unsafe_head_ref",

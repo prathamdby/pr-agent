@@ -100,7 +100,18 @@ const openResultSchema = v.variant("status", [
 ]);
 
 const grepResultSchema = v.object({
-  hits: v.array(v.object({ path: v.string(), line: v.number() })),
+  hits: v.array(
+    v.object({
+      path: v.string(),
+      line: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+      byteOffset: v.pipe(
+        v.number(),
+        v.integer(),
+        v.minValue(0),
+        v.maxValue(Number.MAX_SAFE_INTEGER),
+      ),
+    }),
+  ),
   capped: v.boolean(),
 });
 
