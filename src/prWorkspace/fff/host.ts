@@ -40,7 +40,11 @@ export type FffIndexedFile = { readonly path: string; readonly size: number };
 export type FffOpenResult =
   | { readonly status: "ready"; readonly files: readonly FffIndexedFile[] }
   | { readonly status: "too_large"; readonly totalFiles: number };
-export type FffGrepHit = { readonly path: string; readonly line: number };
+export type FffGrepHit = {
+  readonly path: string;
+  readonly line: number;
+  readonly byteOffset: number;
+};
 export type FffGrepResult = {
   readonly hits: readonly FffGrepHit[];
   readonly capped: boolean;
@@ -125,7 +129,11 @@ function grep(request: Extract<HostRequest, { op: "grep" }>): FffGrepResult {
     if (!page.ok) throw new Error(page.error);
     for (const item of page.value.items) {
       if (denied.has(item.relativePath)) continue;
-      hits.push({ path: item.relativePath, line: item.lineNumber });
+      hits.push({
+        path: item.relativePath,
+        line: item.lineNumber,
+        byteOffset: item.byteOffset,
+      });
       if (hits.length >= request.maxMatches) return { hits, capped: true };
     }
     cursor = page.value.nextCursor;

@@ -43,7 +43,7 @@ import {
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   LOCAL_WORKSPACE_SEARCH_MAX_TERMS,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-  LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
+  LOCAL_WORKSPACE_SEARCH_MAX_MATCHES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
 } from "../../settings/index.ts";
 import {
@@ -431,7 +431,7 @@ async function searchRankedTerms(
       term,
       result: await workspace.grepLiteral({
         query: term,
-        maxResults: LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
+        maxResults: LOCAL_WORKSPACE_SEARCH_MAX_MATCHES,
         maxOutputBytes: Math.floor(params.maxOutputBytes / params.terms.length),
         ...(fullCoverage ? {} : { paths: params.allowedPaths }),
       }),
@@ -442,7 +442,7 @@ async function searchRankedTerms(
     { readonly terms: Set<string>; readonly lines: Map<number, string> }
   >();
   for (const { term, result } of results) {
-    for (const match of result.matches.slice(0, LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES)) {
+    for (const match of result.matches.slice(0, LOCAL_WORKSPACE_SEARCH_MAX_MATCHES)) {
       let file = byPath.get(match.path);
       if (file == null) {
         file = { terms: new Set(), lines: new Map() };
@@ -465,7 +465,7 @@ async function searchRankedTerms(
   const truncated =
     results.some(
       ({ result }) =>
-        result.truncated || result.matches.length > LOCAL_WORKSPACE_SEARCH_TERM_MAX_MATCHES,
+        result.truncated || result.matches.length > LOCAL_WORKSPACE_SEARCH_MAX_MATCHES,
     ) || matches.length > params.maxResults;
   if (truncated) view.recordSearchTruncated();
   const coverage = view.checkoutCoverage();
@@ -689,7 +689,8 @@ function buildInvestigationTools(
       ),
       maxResults: v.optional(maxResultsParam, 20),
     }),
-    run: async ({ query, terms, maxResults }) => {
+    run: async ({ query, terms, maxResults: requestedMaxResults }) => {
+      const maxResults = Math.min(requestedMaxResults, LOCAL_WORKSPACE_SEARCH_MAX_MATCHES);
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) => policy.allows(path));
       const pathsSearched = allowedPaths.length;
       if (allowedPaths.length === 0) {
@@ -926,7 +927,8 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
       query: literalQueryParam,
       maxResults: v.optional(maxResultsParam, 20),
     }),
-    run: async ({ query, maxResults }) => {
+    run: async ({ query, maxResults: requestedMaxResults }) => {
+      const maxResults = Math.min(requestedMaxResults, LOCAL_WORKSPACE_SEARCH_MAX_MATCHES);
       const allowedPaths: string[] = [];
       let filteredCount = 0;
       for (const path of workspace.sortedCheckoutPaths) {

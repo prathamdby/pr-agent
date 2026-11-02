@@ -51,14 +51,25 @@ found that fff is not a drop-in `git grep`:
    results cross IPC. `filtered` stays a path-policy fact, never a content one.
 4. **Literal semantics.** Searches use `multiGrep` with one pattern, no
    constraints, and `smartCase: false`. Queries with a newline or NUL stay on
-   `git grep`. The host returns paths and line numbers only. The reader reads
-   each matched line from the checkout, so text keeps `\r` and full length.
-   Results sort in checkout path order, then line, before `maxResults` and
-   `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` apply.
+   `git grep`. The host returns paths, line numbers, and validated line-start
+   byte offsets. The reader merges those descriptors with Git results in
+   checkout path order, then line, before materializing the selected prefix.
+   It seeks to each selected line and reads through LF or EOF in chunks of at
+   most 64 KiB, preserving `\r`, UTF-8, and full line text. Nearby hits reuse the
+   current chunk; only one file handle stays open per search. Whole-file text
+   and split-line arrays are not retained.
+   Pinned searches cap `maxResults` at `LOCAL_WORKSPACE_SEARCH_MAX_MATCHES`
+   (200), including ranked results and whole-call Git fallback. The existing
+   `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` ceiling applies while lines are
+   read. A line that cannot fit stops the result prefix with `truncated: true`,
+   without returning a clipped fff line or reading later candidates.
 5. **Fallback.** Any open or grep failure, including a host crash or the paging
    budget `LOCAL_WORKSPACE_FFF_GREP_TIME_BUDGET_MS`, logs
    `workspace_search_fff_fallback` (stage and reason, never the query) and runs
-   the whole call through `git grep`. A host death is logged as
+   the whole call through `git grep`. Invalid hit paths, offsets, or failed
+   line reads also fall back once, with a fixed reason and no query text.
+   Budget exhaustion returns truncated output instead of retrying.
+   A host death is logged as
    `workspace_search_fff_host_retired`.
 
 ## Consequences

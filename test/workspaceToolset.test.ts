@@ -2301,6 +2301,172 @@ describe("local workspace tools", () => {
         await expectPaths("NEEDLE", ["src/d.ts"]);
       });
 
+      it("caps oversized pinned requests across profiles and ranked terms", async () => {
+        const files = Object.fromEntries(
+          Array.from({ length: 205 }, (_, index) => [
+            `src/file-${String(index).padStart(3, "0")}.txt`,
+            "boundedNeedle otherNeedle\n",
+          ]),
+        );
+        const { workspace, executors } = await setup(files);
+        const investigation = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+        for (const search of [executors.searchWorkspace, investigation.executors.searchWorkspace]) {
+          const result = await search?.({ query: "boundedNeedle", maxResults: 5000 });
+          expect(result).toMatchObject({ truncated: true });
+          expect(result).toHaveProperty("matches", expect.any(Array));
+          expect(result).toHaveProperty("matches.length", 200);
+        }
+        const ranked = await investigation.executors.searchWorkspace?.({
+          query: "boundedNeedle",
+          terms: ["otherNeedle"],
+          maxResults: 5000,
+        });
+        expect(ranked).toMatchObject({
+          matches: expect.any(Array),
+          truncated: true,
+          coverage: expect.objectContaining({ searchTruncated: true }),
+        });
+        expect(ranked).toHaveProperty("matches.length", 200);
+        const direct = await workspace.reader.grepLiteral({
+          query: "boundedNeedle",
+          maxResults: 5000,
+        });
+        expect(direct).toMatchObject({
+          matches: expect.arrayContaining([
+            { path: "src/file-000.txt", line: 1, text: "boundedNeedle otherNeedle" },
+          ]),
+          truncated: true,
+        });
+        expect(direct.matches).toHaveLength(200);
+        await expect(
+          executors.searchWorkspace({ query: "missingNeedle", maxResults: 5000 }),
+        ).resolves.toEqual({ matches: [], truncated: false });
+      });
+
+      it("caps pinned Git-only results without changing literal query fallback", async () => {
+        const { workspace } = await setup({
+          "src/fallback.txt": "firstNeedle\nsecondNeedle\n".repeat(205),
+        });
+        const result = await workspace.reader.grepLiteral({
+          query: "firstNeedle\nsecondNeedle",
+          maxResults: 5000,
+        });
+        expect(result.matches).toHaveLength(200);
+        expect(result.truncated).toBe(true);
+        expect(result.matches[0]).toEqual({
+          path: "src/fallback.txt",
+          line: 1,
+          text: "firstNeedle",
+        });
+      });
+
+      it("preserves complete UTF-8, BOM, CRLF, and chunk-spanning matched lines", async () => {
+        const { workspace, executors } = await setup({
+          "src/offsets.txt":
+            "\ufeffoffsetNeedle at start\r\n" +
+            "é漢🙂 prefix\n" +
+            `${"é".repeat(32_760)}🙂offsetNeedle${"界".repeat(25_000)}\r\n` +
+            "offsetNeedle at EOF",
+        });
+        const reference = await gitGrepWorkspace(workspace, {
+          query: "offsetNeedle",
+          maxResults: 20,
+          timeoutMs: 10_000,
+        });
+        await expect(executors.searchWorkspace({ query: "offsetNeedle" })).resolves.toEqual({
+          matches: reference.matches,
+          truncated: false,
+        });
+      });
+
+      it("stops before a full matched line exceeds the remaining byte budget", async () => {
+        const { workspace } = await setup({
+          "src/a.txt": "budgetNeedle short\n",
+          "src/b.txt": `budgetNeedle${"x".repeat(200_000)}\n`,
+          "src/c.txt": "budgetNeedle later\n",
+        });
+        const result = await workspace.reader.grepLiteral({
+          query: "budgetNeedle",
+          maxResults: 20,
+          maxOutputBytes: 100,
+        });
+        expect(result).toEqual({
+          matches: [{ path: "src/a.txt", line: 1, text: "budgetNeedle short" }],
+          truncated: true,
+        });
+      });
+
+      it.skipIf(process.platform !== "linux")(
+        "bounds matched-line reads independently of file size",
+        async () => {
+          const measurements = [];
+          for (const fileBytes of [1024 * 1024, 8 * 1024 * 1024]) {
+            const content =
+              `${"filler".padEnd(1023, "x")}\n`.repeat(fileBytes / 1024 - 1) +
+              "resourceNeedle at EOF\n";
+            const { workspace } = await setup(
+              Object.fromEntries(
+                Array.from({ length: 8 }, (_, index) => [`src/file-${index}.txt`, content]),
+              ),
+            );
+            await workspace.reader.grepLiteral({ query: "warmIndexMissing", maxResults: 20 });
+            for (const maxResults of [20, 5000]) {
+              const before = await readFile("/proc/self/io", "utf8");
+              const memoryBefore = process.memoryUsage();
+              const startedAt = performance.now();
+              const result = await workspace.reader.grepLiteral({
+                query: "resourceNeedle",
+                maxResults,
+                maxOutputBytes: 1_000_000,
+              });
+              const after = await readFile("/proc/self/io", "utf8");
+              const bytesRead =
+                Number(after.match(/^rchar: (\d+)/m)?.[1]) -
+                Number(before.match(/^rchar: (\d+)/m)?.[1]);
+              const measurement = {
+                benchmark: "pinned-search-materialization",
+                fileCount: 8,
+                fileBytes,
+                maxResults,
+                bytesRead,
+                elapsedMs: performance.now() - startedAt,
+                heapDelta: process.memoryUsage().heapUsed - memoryBefore.heapUsed,
+                rss: process.memoryUsage().rss,
+              };
+              measurements.push(measurement);
+              console.info(JSON.stringify(measurement));
+              expect(result.matches).toHaveLength(8);
+              expect(result.truncated).toBe(false);
+            }
+          }
+          for (const measurement of measurements) {
+            expect(measurement.bytesRead).toBeLessThan(2 * 1024 * 1024);
+          }
+        },
+      );
+
+      it.skipIf(process.platform !== "linux")(
+        "reuses a read chunk for dense nearby matches",
+        async () => {
+          const { workspace } = await setup({
+            "src/dense.txt": `${"denseNeedle".padEnd(127, "x")}\n`.repeat(8192),
+          });
+          await workspace.reader.grepLiteral({ query: "warmIndexMissing", maxResults: 20 });
+          const before = await readFile("/proc/self/io", "utf8");
+          const result = await workspace.reader.grepLiteral({
+            query: "denseNeedle",
+            maxResults: 200,
+          });
+          const after = await readFile("/proc/self/io", "utf8");
+          const bytesRead =
+            Number(after.match(/^rchar: (\d+)/m)?.[1]) -
+            Number(before.match(/^rchar: (\d+)/m)?.[1]);
+          expect(result.matches).toHaveLength(200);
+          expect(result.truncated).toBe(true);
+          expect(bytesRead).toBeLessThan(256 * 1024);
+        },
+      );
+
       it("ranks files by how many search terms they contain", async () => {
         const { workspace } = await setup({
           "src/a.ts": "renewLease();\nrenewLease();\n",

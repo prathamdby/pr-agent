@@ -90,6 +90,12 @@ and return `503`.
 
 ## Large PRs and GitHub rate limits
 
+- Pinned workspace search defaults to 20 results and caps requests at 200,
+  including ranked searches and Git fallback. It reads selected matching lines
+  by byte offset instead of retaining whole matched files. The existing
+  50,000,000-byte output ceiling applies during line materialization.
+  Omitted matches set `truncated: true`; request a narrower search to continue.
+  Writable triage retains its existing post-filtered result policy.
 - **`@octokit/plugin-throttling`** paces all installation-token REST calls (review tools, publish, reactions). File listing and patch caps are code constants in `src/settings/reviewConstants.ts`: `MAX_PR_FILES_LISTED` (default `300`), `MAX_PR_FILES_PATCH_BYTES` (default `500000`).
 - Throttle hooks log `octokit_on_rate_limit` / `octokit_on_secondary_rate_limit`. Circuit open logs `github_rate_limit_circuit_opened`. Capture a redacted sample when debugging production limits.
 - See [ADR 0004](adr/0004-github-api-rate-limits.md) for policy (secondary-limit retries and truncation trade-offs).

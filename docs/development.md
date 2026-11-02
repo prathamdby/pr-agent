@@ -173,6 +173,13 @@ cannot refer to work that was never inserted; rate debits remain unchanged.
 
 Pinned checkouts search through `src/prWorkspace/fff/workspaceSearch.ts`. It asks the fff host (`src/prWorkspace/fff/host.ts`, a forked child process and the only importer of `@ff-labs/fff-node`) for the paths fff indexes, sends every other allowed tracked path to `git grep`, and falls back to `git grep` for the whole call when the host fails. See [ADR 0048](adr/0048-fff-workspace-search.md). `gitGrepWorkspace` in `src/prWorkspace/repositoryReader.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Writable triage checkouts use it alone. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
+Pinned search retains at most 200 returned matches, including ranked output and
+fallback. The host supplies validated byte offsets, not truncated native
+snippets. The reader merges candidates before seeking to selected complete
+lines, reuses a 64 KiB chunk, and enforces the byte budget during materialization.
+Writable triage keeps its existing raw-match collection before path filtering;
+the shared Git helper and general `maxResultsParam` are not globally capped.
+
 `RepositoryReader` has two production adapters: the pinned PR view and the
 writable triage checkout. `PathPolicy` retains review/ask's changed-sensitive-path
 gate, verification's sensitive-path refusal, and triage's sensitive/control-path
