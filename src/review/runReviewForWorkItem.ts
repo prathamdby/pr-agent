@@ -780,9 +780,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     staleHeadAtPublish,
   });
   const baseSha = reviewRecoveryBaseSha(pullRequest);
-  const recoveryDiff = baseSha
-    ? {
-        patches: await Promise.all(
+  const recoveryPair = baseSha
+    ? await Promise.all([
+        Promise.all(
           repositoryView.workspace.reader.changedFiles
             .toSorted((a, b) => a.path.localeCompare(b.path))
             .map(async (file) => ({
@@ -790,51 +790,58 @@ async function runFullReviewAgainstRepositoryView(args: {
               patch: await repositoryView.workspace.reader.getDiffForPath(file.path),
             })),
         ),
+        reviewRecoveryModelApis(cfg, escalation),
+      ])
+    : null;
+  const recoveryDiff = recoveryPair
+    ? {
+        patches: recoveryPair[0],
         anchors: [...repositoryView.workspace.reader.diffIndex.files].toSorted(([a], [b]) =>
           a.localeCompare(b),
         ),
         truncated: repositoryView.workspace.reader.diffIndex.truncated,
       }
     : undefined;
-  const binding = baseSha
-    ? createReviewArtifactBinding(
-        {
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          installationId: item.installationId,
-          baseSha,
-          headSha,
-          mode: "review",
-        },
-        reviewRecoveryInputDigest({
-          cfg,
-          diff: recoveryDiff,
-          trustedInputs: recoveryContext,
-          source: payload.source,
-          userSupplement: payload.userSupplement,
-          prTitle: pullRequest?.title ?? "",
-          prBody: pullRequest?.body ?? null,
-          escalation,
-          modelApis: await reviewRecoveryModelApis(cfg, escalation),
-          policyProvenance: policyProvenance(repositoryView.workspace.policySnapshot),
-          effectivePublicationCapabilities: {
-            checksWrite:
-              (prSurface.capabilities?.access("checksWrite") ?? "available") === "available",
-            statusesWrite:
-              cfg.features.commitStatus &&
-              (prSurface.capabilities?.access("statusesWrite") ?? "available") === "available",
-            labelsWrite:
-              (prSurface.capabilities?.access("labelsRead") ?? "available") === "available" &&
-              (prSurface.capabilities?.access("labelsWrite") ?? "available") === "available",
-            reactionsWrite:
-              (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available",
+  const binding =
+    baseSha && recoveryPair
+      ? createReviewArtifactBinding(
+          {
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            installationId: item.installationId,
+            baseSha,
+            headSha,
+            mode: "review",
           },
-        }),
-      )
-    : null;
+          reviewRecoveryInputDigest({
+            cfg,
+            diff: recoveryDiff,
+            trustedInputs: recoveryContext,
+            source: payload.source,
+            userSupplement: payload.userSupplement,
+            prTitle: pullRequest?.title ?? "",
+            prBody: pullRequest?.body ?? null,
+            escalation,
+            modelApis: recoveryPair[1],
+            policyProvenance: policyProvenance(repositoryView.workspace.policySnapshot),
+            effectivePublicationCapabilities: {
+              checksWrite:
+                (prSurface.capabilities?.access("checksWrite") ?? "available") === "available",
+              statusesWrite:
+                cfg.features.commitStatus &&
+                (prSurface.capabilities?.access("statusesWrite") ?? "available") === "available",
+              labelsWrite:
+                (prSurface.capabilities?.access("labelsRead") ?? "available") === "available" &&
+                (prSurface.capabilities?.access("labelsWrite") ?? "available") === "available",
+              reactionsWrite:
+                (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available",
+            },
+          }),
+        )
+      : null;
   const recovery = binding
     ? openReviewRecovery(binding, openReviewArtifactStore(pool, binding, leaseEpoch))
     : undefined;
