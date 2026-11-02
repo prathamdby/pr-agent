@@ -65,22 +65,23 @@ export async function renderProposedPolicyChanges(params: {
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly readHead: (path: string, maxFileBytes: number) => Promise<string | null>;
 }): Promise<string> {
-  const blocks: string[] = [];
-  for (const side of allowlistedPolicyChangeSides(params.changedFiles)) {
-    const lines = [`Proposed policy change (${side.status}) \`${side.path}\`:`];
-    if (side.status !== "deleted") {
-      const body = await params.readHead(side.path, capFor(side.path));
-      if (body != null) {
-        const policyFile = side.path.endsWith(REPO_POLICY_EXTENSION);
-        lines.push(
-          wrapUntrustedBlock(
-            policyFile ? "proposed_policy_change" : "proposed_agent_instruction",
-            neutralizeProposedPolicyBody(body),
-          ),
-        );
+  const blocks = await Promise.all(
+    allowlistedPolicyChangeSides(params.changedFiles).map(async (side) => {
+      const lines = [`Proposed policy change (${side.status}) \`${side.path}\`:`];
+      if (side.status !== "deleted") {
+        const body = await params.readHead(side.path, capFor(side.path));
+        if (body != null) {
+          const policyFile = side.path.endsWith(REPO_POLICY_EXTENSION);
+          lines.push(
+            wrapUntrustedBlock(
+              policyFile ? "proposed_policy_change" : "proposed_agent_instruction",
+              neutralizeProposedPolicyBody(body),
+            ),
+          );
+        }
       }
-    }
-    blocks.push(lines.join("\n"));
-  }
+      return lines.join("\n");
+    }),
+  );
   return blocks.join("\n\n");
 }
