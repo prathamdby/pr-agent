@@ -2,11 +2,11 @@
 
 ## Decision
 
-Pin contributor tooling, CI, and Docker to Node 24.22.2 LTS, codename
+Pin contributor tooling, CI, and Docker to Node 24.22.1 LTS, codename
 Krypton, with npm `>=11.19.1 <12`. The official
-`node:24.22.2-bookworm-slim` image supplies npm 11.19.1. Root `engines`,
-root `devEngines`, and site `engines` use `^24.22.2`. The caret accepts
-24.22.2 and later 24.x releases, and rejects every older runtime and
+`node:24.22.1-bookworm-slim` image supplies npm 11.19.1. Root `engines`,
+root `devEngines`, and site `engines` use `^24.22.1`. The caret accepts
+24.22.1 and later 24.x releases, and rejects every older runtime and
 every other major.
 
 Webhook verification and the inspected authentication dependencies use
@@ -61,7 +61,7 @@ from an inherited layer is not an image-size or application-RSS optimization.
 
 CI uses setup-node and root-lockfile caching. The trusted guard workflow installs
 and executes only base-branch tooling. PR-head files remain inspection input.
-Vercel selects 24.x from `^24.22.2`. The site install runs
+Vercel selects 24.x from `^24.22.1`. The site install runs
 `/tmp/pr-agent-npm/bin/npm ci --workspace=pr-agent-landing --include-workspace-root=false`
 from the repo root. The build runs in `site/` with workspaces disabled.
 `site/vercel.json` sets commands. Its schema does not accept `nodeVersion`. The
