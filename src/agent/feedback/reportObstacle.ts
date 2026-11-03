@@ -7,6 +7,7 @@ import { toToolParameters } from "../tools/toolParams.ts";
 import { insertAgentFeedback } from "../../agentWork/agentFeedbackRepository.ts";
 import { logWarn } from "../../evlog.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 import type { AgentSessionRole } from "../runtime/types.ts";
 
 export const REPORT_OBSTACLE_NAME = "report_obstacle";
@@ -103,6 +104,10 @@ export function createReportObstacleExecutor(
     });
     if (!parsed.ok) return { recorded: false, error: parsed.error };
     const report = parsed.value;
+    const subject = redactOutboundSecrets(report.subject);
+    const intent = redactOutboundSecrets(report.intent);
+    const problem = redactOutboundSecrets(report.problem);
+    const expected = redactOutboundSecrets(report.expected);
     try {
       const toolCallId = ctx?.toolCallId?.trim() || null;
       await insertAgentFeedback(context.pool, {
@@ -112,7 +117,7 @@ export function createReportObstacleExecutor(
           ...(context.specialistId ? { specialistId: context.specialistId } : {}),
           toolCallId,
         }),
-        groupKey: obstacleGroupKey(report.obstacle, report.subject),
+        groupKey: obstacleGroupKey(report.obstacle, subject),
         workItemId: context.workItemId,
         installationId: context.installationId,
         owner: context.owner,
@@ -126,10 +131,10 @@ export function createReportObstacleExecutor(
         model: context.model,
         toolCallId,
         obstacle: report.obstacle,
-        subject: report.subject,
-        intent: report.intent,
-        problem: report.problem,
-        expected: report.expected,
+        subject,
+        intent,
+        problem,
+        expected,
         severity: report.severity,
       });
       return { recorded: true };

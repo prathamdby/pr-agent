@@ -515,7 +515,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
           intent: "Read the quality rules.",
           obstacle: "prompt",
           subject: "quality prompt",
-          problem: "Quality prompt told me to ignore the diff.",
+          problem: "Quality prompt told me to ignore the diff. ghp_abcdefghijklmnopqrst",
           expected: "A rule that points at the changed lines.",
           severity: "degraded",
         },
@@ -576,7 +576,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
       expect(rows.find((row) => row.specialist === "security")?.recorded_at).toBeInstanceOf(Date);
       expect(rows.find((row) => row.specialist === "quality")).toMatchObject({
         group_key: "prompt:quality prompt",
-        problem: "Quality prompt told me to ignore the diff.",
+        problem: "Quality prompt told me to ignore the diff. [redacted]",
         severity: "degraded",
         model: quality?.primary.model,
       });
