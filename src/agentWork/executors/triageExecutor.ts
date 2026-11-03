@@ -582,11 +582,7 @@ async function runFreshTriageAgent(params: {
         signal: params.signal,
         ...params.reportContext,
       });
-      const completed = completedFromPublish(publish);
-      if (completed.degradation != null) {
-      } else {
-      }
-      return completed;
+      return completedFromPublish(publish);
     },
   );
 }
