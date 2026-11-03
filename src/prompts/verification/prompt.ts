@@ -34,7 +34,7 @@ export const VERIFICATION_GUEST_SPECS: readonly GuestCapabilitySpec[] =
 
 export const verificationInvestigationHarness = renderCodeModeHarness({
   guest: VERIFICATION_GUEST_SPECS,
-  nativeTools: ["execute", "submitVerification"],
+  nativeTools: ["execute", "report_obstacle", "submitVerification"],
   cellBoundary: "Submitting happens outside the cell: after inspection, call `submitVerification`.",
   extra: [
     "This profile has no `listChangedFiles`, `findFiles`, `getWorkspaceBlame`, or `resolveSymbol`; the inventory names the paths to inspect.",

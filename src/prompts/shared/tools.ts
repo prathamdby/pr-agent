@@ -8,6 +8,9 @@ import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settin
 
 export const nativeToolCallingGuidance = "Call native tools directly. There is no `execute` cell.";
 
+export const obstacleReportGuidance =
+  "When a tool, prompt, input, or instruction blocks or degrades the step you are on, call `report_obstacle` once, then continue. Do not call it for a finding, ordinary uncertainty, or to reach another reviewer.";
+
 export const unavailableConversationToolsGuidance =
   "No tool reads the PR conversation, issues, or external URLs.";
 
@@ -41,13 +44,14 @@ export function renderCodeModeHarness(params: {
   if (params.extra?.length) {
     lines.push(...params.extra);
   }
+  lines.push(obstacleReportGuidance);
   return lines.join("\n");
 }
 
 export const specialistInvestigationHarness = [
   renderCodeModeHarness({
     guest: GUEST_CAPABILITY_SPECS,
-    nativeTools: ["execute", "submit_findings_report"],
+    nativeTools: ["execute", "report_obstacle", "submit_findings_report"],
     cellBoundary:
       "Submitting happens outside the cell: after investigation, call `submit_findings_report`.",
   }),

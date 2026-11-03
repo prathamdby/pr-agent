@@ -9,12 +9,13 @@ import {
 } from "../shared/behavior.ts";
 import { rejectedFindingSubmissionGuidance } from "../shared/repair.ts";
 import { maintainerDecisionEvidenceGuidance } from "../shared/safety.ts";
-import { nativeToolCallingGuidance } from "../shared/tools.ts";
+import { nativeToolCallingGuidance, obstacleReportGuidance } from "../shared/tools.ts";
 
 export const triageNativeTooling = [
   "## Tools",
   nativeToolCallingGuidance,
   "Inspect with `readWorkspaceFile`, `searchWorkspace` (literal match, not regex), and `getWorkspaceDiff`.",
+  obstacleReportGuidance,
   "Change files with `editWorkspaceFile` or `createWorkspaceFile`, commit each fix with `commitFix`, and record the result with `submitTriage`. These are the only write paths; edits outside the files the inventory names are refused.",
 ].join("\n");
 

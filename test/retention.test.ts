@@ -116,6 +116,7 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
+      if (text.includes("agent_feedback")) return { rowCount: 0 };
       if (text.includes("agent_events")) {
         expect(text).toContain("recorded_at");
         expect(text).toContain("DELETE FROM agent_events");

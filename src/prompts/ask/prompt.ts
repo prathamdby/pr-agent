@@ -8,7 +8,7 @@ import { renderCodeModeHarness, unavailableConversationToolsGuidance } from "../
 
 export const askInvestigationHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
-  nativeTools: ["execute"],
+  nativeTools: ["execute", "report_obstacle"],
   cellBoundary: "The answer goes in your final plain-text reply, not in a cell.",
   extra: [`The workspace is a PR head checkout. ${unavailableConversationToolsGuidance}`],
 });
