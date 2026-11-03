@@ -7,6 +7,7 @@ import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./ag
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.ts";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.ts";
 import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
+import { attachReportObstacle } from "../feedback/reportObstacle.ts";
 import { createPiSession } from "./piSession.ts";
 import { compactionPolicyForRole } from "./compactionPolicy.ts";
 import { DEFAULT_PROMPT_CACHE_POLICY } from "./promptCachePolicy.ts";
@@ -87,6 +88,29 @@ export async function createFeaturePiSession(params: {
         model: primary.model,
       });
   }
+  const attached = attachReportObstacle(
+    { tools: params.tools, executors },
+    agentEventsContext
+      ? {
+          pool: agentEventsContext.pool,
+          workItemId: agentEventsContext.workItemId,
+          installationId: agentEventsContext.installationId,
+          owner: agentEventsContext.owner,
+          repo: agentEventsContext.repo,
+          prNumber: agentEventsContext.prNumber,
+          ...(agentEventsContext.executionId != null
+            ? { executionId: agentEventsContext.executionId }
+            : {}),
+          ...(agentEventsContext.attemptCount != null
+            ? { attemptCount: agentEventsContext.attemptCount }
+            : {}),
+          sessionRole: params.role,
+          ...(params.specialistId ? { specialistId: params.specialistId } : {}),
+          provider: primary.provider,
+          model: primary.model,
+        }
+      : null,
+  );
   const session = await (params.createSession ?? createPiSession)({
     role: params.role,
     traceWorkItemId: params.sessionContext?.workItemId,
@@ -101,8 +125,8 @@ export async function createFeaturePiSession(params: {
     cwd: params.cwd,
     eventSink,
     cfg: params.cfg,
-    tools: params.tools,
-    executors,
+    tools: attached.tools,
+    executors: attached.executors,
     refreshBeforeTool: params.refreshBeforeTool,
     hostSignal: params.hostSignal,
   });

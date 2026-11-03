@@ -35,6 +35,7 @@ export const orchestratorHarness = renderCodeModeHarness({
   guest: GUEST_CAPABILITY_SPECS,
   nativeTools: [
     "execute",
+    "report_obstacle",
     "submit_specialist_brief",
     "publish_thread",
     "declare_duplicate",

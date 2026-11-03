@@ -36,6 +36,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
+    await pool.query("DELETE FROM agent_feedback WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM github_repository_capabilities WHERE owner = $1", [OWNER]);
   });
@@ -274,6 +275,51 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     const kept = await pool.query<{ id: string }>(
       "SELECT id FROM agent_events WHERE event_kind = $1",
       [EVENT],
+    );
+    expect(kept.rows.map((row) => row.id)).toContain(keptId);
+  });
+
+  it("deletes agent_feedback older than the default retention and keeps it when retention is 0", async () => {
+    const agedId = randomUUID();
+    const freshId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_feedback (
+         id, group_key, recorded_at, owner, obstacle, subject, intent, problem, expected, severity
+       ) VALUES
+         ($1, 'tool:retention', $3, $5, 'tool', 'retention', 'keep', 'aged', 'stay', 'noise'),
+         ($2, 'tool:retention', $4, $5, 'tool', 'retention', 'keep', 'fresh', 'stay', 'noise')`,
+      [agedId, freshId, daysAgo(31), daysAgo(1), OWNER],
+    );
+
+    const deleted = await runRetention(pool, {
+      ...RETENTION,
+      agentEvents: {
+        ...RETENTION.agentEvents,
+        retentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+      },
+    });
+    expect(deleted.agentFeedbackDeleted).toBeGreaterThanOrEqual(1);
+
+    const { rows } = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_feedback WHERE owner = $1",
+      [OWNER],
+    );
+    const ids = rows.map((row) => row.id);
+    expect(ids).not.toContain(agedId);
+    expect(ids).toContain(freshId);
+
+    const keptId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_feedback (
+         id, group_key, recorded_at, owner, obstacle, subject, intent, problem, expected, severity
+       ) VALUES ($1, 'tool:retention', $2, $3, 'tool', 'retention', 'keep', 'aged', 'stay', 'noise')`,
+      [keptId, daysAgo(31), OWNER],
+    );
+    const keptRun = await runRetention(pool, RETENTION);
+    expect(keptRun.agentFeedbackDeleted).toBe(0);
+    const kept = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_feedback WHERE owner = $1",
+      [OWNER],
     );
     expect(kept.rows.map((row) => row.id)).toContain(keptId);
   });

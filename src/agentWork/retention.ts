@@ -14,6 +14,7 @@ export type RetentionResult = {
   readonly webhookEventsDeleted: number;
   readonly webhookDuplicatesDeleted: number;
   readonly agentEventsDeleted: number;
+  readonly agentFeedbackDeleted: number;
   readonly askQuotaBucketsDeleted: number;
   readonly prHeadCiStateDeleted: number;
   readonly reviewApprovalsDeleted: number;
@@ -28,6 +29,7 @@ export async function runRetention(
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
     agentEventsDeleted,
+    agentFeedbackDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,
@@ -106,6 +108,25 @@ export async function runRetention(
       }
       return deleted;
     })(),
+    (async () => {
+      if (cfg.agentEvents.retentionSeconds <= 0) return 0;
+      let deleted = 0;
+      for (;;) {
+        const result = await pool.query(
+          `DELETE FROM agent_feedback
+            WHERE id IN (
+              SELECT id FROM agent_feedback
+               WHERE recorded_at < now() - ($1::bigint * interval '1 second')
+               LIMIT $2::int
+            )`,
+          [cfg.agentEvents.retentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+        );
+        const batch = result.rowCount ?? 0;
+        deleted += batch;
+        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+      }
+      return deleted;
+    })(),
     deleteExpiredAskQuotaState(pool, cfg.retention.agentWorkSeconds, RETENTION_DELETE_BATCH_SIZE),
     deleteExpiredPrHeadCiState(pool, cfg.retention.agentWorkSeconds),
     deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
@@ -116,6 +137,7 @@ export async function runRetention(
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
     agentEventsDeleted,
+    agentFeedbackDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,

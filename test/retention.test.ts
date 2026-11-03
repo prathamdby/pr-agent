@@ -59,6 +59,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.workItemsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 2);
     expect(result.webhookEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE);
     expect(result.agentEventsDeleted).toBe(0);
+    expect(result.agentFeedbackDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(result.prHeadCiStateDeleted).toBe(0);
     expect(result.reviewApprovalsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 3);
@@ -99,6 +100,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.workItemsDeleted).toBe(3);
     expect(result.webhookEventsDeleted).toBe(0);
     expect(result.agentEventsDeleted).toBe(0);
+    expect(result.agentFeedbackDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(result.prHeadCiStateDeleted).toBe(0);
     expect(workCalls).toBe(1);
@@ -116,6 +118,7 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
+      if (text.includes("agent_feedback")) return { rowCount: 0 };
       if (text.includes("agent_events")) {
         expect(text).toContain("recorded_at");
         expect(text).toContain("DELETE FROM agent_events");
@@ -133,7 +136,40 @@ describe("runRetention batched delete loop", () => {
     });
 
     expect(result.agentEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 7);
+    expect(result.agentFeedbackDeleted).toBe(0);
     expect(eventCalls).toBe(2);
+  });
+
+  it("batches agent_feedback deletes when retention seconds are positive", async () => {
+    const feedbackBatches = [RETENTION_DELETE_BATCH_SIZE, 4];
+    let feedbackCalls = 0;
+    const query = vi.fn(async (text: string) => {
+      if (text.includes("DELETE FROM github_repository_capabilities")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
+      if (text.includes("webhook_events")) return { rowCount: 0 };
+      if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
+      if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
+      if (text.includes("agent_feedback")) {
+        expect(text).toContain("recorded_at");
+        expect(text).toContain("DELETE FROM agent_feedback");
+        const batch = feedbackBatches[feedbackCalls++];
+        if (batch === undefined) throw new Error("unexpected extra agent_feedback query");
+        return { rowCount: batch };
+      }
+      if (text.includes("agent_events")) return { rowCount: 0 };
+      throw new Error(`unexpected query: ${text}`);
+    });
+    const pool = { query } as unknown as Pool;
+
+    const result = await runRetention(pool, {
+      ...RETENTION,
+      agentEvents: { ...RETENTION.agentEvents, retentionSeconds: 86_400 },
+    });
+
+    expect(result.agentFeedbackDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 4);
+    expect(feedbackCalls).toBe(2);
   });
 
   it("batches pr_head_ci_state deletes and reports the count", async () => {

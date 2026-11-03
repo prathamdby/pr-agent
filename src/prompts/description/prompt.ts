@@ -8,13 +8,15 @@ import { communicationGuidance } from "../shared/communication.ts";
 import { wrapUntrustedBlock } from "../shared/safety.ts";
 import {
   nativeToolCallingGuidance,
+  obstacleReportGuidance,
   unavailableConversationToolsGuidance,
 } from "../shared/tools.ts";
 
 export const descriptionNativeTooling = [
   "## Tools",
   nativeToolCallingGuidance,
-  "Installed: `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace` (literal match), `findFiles` (fuzzy path match), `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`, `submitDescription`.",
+  "Installed: `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace` (literal match), `findFiles` (fuzzy path match), `getWorkspaceDiff`, `getWorkspaceBlame`, `resolveSymbol`, `report_obstacle`, `submitDescription`.",
+  obstacleReportGuidance,
   "`listChangedFiles` gives the paths; diffs show what changed and cost less than whole files; focused reads supply context. Blame is for when authorship decides the description. `findFiles` and `resolveSymbol` matches are hints until `readWorkspaceFile` confirms them.",
   unavailableConversationToolsGuidance,
 ].join("\n");

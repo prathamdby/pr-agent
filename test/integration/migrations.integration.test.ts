@@ -3,7 +3,13 @@ import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { Pool } from "pg";
+import { REPORT_OBSTACLE_NAME } from "../../src/agent/feedback/reportObstacle.ts";
+import { createFeaturePiSession } from "../../src/agent/runtime/createFeatureSession.ts";
+import { createFakePiSession } from "../../src/agent/runtime/fakePiSession.ts";
+import type { PiSessionCreateParams } from "../../src/agent/runtime/types.ts";
+import { makeTestConfig } from "../helpers/config.ts";
 import { claimSummaryCommentCreation } from "../../src/agentWork/publishRecordRepository.ts";
 import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
 import { runMigrations } from "../../src/db/migrations.ts";
@@ -55,6 +61,7 @@ const EXPECTED_MIGRATIONS = [
   "041_drop_finding_history.sql",
   "042_pr_review_approvals_workflow_start_admits.sql",
   "043_index_usage.sql",
+  "044_agent_feedback.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -391,5 +398,238 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {
     await expect(Promise.all([runMigrations(pool), runMigrations(pool)])).resolves.toHaveLength(2);
+  });
+
+  it("stores one obstacle report per reviewer and continues when the database is down", async () => {
+    const id = randomUUID();
+    const owner = "feedback-it";
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       ) VALUES ($1, 'review', 'auto', 'running', $2, 'app', 12, 7, 'abc', 'review', $3, '{}'::jsonb)`,
+      [id, owner, `feedback-it-${id}`],
+    );
+    const dead = new Pool({
+      connectionString: "postgres://127.0.0.1:1/none",
+      connectionTimeoutMillis: 5_000,
+      max: 1,
+    });
+    try {
+      const cfg = makeTestConfig({ agentEvents: { enabled: false } });
+      const sessionContext = {
+        pool,
+        workItemId: id,
+        installationId: 7,
+        owner,
+        repo: "app",
+        prNumber: 12,
+        executionId: "execution-1",
+        attemptCount: 1,
+      };
+      const opened = new Map<string, PiSessionCreateParams>();
+      const createSession = async (params: PiSessionCreateParams) => {
+        opened.set(params.specialistId ?? params.role, params);
+        return createFakePiSession(params, () => "").session;
+      };
+      const dummy: PiTool = {
+        name: "execute",
+        description: "read",
+        parameters: { type: "object", properties: {} },
+      };
+      const openSpecialist = (specialistId: "security" | "quality" | "tests") =>
+        createFeaturePiSession({
+          createSession,
+          role: "specialist",
+          specialistId,
+          cfg,
+          systemPrompt: "system",
+          tools: [dummy],
+          executors: { execute: async () => ({ ok: true }) },
+          sessionContext:
+            specialistId === "tests" ? { ...sessionContext, pool: dead } : sessionContext,
+        });
+      await openSpecialist("security");
+      await openSpecialist("quality");
+      await createFeaturePiSession({
+        createSession,
+        role: "ci_summary",
+        cfg,
+        systemPrompt: "system",
+        tools: [],
+        executors: {},
+        sessionContext,
+      });
+      await openSpecialist("tests");
+
+      const security = opened.get("security");
+      const quality = opened.get("quality");
+      const tests = opened.get("tests");
+      const quiet = opened.get("ci_summary");
+      const securityExecutor = security?.executors[REPORT_OBSTACLE_NAME];
+      const qualityExecutor = quality?.executors[REPORT_OBSTACLE_NAME];
+      const testsExecutor = tests?.executors[REPORT_OBSTACLE_NAME];
+      if (!securityExecutor || !qualityExecutor || !testsExecutor) {
+        throw new Error("report_obstacle missing from a specialist session");
+      }
+      expect(quiet?.tools.map((tool) => tool.name)).not.toContain(REPORT_OBSTACLE_NAME);
+      await createFeaturePiSession({
+        createSession,
+        role: "specialist",
+        specialistId: "correctness",
+        cfg,
+        systemPrompt: "system",
+        tools: [dummy],
+        executors: { execute: async () => ({ ok: true }) },
+      });
+      const missingContext = opened.get("correctness")?.executors[REPORT_OBSTACLE_NAME];
+      if (!missingContext) throw new Error("report_obstacle missing without run context");
+
+      const call = {
+        signal: AbortSignal.timeout(2_000),
+      };
+      const securityResult = await securityExecutor(
+        {
+          intent: "Find callers of save().",
+          obstacle: "tool",
+          subject: "searchWorkspace",
+          problem: "Security search returned no hits.",
+          expected: "Matches for save( in src/.",
+          severity: "blocked",
+        },
+        { ...call, toolCallId: "call-security" },
+      );
+      const duplicate = await securityExecutor(
+        {
+          intent: "Find callers of save().",
+          obstacle: "tool",
+          subject: "searchWorkspace",
+          problem: "This duplicate must not be stored.",
+          expected: "Matches for save( in src/.",
+          severity: "blocked",
+        },
+        { ...call, toolCallId: "call-security" },
+      );
+      const qualityResult = await qualityExecutor(
+        {
+          intent: "Read the quality rules.",
+          obstacle: "prompt",
+          subject: "quality prompt",
+          problem: "Quality prompt told me to ignore the diff. ghp_abcdefghijklmnopqrst",
+          expected: "A rule that points at the changed lines.",
+          severity: "degraded",
+        },
+        { ...call, toolCallId: "call-quality" },
+      );
+
+      expect(securityResult).toEqual({ recorded: true });
+      expect(duplicate).toEqual({ recorded: true });
+      expect(qualityResult).toEqual({ recorded: true });
+      expect(JSON.stringify(securityResult)).not.toContain("Quality prompt");
+      expect(JSON.stringify(qualityResult)).not.toContain("Security search");
+
+      const { rows } = await pool.query<{
+        specialist: string;
+        group_key: string;
+        model: string;
+        provider: string;
+        owner: string;
+        repo: string;
+        pr_number: number;
+        session_role: string;
+        obstacle: string;
+        subject: string;
+        intent: string;
+        problem: string;
+        expected: string;
+        severity: string;
+        execution_id: string;
+        attempt_count: number;
+        recorded_at: Date;
+      }>(
+        `SELECT specialist, group_key, model, provider, owner, repo, pr_number, session_role,
+                obstacle, subject, intent, problem, expected, severity, execution_id,
+                attempt_count, recorded_at
+           FROM agent_feedback
+          WHERE work_item_id = $1
+          ORDER BY specialist`,
+        [id],
+      );
+      expect(rows).toHaveLength(2);
+      expect(rows.find((row) => row.specialist === "security")).toMatchObject({
+        group_key: "tool:searchworkspace",
+        owner,
+        repo: "app",
+        pr_number: 12,
+        session_role: "specialist",
+        obstacle: "tool",
+        subject: "searchWorkspace",
+        intent: "Find callers of save().",
+        problem: "Security search returned no hits.",
+        expected: "Matches for save( in src/.",
+        severity: "blocked",
+        execution_id: "execution-1",
+        attempt_count: 1,
+        model: security?.primary.model,
+        provider: security?.primary.provider,
+      });
+      expect(rows.find((row) => row.specialist === "security")?.recorded_at).toBeInstanceOf(Date);
+      expect(rows.find((row) => row.specialist === "quality")).toMatchObject({
+        group_key: "prompt:quality prompt",
+        problem: "Quality prompt told me to ignore the diff. [redacted]",
+        severity: "degraded",
+        model: quality?.primary.model,
+      });
+
+      const invalid = await securityExecutor({}, { ...call, toolCallId: "call-invalid" });
+      expect(invalid).toMatchObject({ recorded: false });
+      expect(invalid).toHaveProperty("error");
+      const afterInvalid = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM agent_feedback WHERE work_item_id = $1",
+        [id],
+      );
+      expect(afterInvalid.rows[0]?.n).toBe(2);
+
+      const started = Date.now();
+      const down = await testsExecutor(
+        {
+          intent: "Read the test file.",
+          obstacle: "tool",
+          subject: "readWorkspaceFile",
+          problem: "The database was down.",
+          expected: "A stored report.",
+          severity: "noise",
+        },
+        { ...call, toolCallId: "call-tests" },
+      );
+      expect(down).toEqual({ recorded: false });
+      expect(Date.now() - started).toBeLessThan(2_000);
+      const afterDown = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM agent_feedback WHERE work_item_id = $1",
+        [id],
+      );
+      expect(afterDown.rows[0]?.n).toBe(2);
+      const unstored = await missingContext(
+        {
+          intent: "Read the changed test.",
+          obstacle: "instruction",
+          subject: "review contract",
+          problem: "The run had no repository context.",
+          expected: "A stored report.",
+          severity: "noise",
+        },
+        { ...call, toolCallId: "call-correctness" },
+      );
+      expect(unstored).toEqual({ recorded: false });
+      const afterMissing = await pool.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM agent_feedback WHERE work_item_id = $1",
+        [id],
+      );
+      expect(afterMissing.rows[0]?.n).toBe(2);
+    } finally {
+      await dead.end();
+      await pool.query("DELETE FROM agent_feedback WHERE work_item_id = $1", [id]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [id]);
+    }
   });
 });
