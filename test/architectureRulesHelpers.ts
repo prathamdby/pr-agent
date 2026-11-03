@@ -125,8 +125,6 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
       continue;
     }
     if (/\s/.test(ch)) {
-      if (ch === ";" || ch === "\n") {
-      }
       i += 1;
       continue;
     }

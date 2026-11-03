@@ -316,6 +316,10 @@ export function createReviewArtifactEnvelope(
       break;
     case "publication_settled":
       break;
+    default: {
+      const exhaustive: never = artifactValue;
+      return exhaustive;
+    }
   }
   const redacted = v.safeParse(artifactSchema, output);
   if (!redacted.success) reviewArtifactInvalid("artifact_redaction");

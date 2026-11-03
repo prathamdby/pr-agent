@@ -33,6 +33,17 @@ const TS_VARIABLE = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/
 const PY_FUNCTION = /^\s*(?:async\s+)?def\s+([A-Za-z_][\w]*)\b/;
 const PY_CLASS = /^\s*class\s+([A-Za-z_][\w]*)\b/;
 
+const TYPESCRIPT_LINE_MATCHERS: ReadonlyArray<readonly [RegExp, SymbolKind]> = [
+  [TS_FUNCTION, "function"],
+  [TS_CLASS, "class"],
+  [TS_TYPE, "type"],
+  [TS_VARIABLE, "variable"],
+];
+const PYTHON_LINE_MATCHERS: ReadonlyArray<readonly [RegExp, SymbolKind]> = [
+  [PY_FUNCTION, "function"],
+  [PY_CLASS, "class"],
+];
+
 function extensionOf(path: string): string {
   const slash = path.lastIndexOf("/");
   const dot = path.lastIndexOf(".");
@@ -62,7 +73,8 @@ function addEntry(
   return true;
 }
 
-function indexTypeScriptLine(
+function indexFirstMatch(
+  matchers: ReadonlyArray<readonly [RegExp, SymbolKind]>,
   byName: Map<string, SymbolIndexEntry[]>,
   path: string,
   lineNumber: number,
@@ -70,42 +82,10 @@ function indexTypeScriptLine(
   maxSymbols: number,
   symbolCount: { value: number },
 ): boolean {
-  const matchers: Array<[RegExp, SymbolKind]> = [
-    [TS_FUNCTION, "function"],
-    [TS_CLASS, "class"],
-    [TS_TYPE, "type"],
-    [TS_VARIABLE, "variable"],
-  ];
   for (const [pattern, kind] of matchers) {
     const match = pattern.exec(line);
     if (!match?.[1]) continue;
-    if (!addEntry(byName, match[1], { path, line: lineNumber, kind }, maxSymbols, symbolCount)) {
-      return false;
-    }
-    return true;
-  }
-  return true;
-}
-
-function indexPythonLine(
-  byName: Map<string, SymbolIndexEntry[]>,
-  path: string,
-  lineNumber: number,
-  line: string,
-  maxSymbols: number,
-  symbolCount: { value: number },
-): boolean {
-  const matchers: Array<[RegExp, SymbolKind]> = [
-    [PY_FUNCTION, "function"],
-    [PY_CLASS, "class"],
-  ];
-  for (const [pattern, kind] of matchers) {
-    const match = pattern.exec(line);
-    if (!match?.[1]) continue;
-    if (!addEntry(byName, match[1], { path, line: lineNumber, kind }, maxSymbols, symbolCount)) {
-      return false;
-    }
-    return true;
+    return addEntry(byName, match[1], { path, line: lineNumber, kind }, maxSymbols, symbolCount);
   }
   return true;
 }
@@ -123,9 +103,15 @@ function indexFileContent(
   for (let i = 0; i < lines.length; i++) {
     const lineNumber = i + 1;
     const line = lines[i] ?? "";
-    const continueIndexing = isPython
-      ? indexPythonLine(byName, path, lineNumber, line, maxSymbols, symbolCount)
-      : indexTypeScriptLine(byName, path, lineNumber, line, maxSymbols, symbolCount);
+    const continueIndexing = indexFirstMatch(
+      isPython ? PYTHON_LINE_MATCHERS : TYPESCRIPT_LINE_MATCHERS,
+      byName,
+      path,
+      lineNumber,
+      line,
+      maxSymbols,
+      symbolCount,
+    );
     if (!continueIndexing) return false;
   }
   return true;
