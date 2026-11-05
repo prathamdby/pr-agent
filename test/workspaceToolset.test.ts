@@ -37,6 +37,7 @@ import {
   type GitGrepWorkspaceParams,
   isTriageSearchPathAllowed,
   createWritableRepositoryReader,
+  type LocalPrChangedFile,
 } from "../src/prWorkspace/repositoryReader.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
@@ -85,6 +86,7 @@ function mockWorkspace(
   overrides?: {
     checkoutMode?: LocalPrWorkspace["reader"]["checkoutMode"];
     stats?: LocalPrWorkspace["reader"]["stats"];
+    changedFiles?: readonly LocalPrChangedFile[];
     getDiffForPath?: (path: string) => Promise<string>;
     getBlameForPath?: (path: string) => Promise<string>;
     lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
@@ -93,7 +95,9 @@ function mockWorkspace(
 ): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
   const privateGitDir = join(agentCwd, ".git");
-  const changedFiles = [{ path: "src/changed.ts", status: "modified" as const }];
+  const changedFiles = overrides?.changedFiles ?? [
+    { path: "src/changed.ts", status: "modified" as const },
+  ];
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
   return {
@@ -133,6 +137,82 @@ function mockWorkspace(
     },
     cleanup: async () => {},
   };
+}
+
+const FIRST_CHANGED_FILE_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SECOND_CHANGED_FILE_HEAD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+type ChangedFilePageView = {
+  readonly files: readonly {
+    readonly path: string;
+    readonly oldPath?: string;
+    readonly status: string;
+    readonly presentInCheckout: boolean;
+  }[];
+  readonly total: number;
+  readonly truncated: boolean;
+  readonly headSha: string;
+  readonly continuation: string | null;
+  readonly warning?: string;
+};
+
+function changedPaths(count: number): LocalPrChangedFile[] {
+  return Array.from({ length: count }, (_, index) => ({
+    path: `src/file-${String(index).padStart(3, "0")}.ts`,
+    status: "modified",
+  }));
+}
+
+function pageWorkspace(
+  files: readonly LocalPrChangedFile[],
+  stats?: LocalPrWorkspace["reader"]["stats"],
+) {
+  return mockWorkspace(
+    "/tmp/changed-file-pages",
+    files.map((file) => file.path),
+    {
+      changedFiles: files,
+      stats: stats ?? { truncated: false, totalChanges: files.length, fileCount: files.length },
+    },
+  );
+}
+
+function isChangedFilePage(raw: unknown): raw is ChangedFilePageView {
+  if (typeof raw !== "object" || raw === null) return false;
+  if (!("files" in raw) || !Array.isArray(raw.files) || raw.files.length > 100) return false;
+  if (!("total" in raw) || typeof raw.total !== "number") return false;
+  if (!("truncated" in raw) || typeof raw.truncated !== "boolean") return false;
+  if (!("headSha" in raw) || typeof raw.headSha !== "string") return false;
+  if (!("continuation" in raw)) return false;
+  if (raw.continuation !== null && typeof raw.continuation !== "string") return false;
+  if ("warning" in raw && raw.warning !== undefined && typeof raw.warning !== "string") return false;
+  return raw.files.every(
+    (file) =>
+      typeof file === "object" &&
+      file !== null &&
+      "path" in file &&
+      typeof file.path === "string" &&
+      "status" in file &&
+      typeof file.status === "string" &&
+      "presentInCheckout" in file &&
+      typeof file.presentInCheckout === "boolean",
+  );
+}
+
+async function readChangedFilePages(workspace: LocalPrWorkspace, headSha: string) {
+  const list = buildWorkspaceTools(workspace.reader, { headSha }).executors.listChangedFiles;
+  if (!list) throw new Error("listChangedFiles missing");
+  const pages: ChangedFilePageView[] = [];
+  let continuation: string | undefined;
+  for (let guard = 0; guard < 12; guard += 1) {
+    const page: unknown = await list(continuation === undefined ? {} : { continuation });
+    expect(isChangedFilePage(page)).toBe(true);
+    if (!isChangedFilePage(page)) throw new Error("changed file page had the wrong shape");
+    pages.push(page);
+    if (page.continuation === null) return pages;
+    continuation = page.continuation;
+  }
+  throw new Error("changed file pages did not end");
 }
 
 async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, string>>) {
@@ -1832,6 +1912,117 @@ describe("local workspace tools", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("returns every admitted changed file as bounded pages", async () => {
+    for (const count of [0, 1, 99, 100, 101]) {
+      const files = changedPaths(count);
+      const pages = await readChangedFilePages(pageWorkspace(files), FIRST_CHANGED_FILE_HEAD);
+      expect(pages.flatMap((page) => page.files.map((file) => file.path))).toEqual(
+        files.map((file) => file.path),
+      );
+      expect(new Set(pages.flatMap((page) => page.files.map((file) => file.path))).size).toBe(
+        count,
+      );
+      expect(pages.at(-1)?.continuation).toBeNull();
+      expect(
+        pages.every(
+          (page) =>
+            page.total === count &&
+            page.truncated === false &&
+            page.headSha === FIRST_CHANGED_FILE_HEAD &&
+            page.files.length <= 100,
+        ),
+      ).toBe(true);
+      expect(pages).toHaveLength(count <= 100 ? 1 : 2);
+    }
+
+    const renamed = await readChangedFilePages(
+      pageWorkspace([{ path: "src/new.ts", oldPath: "src/old.ts", status: "renamed" }]),
+      FIRST_CHANGED_FILE_HEAD,
+    );
+    expect(renamed[0]?.files[0]).toMatchObject({
+      path: "src/new.ts",
+      oldPath: "src/old.ts",
+      status: "renamed",
+      presentInCheckout: true,
+    });
+
+    const deleted = await readChangedFilePages(
+      mockWorkspace("/tmp/changed-file-pages", [], {
+        changedFiles: [{ path: "src/gone.ts", status: "deleted" }],
+        stats: { truncated: false, totalChanges: 1, fileCount: 1 },
+      }),
+      FIRST_CHANGED_FILE_HEAD,
+    );
+    expect(deleted[0]?.files[0]).toMatchObject({
+      path: "src/gone.ts",
+      status: "deleted",
+      presentInCheckout: false,
+    });
+  });
+
+  it("repeats the same pages for one head", async () => {
+    const workspace = pageWorkspace(changedPaths(101));
+    const first = await readChangedFilePages(workspace, FIRST_CHANGED_FILE_HEAD);
+    const second = await readChangedFilePages(workspace, FIRST_CHANGED_FILE_HEAD);
+    expect(first.map((page) => page.files.map((file) => file.path))).toEqual([
+      changedPaths(100).map((file) => file.path),
+      ["src/file-100.ts"],
+    ]);
+    expect(second).toEqual(first);
+  });
+
+  it("keeps upstream truncation on every page", async () => {
+    const files = changedPaths(101);
+    const warning = "Change set truncated to 101 files (12 omitted).";
+    const pages = await readChangedFilePages(
+      pageWorkspace(files, {
+        truncated: true,
+        totalChanges: 113,
+        fileCount: 101,
+        warning,
+      }),
+      FIRST_CHANGED_FILE_HEAD,
+    );
+    expect(pages).toHaveLength(2);
+    expect(pages.every((page) => page.truncated && page.warning === warning)).toBe(true);
+    expect(pages.at(-1)?.continuation).toBeNull();
+    expect(pages.flatMap((page) => page.files.map((file) => file.path))).toEqual(
+      files.map((file) => file.path),
+    );
+  });
+
+  it("rejects a stale, foreign, or malformed continuation", async () => {
+    const files = changedPaths(101);
+    const listed = buildWorkspaceTools(pageWorkspace(files).reader, {
+      headSha: FIRST_CHANGED_FILE_HEAD,
+    });
+    const first = await listed.executors.listChangedFiles?.({});
+    if (!isChangedFilePage(first) || typeof first.continuation !== "string") {
+      throw new Error("first page did not continue");
+    }
+
+    const otherHead = buildWorkspaceTools(pageWorkspace(files).reader, {
+      headSha: SECOND_CHANGED_FILE_HEAD,
+    });
+    await expect(
+      otherHead.executors.listChangedFiles?.({ continuation: first.continuation }),
+    ).rejects.toMatchObject({ code: "tool.input_validation_failed" });
+
+    const shorter = buildWorkspaceTools(pageWorkspace(changedPaths(1)).reader, {
+      headSha: FIRST_CHANGED_FILE_HEAD,
+    });
+    await expect(
+      shorter.executors.listChangedFiles?.({ continuation: first.continuation }),
+    ).rejects.toMatchObject({ code: "tool.input_validation_failed" });
+
+    await expect(
+      listed.executors.listChangedFiles?.({ continuation: "not-a-page" }),
+    ).rejects.toMatchObject({ code: "tool.input_validation_failed" });
+    await expect(listed.executors.listChangedFiles?.({ continuation: "" })).rejects.toMatchObject({
+      code: "tool.input_validation_failed",
+    });
   });
 });
 
