@@ -26,8 +26,9 @@ describe("loadAgentInstructionFiles", () => {
     await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent", drops: [] });
   });
 
-  it("loads AGENTS.md and CLAUDE.md in fixed order", async () => {
+  it("loads AGENTS.md, CLAUDE.md, and REVIEW.md in fixed order", async () => {
     const root = await checkoutWith({
+      "REVIEW.md": "Always check tenant scoping.",
       "CLAUDE.md": "@AGENTS.md",
       "AGENTS.md": "Agents rules.\n\nUse npm.",
       "README.md": "ignored",
@@ -35,9 +36,29 @@ describe("loadAgentInstructionFiles", () => {
     const result = await loadAgentInstructionFiles(root);
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
-    expect(result.files.map((file) => file.filename)).toEqual(["AGENTS.md", "CLAUDE.md"]);
+    expect(result.files.map((file) => file.filename)).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+      "REVIEW.md",
+    ]);
     expect(result.files[0].body).toContain("Use npm.");
     expect(result.files[1].body).toBe("@AGENTS.md");
+    expect(result.files[2].body).toBe("Always check tenant scoping.");
+  });
+
+  it("keeps AGENTS.md and CLAUDE.md when REVIEW.md exceeds the remaining budget", async () => {
+    const root = await checkoutWith({
+      "AGENTS.md": "a".repeat(20),
+      "CLAUDE.md": "b".repeat(20),
+      "REVIEW.md": "r".repeat(20),
+    });
+    const result = await loadAgentInstructionFiles(root, 50);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.files.map((file) => file.filename)).toEqual(["AGENTS.md", "CLAUDE.md"]);
+    expect(result.drops).toEqual([
+      { filename: "REVIEW.md", reason: "aggregate size cap exceeded" },
+    ]);
   });
 
   it("skips empty files and still returns ok for remaining files", async () => {

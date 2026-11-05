@@ -488,7 +488,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `MAX_REPO_POLICY_FILES`                                                                                                                            | 20                                                                                                 |
 | `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                                               | 200                                                                                                |
 | `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                                                | 1000                                                                                               |
-| `AGENT_INSTRUCTION_FILENAMES`                                                                                                                      | `AGENTS.md`, `CLAUDE.md` (repo-root load order)                                                    |
+| `AGENT_INSTRUCTION_FILENAMES`                                                                                                                      | `AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (repo-root load order)                                       |
 | `MAX_AGENT_INSTRUCTION_BYTES`                                                                                                                      | 65536 (aggregate content across accepted root files)                                               |
 | `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                                                 | 32768                                                                                              |
 
@@ -522,9 +522,11 @@ Reviews bind `.pr-agent/*.mdc` from the pull request's recorded base commit. The
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas. No policy body may suppress, omit, or downgrade findings.
 
-#### Root agent instruction files (`AGENTS.md` / `CLAUDE.md`)
+#### Root agent instruction files (`AGENTS.md` / `CLAUDE.md` / `REVIEW.md`)
 
-On each review run, the worker loads `AGENTS.md` and `CLAUDE.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md` or `CLAUDE.md` only when that file was loaded.
+On each review run, the worker loads `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` from the recorded base commit into a sibling trusted-context block. Head copies are untrusted proposed changes and are not binding. The per-file cap is 32768 bytes and the aggregate cap stays 64 KiB. Missing files are skipped and are not cited; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, and triage do not load these files. Verification reads `.mdc` rules from the same base snapshot and does not load these instruction files. Review prompts mention `AGENTS.md`, `CLAUDE.md`, or `REVIEW.md` only when that file was loaded.
+
+`REVIEW.md` holds review-only guidance, the convention other review agents read from the repository root. It loads last, so an existing `AGENTS.md` or `CLAUDE.md` keeps its budget; when the aggregate cap is already spent, `REVIEW.md` is skipped with a warning. Its instructions follow the same anti-suppression rule as every trusted file: they can add checks, but they cannot skip paths, suppress, omit, or downgrade findings.
 
 Example:
 

@@ -95,7 +95,7 @@ Judged-yes paths become a muted `Bound ·` footer. The specialist does
 not author a path (`src/review/repoPolicy.ts`,
 `src/review/publish/boundPolicyJudge.ts`).
 
-**Agent instruction files.** Root `AGENTS.md` and `CLAUDE.md` load in
+**Agent instruction files.** Root `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` load in
 parallel with repo policy on orchestrated review only, and only when
 present. An absent file is not cited. Separate budgets. No `@include`.
 Ask, describe, triage, and verification do not load them (ADR 0019).

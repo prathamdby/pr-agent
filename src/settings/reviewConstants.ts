@@ -92,15 +92,19 @@ export const MAX_REPO_POLICY_FILES = 20;
 export const MAX_REPO_POLICY_PATH_PATTERN_CHARS = 200;
 export const MAX_REPO_POLICY_INSTRUCTION_CHARS = 1000;
 
-export const AGENT_INSTRUCTION_FILENAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+export const AGENT_INSTRUCTION_FILENAMES = ["AGENTS.md", "CLAUDE.md", "REVIEW.md"] as const;
 export const MAX_AGENT_INSTRUCTION_BYTES = 64 * 1024;
 export const MAX_AGENT_INSTRUCTION_FILE_BYTES = 32 * 1024;
 
 const AGENT_INSTRUCTION_FILENAME_SET: ReadonlySet<string> = new Set(AGENT_INSTRUCTION_FILENAMES);
 
+export function isAgentInstructionPath(path: string): boolean {
+  return AGENT_INSTRUCTION_FILENAME_SET.has(path);
+}
+
 export function isAllowlistedPolicyPath(path: string): boolean {
   if (path.includes("\\") || path.includes("\0")) return false;
-  if (AGENT_INSTRUCTION_FILENAME_SET.has(path)) return true;
+  if (isAgentInstructionPath(path)) return true;
   const slash = path.indexOf("/");
   if (slash <= 0 || slash !== path.lastIndexOf("/")) return false;
   const dir = path.slice(0, slash);

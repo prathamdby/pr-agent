@@ -20,8 +20,9 @@ fork lost binding rules that already existed on the base.
 1. **The recorded base commit is the policy source.** A review fetches that
    sha inside the existing hardened git session, after the head sha check and
    before credentials are removed. The ref is `refs/pr-agent/policy-base`.
-   Allowlisted paths are `.pr-agent/<name>.mdc`, root `AGENTS.md`, and root
-   `CLAUDE.md`. The snapshot is a closed union: `ok` with the blobs that
+   Allowlisted paths are `.pr-agent/<name>.mdc`, root `AGENTS.md`, root
+   `CLAUDE.md`, and root `REVIEW.md`. The snapshot is a closed union: `ok`
+   with the blobs that
    passed the per-file caps, `absent` when the read succeeded and the
    allowlist was empty, or `unavailable` when the sha was missing or the read
    failed. There is no head fallback, no sparse retry, and no new environment

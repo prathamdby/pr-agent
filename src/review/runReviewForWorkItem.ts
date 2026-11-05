@@ -14,6 +14,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import {
   type Config,
+  isAgentInstructionPath,
   MAX_REPO_POLICY_BYTES,
   MAX_AGENT_INSTRUCTION_BYTES,
   REPO_POLICY_DIRNAME,
@@ -638,7 +639,7 @@ async function assembleTrustedReviewContext(args: {
     ),
     loadAgentInstructionFiles(
       snapshotFiles
-        .filter((file) => file.path === "AGENTS.md" || file.path === "CLAUDE.md")
+        .filter((file) => isAgentInstructionPath(file.path))
         .map((file) => ({ path: file.path, body: file.body })),
       MAX_AGENT_INSTRUCTION_BYTES,
     ),
