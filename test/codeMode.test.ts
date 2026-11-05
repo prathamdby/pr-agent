@@ -1033,4 +1033,17 @@ describe("Code Mode", () => {
     expect(output.items.omittedCount).toBe(1);
     expect(output.items.value).toHaveLength(100);
   });
+
+  it("keeps SEARCH_TRUNCATED on a truncated search result", async () => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'const hits = await tools.searchWorkspace({ query: "x" }); hits.failureKind',
+      capabilities: {
+        searchWorkspace: async () => ({ matches: [], truncated: true }),
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.output).toBe("SEARCH_TRUNCATED");
+  });
 });
