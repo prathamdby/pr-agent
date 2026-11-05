@@ -26,3 +26,13 @@ Many repositories already document agent behavior in root files such as `AGENTS.
 ## Reversal
 
 Remove `loadAgentInstructionFiles` / trusted-context wiring and the prompt guidance; leave `.pr-agent/*.mdc` policy unchanged.
+
+## Amendment (2026-11-05): `REVIEW.md`
+
+Review-only instructions now commonly live in a root `REVIEW.md`. Claude Code Review, Qodo, and other review agents read it from the repository root. Repositories that adopt it should not need a second copy under `.pr-agent/`.
+
+1. **Load** `REVIEW.md` with the same base-commit snapshot, trust boundary, per-file cap, aggregate cap, and anti-suppression line as `AGENTS.md` and `CLAUDE.md`.
+2. **Order** stays `AGENTS.md`, `CLAUDE.md`, `REVIEW.md`. Adding `REVIEW.md` never displaces an already loaded file; when the aggregate cap is spent, `REVIEW.md` is dropped with a warning.
+3. **Suppression** instructions in `REVIEW.md` (skip paths, cap or downgrade findings) are not honored, as for every trusted file. It can add checks only.
+
+Reverse by removing `REVIEW.md` from `AGENT_INSTRUCTION_FILENAMES` and the prompt guidance.
