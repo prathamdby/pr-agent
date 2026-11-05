@@ -18,9 +18,7 @@ export type LineResolutionPublishErrorHint = {
   line?: number;
 };
 
-export function lineResolutionPublishErrorHint(
-  error: unknown,
-): LineResolutionPublishErrorHint | null {
+function hintAtErrorLevel(error: unknown): LineResolutionPublishErrorHint | null {
   const errors = objectValue(objectValue(objectValue(error, "response"), "data"), "errors");
   if (!Array.isArray(errors)) return null;
 
@@ -32,6 +30,23 @@ export function lineResolutionPublishErrorHint(
     const parsedLine = numericValue(line);
     if (parsedLine != null) hint.line = parsedLine;
     if (hint.path != null || hint.line != null) return hint;
+  }
+  return null;
+}
+
+export function lineResolutionPublishErrorHint(
+  error: unknown,
+): LineResolutionPublishErrorHint | null {
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (typeof current === "object") {
+      if (seen.has(current)) break;
+      seen.add(current);
+    }
+    const hint = hintAtErrorLevel(current);
+    if (hint != null) return hint;
+    current = objectValue(current, "cause");
   }
   return null;
 }

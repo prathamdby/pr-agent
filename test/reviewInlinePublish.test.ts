@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toAppError } from "../src/errors/appError.ts";
 import { publishInlineReviewComments } from "../src/review/placement/reviewInlinePublish.ts";
 import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
@@ -214,6 +215,56 @@ describe("publishInlineReviewComments", () => {
       "src/bad.ts",
     ]);
     expect(prSurface.publishThreadBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the path named on a wrapped rejection", async () => {
+    const calls: string[][] = [];
+    const prSurface = surfaceWithPublish(async (review) => {
+      const files = review.comments?.map((comment) => comment.path) ?? [];
+      calls.push(files);
+      if (files.includes("src/bad.ts")) {
+        throw toAppError(
+          Object.assign(new Error("Path could not be resolved"), {
+            status: 422,
+            response: {
+              status: 422,
+              data: {
+                errors: [
+                  {
+                    resource: "PullRequestReview",
+                    code: "custom",
+                    message: "Path could not be resolved",
+                    path: "src/bad.ts",
+                  },
+                ],
+              },
+            },
+          }),
+          { domain: "operation_intent", kind: "mutation_failed" },
+        );
+      }
+      return { reviewId: 13, reviewUrl: "https://example.com/review/13" };
+    });
+
+    const result = await publishInlineReviewComments({
+      prSurface,
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      inlinePlacements: [
+        placement(finding("P0", "src/bad.ts", 4)),
+        placement(finding("P2", "src/ok.ts", 8)),
+      ],
+      renderCommentBody: (placement) => placement.finding.title,
+    });
+
+    expect(result.review?.id).toBe(13);
+    expect(result.postedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/ok.ts",
+    ]);
+    expect(result.anchorDroppedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/bad.ts",
+    ]);
+    expect(calls).toEqual([["src/bad.ts", "src/ok.ts"], ["src/ok.ts"]]);
   });
 
   it("returns summary anchors when every path is rejected", async () => {
