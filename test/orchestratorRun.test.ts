@@ -363,7 +363,7 @@ const workspace: LocalPrWorkspace = {
     stats: { truncated: false, totalChanges: 0, fileCount: 0 },
     grepLiteral: async () => ({ matches: [], truncated: false }),
     findFiles: async () => ({ paths: [], truncated: false }),
-    getDiffForPath: async () => "",
+    getDiffForPath: async () => ({ availability: "available", reason: null, diff: "" }),
     getBlameForPath: async () => "",
     isPathInCheckout: () => false,
     getCoverage: () =>

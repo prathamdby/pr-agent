@@ -16,6 +16,8 @@ import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { describe, expect, it, afterEach } from "vitest";
+import { runCodeModeScript } from "../src/agent/codemode/runScript.ts";
+import type { CodeModeCapabilityExecutors } from "../src/agent/codemode/types.ts";
 import {
   buildWorkspaceTools,
   type LocalWorkspaceToolLimits,
@@ -38,9 +40,11 @@ import {
   isTriageSearchPathAllowed,
   createWritableRepositoryReader,
   type LocalPrChangedFile,
+  type WorkspacePathDiff,
 } from "../src/prWorkspace/repositoryReader.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
+  LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
@@ -88,7 +92,7 @@ function mockWorkspace(
     stats?: LocalPrWorkspace["reader"]["stats"];
     changedFiles?: readonly LocalPrChangedFile[];
     headSha?: string;
-    getDiffForPath?: (path: string) => Promise<string>;
+    getDiffForPath?: (path: string) => Promise<WorkspacePathDiff>;
     getBlameForPath?: (path: string) => Promise<string>;
     lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
     getSymbolIndexStatus?: LocalPrWorkspace["reader"]["getSymbolIndexStatus"];
@@ -125,7 +129,9 @@ function mockWorkspace(
         const ranked = rankPathsByQuery(query, allowed ?? [...paths].toSorted());
         return { paths: ranked.slice(0, maxResults), truncated: ranked.length > maxResults };
       },
-      getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
+      getDiffForPath:
+        overrides?.getDiffForPath ??
+        (async () => ({ availability: "available", reason: null, diff: "" })),
       getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
       isPathInCheckout: (path) => paths.has(path),
       getCoverage: () =>
@@ -369,7 +375,11 @@ describe("local workspace tools", () => {
         },
       ];
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/admin.ts"], {
-        getDiffForPath: async () => "@@ -220,0 +224,3 @@\n+line\n",
+        getDiffForPath: async () => ({
+          availability: "available",
+          reason: null,
+          diff: "@@ -220,0 +224,3 @@\n+line\n",
+        }),
       });
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
@@ -788,7 +798,11 @@ describe("local workspace tools", () => {
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
-        getDiffForPath: async () => "x".repeat(10_000),
+        getDiffForPath: async () => ({
+          availability: "available",
+          reason: null,
+          diff: "x".repeat(10_000),
+        }),
       });
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ diffResponseBytes: 100 }),
@@ -798,12 +812,15 @@ describe("local workspace tools", () => {
         truncated: boolean;
         returnedBytes: number;
         truncationReason?: string;
+        availability?: string;
+        reason?: string | null;
       };
 
       expect(out.truncated).toBe(true);
       expect(out.returnedBytes).toBeLessThanOrEqual(100);
       expect(out.truncationReason).toBe("response byte budget exceeded");
       expect(out.diff.length).toBeGreaterThan(0);
+      expect(out).toMatchObject({ availability: "available", reason: null });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1266,7 +1283,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
       const patch = ["@@ -1,1 +1,3 @@", " x", "+added", "+more"].join("\n");
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
-        getDiffForPath: async () => patch,
+        getDiffForPath: async () => ({ availability: "available", reason: null, diff: patch }),
       });
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
       const { executors } = buildWorkspaceTools(workspace.reader, {
@@ -2069,6 +2086,9 @@ describe("local workspace tools", () => {
     readonly patches?: Readonly<Record<string, string>>;
     readonly omittedPatchPaths?: readonly string[];
     readonly absentPatchPaths?: readonly string[];
+    readonly statuses?: Readonly<Record<string, string>>;
+    readonly previousFilenames?: Readonly<Record<string, string>>;
+    readonly truncated?: boolean;
   };
 
   async function writeTree(dir: string, files: Readonly<Record<string, string>>): Promise<void> {
@@ -2086,13 +2106,15 @@ describe("local workspace tools", () => {
     const omitted = options.omittedPatchPaths?.includes(path) === true;
     const absent = options.absentPatchPaths?.includes(path) === true;
     const patch = options.patches?.[path];
+    const previousFilename = options.previousFilenames?.[path];
     if (patch == null && !omitted && !absent && status !== "removed") return null;
     return {
       filename: path,
       status,
       additions: status === "removed" ? 0 : 1,
-      deletions: status === "removed" ? 1 : 0,
+      deletions: status === "removed" || status === "renamed" ? 1 : 0,
       changes: 1,
+      ...(previousFilename ? { previousFilename } : {}),
       ...(omitted ? { patchOmitted: true } : {}),
       ...(patch != null && !omitted ? { patch } : {}),
     };
@@ -2143,7 +2165,7 @@ describe("local workspace tools", () => {
 
       const prFilesList: PullRequestFileEntry[] = [];
       for (const path of Object.keys(files)) {
-        const entry = prFileEntry(path, "modified", options);
+        const entry = prFileEntry(path, options.statuses?.[path] ?? "modified", options);
         if (entry) prFilesList.push(entry);
       }
       for (const path of Object.keys(deletedFiles)) {
@@ -2152,8 +2174,8 @@ describe("local workspace tools", () => {
       }
       const prFiles: ListPullRequestFilesResult = {
         files: prFilesList,
-        truncated: false,
-        omittedCountLowerBound: 0,
+        truncated: options.truncated === true,
+        omittedCountLowerBound: options.truncated === true ? 1 : 0,
         totalChanges: prFilesList.length,
         headSha,
       };
@@ -2252,7 +2274,12 @@ describe("local workspace tools", () => {
         });
 
         const diff = await executors.getWorkspaceDiff({ path: "src/app.ts" });
-        expect(diff).toEqual({ path: "src/app.ts", diff: APP_PATCH });
+        expect(diff).toEqual({
+          path: "src/app.ts",
+          diff: APP_PATCH,
+          availability: "available",
+          reason: null,
+        });
       });
 
       it("returns empty matches when searchWorkspace finds nothing", async () => {
@@ -2837,10 +2864,12 @@ describe("local workspace tools", () => {
         await expect(executors.getWorkspaceDiff({ path: "src/gone.ts" })).resolves.toEqual({
           path: "src/gone.ts",
           diff: GONE_PATCH,
+          availability: "available",
+          reason: null,
         });
       });
 
-      it("returns an omitted-patch notice and an empty string for an absent patch", async () => {
+      it("names a byte-cap omission and a missing upstream patch", async () => {
         const { executors } = await setup(
           {
             "src/omitted.ts": "export const omitted = true;\n",
@@ -2855,12 +2884,251 @@ describe("local workspace tools", () => {
         await expect(executors.getWorkspaceDiff({ path: "src/omitted.ts" })).resolves.toEqual({
           path: "src/omitted.ts",
           diff: "[patch omitted: exceeds configured PR patch byte cap]",
+          availability: "unavailable",
+          reason: "patch_byte_cap",
         });
         await expect(executors.getWorkspaceDiff({ path: "src/absent.ts" })).resolves.toEqual({
           path: "src/absent.ts",
           diff: "",
+          availability: "unavailable",
+          reason: "upstream_patch_missing",
         });
       });
+
+      it("keeps a reader-sliced patch available", async () => {
+        const patch = "x".repeat(LOCAL_WORKSPACE_MAX_DIFF_BYTES + 1);
+        const { executors } = await setup(
+          { "src/huge.ts": "export const huge = true;\n" },
+          { patches: { "src/huge.ts": patch } },
+        );
+        const out = (await executors.getWorkspaceDiff({ path: "src/huge.ts" })) as {
+          availability?: string;
+          reason?: string | null;
+          diff?: string;
+        };
+        const suffix = "\n...[diff truncated]";
+        expect(out).toMatchObject({
+          availability: "available",
+          reason: "workspace_diff_byte_cap",
+        });
+        expect(out.diff?.endsWith(suffix)).toBe(true);
+        expect(out.diff?.length).toBe(LOCAL_WORKSPACE_MAX_DIFF_BYTES + suffix.length);
+      });
+
+      it("reports patch availability through verification Code Mode", async () => {
+        const widePatch = `diff --git a/src/wide.ts b/src/wide.ts\n${"x".repeat(200)}`;
+        const addedPatch = [
+          "diff --git a/src/added.ts b/src/added.ts",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/src/added.ts",
+          "@@ -0,0 +1 @@",
+          "+export const added = true;",
+        ].join("\n");
+        const renamedPatch = [
+          "diff --git a/src/old-name.ts b/src/new-name.ts",
+          "similarity index 100%",
+          "rename from src/old-name.ts",
+          "rename to src/new-name.ts",
+        ].join("\n");
+        const { workspace, executors } = await setup(
+          {
+            "src/app.ts": "export const needle = 1;\n",
+            "src/empty.ts": "export const empty = true;\n",
+            "src/missing.ts": "export const missing = true;\n",
+            "src/capped.ts": "export const capped = true;\n",
+            "src/untouched.ts": "export const untouched = true;\n",
+            "src/added.ts": "export const added = true;\n",
+            "src/new-name.ts": "export const renamed = true;\n",
+            "src/wide.ts": "export const wide = true;\n",
+          },
+          {
+            patches: {
+              "src/app.ts": APP_PATCH,
+              "src/empty.ts": "",
+              "src/added.ts": addedPatch,
+              "src/new-name.ts": renamedPatch,
+              "src/wide.ts": widePatch,
+            },
+            absentPatchPaths: ["src/missing.ts"],
+            omittedPatchPaths: ["src/capped.ts"],
+            statuses: { "src/added.ts": "added", "src/new-name.ts": "renamed" },
+            previousFilenames: { "src/new-name.ts": "src/old-name.ts" },
+          },
+        );
+        const truncated = await setup(
+          { "src/kept.ts": "export const kept = true;\n" },
+          {
+            patches: { "src/kept.ts": APP_PATCH },
+            truncated: true,
+          },
+        );
+        const cases = [
+          { case: "available", path: "src/app.ts" },
+          { case: "upstream-missing", path: "src/missing.ts" },
+          { case: "upstream-empty", path: "src/empty.ts" },
+          { case: "patch-byte-cap", path: "src/capped.ts" },
+          { case: "unchanged", path: "src/untouched.ts" },
+          { case: "added", path: "src/added.ts" },
+          { case: "rename-new", path: "src/new-name.ts" },
+          { case: "rename-old", path: "src/old-name.ts" },
+          { case: "tool-byte-budget", path: "src/wide.ts" },
+        ];
+        const deleted = await setup(
+          { "src/app.ts": "export {};\n" },
+          {
+            deletedFiles: { "src/gone.ts": "export const removed = true;\n" },
+            patches: { "src/gone.ts": GONE_PATCH },
+          },
+        );
+
+        const readGuest = async (
+          label: string,
+          capabilities: CodeModeCapabilityExecutors,
+          requested: readonly { readonly case: string; readonly path: string }[],
+        ) => {
+          const result = await runCodeModeScript({
+            executorKind: "in_process",
+            capabilities,
+            code: `
+              const cases = ${JSON.stringify(requested)};
+              const rows = [];
+              for (const item of cases) {
+                const result = await tools.getWorkspaceDiff({ path: item.path });
+                rows.push({
+                  surface: ${JSON.stringify(label)},
+                  case: item.case,
+                  availability: result.availability ?? null,
+                  reason: result.reason ?? null,
+                  currentPath: result.currentPath ?? null,
+                  diffLength: typeof result.diff === "string" ? result.diff.length : null,
+                  truncation: result.truncation ?? null,
+                });
+              }
+              rows
+            `,
+          });
+          expect(result.ok).toBe(true);
+          if (!result.ok) return [];
+          expect(result.toolCalls.every((call) => call.status === "completed")).toBe(true);
+          return result.output as Array<{
+            surface: string;
+            case: string;
+            availability: string | null;
+            reason: string | null;
+            currentPath: string | null;
+            diffLength: number | null;
+            truncation: unknown;
+          }>;
+        };
+
+        const verification = await readGuest("verification", executors, cases);
+        const deletedGuest = await readGuest("verification", deleted.executors, [
+          { case: "deleted", path: "src/gone.ts" },
+        ]);
+        const investigation = buildWorkspaceTools(workspace.reader);
+        const investigationGuest = await readGuest(
+          "investigation",
+          investigation.executors,
+          cases.filter((item) => item.case === "available" || item.case === "upstream-missing"),
+        );
+        const truncatedGuest = await readGuest("verification-truncated", truncated.executors, [
+          { case: "truncated-known", path: "src/kept.ts" },
+          { case: "truncated-absent", path: "src/not-listed.ts" },
+        ]);
+        const budgetTools = buildWorkspaceTools(workspace.reader, {
+          limits: testLimits({ diffResponseBytes: 64 }),
+        });
+        const budget = (await budgetTools.executors.getWorkspaceDiff?.({
+          path: "src/wide.ts",
+        })) as {
+          availability?: string;
+          reason?: string | null;
+          diff?: string;
+          truncated?: boolean;
+          truncationReason?: string;
+        };
+        const rows = [...verification, ...deletedGuest, ...investigationGuest, ...truncatedGuest];
+        console.info(
+          JSON.stringify({
+            artifact: "workspace-diff-availability",
+            rows,
+            toolByteBudget: {
+              surface: "investigation-tool",
+              case: "tool-byte-budget",
+              availability: budget.availability ?? null,
+              reason: budget.reason ?? null,
+              diffLength: budget.diff?.length ?? null,
+              truncated: budget.truncated ?? null,
+              truncationReason: budget.truncationReason ?? null,
+            },
+          }),
+        );
+
+        const byCase = new Map(rows.map((row) => [`${row.surface}:${row.case}`, row]));
+        const expectRow = (
+          surface: string,
+          name: string,
+          availability: string,
+          reason: string | null,
+          diffLength: number,
+        ) => {
+          const row = byCase.get(`${surface}:${name}`);
+          if (!row) throw new Error(`${surface}:${name}`);
+          expect(row).toMatchObject({
+            availability,
+            reason,
+            diffLength,
+            truncation: null,
+          });
+        };
+
+        expectRow("verification", "available", "available", null, APP_PATCH.length);
+        expectRow("verification", "upstream-missing", "unavailable", "upstream_patch_missing", 0);
+        expectRow("verification", "upstream-empty", "unavailable", "upstream_patch_empty", 0);
+        expectRow(
+          "verification",
+          "patch-byte-cap",
+          "unavailable",
+          "patch_byte_cap",
+          "[patch omitted: exceeds configured PR patch byte cap]".length,
+        );
+        expectRow("verification", "unchanged", "unchanged", "absent_from_complete_change_set", 0);
+        expectRow("verification", "added", "available", null, addedPatch.length);
+        expectRow("verification", "deleted", "available", null, GONE_PATCH.length);
+        expectRow("verification", "rename-new", "available", null, renamedPatch.length);
+        expect(byCase.get("verification:rename-old")).toMatchObject({
+          availability: "unavailable",
+          reason: "rename_previous_path",
+          currentPath: "src/new-name.ts",
+          diffLength: 0,
+          truncation: null,
+        });
+        expectRow("verification", "tool-byte-budget", "available", null, widePatch.length);
+        expectRow("investigation", "available", "available", null, APP_PATCH.length);
+        expectRow("investigation", "upstream-missing", "unavailable", "upstream_patch_missing", 0);
+        expectRow("verification-truncated", "truncated-known", "available", null, APP_PATCH.length);
+        expectRow(
+          "verification-truncated",
+          "truncated-absent",
+          "unavailable",
+          "change_set_truncated",
+          0,
+        );
+        expect(budget).toMatchObject({
+          availability: "available",
+          reason: null,
+          truncated: true,
+          truncationReason: "response byte budget exceeded",
+        });
+        expect(budget.diff?.length ?? 0).toBeGreaterThan(0);
+        expect(budget.diff?.length ?? widePatch.length).toBeLessThan(widePatch.length);
+        await expect(
+          stat(join(deleted.workspace.agentCwd, "src", "gone.ts")),
+        ).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }, 60_000);
 
       it("forwards workspace search truncation and the shared byte cap", async () => {
         const root = await mkdtemp(join(tmpdir(), "verification-ws-budget-"));

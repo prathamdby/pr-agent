@@ -337,11 +337,10 @@ async function finishLocalPrWorkspace(
   const patchOmittedByCapPaths = new Set<string>();
   const filesForIndex = [];
   for (const file of prFiles.files) {
-    const patch = file.patch ?? "";
     if (file.patchOmitted) {
       patchOmittedByCapPaths.add(file.filename);
-    } else if (patch.length > 0) {
-      patchByPath.set(file.filename, patch);
+    } else if (file.patch != null) {
+      patchByPath.set(file.filename, file.patch);
     }
     filesForIndex.push({
       filename: file.filename,

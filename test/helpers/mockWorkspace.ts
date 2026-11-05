@@ -36,7 +36,7 @@ export function mockLocalPrWorkspace(
       stats,
       grepLiteral: async () => ({ matches: [], truncated: false }),
       findFiles: async () => ({ paths: [], truncated: false }),
-      getDiffForPath: async () => "",
+      getDiffForPath: async () => ({ availability: "available", reason: null, diff: "" }),
       getBlameForPath: async () => "",
       isPathInCheckout: () => false,
       getCoverage: () =>
