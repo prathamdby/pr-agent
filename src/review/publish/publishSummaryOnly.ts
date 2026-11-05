@@ -17,6 +17,7 @@ import {
 import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrReviewComment } from "../../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { publicationAttemptRejected } from "../../github/reviewErrors.ts";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
 import {
   carriedReaffirmedFindings,
@@ -100,6 +101,14 @@ export async function publishReviewSummaryOnly(
     readonly recoveryDecision?: RecoveryDecision;
   },
 ): Promise<PublishSummaryOnlyResult> {
+  if (requestedInput.recoveryDecision == null) {
+    session.recovery?.throwIfPublicationUnresolved("publish_summary_failed");
+  } else if (
+    requestedInput.recoveryDecision.settled?.artifact.kind === "publication_settled" &&
+    requestedInput.recoveryDecision.settled.artifact.outcome === "stopped"
+  ) {
+    return { kind: "stopped", reason: "superseded" };
+  }
   const retained = session.recovery?.canReuseSummary()
     ? await session.recovery.load("final-summary")
     : null;
@@ -332,7 +341,18 @@ export async function publishReviewSummaryOnly(
           isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: runSummaryUpsert,
         });
-  const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  let summary: Awaited<typeof summaryPromise>;
+  let currentLabels: Awaited<typeof labelsPromise>;
+  try {
+    [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  } catch (error) {
+    if (recoveryDecision && publicationAttemptRejected(error)) {
+      await session.recovery?.settle(recoveryDecision, { outcome: "stopped" });
+    } else if (recoveryDecision) {
+      session.recovery?.rememberUnresolvedPublication(error);
+    }
+    throw error;
+  }
   if (ciPool != null) {
     await requestHeadCiProjection(
       session.boss,
