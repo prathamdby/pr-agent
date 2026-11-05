@@ -6,13 +6,17 @@ import { buildCheckoutCoverage } from "../../src/prWorkspace/repositoryReader.ts
 export function mockLocalPrWorkspace(
   agentCwd = "/tmp/pr-agent",
   overrides?: Partial<
-    Pick<LocalPrWorkspace["reader"], "checkoutMode" | "checkoutPaths" | "changedFiles" | "stats">
+    Pick<
+      LocalPrWorkspace["reader"],
+      "checkoutMode" | "checkoutPaths" | "changedFiles" | "stats" | "headSha"
+    >
   >,
 ): LocalPrWorkspace {
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const changedFiles = overrides?.changedFiles ?? [];
   const checkoutPaths = overrides?.checkoutPaths ?? new Set<string>();
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 0, fileCount: 0 };
+  const headSha = overrides?.headSha ?? "a".repeat(40);
   return {
     rootDir: agentCwd,
     privateGitDir: `${agentCwd}/.git`,
@@ -22,6 +26,7 @@ export function mockLocalPrWorkspace(
     reader: {
       ...createWritableRepositoryReader(agentCwd),
       agentCwd,
+      headSha,
       checkoutMode,
       changedFiles,
       changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),

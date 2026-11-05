@@ -77,6 +77,7 @@ export type LocalPrChangedFile = {
 };
 
 export type PinnedRepositoryReader = RepositoryReader & {
+  readonly headSha: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly changedFileByPath: ReadonlyMap<string, LocalPrChangedFile>;
   readonly checkoutPaths: ReadonlySet<string>;
@@ -645,6 +646,7 @@ export function createPinnedRepositoryReader(params: {
   const reader: PinnedRepositoryReader = {
     ...filesystemReader(agentCwd),
     agentCwd,
+    headSha,
     changedFiles,
     changedFileByPath,
     checkoutPaths,

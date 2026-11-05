@@ -199,7 +199,11 @@ export function createCodeModeCapabilityBridge(params: {
         model: params.model,
       });
       const raw =
-        output && typeof output === "object" && "truncated" in output && output.truncated === true
+        name !== "listChangedFiles" &&
+        output &&
+        typeof output === "object" &&
+        "truncated" in output &&
+        output.truncated === true
           ? { ...output, failureKind: "SEARCH_TRUNCATED" }
           : output;
       const coverage =

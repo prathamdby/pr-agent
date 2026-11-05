@@ -87,6 +87,7 @@ function mockWorkspace(
     checkoutMode?: LocalPrWorkspace["reader"]["checkoutMode"];
     stats?: LocalPrWorkspace["reader"]["stats"];
     changedFiles?: readonly LocalPrChangedFile[];
+    headSha?: string;
     getDiffForPath?: (path: string) => Promise<string>;
     getBlameForPath?: (path: string) => Promise<string>;
     lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
@@ -98,6 +99,7 @@ function mockWorkspace(
   const changedFiles = overrides?.changedFiles ?? [
     { path: "src/changed.ts", status: "modified" as const },
   ];
+  const headSha = overrides?.headSha ?? "a".repeat(40);
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
   return {
@@ -109,6 +111,7 @@ function mockWorkspace(
     reader: {
       ...createWritableRepositoryReader(agentCwd),
       agentCwd,
+      headSha,
       checkoutMode,
       changedFiles,
       changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),
@@ -165,6 +168,7 @@ function changedPaths(count: number): LocalPrChangedFile[] {
 
 function pageWorkspace(
   files: readonly LocalPrChangedFile[],
+  headSha: string,
   stats?: LocalPrWorkspace["reader"]["stats"],
 ) {
   return mockWorkspace(
@@ -172,6 +176,7 @@ function pageWorkspace(
     files.map((file) => file.path),
     {
       changedFiles: files,
+      headSha,
       stats: stats ?? { truncated: false, totalChanges: files.length, fileCount: files.length },
     },
   );
@@ -185,7 +190,8 @@ function isChangedFilePage(raw: unknown): raw is ChangedFilePageView {
   if (!("headSha" in raw) || typeof raw.headSha !== "string") return false;
   if (!("continuation" in raw)) return false;
   if (raw.continuation !== null && typeof raw.continuation !== "string") return false;
-  if ("warning" in raw && raw.warning !== undefined && typeof raw.warning !== "string") return false;
+  if ("warning" in raw && raw.warning !== undefined && typeof raw.warning !== "string")
+    return false;
   return raw.files.every(
     (file) =>
       typeof file === "object" &&
@@ -1917,7 +1923,10 @@ describe("local workspace tools", () => {
   it("returns every admitted changed file as bounded pages", async () => {
     for (const count of [0, 1, 99, 100, 101]) {
       const files = changedPaths(count);
-      const pages = await readChangedFilePages(pageWorkspace(files), FIRST_CHANGED_FILE_HEAD);
+      const pages = await readChangedFilePages(
+        pageWorkspace(files, FIRST_CHANGED_FILE_HEAD),
+        FIRST_CHANGED_FILE_HEAD,
+      );
       expect(pages.flatMap((page) => page.files.map((file) => file.path))).toEqual(
         files.map((file) => file.path),
       );
@@ -1938,7 +1947,10 @@ describe("local workspace tools", () => {
     }
 
     const renamed = await readChangedFilePages(
-      pageWorkspace([{ path: "src/new.ts", oldPath: "src/old.ts", status: "renamed" }]),
+      pageWorkspace(
+        [{ path: "src/new.ts", oldPath: "src/old.ts", status: "renamed" }],
+        FIRST_CHANGED_FILE_HEAD,
+      ),
       FIRST_CHANGED_FILE_HEAD,
     );
     expect(renamed[0]?.files[0]).toMatchObject({
@@ -1951,6 +1963,7 @@ describe("local workspace tools", () => {
     const deleted = await readChangedFilePages(
       mockWorkspace("/tmp/changed-file-pages", [], {
         changedFiles: [{ path: "src/gone.ts", status: "deleted" }],
+        headSha: FIRST_CHANGED_FILE_HEAD,
         stats: { truncated: false, totalChanges: 1, fileCount: 1 },
       }),
       FIRST_CHANGED_FILE_HEAD,
@@ -1963,7 +1976,7 @@ describe("local workspace tools", () => {
   });
 
   it("repeats the same pages for one head", async () => {
-    const workspace = pageWorkspace(changedPaths(101));
+    const workspace = pageWorkspace(changedPaths(101), FIRST_CHANGED_FILE_HEAD);
     const first = await readChangedFilePages(workspace, FIRST_CHANGED_FILE_HEAD);
     const second = await readChangedFilePages(workspace, FIRST_CHANGED_FILE_HEAD);
     expect(first.map((page) => page.files.map((file) => file.path))).toEqual([
@@ -1977,7 +1990,7 @@ describe("local workspace tools", () => {
     const files = changedPaths(101);
     const warning = "Change set truncated to 101 files (12 omitted).";
     const pages = await readChangedFilePages(
-      pageWorkspace(files, {
+      pageWorkspace(files, FIRST_CHANGED_FILE_HEAD, {
         truncated: true,
         totalChanges: 113,
         fileCount: 101,
@@ -1995,7 +2008,7 @@ describe("local workspace tools", () => {
 
   it("rejects a stale, foreign, or malformed continuation", async () => {
     const files = changedPaths(101);
-    const listed = buildWorkspaceTools(pageWorkspace(files).reader, {
+    const listed = buildWorkspaceTools(pageWorkspace(files, FIRST_CHANGED_FILE_HEAD).reader, {
       headSha: FIRST_CHANGED_FILE_HEAD,
     });
     const first = await listed.executors.listChangedFiles?.({});
@@ -2003,16 +2016,19 @@ describe("local workspace tools", () => {
       throw new Error("first page did not continue");
     }
 
-    const otherHead = buildWorkspaceTools(pageWorkspace(files).reader, {
+    const otherHead = buildWorkspaceTools(pageWorkspace(files, SECOND_CHANGED_FILE_HEAD).reader, {
       headSha: SECOND_CHANGED_FILE_HEAD,
     });
     await expect(
       otherHead.executors.listChangedFiles?.({ continuation: first.continuation }),
     ).rejects.toMatchObject({ code: "tool.input_validation_failed" });
 
-    const shorter = buildWorkspaceTools(pageWorkspace(changedPaths(1)).reader, {
-      headSha: FIRST_CHANGED_FILE_HEAD,
-    });
+    const shorter = buildWorkspaceTools(
+      pageWorkspace(changedPaths(1), FIRST_CHANGED_FILE_HEAD).reader,
+      {
+        headSha: FIRST_CHANGED_FILE_HEAD,
+      },
+    );
     await expect(
       shorter.executors.listChangedFiles?.({ continuation: first.continuation }),
     ).rejects.toMatchObject({ code: "tool.input_validation_failed" });

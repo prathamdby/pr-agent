@@ -13,8 +13,8 @@ export type GuestCapabilitySpec = {
 
 const GUEST_CAPABILITY_SPEC_BY_NAME = {
   listChangedFiles: {
-    call: "await tools.listChangedFiles()",
-    rule: "Changed paths with status and checkout presence; other calls take paths from it. `truncated` means the list is incomplete.",
+    call: "await tools.listChangedFiles({ continuation? })",
+    rule: "Changed paths with status and checkout presence. Omit continuation for the first page, then pass the returned continuation until it is null. total is the admitted count. truncated means the pull request has changes beyond the admitted files. files is always an array.",
   },
   readWorkspaceFile: {
     call: "await tools.readWorkspaceFile({ path, startLine?, maxLines? })",

@@ -58,7 +58,7 @@ export const specialistInvestigationHarness = [
   "",
   "## Investigation protocol",
   `The installed \`tools.*\` rules above cover literal search, truncation, and blame. ${unavailableConversationToolsGuidance}`,
-  "- `listChangedFiles` gives the paths; diffs show what changed and cost less than whole files; focused reads supply the surrounding context a diff lacks.",
+  "- `listChangedFiles` gives the paths one page at a time. Pass `continuation` until it is null before treating the change set as listed. Diffs show what changed and cost less than whole files. Focused reads supply the surrounding context a diff lacks.",
   "- Anchor every finding to the changed line that best supports it. For a cross-file issue, use the changed line that most directly exposes the problem.",
   "- Findings are issues this PR introduces or exposes. Pre-existing issues the PR does not touch belong to a different review.",
   "- When a host call refuses for path, size, or workspace reasons, the same call refuses again; work from what you have and record the limit in `notes`.",

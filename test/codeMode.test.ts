@@ -43,7 +43,6 @@ function pathDigest(paths: readonly string[]): string {
 
 const WALK_CHANGED_FILES = `
   const pages = [];
-  const paths = [];
   let continuation = "";
   let started = false;
   while (pages.length < 12) {
@@ -53,9 +52,11 @@ const WALK_CHANGED_FILES = `
     started = true;
     if (!Array.isArray(listed.files)) throw new Error("files was not an array");
     if (listed.failureKind) throw new Error("unexpected failureKind");
+    const paths = [];
     for (let i = 0; i < listed.files.length; i = i + 1) paths.push(listed.files[i].path);
     pages.push({
       delivered: listed.files.length,
+      paths: paths,
       continuation: listed.continuation,
       total: listed.total,
       truncated: listed.truncated,
@@ -64,7 +65,7 @@ const WALK_CHANGED_FILES = `
     if (listed.continuation === null) break;
     continuation = listed.continuation;
   }
-  ({ paths: paths, pages: pages })
+  ({ pages: pages })
 `;
 
 async function deliverChangedFiles(
@@ -80,6 +81,7 @@ async function deliverChangedFiles(
   const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
     changedFiles: files,
     checkoutPaths: new Set(files.map((file) => file.path)),
+    headSha,
     stats,
   });
   const tools = buildWorkspaceTools(workspace.reader, { headSha });
@@ -897,24 +899,23 @@ describe("Code Mode", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const output = result.output as {
-      paths: string[];
       pages: {
         delivered: number;
+        paths: string[];
         continuation: string | null;
         total: number;
         truncated: boolean;
         headSha: string;
       }[];
     };
-    expect(output.paths).toEqual(files.map((file) => file.path));
-    expect(new Set(output.paths).size).toBe(179);
-    expect(pathDigest(output.paths)).toBe(CHANGED_FILE_HASH_179);
+    const paths = output.pages.flatMap((page) => page.paths);
+    expect(paths).toEqual(files.map((file) => file.path));
+    expect(new Set(paths).size).toBe(179);
+    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_179);
     expect(output.pages.every((page) => page.delivered <= 100 && page.delivered > 0)).toBe(true);
     expect(output.pages.reduce((sum, page) => sum + page.delivered, 0)).toBe(179);
     expect(output.pages.at(-1)?.continuation).toBeNull();
-    expect(output.pages.every((page) => page.total === 179 && page.truncated === false)).toBe(
-      true,
-    );
+    expect(output.pages.every((page) => page.total === 179 && page.truncated === false)).toBe(true);
     expect(output.pages.every((page) => page.headSha === CHANGED_FILE_HEAD)).toBe(true);
   });
 
@@ -929,11 +930,16 @@ describe("Code Mode", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const output = result.output as {
-      paths: string[];
-      pages: { delivered: number; continuation: string | null; truncated: boolean }[];
+      pages: {
+        delivered: number;
+        paths: string[];
+        continuation: string | null;
+        truncated: boolean;
+      }[];
     };
-    expect(output.paths).toEqual(files.map((file) => file.path));
-    expect(pathDigest(output.paths)).toBe(CHANGED_FILE_HASH_300);
+    const paths = output.pages.flatMap((page) => page.paths);
+    expect(paths).toEqual(files.map((file) => file.path));
+    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_300);
     expect(output.pages.at(-1)?.continuation).toBeNull();
     expect(output.pages.every((page) => page.truncated === true)).toBe(true);
     expect(output.pages.every((page) => page.delivered <= 100)).toBe(true);
@@ -950,6 +956,7 @@ describe("Code Mode", () => {
     const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
       changedFiles: files,
       checkoutPaths: new Set(files.map((file) => file.path)),
+      headSha: CHANGED_FILE_HEAD,
       stats: { truncated: false, totalChanges: 80, fileCount: 80 },
     });
     const list = buildWorkspaceTools(workspace.reader, { headSha: CHANGED_FILE_HEAD }).executors
