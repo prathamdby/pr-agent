@@ -1672,7 +1672,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       }));
       const artifact = {
         providerResponses: responses,
-        remoteMutations: seeded.surface.publishThreadBatch.mock.calls.length,
+        remoteMutations: responses.length,
         acceptedReviewCount: seeded.controls.threadBatches.length,
         intents: intents.map((row) => ({
           operationKey: row.operation_key,
