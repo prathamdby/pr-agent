@@ -30,7 +30,7 @@ const GUEST_CAPABILITY_SPEC_BY_NAME = {
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",
-    rule: "PR unified diff for one path; cheaper than reading the whole file.",
+    rule: "PR base-to-head unified diff for one path. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not prove the path is unchanged. `unchanged` requires a complete changed-file list.",
   },
   getWorkspaceBlame: {
     call: "await tools.getWorkspaceBlame({ path })",
@@ -170,7 +170,7 @@ export function renderExecuteDescription(capabilities: CodeModeCapabilityExecuto
   const parts = [
     "Run one QuickJS cell of JavaScript against the PR head checkout. Each call starts a fresh context. Locals and functions end with the cell. The last expression is the return value. `state` is JSON investigation data that persists across cells in this session. It holds plain data only, not functions, promises, or open resources.",
     `Host calls are the installed \`tools.*\` names below, at most ${CODE_MODE_MAX_TOOL_CALLS} per cell. \`Promise.all\` overlaps independent reads; the host admits ${CODE_MODE_HOST_IN_FLIGHT} in flight. \`fetch\`, \`require\`, \`import\`, \`process\`, \`fs\`, and timers are unavailable.`,
-    'Each host result keeps its declared fields plus `coverage` and `truncation`. Truncated strings stay strings, and the omitted bytes are described in `truncation`. `failureKind: "SEARCH_TRUNCATED"` marks any result the host cut short, including file reads and diffs, not only searches. A truncated or refused result cannot prove absence.',
+    'Each host result keeps its declared fields plus `coverage` and `truncation`. Truncated strings stay strings, and the omitted bytes are described in `truncation`. `failureKind: "SEARCH_TRUNCATED"` marks any result the host cut short, including file reads and diffs, not only searches. A truncated or refused result cannot prove absence. `availability: "unavailable"` does not prove the path is unchanged.',
     "The cell's return value enters your context, so return compact summaries and only the excerpts a conclusion needs.",
     "Submit, publish, and give the final ask reply through sibling native tools or the next assistant message, not from the cell.",
   ];

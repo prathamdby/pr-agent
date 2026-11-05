@@ -76,6 +76,86 @@ export type LocalPrChangedFile = {
   readonly oldPath?: string;
 };
 
+const PATCH_BYTE_CAP_DIFF = "[patch omitted: exceeds configured PR patch byte cap]";
+
+export type WorkspacePathDiff =
+  | {
+      readonly availability: "available";
+      readonly reason: null | "workspace_diff_byte_cap";
+      readonly diff: string;
+    }
+  | {
+      readonly availability: "unchanged";
+      readonly reason: "absent_from_complete_change_set" | "matches_head";
+      readonly diff: "";
+    }
+  | {
+      readonly availability: "unavailable";
+      readonly reason: "upstream_patch_missing" | "upstream_patch_empty" | "change_set_truncated";
+      readonly diff: "";
+    }
+  | {
+      readonly availability: "unavailable";
+      readonly reason: "patch_byte_cap";
+      readonly diff: typeof PATCH_BYTE_CAP_DIFF;
+    }
+  | {
+      readonly availability: "unavailable";
+      readonly reason: "rename_previous_path";
+      readonly diff: "";
+      readonly currentPath: string;
+    };
+
+function classifyPinnedPrDiff(input: {
+  readonly path: string;
+  readonly changedFileByPath: ReadonlyMap<string, LocalPrChangedFile>;
+  readonly changedFiles: readonly LocalPrChangedFile[];
+  readonly patchByPath: ReadonlyMap<string, string>;
+  readonly patchOmittedByCapPaths: ReadonlySet<string>;
+  readonly truncated: boolean;
+}): WorkspacePathDiff {
+  const normalized = input.path.replace(/\\/g, "/");
+  if (input.changedFileByPath.has(normalized)) {
+    if (input.patchOmittedByCapPaths.has(normalized)) {
+      return { availability: "unavailable", reason: "patch_byte_cap", diff: PATCH_BYTE_CAP_DIFF };
+    }
+    const patch = input.patchByPath.get(normalized);
+    if (patch == null) {
+      return { availability: "unavailable", reason: "upstream_patch_missing", diff: "" };
+    }
+    if (patch.length === 0) {
+      return { availability: "unavailable", reason: "upstream_patch_empty", diff: "" };
+    }
+    if (patch.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES) {
+      return {
+        availability: "available",
+        reason: "workspace_diff_byte_cap",
+        diff: `${patch.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[diff truncated]`,
+      };
+    }
+    return { availability: "available", reason: null, diff: patch };
+  }
+  const renamed = input.changedFiles.find(
+    (file) => file.status === "renamed" && file.oldPath === normalized,
+  );
+  if (renamed) {
+    return {
+      availability: "unavailable",
+      reason: "rename_previous_path",
+      diff: "",
+      currentPath: renamed.path,
+    };
+  }
+  if (input.truncated) {
+    return { availability: "unavailable", reason: "change_set_truncated", diff: "" };
+  }
+  return {
+    availability: "unchanged",
+    reason: "absent_from_complete_change_set",
+    diff: "",
+  };
+}
+
 export type PinnedRepositoryReader = RepositoryReader & {
   readonly headSha: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
@@ -588,18 +668,15 @@ export function createPinnedRepositoryReader(params: {
     });
   }
 
-  async function getDiffForPath(path: string): Promise<string> {
-    const normalized = path.replace(/\\/g, "/");
-    const patch = patchByPath.get(normalized);
-    if (patch == null) {
-      if (patchOmittedByCapPaths.has(normalized)) {
-        return "[patch omitted: exceeds configured PR patch byte cap]";
-      }
-      return "";
-    }
-    return patch.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
-      ? `${patch.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[diff truncated]`
-      : patch;
+  async function getDiffForPath(path: string): Promise<WorkspacePathDiff> {
+    return classifyPinnedPrDiff({
+      path,
+      changedFileByPath,
+      changedFiles,
+      patchByPath,
+      patchOmittedByCapPaths,
+      truncated: stats.truncated,
+    });
   }
 
   async function getBlameForPath(path: string): Promise<string> {
@@ -687,7 +764,7 @@ export type RepositoryReader = {
     maxFileBytes: number,
   ) => ReturnType<typeof refuseWorkspaceTextFileRead>;
   readonly grepLiteral: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
-  readonly getDiffForPath: (path: string) => Promise<string>;
+  readonly getDiffForPath: (path: string) => Promise<WorkspacePathDiff>;
 };
 
 export async function readRepositorySource(
@@ -731,7 +808,10 @@ export function createWritableRepositoryReader(root: string): RepositoryReader {
         cwd: root,
         timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       });
-      return stdout;
+      if (stdout.length === 0) {
+        return { availability: "unchanged", reason: "matches_head", diff: "" };
+      }
+      return { availability: "available", reason: null, diff: stdout };
     },
   };
 }

@@ -40,6 +40,7 @@ import {
   isTriageSearchPathAllowed,
   createWritableRepositoryReader,
   type LocalPrChangedFile,
+  type WorkspacePathDiff,
 } from "../src/prWorkspace/repositoryReader.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
@@ -90,7 +91,7 @@ function mockWorkspace(
     stats?: LocalPrWorkspace["reader"]["stats"];
     changedFiles?: readonly LocalPrChangedFile[];
     headSha?: string;
-    getDiffForPath?: (path: string) => Promise<string>;
+    getDiffForPath?: (path: string) => Promise<WorkspacePathDiff>;
     getBlameForPath?: (path: string) => Promise<string>;
     lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
     getSymbolIndexStatus?: LocalPrWorkspace["reader"]["getSymbolIndexStatus"];
@@ -127,7 +128,9 @@ function mockWorkspace(
         const ranked = rankPathsByQuery(query, allowed ?? [...paths].toSorted());
         return { paths: ranked.slice(0, maxResults), truncated: ranked.length > maxResults };
       },
-      getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
+      getDiffForPath:
+        overrides?.getDiffForPath ??
+        (async () => ({ availability: "available", reason: null, diff: "" })),
       getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
       isPathInCheckout: (path) => paths.has(path),
       getCoverage: () =>
@@ -371,7 +374,11 @@ describe("local workspace tools", () => {
         },
       ];
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/admin.ts"], {
-        getDiffForPath: async () => "@@ -220,0 +224,3 @@\n+line\n",
+        getDiffForPath: async () => ({
+          availability: "available",
+          reason: null,
+          diff: "@@ -220,0 +224,3 @@\n+line\n",
+        }),
       });
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
@@ -790,7 +797,11 @@ describe("local workspace tools", () => {
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
-        getDiffForPath: async () => "x".repeat(10_000),
+        getDiffForPath: async () => ({
+          availability: "available",
+          reason: null,
+          diff: "x".repeat(10_000),
+        }),
       });
       const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ diffResponseBytes: 100 }),
@@ -800,12 +811,15 @@ describe("local workspace tools", () => {
         truncated: boolean;
         returnedBytes: number;
         truncationReason?: string;
+        availability?: string;
+        reason?: string | null;
       };
 
       expect(out.truncated).toBe(true);
       expect(out.returnedBytes).toBeLessThanOrEqual(100);
       expect(out.truncationReason).toBe("response byte budget exceeded");
       expect(out.diff.length).toBeGreaterThan(0);
+      expect(out).toMatchObject({ availability: "available", reason: null });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1268,7 +1282,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
       const patch = ["@@ -1,1 +1,3 @@", " x", "+added", "+more"].join("\n");
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
-        getDiffForPath: async () => patch,
+        getDiffForPath: async () => ({ availability: "available", reason: null, diff: patch }),
       });
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
       const { executors } = buildWorkspaceTools(workspace.reader, {
@@ -2259,7 +2273,12 @@ describe("local workspace tools", () => {
         });
 
         const diff = await executors.getWorkspaceDiff({ path: "src/app.ts" });
-        expect(diff).toEqual({ path: "src/app.ts", diff: APP_PATCH });
+        expect(diff).toEqual({
+          path: "src/app.ts",
+          diff: APP_PATCH,
+          availability: "available",
+          reason: null,
+        });
       });
 
       it("returns empty matches when searchWorkspace finds nothing", async () => {
@@ -2844,6 +2863,8 @@ describe("local workspace tools", () => {
         await expect(executors.getWorkspaceDiff({ path: "src/gone.ts" })).resolves.toEqual({
           path: "src/gone.ts",
           diff: GONE_PATCH,
+          availability: "available",
+          reason: null,
         });
       });
 
@@ -2966,12 +2987,9 @@ describe("local workspace tools", () => {
               rows
             `,
           });
-          expect(result.ok, label).toBe(true);
+          expect(result.ok).toBe(true);
           if (!result.ok) return [];
-          expect(
-            result.toolCalls.every((call) => call.status === "completed"),
-            label,
-          ).toBe(true);
+          expect(result.toolCalls.every((call) => call.status === "completed")).toBe(true);
           return result.output as Array<{
             surface: string;
             case: string;
@@ -3035,7 +3053,8 @@ describe("local workspace tools", () => {
           diffLength: number,
         ) => {
           const row = byCase.get(`${surface}:${name}`);
-          expect(row, `${surface}:${name}`).toMatchObject({
+          if (!row) throw new Error(`${surface}:${name}`);
+          expect(row).toMatchObject({
             availability,
             reason,
             diffLength,
@@ -3083,9 +3102,11 @@ describe("local workspace tools", () => {
         });
         expect(budget.diff?.length ?? 0).toBeGreaterThan(0);
         expect(budget.diff?.length ?? widePatch.length).toBeLessThan(widePatch.length);
-        expect(
-          await stat(join(deleted.workspace.agentCwd, "src", "gone.ts")),
-        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          stat(join(deleted.workspace.agentCwd, "src", "gone.ts")),
+        ).rejects.toMatchObject({
+          code: "ENOENT",
+        });
       }, 60_000);
 
       it("forwards workspace search truncation and the shared byte cap", async () => {

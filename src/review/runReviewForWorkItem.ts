@@ -788,7 +788,7 @@ async function runFullReviewAgainstRepositoryView(args: {
             .toSorted((a, b) => a.path.localeCompare(b.path))
             .map(async (file) => ({
               ...file,
-              patch: await repositoryView.workspace.reader.getDiffForPath(file.path),
+              patch: (await repositoryView.workspace.reader.getDiffForPath(file.path)).diff,
             })),
         ),
         reviewRecoveryModelApis(cfg, escalation),

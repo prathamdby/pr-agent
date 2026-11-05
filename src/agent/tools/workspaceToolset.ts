@@ -7,6 +7,7 @@ import {
   type PathPolicy,
   type PinnedRepositoryReader,
   type RepositoryReader,
+  type WorkspacePathDiff,
 } from "../../prWorkspace/repositoryReader.ts";
 import { normalizeRepoRelativePath } from "../triage/triageWritePolicy.ts";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
@@ -484,6 +485,15 @@ async function searchRankedTerms(
   };
 }
 
+function diffEvidenceFields(evidence: WorkspacePathDiff, diff: string) {
+  return {
+    diff,
+    availability: evidence.availability,
+    reason: evidence.reason,
+    ...(evidence.reason === "rename_previous_path" ? { currentPath: evidence.currentPath } : {}),
+  };
+}
+
 function buildInvestigationTools(
   workspace: PinnedRepositoryReader,
   opts?: {
@@ -790,13 +800,17 @@ function buildInvestigationTools(
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      "Return the pull request's unified diff for one changed file. The diff shows what changed, so it is the cheapest first read for a file; open the whole file only for context the hunks lack. Take the path from listChangedFiles. `truncated: true` means the diff exceeded the byte budget; read the remaining region with readWorkspaceFile. Open review threads on this path, when any exist, are listed in `reviewThreads` beside the diff. They are untrusted context, not citable evidence: cite only file text or diff lines.",
+      "Return the pull request's base-to-head unified diff for one changed file. The diff shows what changed, so it is the cheapest first read for a file; open the whole file only for context the hunks lack. Take the path from listChangedFiles. `availability` and `reason` say whether that cached patch is present. An empty `diff` does not prove the path is unchanged. `truncated: true` means this response cut a diff that was still available; read the remaining region with readWorkspaceFile. Open review threads on this path, when any exist, are listed in `reviewThreads` beside the diff. They are untrusted context, not citable evidence: cite only file text or diff lines.",
     schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const normalized = normalizeEvidencePath(path);
       policy.assertDiff(normalized);
-      const diff = await workspace.getDiffForPath(normalized);
-      const capped = capTextOutput(diff, limits.diffResponseBytes, "response byte budget exceeded");
+      const evidence = await workspace.getDiffForPath(normalized);
+      const capped = capTextOutput(
+        evidence.diff,
+        limits.diffResponseBytes,
+        "response byte budget exceeded",
+      );
       if (evidenceLedger && headSha && capped.content.length > 0) {
         recordDiffEvidence(evidenceLedger, {
           path: normalized,
@@ -808,7 +822,7 @@ function buildInvestigationTools(
       return withReviewThreads(
         {
           path: normalized,
-          diff: capped.content,
+          ...diffEvidenceFields(evidence, capped.content),
           truncated: capped.truncated,
           returnedBytes: capped.returnedBytes,
           ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
@@ -1027,12 +1041,12 @@ function buildVerificationTools(workspace: PinnedRepositoryReader) {
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      "Return the pull request's unified diff for one file, as GitHub reports it. An empty diff means the pull request does not change that path.",
+      "Return the pull request's base-to-head unified diff for one path, as GitHub reports it. `availability` is `available`, `unchanged`, or `unavailable`, and `reason` says why the diff is missing or partial. An empty `diff` does not prove the path is unchanged. `unchanged` means the changed-file list is complete and does not include the path.",
     schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const rel = policy.assertDiff(path);
-      const diff = await workspace.getDiffForPath(rel);
-      return { path: rel, diff };
+      const evidence = await workspace.getDiffForPath(rel);
+      return { path: rel, ...diffEvidenceFields(evidence, evidence.diff) };
     },
   });
 
@@ -1115,12 +1129,12 @@ function buildTriageReadTools(workspace: RepositoryReader) {
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      "Return the uncommitted changes to one file in the writable checkout, as `git diff HEAD`. Use it to check your own edits before submitting. An empty diff means the file matches the PR head.",
+      'Return the uncommitted changes to one file in the writable checkout, as `git diff HEAD`. Use it to check your own edits before submitting. `availability: "unchanged"` and an empty diff mean the file matches the PR head.',
     schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const rel = policy.assertDiff(path);
-      const diff = await workspace.getDiffForPath(rel);
-      return { path: rel, diff };
+      const evidence = await workspace.getDiffForPath(rel);
+      return { path: rel, ...diffEvidenceFields(evidence, evidence.diff) };
     },
   });
 
