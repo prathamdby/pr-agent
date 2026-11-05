@@ -252,6 +252,65 @@ describe("publishReviewSummaryOnly", () => {
     expect(summaryBody).toContain("All specialists ran except tests, not judged: quality.");
   });
 
+  it("does not send a summary again after rejection settles stopped", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000839",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "head",
+        mode: "review",
+      },
+      "b".repeat(64),
+    );
+    const rows = new Map<string, unknown>();
+    const store = {
+      load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async (envelope: unknown) => {
+        const parsed = parseReviewArtifactEnvelope(envelope);
+        if (!parsed) throw new Error("invalid");
+        rows.set(parsed.logicalKey, parsed);
+        return "stored" as const;
+      },
+    };
+    const recovery = openReviewRecovery(binding, store);
+    const { surface, upsertProgressComment } = configuredSummarySurface();
+    upsertProgressComment.mockRejectedValueOnce(
+      Object.assign(new Error("GitHub rejected the review"), { status: 403 }),
+    );
+    const session = createReviewPublishSession({
+      cfg: makeTestConfig(),
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
+      prSurface: surface,
+      findingInventory: completeFindingInventory(),
+      recovery,
+    });
+    const payload = makeReviewPayload({ findings: [] });
+    const input = {
+      payload,
+      ledger: createFindingLedger(),
+      coverage: { kind: "full" as const },
+    };
+    await expect(publishReviewSummaryOnly(session, input)).rejects.toThrow(/rejected/);
+    expect(upsertProgressComment).toHaveBeenCalledTimes(1);
+    const decisions = await recovery.decisions();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.settled?.artifact).toMatchObject({
+      kind: "publication_settled",
+      outcome: "stopped",
+    });
+    expect(decisions[0]?.settled?.artifact).not.toHaveProperty("remote");
+    await expect(
+      publishReviewSummaryOnly(session, { ...input, recoveryDecision: decisions[0] }),
+    ).resolves.toEqual({ kind: "stopped", reason: "superseded" });
+    expect(upsertProgressComment).toHaveBeenCalledTimes(1);
+    expect(await openReviewRecovery(binding, store).decisions()).toHaveLength(1);
+  });
+
   it("links placements to comments from every inline review batch", async () => {
     const first = finding(10);
     const second = finding(20);

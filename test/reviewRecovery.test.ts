@@ -92,6 +92,63 @@ describe("review recovery replay", () => {
     rows = new Map();
   });
 
+  it("reuses one pending plan and still rejects a degradation-only replacement", async () => {
+    const recovery = openReviewRecovery(binding, store);
+    const payload = makeReviewPayload();
+    const thread: CanonicalReviewDecision = {
+      kind: "threads",
+      source: "security",
+      ledgerBefore: summaryInputs.ledger,
+      localDelta: summaryInputs.ledger,
+      inline: [],
+      footers: [],
+      baseSha: "d".repeat(40),
+      resultKind: "remote",
+      evidence: [],
+      judgmentDegraded: false,
+      briefFallback: false,
+      coverage: { kind: "full" },
+      counts: { suppressed: 0, capDowngraded: 0 },
+    };
+    const operationKey = "review:inline:a6fb0c840a12666bb36f27c4430e6bca";
+    const first = await recovery.prepare(payload, operationKey, thread);
+    const reused = await recovery.prepare(payload, operationKey, thread);
+
+    expect(reused?.prepared.logicalKey).toBe("decision/0/prepared");
+    expect(reused?.prepared.logicalKey).toBe(first?.prepared.logicalKey);
+    expect([...rows.keys()]).toEqual(["decision/0/prepared"]);
+
+    recovery.setJudgmentDegraded(true);
+    recovery.setCoverage({
+      kind: "partial",
+      unjudged: ["security", "tests", "correctness", "quality"],
+      note: "Not judged: security, tests, correctness, quality.",
+    });
+    await expect(
+      recovery.prepare(payload, operationKey, {
+        ...thread,
+        judgmentDegraded: true,
+        coverage: {
+          kind: "partial",
+          unjudged: ["security", "tests", "correctness", "quality"],
+          note: "Not judged: security, tests, correctness, quality.",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "publish_store.invalid_detail",
+      message: "Review recovery artifact violates its storage contract",
+      context: { reason: "pending_decision_conflict" },
+    });
+    expect(() => recovery.throwIfFailed()).toThrow(/storage contract/);
+
+    const reopened = openReviewRecovery(binding, store);
+    const decisions = await reopened.decisions();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.settled).toBeNull();
+    expect(decisions[0]?.prepared.artifact.canonical).toMatchObject({ judgmentDegraded: false });
+    expect([...rows.keys()]).toEqual(["decision/0/prepared"]);
+  });
+
   it("refuses to replay a saved summary decision through the thread publisher", async () => {
     await openReviewRecovery(binding, store).prepare(
       makeReviewPayload(),

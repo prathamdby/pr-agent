@@ -1,4 +1,5 @@
 import type { ReviewArtifactStore } from "../../agentWork/reviewArtifactRepository.ts";
+import { AppError } from "../../errors/appError.ts";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.ts";
 import type {
   ReviewArtifact,
@@ -35,6 +36,19 @@ export function snapshotFindingLedger(ledger: FindingLedger): FindingLedgerSnaps
   };
 }
 
+export type PublicationSettlement =
+  | { readonly outcome: "accepted" | "recovered"; readonly githubId?: number }
+  | { readonly outcome: "stopped" };
+
+function publicationSettlement(
+  githubIdOrSettlement?: number | PublicationSettlement,
+): PublicationSettlement {
+  if (typeof githubIdOrSettlement === "number") {
+    return { outcome: "accepted", githubId: githubIdOrSettlement };
+  }
+  return githubIdOrSettlement ?? { outcome: "accepted" };
+}
+
 export type ReviewRecovery = ReturnType<typeof openReviewRecovery>;
 
 export function openReviewRecovery(binding: ReviewArtifactBinding, store: ReviewArtifactStore) {
@@ -47,6 +61,7 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
   };
   let allowSavedSummary = true;
   let storageFailure: unknown;
+  let unresolvedPublication: unknown;
   let pendingDecision: RecoveryDecision | null = null;
   const guarded = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
@@ -89,6 +104,30 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
     throwIfFailed: () => {
       if (storageFailure !== undefined) throw storageFailure;
     },
+    takeStorageFailure: () => {
+      const failure = storageFailure;
+      storageFailure = undefined;
+      return failure;
+    },
+    rememberUnresolvedPublication: (error: unknown) => {
+      if (pendingDecision == null || unresolvedPublication !== undefined) return;
+      unresolvedPublication = error;
+    },
+    throwIfPublicationUnresolved: (
+      kind: "publish_thread_failed" | "publish_summary_failed" = "publish_thread_failed",
+    ) => {
+      if (pendingDecision == null) return;
+      if (unresolvedPublication !== undefined) throw unresolvedPublication;
+      throw new AppError({
+        domain: "review",
+        kind,
+        message: "A prepared publication is still unsettled",
+        context: {
+          reason: "pending_publication",
+          operationKey: pendingDecision.prepared.artifact.operationKey,
+        },
+      });
+    },
     disable: () => {
       caching = false;
     },
@@ -124,6 +163,7 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
     },
     getJudgmentDegraded: () => judgmentDegraded,
     async decisions(): Promise<RecoveryDecision[]> {
+      pendingDecision = null;
       const decisions: RecoveryDecision[] = [];
       for (let sequence = 0; sequence <= 100_000; sequence++) {
         const prepared = await guarded(() => store.load(`decision/${sequence}/prepared`));
@@ -199,6 +239,7 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       )
         return null;
       nextSequence += 1;
+      unresolvedPublication = undefined;
       pendingDecision = {
         prepared: {
           ...prepared,
@@ -208,9 +249,14 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       };
       return pendingDecision;
     },
-    async settle(decision: RecoveryDecision | null, githubId?: number) {
+    async settle(
+      decision: RecoveryDecision | null,
+      githubIdOrSettlement?: number | PublicationSettlement,
+    ) {
       if (!decision || decision.settled) return;
       const { prepared } = decision;
+      const settlement = publicationSettlement(githubIdOrSettlement);
+      const githubId = settlement.outcome === "stopped" ? undefined : settlement.githubId;
       const result = await guarded(() =>
         store.save(
           createReviewArtifactEnvelope(binding, {
@@ -218,7 +264,7 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
             sequence: prepared.artifact.sequence,
             decisionId: prepared.artifact.decisionId,
             preparedHash: reviewArtifactHash(prepared),
-            outcome: "accepted",
+            outcome: settlement.outcome,
             ...(githubId === undefined
               ? {}
               : {
@@ -229,7 +275,10 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       );
       if (result !== "stored" && result !== "existing")
         reviewArtifactInvalid("settlement_capacity");
-      if (pendingDecision?.prepared.logicalKey === prepared.logicalKey) pendingDecision = null;
+      if (pendingDecision?.prepared.logicalKey === prepared.logicalKey) {
+        pendingDecision = null;
+        unresolvedPublication = undefined;
+      }
     },
     async saveSummary(payload: ReviewPayload, inputs: CanonicalReviewDecision) {
       if (!caching) return null;
@@ -245,4 +294,20 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       });
     },
   };
+}
+
+export async function settleRejectedPublication(
+  recovery: ReviewRecovery | null | undefined,
+  decision: RecoveryDecision | null,
+  error: unknown,
+): Promise<void> {
+  if (recovery == null || decision == null) return;
+  try {
+    await recovery.settle(decision, { outcome: "stopped" });
+  } catch (settlementError) {
+    const latched = recovery.takeStorageFailure();
+    if (error instanceof Error && error.cause == null) error.cause = latched ?? settlementError;
+    recovery.rememberUnresolvedPublication(error);
+    throw error;
+  }
 }

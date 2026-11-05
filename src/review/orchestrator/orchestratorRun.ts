@@ -367,6 +367,10 @@ export async function runOrchestratedPrReview(
   const sessionCwd = params.cwd ?? params.workspace.agentCwd;
   const phaseRef = createOrchestratorPhaseRef("recon");
   const recovery = params.recovery;
+  const throwIfRecoveryBlocked = () => {
+    recovery?.throwIfFailed();
+    recovery?.throwIfPublicationUnresolved();
+  };
   const readEvidence = createGovernedReviewEvidenceReader(params.workspace.reader, params.headSha);
   const mustRestoreOpens = params.workspace.reader.changedFiles.some(
     (file) => file.status !== "deleted" && params.workspace.reader.isPathInCheckout(file.path),
@@ -571,6 +575,7 @@ export async function runOrchestratedPrReview(
   );
   const recoveredSources = new Set<SpecialistId>();
   let recoveredSummary = false;
+  let settledPublicationStopped = false;
   let recoveredCheck: FindingCheck | null = null;
   for (const decision of recoveredDecisions) {
     const canonical = decision.prepared.artifact.canonical;
@@ -579,9 +584,21 @@ export async function runOrchestratedPrReview(
       const withoutEvidence = evidenceMisses.has(decision.prepared.artifact.sequence);
       await publishThread.replay(decision, withoutEvidence);
       if (publishThread.getStopReason()) break;
-      if (canonical.source !== "review" && !withoutEvidence) recoveredSources.add(canonical.source);
+      const publicationStopped =
+        decision.settled?.artifact.kind === "publication_settled" &&
+        decision.settled.artifact.outcome === "stopped";
+      if (canonical.source !== "review" && !withoutEvidence && !publicationStopped) {
+        recoveredSources.add(canonical.source);
+      }
     } else {
       if (evidenceMisses.size > 0) continue;
+      if (
+        decision.settled?.artifact.kind === "publication_settled" &&
+        decision.settled.artifact.outcome === "stopped"
+      ) {
+        settledPublicationStopped = true;
+        continue;
+      }
       const result = await publishReviewSummaryOnly(publishSession, {
         payload: decision.prepared.artifact.payload,
         ledger: createFindingLedger(canonical.ledger),
@@ -595,7 +612,9 @@ export async function runOrchestratedPrReview(
     }
   }
   const savedFinalSummary =
-    recoveredSummary || evidenceMisses.size > 0 ? null : await recovery?.load("final-summary");
+    recoveredSummary || settledPublicationStopped || evidenceMisses.size > 0
+      ? null
+      : await recovery?.load("final-summary");
   if (
     savedFinalSummary?.artifact.kind === "final_summary" &&
     savedFinalSummary.artifact.inputs?.kind === "summary"
@@ -897,7 +916,8 @@ export async function runOrchestratedPrReview(
         recordAgentTurnMetrics(send.value);
         return { kind: "sent", text: send.value.text, end: send.value.end };
       } catch (error) {
-        recovery?.throwIfFailed();
+        recovery?.rememberUnresolvedPublication(error);
+        throwIfRecoveryBlocked();
         const appError = toAppError(error, {
           domain: "review",
           kind: "orchestrator_send_failed",
@@ -1393,7 +1413,8 @@ export async function runOrchestratedPrReview(
               );
               await writeTick();
             } catch (error) {
-              recovery?.throwIfFailed();
+              recovery?.rememberUnresolvedPublication(error);
+              throwIfRecoveryBlocked();
               await recordOutcome(outcome);
               if (outcome.kind === "report") {
                 await recordUnjudgedReport(outcome, { reason: "judgment_failed", error });
@@ -1553,7 +1574,7 @@ export async function runOrchestratedPrReview(
     let step = nextStep(null, stepFacts());
     while (step.kind !== "done") {
       await runStep(step);
-      recovery?.throwIfFailed();
+      throwIfRecoveryBlocked();
       step = nextStep(step.kind, stepFacts());
     }
   } catch (error) {

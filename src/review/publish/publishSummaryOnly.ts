@@ -17,6 +17,7 @@ import {
 import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrReviewComment } from "../../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
+import { publicationAttemptRejected } from "../../github/reviewErrors.ts";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
 import {
   carriedReaffirmedFindings,
@@ -45,7 +46,11 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.ts"
 import { createReviewSummaryComment } from "./reviewSummaryComment.ts";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import {
+  settleRejectedPublication,
+  snapshotFindingLedger,
+  type RecoveryDecision,
+} from "../recovery/reviewRecovery.ts";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
@@ -100,6 +105,14 @@ export async function publishReviewSummaryOnly(
     readonly recoveryDecision?: RecoveryDecision;
   },
 ): Promise<PublishSummaryOnlyResult> {
+  if (requestedInput.recoveryDecision == null) {
+    session.recovery?.throwIfPublicationUnresolved("publish_summary_failed");
+  } else if (
+    requestedInput.recoveryDecision.settled?.artifact.kind === "publication_settled" &&
+    requestedInput.recoveryDecision.settled.artifact.outcome === "stopped"
+  ) {
+    return { kind: "stopped", reason: "superseded" };
+  }
   const retained = session.recovery?.canReuseSummary()
     ? await session.recovery.load("final-summary")
     : null;
@@ -332,7 +345,18 @@ export async function publishReviewSummaryOnly(
           isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: runSummaryUpsert,
         });
-  const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  let summary: Awaited<typeof summaryPromise>;
+  let currentLabels: Awaited<typeof labelsPromise>;
+  try {
+    [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  } catch (error) {
+    if (recoveryDecision && publicationAttemptRejected(error)) {
+      await settleRejectedPublication(session.recovery, recoveryDecision, error);
+    } else if (recoveryDecision) {
+      session.recovery?.rememberUnresolvedPublication(error);
+    }
+    throw error;
+  }
   if (ciPool != null) {
     await requestHeadCiProjection(
       session.boss,

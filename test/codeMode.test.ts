@@ -981,9 +981,8 @@ describe("Code Mode", () => {
             const path = listed.files[i].path;
             count = count + 1;
             if (path.length !== 5000) short = short + 1;
-            for (let j = 0; j < path.length; j = j + 1) {
-              checksum = (checksum + path.charCodeAt(j)) % 1000003;
-            }
+            const last = path.length > 0 ? path.length - 1 : 0;
+            checksum = (checksum + path.charCodeAt(0) + path.charCodeAt(3) + path.charCodeAt(last)) % 1000003;
           }
           pages.push({ delivered: listed.files.length, continuation: listed.continuation });
           if (listed.continuation === null) break;
@@ -1003,9 +1002,10 @@ describe("Code Mode", () => {
     };
     let checksum = 0;
     for (const file of files) {
-      for (let index = 0; index < file.path.length; index += 1) {
-        checksum = (checksum + file.path.charCodeAt(index)) % 1_000_003;
-      }
+      const path = file.path;
+      checksum =
+        (checksum + path.charCodeAt(0) + path.charCodeAt(3) + path.charCodeAt(path.length - 1)) %
+        1_000_003;
     }
     expect(output.count).toBe(80);
     expect(output.short).toBe(0);

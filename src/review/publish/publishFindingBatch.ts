@@ -47,10 +47,17 @@ import type {
 } from "../orchestrator/orchestratorTypes.ts";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
 import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
-import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.ts";
+import {
+  isDefinitelyNoAcceptanceReviewError,
+  publicationAttemptRejected,
+} from "../../github/reviewErrors.ts";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import {
+  settleRejectedPublication,
+  snapshotFindingLedger,
+  type RecoveryDecision,
+} from "../recovery/reviewRecovery.ts";
 import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.ts";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
@@ -448,6 +455,7 @@ export async function publishFindingBatch(
   });
   const prepareDecision = async (operationKey: string, decision: CanonicalThreadDecision) => {
     if (replay) return replay;
+    session.recovery?.throwIfPublicationUnresolved();
     if (!cacheable) {
       session.recovery?.discardEvidenceCache();
       return null;
@@ -561,6 +569,12 @@ export async function publishFindingBatch(
         boundByKey,
       ),
   );
+  if (
+    replay?.settled?.artifact.kind === "publication_settled" &&
+    replay.settled.artifact.outcome === "stopped"
+  ) {
+    return { kind: "empty", delta: emptyDelta({ threadCallCount: 0 }) };
+  }
   if (replay?.settled && session.operationIntent) {
     const intent = await getOperationIntent(
       session.operationIntent.client,
@@ -597,81 +611,91 @@ export async function publishFindingBatch(
         ),
     });
   const publishStartedAt = Date.now();
-  const inlineResult = await (session.operationIntent == null
-    ? publishInline()
-    : publishOnce<
-        Awaited<ReturnType<typeof publishInlineReviewComments<IdentifiedInlinePlacement>>>
-      >({
-        decodeResult: (value) => {
-          v.assert(inlineResultSchema, value);
-          return value;
-        },
-        fence: fenceForEpoch(session.operationIntent.leaseEpoch),
-        client: session.operationIntent.client,
-        workItemId: session.operationIntent.workItemId,
-        operationKey,
-        mutationKind: "github.inline_review",
-        leaseEpoch: session.operationIntent.leaseEpoch,
-        detail: {
-          step: "inline_review",
-          resourceKey: session.operationIntent.resourceKey,
-          reviewLens: input.source,
-          batchId,
-          operationMarker,
-        },
-        recover: async () => {
-          if (operationMarker == null) return { kind: "absent" as const };
-          const found = await findPublishedThreadBatch(
-            session.prSurface,
+  let inlineResult: Awaited<ReturnType<typeof publishInline>>;
+  try {
+    inlineResult = await (session.operationIntent == null
+      ? publishInline()
+      : publishOnce<
+          Awaited<ReturnType<typeof publishInlineReviewComments<IdentifiedInlinePlacement>>>
+        >({
+          decodeResult: (value) => {
+            v.assert(inlineResultSchema, value);
+            return value;
+          },
+          fence: fenceForEpoch(session.operationIntent.leaseEpoch),
+          client: session.operationIntent.client,
+          workItemId: session.operationIntent.workItemId,
+          operationKey,
+          mutationKind: "github.inline_review",
+          leaseEpoch: session.operationIntent.leaseEpoch,
+          detail: {
+            step: "inline_review",
+            resourceKey: session.operationIntent.resourceKey,
+            reviewLens: input.source,
+            batchId,
             operationMarker,
-            session.ctx.headSha,
-          );
-          if (found == null) return { kind: "absent" as const };
-          const comments = await session.prSurface.listReviewComments();
-          if (comments.truncated)
-            throw new AppError({
-              domain: "operation_intent",
-              kind: "recovery_failed",
-              message: "Review recovery needs a complete exact batch comment observation",
-            });
-          const observed = comments.comments.filter(
-            (comment) =>
-              comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
-          );
-          if (observed.length === 0) return { kind: "absent" as const };
-          const botLogin = await session.prSurface.getBotLogin();
-          const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
-          const postedIds = new Set<FindingId>();
-          for (const comment of observed) {
-            const marker = parseOwnedFindingMarker(
-              { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
-              botLogin,
+          },
+          recover: async () => {
+            if (operationMarker == null) return { kind: "absent" as const };
+            const found = await findPublishedThreadBatch(
+              session.prSurface,
+              operationMarker,
+              session.ctx.headSha,
             );
-            if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
-              return { kind: "absent" as const };
-            postedIds.add(marker.id);
-          }
-          const postedPlacements = targets.inline.filter((placement) =>
-            postedIds.has(placement.findingId),
-          );
-          const anchorDroppedPlacements = targets.inline
-            .filter((placement) => !postedIds.has(placement.findingId))
-            .map((placement) => ({ ...placement, inlinePosted: false }));
-          return {
-            kind: "reconciled" as const,
-            value: {
-              review: { id: found.reviewId, url: found.reviewUrl },
-              postedPlacements,
-              anchorDroppedPlacements,
-              lineResolutionFallback: anchorDroppedPlacements.length > 0,
-            },
-          };
-        },
-        isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
-        mutate: input.recoveryWithoutEvidence
-          ? async () => reviewArtifactInvalid("recovery_evidence_miss")
-          : publishInline,
-      }));
+            if (found == null) return { kind: "absent" as const };
+            const comments = await session.prSurface.listReviewComments();
+            if (comments.truncated)
+              throw new AppError({
+                domain: "operation_intent",
+                kind: "recovery_failed",
+                message: "Review recovery needs a complete exact batch comment observation",
+              });
+            const observed = comments.comments.filter(
+              (comment) =>
+                comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
+            );
+            if (observed.length === 0) return { kind: "absent" as const };
+            const botLogin = await session.prSurface.getBotLogin();
+            const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
+            const postedIds = new Set<FindingId>();
+            for (const comment of observed) {
+              const marker = parseOwnedFindingMarker(
+                { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
+                botLogin,
+              );
+              if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
+                return { kind: "absent" as const };
+              postedIds.add(marker.id);
+            }
+            const postedPlacements = targets.inline.filter((placement) =>
+              postedIds.has(placement.findingId),
+            );
+            const anchorDroppedPlacements = targets.inline
+              .filter((placement) => !postedIds.has(placement.findingId))
+              .map((placement) => ({ ...placement, inlinePosted: false }));
+            return {
+              kind: "reconciled" as const,
+              value: {
+                review: { id: found.reviewId, url: found.reviewUrl },
+                postedPlacements,
+                anchorDroppedPlacements,
+                lineResolutionFallback: anchorDroppedPlacements.length > 0,
+              },
+            };
+          },
+          isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
+          mutate: input.recoveryWithoutEvidence
+            ? async () => reviewArtifactInvalid("recovery_evidence_miss")
+            : publishInline,
+        }));
+  } catch (error) {
+    if (decision && publicationAttemptRejected(error)) {
+      await settleRejectedPublication(session.recovery, decision, error);
+    } else if (decision) {
+      session.recovery?.rememberUnresolvedPublication(error);
+    }
+    throw error;
+  }
   const publishLatencyMs = Math.max(0, Date.now() - publishStartedAt);
 
   const posted = inlineResult.postedPlacements;

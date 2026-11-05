@@ -115,8 +115,12 @@ No saved report can directly authorize a finding.
 Prepared plans precede delegation; settle them from exact operation intent and
 completion evidence before moving to later decisions. Preserve existing wire
 mutation keys, complete-input hashes, publish steps, and hidden remote markers.
-`outcome_unknown` stays fail-closed. A local settled observation is not proof
-that GitHub accepted a mutation; missing receipts never authorize replay.
+`outcome_unknown` stays fail-closed. A provider-proven rejection records
+settlement outcome `stopped` with no remote id, and only that settlement
+releases the next decision. Unknown acceptance leaves the prepared decision
+pending. Later work replays that decision or stops. It does not replace the
+envelope. A local settled observation is not proof that GitHub accepted a
+mutation; missing receipts never authorize replay.
 
 Resumed workspace preparation, evidence rereads, read-tool work, and model work
 must charge the runner's memoized admitted `beginAttempt`. Lifecycle claims and
