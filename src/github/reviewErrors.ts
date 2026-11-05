@@ -1,4 +1,4 @@
-import { githubErrorMessage } from "./githubErrors.ts";
+import { githubErrorMessage, isProvenInlineAnchorRejection } from "./githubErrors.ts";
 import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.ts";
 
 function objectValue(value: unknown, key: string): unknown {
@@ -43,6 +43,10 @@ export function isLineResolutionPublishError(error: unknown): boolean {
     /pull request review thread line.*invalid/i.test(message) ||
     /must be part of the diff/i.test(message)
   );
+}
+
+export function isInlineAnchorPublishError(error: unknown): boolean {
+  return isLineResolutionPublishError(error) || isProvenInlineAnchorRejection(error);
 }
 
 export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {

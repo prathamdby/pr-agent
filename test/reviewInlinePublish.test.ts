@@ -171,6 +171,120 @@ describe("publishInlineReviewComments", () => {
     expect(prSurface.publishThreadBatch).toHaveBeenCalledTimes(3);
   });
 
+  it("drops a path-only anchor and publishes the other finding", async () => {
+    let callCount = 0;
+    const prSurface = surfaceWithPublish(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw Object.assign(new Error("Validation Failed"), {
+          status: 422,
+          response: {
+            status: 422,
+            data: {
+              errors: [
+                {
+                  resource: "PullRequestReview",
+                  code: "custom",
+                  message: "Path could not be resolved",
+                  path: "src/bad.ts",
+                },
+              ],
+            },
+          },
+        });
+      }
+      return { reviewId: 12, reviewUrl: "https://example.com/review/12" };
+    });
+    const result = await publishInlineReviewComments({
+      prSurface,
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      inlinePlacements: [
+        placement(finding("P1", "src/bad.ts", 4)),
+        placement(finding("P2", "src/ok.ts", 8)),
+      ],
+      renderCommentBody: (placement) => placement.finding.title,
+    });
+
+    expect(result.review?.id).toBe(12);
+    expect(result.postedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/ok.ts",
+    ]);
+    expect(result.anchorDroppedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/bad.ts",
+    ]);
+    expect(prSurface.publishThreadBatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns summary anchors when every path is rejected", async () => {
+    const prSurface = surfaceWithPublish(async () => {
+      throw Object.assign(new Error("Path could not be resolved"), {
+        status: 422,
+        response: {
+          status: 422,
+          data: {
+            errors: [
+              {
+                resource: "PullRequestReview",
+                code: "custom",
+                message: "Path could not be resolved",
+                path: "src/bad.ts",
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    const result = await publishInlineReviewComments({
+      prSurface,
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      inlinePlacements: [placement(finding("P1", "src/bad.ts", 4))],
+      renderCommentBody: (placement) => placement.finding.title,
+    });
+
+    expect(result.review).toBeUndefined();
+    expect(result.postedPlacements).toEqual([]);
+    expect(result.anchorDroppedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/bad.ts",
+    ]);
+    expect(prSurface.publishThreadBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a generic 422 or a bare path message", async () => {
+    const generic = surfaceWithPublish(async () => {
+      throw Object.assign(new Error("Validation Failed"), {
+        status: 422,
+        response: { status: 422, data: { message: "Server busy; please try again" } },
+      });
+    });
+    await expect(
+      publishInlineReviewComments({
+        prSurface: generic,
+        renderReviewBody: () => "pointer",
+        event: "COMMENT",
+        inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
+        renderCommentBody: (placement) => placement.finding.title,
+      }),
+    ).rejects.toThrow("Validation Failed");
+    expect(generic.publishThreadBatch).toHaveBeenCalledTimes(1);
+
+    const bare = surfaceWithPublish(async () => {
+      throw new Error("Path could not be resolved");
+    });
+    await expect(
+      publishInlineReviewComments({
+        prSurface: bare,
+        renderReviewBody: () => "pointer",
+        event: "COMMENT",
+        inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
+        renderCommentBody: (placement) => placement.finding.title,
+      }),
+    ).rejects.toThrow("Path could not be resolved");
+    expect(bare.publishThreadBatch).toHaveBeenCalledTimes(1);
+  });
+
   it("rethrows non-line-resolution errors", async () => {
     const prSurface = surfaceWithPublish(async () => {
       throw new Error("rate limited");

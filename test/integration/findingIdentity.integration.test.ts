@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.ts";
 import { openReviewArtifactStore } from "../../src/agentWork/reviewArtifactRepository.ts";
+import { createLeaseMutationBoundary } from "../../src/agentWork/leasedExecution.ts";
 import { getOperationIntent } from "../../src/agentWork/operationIntentRepository.ts";
+import { releasePrActorLease } from "../../src/agentWork/prActorLease.ts";
 import {
   deterministicInlineBatchId,
   reviewDuplicateOperationKey,
@@ -12,6 +17,7 @@ import {
 import { renderObjectionAnswerMarker } from "../../src/review/findingIdentity/findingMarker.ts";
 import {
   createFakePrSurface,
+  withPrSurfaceMutationBoundary,
   type FakePrSurfaceControls,
   type PrSurface,
 } from "../../src/github/prSurface.ts";
@@ -54,6 +60,7 @@ import {
   seedEvidenceForFindings,
 } from "../helpers/evidenceTestHelpers.ts";
 import {
+  cachedDiffForFiles,
   cachedDiffForLines,
   completeFindingInventory,
 } from "../helpers/reviewPublishTestHelpers.ts";
@@ -132,9 +139,23 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       prSurface: PrSurface,
       observations: readonly ReviewFinding[] = [],
       findingInventory: FindingInventory = completeFindingInventory(),
+      extra?: {
+        readonly diff?: ReturnType<typeof cachedDiffForLines>;
+        readonly evidence?: readonly ReviewFinding[];
+        readonly reads?: readonly {
+          readonly path: string;
+          readonly startLine: number;
+          readonly endLine: number;
+          readonly content: string;
+        }[];
+      },
     ) => {
       const evidenceLedger = createTestEvidenceLedger(HEAD_SHA);
-      seedEvidenceForFindings(evidenceLedger, [...findings, ...observations]);
+      seedEvidenceForFindings(evidenceLedger, [
+        ...findings,
+        ...observations,
+        ...(extra?.evidence ?? []),
+      ]);
       recordDeliveredFileRead(evidenceLedger, {
         path: "src/a.ts",
         headSha: HEAD_SHA,
@@ -143,6 +164,16 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         endLine: 11,
         content: "line ten\nline eleven",
       });
+      for (const read of extra?.reads ?? []) {
+        recordDeliveredFileRead(evidenceLedger, {
+          path: read.path,
+          headSha: HEAD_SHA,
+          tool: "readWorkspaceFile",
+          startLine: read.startLine,
+          endLine: read.endLine,
+          content: read.content,
+        });
+      }
       const recovery = openReviewRecovery(
         binding,
         openReviewArtifactStore(client, binding, LEASE_EPOCH),
@@ -160,7 +191,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         recovery,
         prSurface,
         findingInventory,
-        cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 11]),
+        cachedDiffIndex: extra?.diff ?? cachedDiffForLines("src/a.ts", [10, 11]),
         resolveProgressCommentUrl: async () =>
           `https://github.com/finding-identity-it/${repo}/pull/1#issuecomment-99`,
         operationIntent: { client, workItemId, resourceKey, leaseEpoch: LEASE_EPOCH },
@@ -1496,6 +1527,345 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
         ),
       ).toHaveLength(1);
       expect((await receiptsByThread(surface)).get(rootCommentId)?.isResolved).toBe(true);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  function reviewAnchorError(
+    summary: string,
+    entries: readonly { readonly message: string; readonly path: string; readonly line?: number }[],
+  ) {
+    return Object.assign(new Error(summary), {
+      status: 422,
+      response: {
+        status: 422,
+        data: {
+          message: "Validation Failed",
+          errors: entries.map((entry) => ({
+            resource: "PullRequestReview",
+            code: "custom",
+            message: entry.message,
+            path: entry.path,
+            ...(entry.line != null ? { line: entry.line } : {}),
+          })),
+        },
+      },
+    });
+  }
+
+  async function intentRows(workItemId: string) {
+    const result = await pool.query<{
+      operation_key: string;
+      mutation_kind: string;
+      status: string;
+      detail: { errorMessage?: string; errorCode?: string; __mutating?: boolean };
+    }>(
+      `SELECT operation_key, mutation_kind, status, detail
+         FROM operation_intents
+        WHERE work_item_id = $1
+        ORDER BY created_at, operation_key`,
+      [workItemId],
+    );
+    return result.rows;
+  }
+
+  it("degrades a path-only rejection and keeps the usable finding", async () => {
+    const seeded = await seedReviewPublication();
+    const lineRejected: ReviewFinding = {
+      ...findings[1],
+      file: "src/c.ts",
+      startLine: 2,
+      endLine: 2,
+      title: "Null dereference at line 2",
+    };
+    const pathRejected: ReviewFinding = {
+      ...findings[1],
+      file: "src/b.ts",
+      startLine: 4,
+      endLine: 4,
+      title: "Null dereference at line 4",
+    };
+    const usable = findings[0];
+    const batch = [lineRejected, pathRejected, usable];
+    const responses: string[] = [];
+    try {
+      const original = seeded.surface.publishThreadBatch.bind(seeded.surface);
+      vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async (review) => {
+        responses.push(
+          review.comments?.map((comment) => `${comment.path}:${comment.line}`).join(",") ?? "",
+        );
+        const attempt = responses.length;
+        if (attempt === 1) {
+          throw reviewAnchorError("Line could not be resolved and Path could not be resolved", [
+            {
+              message: "Line could not be resolved",
+              path: "src/c.ts",
+              line: 2,
+            },
+            { message: "Path could not be resolved", path: "src/c.ts" },
+          ]);
+        }
+        if (attempt === 2) {
+          throw reviewAnchorError("Path could not be resolved", [
+            { message: "Path could not be resolved", path: "src/b.ts" },
+          ]);
+        }
+        return original(review);
+      });
+      const boundary = createLeaseMutationBoundary({
+        pool,
+        workItemId: seeded.workItemId,
+        resourceKey: seeded.resourceKey,
+        leaseEpoch: LEASE_EPOCH,
+        signal: new AbortController().signal,
+      });
+      const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
+      const run = seeded.attempt(pool, wrapped, [], completeFindingInventory(), {
+        diff: cachedDiffForFiles([
+          { file: "src/a.ts", lines: [10] },
+          { file: "src/b.ts", lines: [4] },
+          { file: "src/c.ts", lines: [2] },
+        ]),
+        evidence: [lineRejected, pathRejected],
+        reads: [
+          { path: "src/b.ts", startLine: 4, endLine: 4, content: "bad path" },
+          { path: "src/c.ts", startLine: 2, endLine: 2, content: "bad line" },
+        ],
+      });
+      const published = await publishFindingBatch(batch, run.session, run.input);
+      expect(published.kind).toBe("published");
+      if (published.kind !== "published") return;
+      const posted = published.delta.accepted.filter((entry) => entry.kind === "posted");
+      const summary = published.delta.accepted.filter(
+        (entry) => entry.kind === "summary_only" && entry.reason === "anchor",
+      );
+      expect(posted.map((entry) => entry.placement.finding.file)).toEqual(["src/a.ts"]);
+      expect(summary.map((entry) => entry.placement.finding.file).toSorted()).toEqual([
+        "src/b.ts",
+        "src/c.ts",
+      ]);
+      expect(seeded.controls.threadBatches).toHaveLength(1);
+      expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(3);
+
+      const again = await publishFindingBatch(batch, run.session, {
+        ...run.input,
+        ledger: createFindingLedger(),
+      });
+      expect(again.kind).toBe("published");
+      expect(seeded.controls.threadBatches).toHaveLength(1);
+      expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(3);
+
+      const intents = await intentRows(seeded.workItemId);
+      const surfaceIntents = intents.filter((row) =>
+        row.mutation_kind.includes("publishThreadBatch"),
+      );
+      expect(surfaceIntents.filter((row) => row.status === "failed")).toHaveLength(2);
+      expect(surfaceIntents.filter((row) => row.status === "reconciled")).toHaveLength(1);
+      expect(surfaceIntents.some((row) => row.status === "outcome_unknown")).toBe(false);
+      expect(intents.find((row) => row.operation_key.startsWith("review:inline:"))?.status).toBe(
+        "reconciled",
+      );
+      const comments = (await seeded.surface.listReviewComments()).comments.map((comment) => ({
+        path: comment.path,
+        line: comment.line,
+      }));
+      const artifact = {
+        providerResponses: responses,
+        remoteMutations: seeded.surface.publishThreadBatch.mock.calls.length,
+        acceptedReviewCount: seeded.controls.threadBatches.length,
+        intents: intents.map((row) => ({
+          operationKey: row.operation_key,
+          mutationKind: row.mutation_kind,
+          status: row.status,
+          errorCode: row.detail.errorCode ?? null,
+          errorMessage: row.detail.errorMessage ?? null,
+        })),
+        visibleFindings: {
+          posted: posted.map((entry) => ({
+            id: entry.findingId,
+            file: entry.placement.finding.file,
+            line: entry.placement.finding.startLine,
+          })),
+          summaryOnly: summary.map((entry) => ({
+            id: entry.findingId,
+            file: entry.placement.finding.file,
+            line: entry.placement.finding.startLine,
+          })),
+        },
+        reviewComments: comments,
+      };
+      writeFileSync(
+        join(tmpdir(), `inline-publish-degrade-${seeded.workItemId}.json`),
+        JSON.stringify(artifact, null, 2),
+      );
+      expect(artifact.remoteMutations).toBe(3);
+      expect(artifact.intents.filter((row) => row.status === "failed").length).toBeGreaterThan(0);
+    } finally {
+      await seeded.cleanup();
+    }
+  });
+
+  it("does not remutate an ambiguous 422 or a bare path message", async () => {
+    for (const rejection of [
+      Object.assign(new Error("Validation Failed"), {
+        status: 422,
+        response: { status: 422, data: { message: "Server busy; please try again" } },
+      }),
+      new Error("Path could not be resolved"),
+    ]) {
+      const seeded = await seedReviewPublication();
+      try {
+        vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async () => {
+          throw rejection;
+        });
+        const boundary = createLeaseMutationBoundary({
+          pool,
+          workItemId: seeded.workItemId,
+          resourceKey: seeded.resourceKey,
+          leaseEpoch: LEASE_EPOCH,
+          signal: new AbortController().signal,
+        });
+        const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
+        const run = seeded.attempt(pool, wrapped);
+        await expect(publishFindingBatch(findings, run.session, run.input)).rejects.toThrow();
+        expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(1);
+        const first = await intentRows(seeded.workItemId);
+        expect(first.some((row) => row.status === "outcome_unknown")).toBe(true);
+        expect(first.some((row) => row.status === "failed")).toBe(false);
+        await expect(
+          publishFindingBatch(findings, run.session, {
+            ...run.input,
+            ledger: createFindingLedger(),
+          }),
+        ).rejects.toThrow();
+        expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(1);
+        expect(seeded.controls.threadBatches).toHaveLength(0);
+      } finally {
+        await seeded.cleanup();
+      }
+    }
+  });
+
+  it("stops the fallback when the lease is lost or the run is cancelled", async () => {
+    const cases = ["lease", "cancel"] as const;
+    for (const stop of cases) {
+      const seeded = await seedReviewPublication();
+      try {
+        vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async () => {
+          if (stop === "lease") {
+            await releasePrActorLease(pool, {
+              resourceKey: seeded.resourceKey,
+              workType: "review",
+              leaseEpoch: LEASE_EPOCH,
+            });
+          } else {
+            await pool.query(
+              `UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1`,
+              [seeded.workItemId],
+            );
+          }
+          throw reviewAnchorError("Path could not be resolved", [
+            { message: "Path could not be resolved", path: "src/a.ts", line: 10 },
+          ]);
+        });
+        const boundary = createLeaseMutationBoundary({
+          pool,
+          workItemId: seeded.workItemId,
+          resourceKey: seeded.resourceKey,
+          leaseEpoch: LEASE_EPOCH,
+          signal: new AbortController().signal,
+        });
+        const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
+        const run = seeded.attempt(pool, wrapped);
+        const error = await publishFindingBatch([findings[0]], run.session, run.input).then(
+          () => null,
+          (caught: unknown) => caught,
+        );
+        expect(error).toMatchObject({
+          code:
+            stop === "lease" ? "agent_work.pr_actor_lease_lost" : "agent_work.execution_aborted",
+        });
+        expect(seeded.controls.threadBatches).toHaveLength(0);
+        expect(seeded.surface.publishThreadBatch).toHaveBeenCalledTimes(1);
+      } finally {
+        await seeded.cleanup();
+      }
+    }
+  });
+
+  it("replays one accepted review when the degraded publish dies before the result is stored", async () => {
+    const seeded = await seedReviewPublication();
+    const rejected: ReviewFinding = {
+      ...findings[1],
+      file: "src/b.ts",
+      startLine: 4,
+      endLine: 4,
+      title: "Null dereference at line 4",
+    };
+    try {
+      const original = seeded.surface.publishThreadBatch.bind(seeded.surface);
+      let markAccepted: () => void = () => undefined;
+      const accepted = new Promise<void>((resolve) => {
+        markAccepted = resolve;
+      });
+      let calls = 0;
+      vi.spyOn(seeded.surface, "publishThreadBatch").mockImplementation(async (review) => {
+        calls += 1;
+        if (calls === 1) {
+          throw reviewAnchorError("Path could not be resolved", [
+            { message: "Path could not be resolved", path: "src/b.ts", line: 4 },
+          ]);
+        }
+        await original(review);
+        markAccepted();
+        return new Promise<never>(() => undefined);
+      });
+      const killedPool = integrationPool();
+      const boundary = createLeaseMutationBoundary({
+        pool: killedPool,
+        workItemId: seeded.workItemId,
+        resourceKey: seeded.resourceKey,
+        leaseEpoch: LEASE_EPOCH,
+        signal: new AbortController().signal,
+      });
+      const wrapped = withPrSurfaceMutationBoundary(seeded.surface, boundary);
+      const killed = seeded.attempt(killedPool, wrapped, [], completeFindingInventory(), {
+        diff: cachedDiffForFiles([
+          { file: "src/a.ts", lines: [10] },
+          { file: "src/b.ts", lines: [4] },
+        ]),
+        evidence: [rejected],
+        reads: [{ path: "src/b.ts", startLine: 4, endLine: 4, content: "bad path" }],
+      });
+      void publishFindingBatch([rejected, findings[0]], killed.session, killed.input);
+      await accepted;
+      await killedPool.end();
+      vi.restoreAllMocks();
+      expect(seeded.controls.threadBatches).toHaveLength(1);
+
+      const retryBoundary = createLeaseMutationBoundary({
+        pool,
+        workItemId: seeded.workItemId,
+        resourceKey: seeded.resourceKey,
+        leaseEpoch: LEASE_EPOCH,
+        signal: new AbortController().signal,
+      });
+      const retrySurface = withPrSurfaceMutationBoundary(seeded.surface, retryBoundary);
+      const retry = seeded.attempt(pool, retrySurface, [], completeFindingInventory(), {
+        diff: cachedDiffForFiles([
+          { file: "src/a.ts", lines: [10] },
+          { file: "src/b.ts", lines: [4] },
+        ]),
+        evidence: [rejected],
+        reads: [{ path: "src/b.ts", startLine: 4, endLine: 4, content: "bad path" }],
+      });
+      const recovered = await publishFindingBatch([rejected, findings[0]], retry.session, {
+        ...retry.input,
+        ledger: createFindingLedger(),
+      });
+      expect(seeded.controls.threadBatches).toHaveLength(1);
+      expect(recovered.kind).toBe("published");
     } finally {
       await seeded.cleanup();
     }
