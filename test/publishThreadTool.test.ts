@@ -344,6 +344,42 @@ describe("buildPublishThreadTool", () => {
     expect(publishThreadBatch).not.toHaveBeenCalled();
   });
 
+  it("keeps a judged finding as summary-only when the path cannot be anchored", async () => {
+    const { tool, publishThreadBatch } = buildTool(undefined, async () => {
+      throw Object.assign(new Error("Path could not be resolved"), {
+        status: 422,
+        response: {
+          status: 422,
+          data: {
+            errors: [
+              {
+                resource: "PullRequestReview",
+                code: "custom",
+                message: "Path could not be resolved",
+                path: "src/a.ts",
+              },
+            ],
+          },
+        },
+      });
+    });
+    tool.setSource("quality");
+    remember(tool, [finding(10)]);
+
+    const result = await tool.executor(judged("quality", [finding(10)]));
+
+    expect(result.kind).toBe("empty");
+    expect(tool.getLedger().accepted).toEqual([
+      expect.objectContaining({
+        kind: "summary_only",
+        reason: "anchor",
+        source: "quality",
+      }),
+    ]);
+    expect(tool.getPublishedBatchCount()).toBe(0);
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the ledger unchanged when GitHub publish throws", async () => {
     const { tool, publishThreadBatch } = buildTool(undefined, async () => {
       throw new Error("GitHub unavailable");

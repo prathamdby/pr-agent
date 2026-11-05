@@ -1,7 +1,9 @@
 import { httpStatus } from "./httpStatus.ts";
 import { isAppError } from "../errors/appError.ts";
+import { isProvenInlineAnchorRejection } from "./githubErrors.ts";
 
 export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
+  if (isProvenInlineAnchorRejection(error)) return true;
   if (
     isAppError(error) &&
     error.code === "github.review_thread_resolution_denied" &&

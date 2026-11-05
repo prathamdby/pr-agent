@@ -19,6 +19,65 @@ function validationErrors(error: unknown): readonly RecordLike[] {
   return errors.filter(isRecord);
 }
 
+function errorCause(error: unknown): unknown {
+  if (error instanceof Error) return error.cause;
+  if (!isRecord(error) || !Object.hasOwn(error, "cause")) return undefined;
+  return error.cause;
+}
+
+function errorChain(error: unknown): readonly unknown[] {
+  const chain: unknown[] = [];
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (typeof current === "object") {
+      if (seen.has(current)) break;
+      seen.add(current);
+    }
+    chain.push(current);
+    current = errorCause(current);
+  }
+  return chain;
+}
+
+function markedAccepted(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  if (error.accepted === true || error.mutationAccepted === true) return true;
+  const response = isRecord(error.response) ? error.response : undefined;
+  if (response == null) return false;
+  if (response.accepted === true || response.mutationAccepted === true) return true;
+  const data = isRecord(response.data) ? response.data : undefined;
+  return data != null && (data.accepted === true || data.mutationAccepted === true);
+}
+
+function anchorValidationMessage(message: string): boolean {
+  return (
+    /line could not be resolved/i.test(message) ||
+    /path could not be resolved/i.test(message) ||
+    /pull request review thread line.*invalid/i.test(message) ||
+    /must be part of the diff/i.test(message)
+  );
+}
+
+function anchorValidationEntry(entry: RecordLike): boolean {
+  const resource = entry.resource;
+  if (resource !== undefined && resource !== "PullRequestReview") return false;
+  if (entry.code === "already_exists" || entry.code === "duplicate") return false;
+  return typeof entry.message === "string" && anchorValidationMessage(entry.message);
+}
+
+function levelProvesInlineAnchorRejection(error: unknown): boolean {
+  if (httpStatus(error) !== 422) return false;
+  const errors = validationErrors(error);
+  return errors.length > 0 && errors.every(anchorValidationEntry);
+}
+
+export function isProvenInlineAnchorRejection(error: unknown): boolean {
+  const chain = errorChain(error);
+  if (chain.some(markedAccepted)) return false;
+  return chain.some(levelProvesInlineAnchorRejection);
+}
+
 export function isDuplicateCheckRunCreationError(error: unknown): boolean {
   if (httpStatus(error) !== 422) return false;
 

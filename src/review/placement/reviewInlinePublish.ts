@@ -1,7 +1,7 @@
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { InlinePlacement } from "./reviewDiffPlacement.ts";
 import {
-  isLineResolutionPublishError,
+  isInlineAnchorPublishError,
   lineResolutionPublishErrorHint,
   type LineResolutionPublishErrorHint,
 } from "../../github/reviewErrors.ts";
@@ -109,7 +109,7 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         lineResolutionFallback: anchorDroppedPlacements.length > 0,
       };
     } catch (error) {
-      if (!isLineResolutionPublishError(error)) {
+      if (!isInlineAnchorPublishError(error)) {
         throw error;
       }
       const hintedDrop = hintedLineResolutionDrop(attemptPlacements, error);

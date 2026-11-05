@@ -90,6 +90,7 @@ import type { ReconcileOutcome } from "../src/review/findingIdentity/findingReco
 import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.ts";
 import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.ts";
 import {
+  cachedDiffForFiles,
   cachedDiffForLines,
   completeFindingInventory,
 } from "./helpers/reviewPublishTestHelpers.ts";
@@ -1081,6 +1082,66 @@ describe("publishFindingBatch", () => {
           kind: "summary_only",
           reason: "anchor",
           placement: expect.objectContaining({ finding: second }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps the valid finding when GitHub rejects only the other path", async () => {
+    const usable = findingAt(10);
+    const rejected = { ...findingAt(20), file: "src/b.ts" };
+    let calls = 0;
+    harness.publishThreadBatch.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("Path could not be resolved"), {
+          status: 422,
+          response: {
+            status: 422,
+            data: {
+              errors: [
+                {
+                  resource: "PullRequestReview",
+                  code: "custom",
+                  message: "Path could not be resolved",
+                  path: "src/b.ts",
+                },
+              ],
+            },
+          },
+        });
+      }
+      return {
+        reviewId: 8,
+        reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-8",
+      };
+    });
+
+    const result = await publishFindingBatch(
+      [usable, rejected],
+      ...batchContext(createFindingLedger(), undefined, {
+        cachedDiffIndex: cachedDiffForFiles([
+          { file: "src/a.ts", lines: [10] },
+          { file: "src/b.ts", lines: [20] },
+        ]),
+        seedFindings: [usable, rejected],
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(2);
+    if (result.kind !== "published") return;
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(result.delta.accepted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "posted",
+          placement: expect.objectContaining({ finding: usable }),
+        }),
+        expect.objectContaining({
+          kind: "summary_only",
+          reason: "anchor",
+          placement: expect.objectContaining({ finding: rejected }),
         }),
       ]),
     );

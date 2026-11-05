@@ -1,4 +1,4 @@
-import { githubErrorMessage } from "./githubErrors.ts";
+import { githubErrorMessage, isProvenInlineAnchorRejection } from "./githubErrors.ts";
 import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.ts";
 
 function objectValue(value: unknown, key: string): unknown {
@@ -18,9 +18,7 @@ export type LineResolutionPublishErrorHint = {
   line?: number;
 };
 
-export function lineResolutionPublishErrorHint(
-  error: unknown,
-): LineResolutionPublishErrorHint | null {
+function hintAtErrorLevel(error: unknown): LineResolutionPublishErrorHint | null {
   const errors = objectValue(objectValue(objectValue(error, "response"), "data"), "errors");
   if (!Array.isArray(errors)) return null;
 
@@ -36,6 +34,23 @@ export function lineResolutionPublishErrorHint(
   return null;
 }
 
+export function lineResolutionPublishErrorHint(
+  error: unknown,
+): LineResolutionPublishErrorHint | null {
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (typeof current === "object") {
+      if (seen.has(current)) break;
+      seen.add(current);
+    }
+    const hint = hintAtErrorLevel(current);
+    if (hint != null) return hint;
+    current = objectValue(current, "cause");
+  }
+  return null;
+}
+
 export function isLineResolutionPublishError(error: unknown): boolean {
   const message = githubErrorMessage(error);
   return (
@@ -43,6 +58,10 @@ export function isLineResolutionPublishError(error: unknown): boolean {
     /pull request review thread line.*invalid/i.test(message) ||
     /must be part of the diff/i.test(message)
   );
+}
+
+export function isInlineAnchorPublishError(error: unknown): boolean {
+  return isLineResolutionPublishError(error) || isProvenInlineAnchorRejection(error);
 }
 
 export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {
