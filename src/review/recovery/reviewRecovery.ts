@@ -104,6 +104,11 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
     throwIfFailed: () => {
       if (storageFailure !== undefined) throw storageFailure;
     },
+    takeStorageFailure: () => {
+      const failure = storageFailure;
+      storageFailure = undefined;
+      return failure;
+    },
     rememberUnresolvedPublication: (error: unknown) => {
       if (pendingDecision == null || unresolvedPublication !== undefined) return;
       unresolvedPublication = error;
@@ -289,4 +294,20 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       });
     },
   };
+}
+
+export async function settleRejectedPublication(
+  recovery: ReviewRecovery | null | undefined,
+  decision: RecoveryDecision | null,
+  error: unknown,
+): Promise<void> {
+  if (recovery == null || decision == null) return;
+  try {
+    await recovery.settle(decision, { outcome: "stopped" });
+  } catch (settlementError) {
+    const latched = recovery.takeStorageFailure();
+    if (error instanceof Error && error.cause == null) error.cause = latched ?? settlementError;
+    recovery.rememberUnresolvedPublication(error);
+    throw error;
+  }
 }

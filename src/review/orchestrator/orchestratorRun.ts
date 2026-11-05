@@ -584,7 +584,12 @@ export async function runOrchestratedPrReview(
       const withoutEvidence = evidenceMisses.has(decision.prepared.artifact.sequence);
       await publishThread.replay(decision, withoutEvidence);
       if (publishThread.getStopReason()) break;
-      if (canonical.source !== "review" && !withoutEvidence) recoveredSources.add(canonical.source);
+      const publicationStopped =
+        decision.settled?.artifact.kind === "publication_settled" &&
+        decision.settled.artifact.outcome === "stopped";
+      if (canonical.source !== "review" && !withoutEvidence && !publicationStopped) {
+        recoveredSources.add(canonical.source);
+      }
     } else {
       if (evidenceMisses.size > 0) continue;
       if (

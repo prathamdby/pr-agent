@@ -53,7 +53,11 @@ import {
 } from "../../github/reviewErrors.ts";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import {
+  settleRejectedPublication,
+  snapshotFindingLedger,
+  type RecoveryDecision,
+} from "../recovery/reviewRecovery.ts";
 import { findingIdSchema, type CanonicalThreadDecision } from "../recovery/reviewRecoverySchema.ts";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
@@ -686,7 +690,7 @@ export async function publishFindingBatch(
         }));
   } catch (error) {
     if (decision && publicationAttemptRejected(error)) {
-      await session.recovery?.settle(decision, { outcome: "stopped" });
+      await settleRejectedPublication(session.recovery, decision, error);
     } else if (decision) {
       session.recovery?.rememberUnresolvedPublication(error);
     }

@@ -641,6 +641,53 @@ describe("publishFindingBatch", () => {
     expect(decisions[1]?.settled?.artifact).toMatchObject({ outcome: "accepted" });
   });
 
+  it("keeps the provider rejection when stopped settlement cannot be stored", async () => {
+    const providerError = Object.assign(new Error("GitHub rejected the review"), { status: 403 });
+    harness.publishThreadBatch.mockRejectedValueOnce(providerError);
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000002",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "abc1234",
+        mode: "review",
+      },
+      "b".repeat(64),
+    );
+    const rows = new Map<string, unknown>();
+    const store = {
+      load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async (value: unknown) => {
+        const envelope = parseReviewArtifactEnvelope(value);
+        if (!envelope) throw new Error("invalid envelope");
+        if (envelope.logicalKey.endsWith("/settled")) throw new Error("settlement store failed");
+        rows.set(envelope.logicalKey, envelope);
+        return "stored" as const;
+      },
+    };
+    const recovery = openReviewRecovery(binding, store);
+    const [session, input] = batchContext(createFindingLedger());
+    recordLineTenRead(input);
+    const thrown = await publishFindingBatch([finding], { ...session, recovery }, input).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) return;
+    expect(thrown.message).toBe("GitHub rejected the review");
+    expect(thrown.cause).toBeInstanceOf(Error);
+    if (thrown.cause instanceof Error) expect(thrown.cause.message).toBe("settlement store failed");
+    expect(() => recovery.throwIfFailed()).not.toThrow();
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    const decisions = await openReviewRecovery(binding, store).decisions();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.settled).toBeNull();
+  });
+
   it("keeps an unknown publication pending instead of replacing it", async () => {
     const providerError = Object.assign(new Error("upstream unavailable"), { status: 500 });
     harness.publishThreadBatch.mockRejectedValueOnce(providerError);

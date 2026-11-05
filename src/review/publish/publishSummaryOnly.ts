@@ -46,7 +46,11 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.ts"
 import { createReviewSummaryComment } from "./reviewSummaryComment.ts";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
-import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.ts";
+import {
+  settleRejectedPublication,
+  snapshotFindingLedger,
+  type RecoveryDecision,
+} from "../recovery/reviewRecovery.ts";
 import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
 import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
@@ -347,7 +351,7 @@ export async function publishReviewSummaryOnly(
     [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   } catch (error) {
     if (recoveryDecision && publicationAttemptRejected(error)) {
-      await session.recovery?.settle(recoveryDecision, { outcome: "stopped" });
+      await settleRejectedPublication(session.recovery, recoveryDecision, error);
     } else if (recoveryDecision) {
       session.recovery?.rememberUnresolvedPublication(error);
     }

@@ -580,8 +580,10 @@ Artifact schema version 8 replaces version 7. Older envelopes do not bind.
 An artifact is reusable only with current schema/contract, installation, work,
 resource, reviewed head/base, and effective input/policy/settings/model binding.
 A mismatch is a miss. Accepted operation receipts remain authoritative across
-misses. Prepared and settled decisions are ordered; missing settlement requires
-exact receipt reconciliation before a later decision. Settlement is not remote
+misses. Prepared and settled decisions are ordered. A provider-proven rejection
+records settlement outcome `stopped` with no remote id, and that settlement
+releases the next decision. Unknown acceptance leaves the prepared decision
+pending until exact receipt reconciliation. Settlement is not remote
 acceptance proof.
 
 The aggregate 1 MiB UTF-8 budget includes an 8 KiB reservation per prepared

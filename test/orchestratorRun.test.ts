@@ -2131,6 +2131,94 @@ describe("runOrchestratedPrReview", () => {
     expect(decisions[0]?.prepared.artifact.operationKey).toBe("review:inline:pending");
   });
 
+  it("rejudges a specialist after a stopped publication", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000839",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "d".repeat(64),
+    );
+    const item = finding("correctness");
+    testState.judgmentBySource.set("correctness", [item]);
+    const ledger = snapshotFindingLedger(createFindingLedger());
+    const prepared = createReviewArtifactEnvelope(binding, {
+      kind: "publication_prepared",
+      decisionId: "stopped-correctness",
+      sequence: 0,
+      operationKey: "review:inline:stopped",
+      payload: reviewPayloadFromFindings([]),
+      dependencies: [],
+      canonical: {
+        kind: "threads",
+        source: "correctness",
+        ledgerBefore: ledger,
+        localDelta: ledger,
+        inline: [],
+        footers: [],
+        counts: { suppressed: 0, capDowngraded: 0 },
+        resultKind: "remote",
+        evidence: [],
+        judgmentDegraded: false,
+        briefFallback: false,
+        coverage: { kind: "full" },
+        baseSha: "d".repeat(40),
+      },
+    });
+    const rows = new Map<string, unknown>([
+      [
+        "brief",
+        createReviewArtifactEnvelope(binding, { kind: "brief", brief: defaultSubmittedBrief() }),
+      ],
+      [
+        "report/correctness",
+        createReviewArtifactEnvelope(binding, {
+          kind: "report",
+          specialist: "correctness",
+          report: reported([item]),
+          evidence: [],
+        }),
+      ],
+      ...(["security", "quality", "tests"] as const).map(
+        (specialist) =>
+          [
+            `report/${specialist}`,
+            createReviewArtifactEnvelope(binding, {
+              kind: "report",
+              specialist,
+              report: { status: "no_findings", findings: [] },
+              evidence: [],
+            }),
+          ] as const,
+      ),
+      [prepared.logicalKey, prepared],
+      [
+        "decision/0/settled",
+        createReviewArtifactEnvelope(binding, {
+          kind: "publication_settled",
+          decisionId: "stopped-correctness",
+          sequence: 0,
+          preparedHash: reviewArtifactHash(prepared),
+          outcome: "stopped",
+        }),
+      ],
+    ]);
+    const recovery = openReviewRecovery(binding, {
+      load: async (key) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async () => "stored" as const,
+    });
+    const result = await runOrchestratedPrReview({ ...params(), recovery });
+    expect(result.published).toBe(true);
+    expect(testState.publishOrder).toContain("correctness");
+  });
+
   it("preserves a report when judgment publish_thread throws", async () => {
     testState.judgmentExecutorFailuresRemaining = 1;
     const run = runOrchestratedPrReview(params());
