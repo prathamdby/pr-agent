@@ -92,6 +92,85 @@ describe("publishInlineReviewComments", () => {
     expect(result.anchorDroppedPlacements[0]?.finding.file).toBe("src/a.ts");
   });
 
+  it("publishes the usable anchor after a path-only rejection", async () => {
+    let callCount = 0;
+    const prSurface = surfaceWithPublish(async () => {
+      callCount += 1;
+      if (callCount === 1) {
+        throw Object.assign(
+          new Error("Line could not be resolved and Path could not be resolved"),
+          {
+            status: 422,
+            response: {
+              status: 422,
+              data: {
+                message: "Validation Failed",
+                errors: [
+                  {
+                    resource: "PullRequestReview",
+                    code: "custom",
+                    message: "Line could not be resolved",
+                    path: "src/bad-line.ts",
+                    line: 2,
+                  },
+                  {
+                    resource: "PullRequestReview",
+                    code: "custom",
+                    message: "Path could not be resolved",
+                    path: "src/bad-line.ts",
+                  },
+                ],
+              },
+            },
+          },
+        );
+      }
+      if (callCount === 2) {
+        throw Object.assign(new Error("Path could not be resolved"), {
+          status: 422,
+          response: {
+            status: 422,
+            data: {
+              message: "Validation Failed",
+              errors: [
+                {
+                  resource: "PullRequestReview",
+                  code: "custom",
+                  message: "Path could not be resolved",
+                  path: "src/bad-path.ts",
+                },
+              ],
+            },
+          },
+        });
+      }
+      return { reviewId: 11, reviewUrl: "https://example.com/review/11" };
+    });
+
+    const badLine = placement(finding("P1", "src/bad-line.ts", 2));
+    const badPath = placement(finding("P1", "src/bad-path.ts", 4));
+    const usable = placement(finding("P2", "src/ok.ts", 8));
+
+    const result = await publishInlineReviewComments({
+      prSurface,
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      commitId: "sha",
+      inlinePlacements: [badLine, badPath, usable],
+      renderCommentBody: (placement) => placement.finding.title,
+    });
+
+    expect(result.review?.id).toBe(11);
+    expect(result.postedPlacements.map((placement) => placement.finding.file)).toEqual([
+      "src/ok.ts",
+    ]);
+    expect(
+      result.anchorDroppedPlacements.map((placement) => placement.finding.file).toSorted(),
+    ).toEqual(["src/bad-line.ts", "src/bad-path.ts"]);
+    expect(result.lineResolutionFallback).toBe(true);
+    expect(prSurface.publishThreadBatch).toHaveBeenCalledTimes(3);
+  });
+
   it("rethrows non-line-resolution errors", async () => {
     const prSurface = surfaceWithPublish(async () => {
       throw new Error("rate limited");
