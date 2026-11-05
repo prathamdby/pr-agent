@@ -792,6 +792,31 @@ function filesystemReader(
   };
 }
 
+function workspaceGitOptions(root: string): WorkspaceGitOptions {
+  return { cwd: root, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS };
+}
+
+async function untrackedFileDiff(root: string, rel: string): Promise<string | null> {
+  const status = await runWorkspaceGit(
+    ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel],
+    workspaceGitOptions(root),
+  );
+  const untracked = status.stdout.split("\0").some((entry) => entry === `?? ${rel}`);
+  if (!untracked) return null;
+  const result = await startWorkspaceGit(
+    ["diff", "--no-index", "--", "/dev/null", rel],
+    workspaceGitOptions(root),
+  );
+  const usable =
+    !result.timedOut &&
+    !result.outputLimited &&
+    result.spawnErrorCode == null &&
+    result.cleanup !== "failed" &&
+    (result.exitCode === 0 || result.exitCode === 1);
+  if (!usable) throw workspaceGitFailure(result, "diff", workspaceGitOptions(root));
+  return result.stdout.toString("utf8");
+}
+
 export function createWritableRepositoryReader(root: string): RepositoryReader {
   return {
     ...filesystemReader(root),
@@ -804,14 +829,18 @@ export function createWritableRepositoryReader(root: string): RepositoryReader {
     getDiffForPath: async (path) => {
       const full = await assertContainedWorkspacePath(root, path);
       const rel = relative(root, full).replace(/\\/g, "/");
-      const { stdout } = await runWorkspaceGit(["diff", "HEAD", "--", rel], {
-        cwd: root,
-        timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-      });
-      if (stdout.length === 0) {
-        return { availability: "unchanged", reason: "matches_head", diff: "" };
+      const { stdout } = await runWorkspaceGit(
+        ["diff", "HEAD", "--", rel],
+        workspaceGitOptions(root),
+      );
+      if (stdout.length > 0) {
+        return { availability: "available", reason: null, diff: stdout };
       }
-      return { availability: "available", reason: null, diff: stdout };
+      const created = await untrackedFileDiff(root, rel);
+      if (created != null) {
+        return { availability: "available", reason: null, diff: created };
+      }
+      return { availability: "unchanged", reason: "matches_head", diff: "" };
     },
   };
 }

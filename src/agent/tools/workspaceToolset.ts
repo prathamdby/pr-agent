@@ -1129,7 +1129,7 @@ function buildTriageReadTools(workspace: RepositoryReader) {
 
   const getWorkspaceDiff = defineLocalTool({
     description:
-      'Return the uncommitted changes to one file in the writable checkout, as `git diff HEAD`. Use it to check your own edits before submitting. `availability: "unchanged"` and an empty diff mean the file matches the PR head.',
+      'Return uncommitted changes for one file in the writable checkout. Tracked edits use `git diff HEAD`. A new untracked file is an available diff of that file. `availability: "unchanged"` means the tracked file matches the PR head.',
     schema: v.object({ path: repoPathParam }),
     run: async ({ path }) => {
       const rel = policy.assertDiff(path);

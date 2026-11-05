@@ -94,6 +94,12 @@ describe("buildTriageWorkspaceTools", () => {
 
   it("returns a unified diff for an edited workspace path", async () => {
     const { executors } = await setup();
+    await expect(executors.getWorkspaceDiff({ path: "src/app.ts" })).resolves.toEqual({
+      path: "src/app.ts",
+      availability: "unchanged",
+      reason: "matches_head",
+      diff: "",
+    });
     await executors.editWorkspaceFile({
       path: "src/app.ts",
       oldText: "const value = 1;",
@@ -102,7 +108,20 @@ describe("buildTriageWorkspaceTools", () => {
     const out = await executors.getWorkspaceDiff({ path: "src/app.ts" });
     expect(out).toMatchObject({
       path: "src/app.ts",
+      availability: "available",
+      reason: null,
       diff: expect.stringContaining("const value = 2;"),
+    });
+    await executors.createWorkspaceFile({
+      path: "docs/notes.md",
+      content: "# n\n",
+    });
+    const created = await executors.getWorkspaceDiff({ path: "docs/notes.md" });
+    expect(created).toMatchObject({
+      path: "docs/notes.md",
+      availability: "available",
+      reason: null,
+      diff: expect.stringContaining("# n"),
     });
   });
 

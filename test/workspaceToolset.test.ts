@@ -44,6 +44,7 @@ import {
 } from "../src/prWorkspace/repositoryReader.ts";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
+  LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
@@ -2892,6 +2893,26 @@ describe("local workspace tools", () => {
           availability: "unavailable",
           reason: "upstream_patch_missing",
         });
+      });
+
+      it("keeps a reader-sliced patch available", async () => {
+        const patch = "x".repeat(LOCAL_WORKSPACE_MAX_DIFF_BYTES + 1);
+        const { executors } = await setup(
+          { "src/huge.ts": "export const huge = true;\n" },
+          { patches: { "src/huge.ts": patch } },
+        );
+        const out = (await executors.getWorkspaceDiff({ path: "src/huge.ts" })) as {
+          availability?: string;
+          reason?: string | null;
+          diff?: string;
+        };
+        const suffix = "\n...[diff truncated]";
+        expect(out).toMatchObject({
+          availability: "available",
+          reason: "workspace_diff_byte_cap",
+        });
+        expect(out.diff?.endsWith(suffix)).toBe(true);
+        expect(out.diff?.length).toBe(LOCAL_WORKSPACE_MAX_DIFF_BYTES + suffix.length);
       });
 
       it("reports patch availability through verification Code Mode", async () => {
