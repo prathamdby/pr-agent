@@ -591,6 +591,93 @@ describe("publishFindingBatch", () => {
     vi.clearAllMocks();
   });
 
+  it("settles a rejected prepared publication before the next source", async () => {
+    harness.publishThreadBatch.mockRejectedValueOnce(
+      Object.assign(new Error("GitHub rejected the review"), { status: 403 }),
+    );
+    const open = memoryRecovery();
+    const recovery = open();
+    const [session, input] = batchContext(createFindingLedger());
+    recordLineTenRead(input);
+    await expect(publishFindingBatch([finding], { ...session, recovery }, input)).rejects.toThrow(
+      /GitHub rejected the review/,
+    );
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+
+    const rejected = await open().decisions();
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.settled?.artifact).toMatchObject({
+      kind: "publication_settled",
+      outcome: "stopped",
+    });
+    if (rejected[0]?.settled?.artifact.kind === "publication_settled") {
+      expect(rejected[0].settled.artifact.remote).toBeUndefined();
+    }
+    expect(rejected[0]?.prepared.artifact.canonical).toMatchObject({ judgmentDegraded: false });
+
+    recovery.setJudgmentDegraded(true);
+    recovery.setCoverage({
+      kind: "partial",
+      unjudged: ["correctness"],
+      note: "Not judged: correctness.",
+    });
+    const published = await publishFindingBatch(
+      [finding],
+      { ...session, recovery },
+      {
+        ...input,
+        source: "security",
+      },
+    );
+    expect(published.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(2);
+    const decisions = await open().decisions();
+    expect(decisions.map((decision) => decision.prepared.logicalKey)).toEqual([
+      "decision/0/prepared",
+      "decision/1/prepared",
+    ]);
+    expect(decisions[0]?.settled?.artifact).toMatchObject({ outcome: "stopped" });
+    expect(decisions[1]?.prepared.artifact.canonical).toMatchObject({ judgmentDegraded: true });
+    expect(decisions[1]?.settled?.artifact).toMatchObject({ outcome: "accepted" });
+  });
+
+  it("keeps an unknown publication pending instead of replacing it", async () => {
+    const providerError = Object.assign(new Error("upstream unavailable"), { status: 500 });
+    harness.publishThreadBatch.mockRejectedValueOnce(providerError);
+    const open = memoryRecovery();
+    const recovery = open();
+    const [session, input] = batchContext(createFindingLedger());
+    recordLineTenRead(input);
+    await expect(publishFindingBatch([finding], { ...session, recovery }, input)).rejects.toThrow(
+      /upstream unavailable/,
+    );
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+
+    const reopened = open();
+    expect(await reopened.decisions()).toMatchObject([
+      { prepared: { logicalKey: "decision/0/prepared" }, settled: null },
+    ]);
+    await expect(
+      publishFindingBatch(
+        [finding],
+        { ...session, recovery: reopened },
+        { ...input, source: "security" },
+      ),
+    ).rejects.toSatisfy((error: unknown) => {
+      const reason =
+        typeof error === "object" && error != null && "context" in error
+          ? (error as { context?: { reason?: unknown } }).context?.reason
+          : undefined;
+      return reason !== "pending_decision_conflict";
+    });
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(await reopened.decisions()).toMatchObject([
+      { prepared: { logicalKey: "decision/0/prepared" }, settled: null },
+    ]);
+    expect(() => reopened.throwIfFailed()).not.toThrow();
+    expect(() => recovery.throwIfFailed()).not.toThrow();
+  });
+
   it("returns empty without GitHub writes when the batch has no findings", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const result = await publishFindingBatch(

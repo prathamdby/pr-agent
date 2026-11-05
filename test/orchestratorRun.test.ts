@@ -43,6 +43,7 @@ import { renderReviewProgressComment } from "../src/review/run/progressComment.t
 import {
   createReviewArtifactBinding,
   createReviewArtifactEnvelope,
+  parseReviewArtifactEnvelope,
   reviewArtifactHash,
 } from "../src/review/recovery/reviewArtifacts.ts";
 
@@ -99,6 +100,21 @@ const testState = vi.hoisted(() => ({
   judgmentPrompts: [] as string[],
   specialistThreadSources: [] as Array<() => readonly { readonly findingId: string }[]>,
   synthesisPublishesSummary: true,
+  pendingPublicationFailure: null as null | {
+    readonly prepare: () => Promise<void>;
+    readonly error: unknown;
+  },
+  findingEvidence: [] as Array<{
+    readonly descriptor: {
+      readonly version: 1;
+      readonly kind: "file_range";
+      readonly path: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly headSha: string;
+      readonly contentHash: string;
+    };
+  }>,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
   sentSendOptions: [] as PiSessionSendOptions[],
   specialistEscalations: [] as Array<EscalationPlan | undefined>,
@@ -127,7 +143,7 @@ vi.mock("../src/review/run/reviewRunSetup.ts", () => {
     hasOpened: (path: string) => testState.ledgerOpens[key].has(path),
     openedPaths: () => [...testState.ledgerOpens[key]],
     covers: () => true,
-    snapshot: () => [],
+    snapshot: () => testState.findingEvidence,
   });
   return {
     ledgerForFindingSource: (
@@ -207,6 +223,12 @@ vi.mock("../src/review/orchestrator/publishThreadTool.ts", () => ({
       testState.progressUrlResolvers.push(params.session.resolveProgressCommentUrl);
       testState.ledger = params.initialLedger ?? createFindingLedger();
       const executor = vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
+        if (testState.pendingPublicationFailure) {
+          const failure = testState.pendingPublicationFailure;
+          testState.pendingPublicationFailure = null;
+          await failure.prepare();
+          throw failure.error;
+        }
         if (!testState.activeSource) throw new Error("missing active source");
         testState.publishOrder.push(testState.activeSource);
         testState.publishedBatchCount += 1;
@@ -602,6 +624,8 @@ describe("runOrchestratedPrReview", () => {
     publishRecordMocks.getSummaryCommentGithubId.mockReset();
     publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
     testState.synthesisPublishesSummary = true;
+    testState.pendingPublicationFailure = null;
+    testState.findingEvidence = [];
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.set(specialist, deferred());
     }
@@ -2029,6 +2053,82 @@ describe("runOrchestratedPrReview", () => {
       true,
     );
     expect(testState.deterministicSummaries).toHaveLength(1);
+  });
+
+  it("stops before a later summary when a prepared publication is still unsettled", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000839",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "a".repeat(40),
+        mode: "review",
+      },
+      "c".repeat(64),
+    );
+    const rows = new Map<string, unknown>();
+    const store = {
+      load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async (value: unknown) => {
+        const envelope = parseReviewArtifactEnvelope(value);
+        if (!envelope) throw new Error("invalid envelope");
+        rows.set(envelope.logicalKey, envelope);
+        return "stored" as const;
+      },
+    };
+    const recovery = openReviewRecovery(binding, store);
+    testState.findingEvidence = [
+      {
+        descriptor: {
+          version: 1,
+          kind: "file_range",
+          path: "src/correctness.ts",
+          startLine: 1,
+          endLine: 1,
+          headSha: "a".repeat(40),
+          contentHash: "a".repeat(64),
+        },
+      },
+    ];
+    const ledger = snapshotFindingLedger(createFindingLedger());
+    const providerError = Object.assign(new Error("upstream unavailable"), { status: 500 });
+    testState.pendingPublicationFailure = {
+      prepare: async () => {
+        await recovery.prepare(reviewPayloadFromFindings([]), "review:inline:pending", {
+          kind: "threads",
+          source: "correctness",
+          ledgerBefore: ledger,
+          localDelta: ledger,
+          inline: [],
+          footers: [],
+          baseSha: "d".repeat(40),
+          resultKind: "remote",
+          evidence: [],
+          judgmentDegraded: false,
+          briefFallback: false,
+          coverage: { kind: "full" },
+          counts: { suppressed: 0, capDowngraded: 0 },
+        });
+      },
+      error: providerError,
+    };
+    const run = runOrchestratedPrReview({ ...params(), recovery });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).rejects.toThrow(/upstream unavailable/);
+    expect(testState.publishOrder).not.toContain("summary");
+    expect(testState.deterministicSummaries).toHaveLength(0);
+    const decisions = await openReviewRecovery(binding, store).decisions();
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]?.settled).toBeNull();
+    expect(decisions[0]?.prepared.artifact.operationKey).toBe("review:inline:pending");
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {
