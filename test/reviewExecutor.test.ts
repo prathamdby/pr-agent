@@ -1814,7 +1814,10 @@ describe("review work definition", () => {
           policySnapshot: {
             kind: "ok",
             baseSha: "b".repeat(40),
-            files: [{ path: "AGENTS.md", blobSha: "d".repeat(40), body: "base agents\n" }],
+            files: [
+              { path: "AGENTS.md", blobSha: "d".repeat(40), body: "base agents\n" },
+              { path: "REVIEW.md", blobSha: "e".repeat(40), body: "base review rules\n" },
+            ],
             drops: [],
           },
         },
@@ -1832,6 +1835,8 @@ describe("review work definition", () => {
     const proposed = rendered.split("proposedPolicyChangeBlock")[1] ?? "";
     expect(rendered).toContain("Trusted context (agent instruction files):");
     expect(rendered).toContain("base agents");
+    expect(rendered).toContain("### File `REVIEW.md`");
+    expect(rendered).toContain("base review rules");
     expect(proposed).toContain("Proposed policy change (deleted) `AGENTS.md`:");
     expect(proposed).toContain("Proposed policy change (added) `.pr-agent/moved.mdc`:");
     expect(proposed).toContain("[neutralized forged header]");

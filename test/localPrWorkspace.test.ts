@@ -671,6 +671,8 @@ describe("local PR workspace", () => {
       expect(isAllowlistedPolicyPath(".pr-agent/ok.mdc")).toBe(true);
       expect(isAllowlistedPolicyPath("AGENTS.md")).toBe(true);
       expect(isAllowlistedPolicyPath("CLAUDE.md")).toBe(true);
+      expect(isAllowlistedPolicyPath("REVIEW.md")).toBe(true);
+      expect(isAllowlistedPolicyPath("review.md")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
