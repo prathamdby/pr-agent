@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import * as evlog from "../src/evlog.ts";
 import {
@@ -14,6 +15,7 @@ import {
 } from "../src/agent/execution/hostHalt.ts";
 import type { CodeModeResult } from "../src/agent/codemode/result.ts";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.ts";
+import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.ts";
 import { boundJsonValue } from "../src/agent/execution/marshal.ts";
 import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.ts";
 import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.ts";
@@ -21,6 +23,76 @@ import { AppError } from "../src/errors/appError.ts";
 import { startWorkerHealthServer } from "../src/agentWork/workerHealth.ts";
 import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.ts";
 import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.ts";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
+import type { LocalPrChangedFile } from "../src/prWorkspace/repositoryReader.ts";
+
+const CHANGED_FILE_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const CHANGED_FILE_HASH_179 = "91a6469a679b7717d05467340d90e16b5e5acb037a98e12f67ff70a8285235c0";
+const CHANGED_FILE_HASH_300 = "d58b5fd215f4a9ddfa13e5b1e165d44d37ef0cf4b2bdc58dd14de3045cdfdbf3";
+
+function changedFilePaths(count: number): LocalPrChangedFile[] {
+  return Array.from({ length: count }, (_, index) => ({
+    path: `src/file-${String(index).padStart(3, "0")}.ts`,
+    status: "modified",
+  }));
+}
+
+function pathDigest(paths: readonly string[]): string {
+  return createHash("sha256").update(paths.join("\n")).digest("hex");
+}
+
+const WALK_CHANGED_FILES = `
+  const pages = [];
+  let continuation = "";
+  let started = false;
+  while (pages.length < 12) {
+    const listed = started
+      ? await tools.listChangedFiles({ continuation: continuation })
+      : await tools.listChangedFiles();
+    started = true;
+    if (!Array.isArray(listed.files)) throw new Error("files was not an array");
+    if (listed.failureKind) throw new Error("unexpected failureKind");
+    const paths = [];
+    for (let i = 0; i < listed.files.length; i = i + 1) paths.push(listed.files[i].path);
+    pages.push({
+      delivered: listed.files.length,
+      paths: paths,
+      continuation: listed.continuation,
+      total: listed.total,
+      truncated: listed.truncated,
+      headSha: listed.headSha,
+    });
+    if (listed.continuation === null) break;
+    continuation = listed.continuation;
+  }
+  ({ pages: pages })
+`;
+
+async function deliverChangedFiles(
+  files: readonly LocalPrChangedFile[],
+  headSha: string,
+  stats: {
+    readonly truncated: boolean;
+    readonly totalChanges: number;
+    readonly fileCount: number;
+    readonly warning?: string;
+  },
+) {
+  const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
+    changedFiles: files,
+    checkoutPaths: new Set(files.map((file) => file.path)),
+    headSha,
+    stats,
+  });
+  const tools = buildWorkspaceTools(workspace.reader, { headSha });
+  const list = tools.executors.listChangedFiles;
+  if (!list) throw new Error("listChangedFiles missing");
+  return runCodeModeScript({
+    executorKind: "in_process",
+    code: WALK_CHANGED_FILES,
+    capabilities: { listChangedFiles: list },
+  });
+}
 
 function asResult(value: unknown): CodeModeResult {
   return value as CodeModeResult;
@@ -815,5 +887,163 @@ describe("Code Mode", () => {
       );
       expect(ledger.covers("big.ts", 800, 800)).toBe(false);
     }
+  });
+
+  it("delivers all 179 changed files through execute", async () => {
+    const files = changedFilePaths(179);
+    const result = await deliverChangedFiles(files, CHANGED_FILE_HEAD, {
+      truncated: false,
+      totalChanges: 179,
+      fileCount: 179,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const output = result.output as {
+      pages: {
+        delivered: number;
+        paths: string[];
+        continuation: string | null;
+        total: number;
+        truncated: boolean;
+        headSha: string;
+      }[];
+    };
+    const paths = output.pages.flatMap((page) => page.paths);
+    expect(paths).toEqual(files.map((file) => file.path));
+    expect(new Set(paths).size).toBe(179);
+    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_179);
+    expect(output.pages.every((page) => page.delivered <= 100 && page.delivered > 0)).toBe(true);
+    expect(output.pages.reduce((sum, page) => sum + page.delivered, 0)).toBe(179);
+    expect(output.pages.at(-1)?.continuation).toBeNull();
+    expect(output.pages.every((page) => page.total === 179 && page.truncated === false)).toBe(true);
+    expect(output.pages.every((page) => page.headSha === CHANGED_FILE_HEAD)).toBe(true);
+  });
+
+  it("delivers an upstream-truncated 300 file list without a serializer failure", async () => {
+    const files = changedFilePaths(300);
+    const result = await deliverChangedFiles(files, CHANGED_FILE_HEAD, {
+      truncated: true,
+      totalChanges: 312,
+      fileCount: 300,
+      warning: "Change set truncated to 300 files (12 omitted).",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const output = result.output as {
+      pages: {
+        delivered: number;
+        paths: string[];
+        continuation: string | null;
+        truncated: boolean;
+      }[];
+    };
+    const paths = output.pages.flatMap((page) => page.paths);
+    expect(paths).toEqual(files.map((file) => file.path));
+    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_300);
+    expect(output.pages.at(-1)?.continuation).toBeNull();
+    expect(output.pages.every((page) => page.truncated === true)).toBe(true);
+    expect(output.pages.every((page) => page.delivered <= 100)).toBe(true);
+  });
+
+  it("does not skip long changed-file names that miss the transfer budget", async () => {
+    const files = Array.from({ length: 80 }, (_, index) => {
+      const suffix = String(index).padStart(3, "0");
+      return {
+        path: `${suffix}${"p".repeat(4_997)}`,
+        status: "modified" as const,
+      };
+    });
+    const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
+      changedFiles: files,
+      checkoutPaths: new Set(files.map((file) => file.path)),
+      headSha: CHANGED_FILE_HEAD,
+      stats: { truncated: false, totalChanges: 80, fileCount: 80 },
+    });
+    const list = buildWorkspaceTools(workspace.reader, { headSha: CHANGED_FILE_HEAD }).executors
+      .listChangedFiles;
+    if (!list) throw new Error("listChangedFiles missing");
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: `
+        const pages = [];
+        let count = 0;
+        let checksum = 0;
+        let short = 0;
+        let continuation = "";
+        let started = false;
+        while (pages.length < 12) {
+          const listed = started
+            ? await tools.listChangedFiles({ continuation: continuation })
+            : await tools.listChangedFiles();
+          started = true;
+          if (!Array.isArray(listed.files)) throw new Error("files was not an array");
+          for (let i = 0; i < listed.files.length; i = i + 1) {
+            const path = listed.files[i].path;
+            count = count + 1;
+            if (path.length !== 5000) short = short + 1;
+            for (let j = 0; j < path.length; j = j + 1) {
+              checksum = (checksum + path.charCodeAt(j)) % 1000003;
+            }
+          }
+          pages.push({ delivered: listed.files.length, continuation: listed.continuation });
+          if (listed.continuation === null) break;
+          continuation = listed.continuation;
+        }
+        ({ count: count, checksum: checksum, short: short, pages: pages })
+      `,
+      capabilities: { listChangedFiles: list },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const output = result.output as {
+      count: number;
+      checksum: number;
+      short: number;
+      pages: { delivered: number; continuation: string | null }[];
+    };
+    let checksum = 0;
+    for (const file of files) {
+      for (let index = 0; index < file.path.length; index += 1) {
+        checksum = (checksum + file.path.charCodeAt(index)) % 1_000_003;
+      }
+    }
+    expect(output.count).toBe(80);
+    expect(output.short).toBe(0);
+    expect(output.checksum).toBe(checksum);
+    expect(output.pages.length).toBeGreaterThan(1);
+    expect(output.pages.every((page) => page.delivered <= 100)).toBe(true);
+    expect(output.pages.at(-1)?.continuation).toBeNull();
+  });
+
+  it("still caps a non-paged array at the serializer limit", async () => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'await tools.readWorkspaceFile({ path: "src/a.ts" })',
+      capabilities: {
+        readWorkspaceFile: async () => ({ items: Array.from({ length: 101 }, () => "n") }),
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const output = result.output as {
+      items: { reason?: string; omittedCount?: number; value?: string[] };
+    };
+    expect(Array.isArray(output.items)).toBe(false);
+    expect(output.items.reason).toBe("array_length_limit");
+    expect(output.items.omittedCount).toBe(1);
+    expect(output.items.value).toHaveLength(100);
+  });
+
+  it("keeps SEARCH_TRUNCATED on a truncated search result", async () => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'const hits = await tools.searchWorkspace({ query: "x" }); hits.failureKind',
+      capabilities: {
+        searchWorkspace: async () => ({ matches: [], truncated: true }),
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.output).toBe("SEARCH_TRUNCATED");
   });
 });

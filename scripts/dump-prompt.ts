@@ -164,6 +164,7 @@ async function dumpAll() {
       readFile: unavailable,
       refuseFile: unavailable,
       agentCwd: "",
+      headSha: "a".repeat(40),
       changedFiles: [],
       changedFileByPath: new Map(),
       checkoutPaths: new Set(),

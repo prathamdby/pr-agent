@@ -17,6 +17,7 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../ask/askSafety.ts";
+import { pageChangedFiles } from "./changedFilePage.ts";
 import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.ts";
 import type { AgentRunnerToolExecutor } from "../providers/interface.ts";
 import {
@@ -534,18 +535,69 @@ function buildInvestigationTools(
 
   const listChangedFiles = defineLocalTool({
     description:
-      "List the files this pull request changes: path, previous path for renames, status, and whether the file exists in the PR head checkout. The other tools take paths from this list. `truncated: true` means the change set is larger than the list.",
-    schema: v.object({}),
-    run: async () => ({
-      files: workspace.changedFiles.map((file) => ({
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        presentInCheckout: workspace.checkoutPaths.has(file.path),
-      })),
-      truncated: workspace.stats.truncated,
-      ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
+      "List the files this pull request changes. Each entry has its path, the previous path when the file was renamed, its status, and whether the file exists in the PR head checkout. The other tools take paths from this list. Omit continuation to read the first page. Pass the returned continuation until it is null. files stays an array on every page. total is the number of files admitted for this head. truncated true means the pull request changes more files than this list admits, separate from another page of admitted files.",
+    schema: v.object({
+      continuation: v.optional(
+        v.pipe(
+          v.string(),
+          v.minLength(1),
+          v.description("Token from the previous page. Omit it to read the first page."),
+        ),
+      ),
     }),
+    run: async ({ continuation }) => {
+      const listedHead = workspace.headSha;
+      const reviewedHead = opts?.headSha;
+      if (
+        reviewedHead !== undefined &&
+        listedHead.length > 0 &&
+        reviewedHead.toLowerCase() !== listedHead.toLowerCase()
+      ) {
+        throw new AppError({
+          domain: "tool",
+          kind: "input_validation_failed",
+          message:
+            "listChangedFiles validation failed: the workspace head does not match the reviewed head.",
+          context: { toolName: "listChangedFiles" },
+        });
+      }
+      const boundHead = reviewedHead ?? listedHead;
+      if (boundHead.length === 0) {
+        throw new AppError({
+          domain: "tool",
+          kind: "input_validation_failed",
+          message: "listChangedFiles validation failed: the workspace has no head.",
+          context: { toolName: "listChangedFiles" },
+        });
+      }
+      const paged = pageChangedFiles({
+        files: workspace.changedFiles.map((file) => ({
+          path: file.path,
+          status: file.status,
+          presentInCheckout: workspace.checkoutPaths.has(file.path),
+          ...(file.oldPath !== undefined ? { oldPath: file.oldPath } : {}),
+        })),
+        headSha: boundHead,
+        truncated: workspace.stats.truncated,
+        ...(workspace.stats.warning !== undefined ? { warning: workspace.stats.warning } : {}),
+        ...(continuation !== undefined ? { continuation } : {}),
+      });
+      if (!paged.ok) {
+        const detail = {
+          malformed: "continuation is not a page token for this head.",
+          head_mismatch: "continuation is for a different head.",
+          offset: "continuation is outside the admitted file list.",
+          undeliverable: "the next changed file does not fit the response budget.",
+        }[paged.reason];
+        throw new AppError({
+          domain: "tool",
+          kind: "input_validation_failed",
+          message: `listChangedFiles validation failed: ${detail}`,
+          context: { toolName: "listChangedFiles", reason: paged.reason },
+        });
+      }
+      return paged.page;
+    },
   });
 
   const readWorkspaceFile = defineLocalTool({

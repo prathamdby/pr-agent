@@ -16,6 +16,7 @@ const workspace: LocalPrWorkspace = {
   reader: {
     ...createWritableRepositoryReader("/tmp/unused"),
     agentCwd: "/tmp/review-run-setup/agent",
+    headSha: "a".repeat(40),
     changedFiles: [],
     changedFileByPath: new Map(),
     checkoutPaths: new Set(),

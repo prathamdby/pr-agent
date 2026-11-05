@@ -353,6 +353,7 @@ const workspace: LocalPrWorkspace = {
   reader: {
     ...createWritableRepositoryReader("/tmp/unused"),
     agentCwd: "/tmp/orchestrator-test/agent",
+    headSha: "a".repeat(40),
     changedFiles: [],
     changedFileByPath: new Map(),
     checkoutPaths: new Set(),
