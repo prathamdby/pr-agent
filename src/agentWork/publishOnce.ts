@@ -40,6 +40,7 @@ export type PublishIntentStore = Pick<
   | "listPendingOperationIntents"
   | "findInFlightMutatingIntent"
   | "findRetainedDescriptionSurfaceIdentity"
+  | "releaseUnsentInFlightIntent"
 >;
 
 export type PublishOnceParams<T> = {
@@ -647,6 +648,13 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     });
     return result;
   } catch (error) {
+    if (!mutateSucceeded && isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
+      await (params.store ?? postgresPublishStore).releaseUnsentInFlightIntent(params.client, {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+      });
+      throw error;
+    }
     const knownNoAcceptance =
       params.isKnownNoAcceptanceError?.(error) ?? isKnownNoAcceptanceMutationError(error);
     if (!mutateSucceeded) {

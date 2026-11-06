@@ -123,6 +123,20 @@ export function createFakePublishStore(): PublishIntentStore {
       );
     },
 
+    async releaseUnsentInFlightIntent(_client, params) {
+      const existing = rows.get(rowKey(params.workItemId, params.operationKey));
+      if (
+        existing == null ||
+        existing.status !== "pending" ||
+        existing.detail.__mutating !== true ||
+        Object.hasOwn(existing.detail, "__result")
+      ) {
+        return;
+      }
+      existing.detail = { ...existing.detail, __mutating: false };
+      existing.updatedAtMs = nextClock();
+    },
+
     async findInFlightMutatingIntent(_client, params) {
       const caller = rows.get(rowKey(params.workItemId, params.operationKey));
       const callerHoldsLease = caller?.leaseEpoch != null;

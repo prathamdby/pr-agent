@@ -211,6 +211,25 @@ export async function mergeOperationIntentDetail(
   return row ? mapRow(row) : null;
 }
 
+export async function releaseUnsentInFlightIntent(
+  client: Pool | PoolClient,
+  params: { readonly workItemId: string; readonly operationKey: string },
+): Promise<void> {
+  await queryOne(
+    client,
+    `UPDATE operation_intents
+        SET detail = detail || jsonb_build_object('__mutating', false),
+            updated_at = now()
+      WHERE work_item_id = $1
+        AND operation_key = $2
+        AND status = 'pending'
+        AND detail->'__mutating' = 'true'::jsonb
+        AND NOT (detail ? '__result')
+      RETURNING id`,
+    [params.workItemId, params.operationKey],
+  );
+}
+
 export async function findInFlightMutatingIntent(
   client: Pool | PoolClient,
   params: { readonly workItemId: string; readonly operationKey: string },

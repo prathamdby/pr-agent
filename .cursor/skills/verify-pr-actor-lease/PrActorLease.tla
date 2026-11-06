@@ -145,32 +145,35 @@ DropBeforeMutating(w) ==
                  intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* assertPrActorLeaseHeld in createLeaseMutationBoundary, immediately before mutate.
+\* A lost lease before the GitHub call releases this item's unsent __mutating flag.
 Arm(w) ==
   /\ phase[w] = "mutating"
-  /\ \/ /\ Held(w)
-        /\ phase' = [phase EXCEPT ![w] = "armed"]
-     \/ /\ ~Held(w)
-        /\ phase' = [phase EXCEPT ![w] = "done"]
+  /\ IF Held(w)
+     THEN /\ phase' = [phase EXCEPT ![w] = "armed"]
+          /\ UNCHANGED intentMutating
+     ELSE /\ phase' = [phase EXCEPT ![w] = "done"]
+          /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = FALSE]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* withPrSurfaceMutationBoundary. throwIfAborted, then the lease read, then the GitHub call.
+\* ~Held here is the pre-send lease read. It releases the unsent __mutating flag.
+\* A still-held abort does not, because that gate is not a lost lease.
 AbortGate(w) ==
   /\ phase[w] = "armed"
-  /\ \/ /\ signalAborted[w]
-        /\ phase' = [phase EXCEPT ![w] = "done"]
-        /\ UNCHANGED sends
-     \/ /\ ~signalAborted[w]
-        /\ ~Held(w)
-        /\ phase' = [phase EXCEPT ![w] = "done"]
-        /\ UNCHANGED sends
-     \/ /\ ~signalAborted[w]
-        /\ Held(w)
-        /\ sends[ItemOf(w)] < 3
-        /\ phase' = [phase EXCEPT ![w] = "sent"]
-        /\ sends' = [sends EXCEPT ![ItemOf(w)] = sends[ItemOf(w)] + 1]
+  /\ IF ~Held(w)
+     THEN /\ phase' = [phase EXCEPT ![w] = "done"]
+          /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = FALSE]
+          /\ UNCHANGED sends
+     ELSE IF signalAborted[w]
+          THEN /\ phase' = [phase EXCEPT ![w] = "done"]
+               /\ UNCHANGED <<intentMutating, sends>>
+          ELSE /\ sends[ItemOf(w)] < 3
+               /\ phase' = [phase EXCEPT ![w] = "sent"]
+               /\ sends' = [sends EXCEPT ![ItemOf(w)] = sends[ItemOf(w)] + 1]
+               /\ UNCHANGED intentMutating
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 intentMutating, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* reconcileOperationIntent and recordPublishStep. The EXISTS lease predicate is FenceOn.
 Reconcile(w) ==

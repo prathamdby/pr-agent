@@ -48,7 +48,9 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    Terminal hooks omit only the durable cancellation read so verdict cleanup can
    run. Neither cancellation nor takeover can withdraw a request already in flight.
    A final gate failure before delegation stays retryable because no request
-   started. Errors after delegation retain the provider's acceptance rules.
+   started. A lost lease on that gate releases the unsent `__mutating` flag,
+   so the next holder does not recover a GitHub call that never started.
+   Errors after delegation retain the provider's acceptance rules.
    Nested mutation keys include the parent operation key, method, and input
    hash. Different inputs get distinct intents; identical retries reuse the
    same intent.

@@ -3713,9 +3713,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
       let heldAsserts = 0;
       let moved = false;
+      let successor: { readonly id: string; readonly epoch: number } | undefined;
       const originalAssert = leaseRepository.assertPrActorLeaseHeld;
-      vi.spyOn(leaseRepository, "assertPrActorLeaseHeld").mockImplementation(
-        async (db, id, epoch) => {
+      const leaseAssert = vi
+        .spyOn(leaseRepository, "assertPrActorLeaseHeld")
+        .mockImplementation(async (db, id, epoch) => {
           await originalAssert(db, id, epoch);
           if (moved || id !== workItemId) return;
           heldAsserts += 1;
@@ -3738,9 +3740,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             const successorId = await insertRunningWorkItem(resourceKey);
             const acquired = await acquire(resourceKey, successorId);
             if (!acquired.acquired) throw new Error("successor missed the expired lease");
+            successor = { id: successorId, epoch: acquired.leaseEpoch };
           }
-        },
-      );
+        });
 
       const boundary = createLeaseMutationBoundary({
         pool,
@@ -3764,6 +3766,27 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect(moved).toBe(true);
       expect(progress).toEqual([]);
       expect(posted).toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+      const intents = await pool.query<{ detail: { __mutating?: boolean } }>(
+        `SELECT detail FROM operation_intents WHERE work_item_id = $1`,
+        [workItemId],
+      );
+      expect(intents.rows.some((row) => row.detail.__mutating === true)).toBe(false);
+      leaseAssert.mockRestore();
+      if (successor == null) return;
+      const successorBoundary = createLeaseMutationBoundary({
+        pool,
+        workItemId: successor.id,
+        resourceKey,
+        leaseEpoch: successor.epoch,
+        signal: new AbortController().signal,
+      });
+      const successorSurface = createFakePrSurface(surfaceParams, {
+        mutationBoundary: successorBoundary,
+      });
+      await successorSurface.surface.upsertProgressComment("body", REVIEW_SUMMARY_SENTINEL);
+      expect(
+        successorSurface.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+      ).toHaveLength(1);
     },
   );
 
