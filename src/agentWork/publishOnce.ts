@@ -649,10 +649,18 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     return result;
   } catch (error) {
     if (!mutateSucceeded && isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
-      await (params.store ?? postgresPublishStore).releaseUnsentInFlightIntent(params.client, {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-      });
+      try {
+        await (params.store ?? postgresPublishStore).releaseUnsentInFlightIntent(params.client, {
+          workItemId: params.workItemId,
+          operationKey: params.operationKey,
+        });
+      } catch (releaseError) {
+        logWarn("operation_intent_unsent_release_failed", {
+          workItemId: params.workItemId,
+          operationKey: params.operationKey,
+          message: errorMessage(releaseError),
+        });
+      }
       throw error;
     }
     const knownNoAcceptance =
