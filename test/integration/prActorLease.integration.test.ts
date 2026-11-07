@@ -3713,9 +3713,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
       let heldAsserts = 0;
       let moved = false;
+      let successor: { readonly id: string; readonly epoch: number } | undefined;
       const originalAssert = leaseRepository.assertPrActorLeaseHeld;
-      vi.spyOn(leaseRepository, "assertPrActorLeaseHeld").mockImplementation(
-        async (db, id, epoch) => {
+      const leaseAssert = vi
+        .spyOn(leaseRepository, "assertPrActorLeaseHeld")
+        .mockImplementation(async (db, id, epoch) => {
           await originalAssert(db, id, epoch);
           if (moved || id !== workItemId) return;
           heldAsserts += 1;
@@ -3738,9 +3740,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             const successorId = await insertRunningWorkItem(resourceKey);
             const acquired = await acquire(resourceKey, successorId);
             if (!acquired.acquired) throw new Error("successor missed the expired lease");
+            successor = { id: successorId, epoch: acquired.leaseEpoch };
           }
-        },
-      );
+        });
 
       const boundary = createLeaseMutationBoundary({
         pool,
@@ -3764,8 +3766,173 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect(moved).toBe(true);
       expect(progress).toEqual([]);
       expect(posted).toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+      const intents = await pool.query<{ detail: { __mutating?: boolean } }>(
+        `SELECT detail FROM operation_intents WHERE work_item_id = $1`,
+        [workItemId],
+      );
+      expect(intents.rows.some((row) => row.detail.__mutating === true)).toBe(false);
+      leaseAssert.mockRestore();
+      if (successor == null) return;
+      const successorBoundary = createLeaseMutationBoundary({
+        pool,
+        workItemId: successor.id,
+        resourceKey,
+        leaseEpoch: successor.epoch,
+        signal: new AbortController().signal,
+      });
+      const successorSurface = createFakePrSurface(surfaceParams, {
+        mutationBoundary: successorBoundary,
+      });
+      await successorSurface.surface.upsertProgressComment("body", REVIEW_SUMMARY_SENTINEL);
+      expect(
+        successorSurface.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+      ).toHaveLength(1);
     },
   );
+
+  it("sends again when the same work item's pre-send marker belongs to a dead epoch", async () => {
+    const resourceKey = `${OWNER}/same-item-unsent-${randomUUID().slice(0, 8)}#1`;
+    const operationKey = "review:summary:same-item-unsent";
+    const workItemId = await insertRunningWorkItem(resourceKey);
+    const firstLease = await acquire(resourceKey, workItemId);
+    if (!firstLease.acquired) throw new Error("expected the first lease");
+    await pool.query(
+      `INSERT INTO operation_intents (
+         id, work_item_id, operation_key, mutation_kind, status, lease_epoch, detail
+       )
+       VALUES ($1, $2, $3, 'review_summary', 'pending', $4, $5::jsonb)`,
+      [
+        randomUUID(),
+        workItemId,
+        operationKey,
+        firstLease.leaseEpoch,
+        JSON.stringify({
+          __mutating: true,
+          __sendStarted: false,
+          __mutatingEpoch: firstLease.leaseEpoch,
+        }),
+      ],
+    );
+    await pool.query(
+      `UPDATE pr_actor_leases
+          SET expires_at = now() - interval '1 second'
+        WHERE resource_key = $1 AND work_type = 'review'`,
+      [resourceKey],
+    );
+    const nextLease = await acquire(resourceKey, workItemId);
+    if (!nextLease.acquired) throw new Error("expected the same work item to take the next epoch");
+
+    let entered = false;
+    const result = await publishOnce({
+      fence: fenceForEpoch(nextLease.leaseEpoch),
+      client: pool,
+      workItemId,
+      operationKey,
+      mutationKind: "review_summary",
+      leaseEpoch: nextLease.leaseEpoch,
+      mutate: async () => {
+        entered = true;
+        await intentRepository.releaseUnsentInFlightIntent(pool, {
+          workItemId,
+          operationKey,
+          leaseEpoch: firstLease.leaseEpoch,
+        });
+        const { rows } = await pool.query<{ detail: Record<string, unknown> }>(
+          `SELECT detail FROM operation_intents WHERE work_item_id = $1 AND operation_key = $2`,
+          [workItemId, operationKey],
+        );
+        expect(rows[0]?.detail).toMatchObject({
+          __mutating: true,
+          __sendStarted: true,
+          __mutatingEpoch: nextLease.leaseEpoch,
+        });
+        return { commentId: 1 };
+      },
+    });
+
+    expect(entered).toBe(true);
+    expect(result).toEqual({ commentId: 1 });
+  });
+
+  it("keeps a nested send in flight when the lease is lost after acceptance", async () => {
+    const resourceKey = `${OWNER}/nested-send-${randomUUID().slice(0, 8)}#1`;
+    const outerKey = "review:summary:nested-send";
+    const innerKey = `${outerKey}:surface:replyAt:nested`;
+    const firstId = await insertRunningWorkItem(resourceKey);
+    const firstLease = await acquire(resourceKey, firstId);
+    if (!firstLease.acquired) throw new Error("expected the outer lease");
+    let outerEntries = 0;
+    let innerSends = 0;
+
+    const lost = await publishOnce({
+      fence: fenceForEpoch(firstLease.leaseEpoch),
+      client: pool,
+      workItemId: firstId,
+      operationKey: outerKey,
+      mutationKind: "review_summary",
+      leaseEpoch: firstLease.leaseEpoch,
+      mutate: async () => {
+        outerEntries += 1;
+        await publishOnce({
+          fence: fenceForEpoch(firstLease.leaseEpoch),
+          client: pool,
+          workItemId: firstId,
+          operationKey: innerKey,
+          mutationKind: "github.pr_surface.replyAt",
+          leaseEpoch: firstLease.leaseEpoch,
+          detail: { parentOperationKey: outerKey },
+          mutate: async () => {
+            innerSends += 1;
+            await pool.query(
+              `UPDATE pr_actor_leases
+                  SET expires_at = now() - interval '1 second'
+                WHERE resource_key = $1 AND work_type = 'review'`,
+              [resourceKey],
+            );
+            return { commentId: 7 };
+          },
+        });
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(outerEntries).toBe(1);
+    expect(innerSends).toBe(1);
+    expect(lost).toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+    const outer = await pool.query<{ status: string; detail: Record<string, unknown> }>(
+      `SELECT status, detail FROM operation_intents WHERE work_item_id = $1 AND operation_key = $2`,
+      [firstId, outerKey],
+    );
+    expect(outer.rows[0]?.detail.__sendStarted).toBe(true);
+    expect(outer.rows[0]?.detail.__mutating).toBe(true);
+
+    const successorId = await insertRunningWorkItem(resourceKey);
+    const successorLease = await acquire(resourceKey, successorId);
+    if (!successorLease.acquired) throw new Error("expected the successor lease");
+    const successorError = await publishOnce({
+      fence: fenceForEpoch(successorLease.leaseEpoch),
+      client: pool,
+      workItemId: successorId,
+      operationKey: outerKey,
+      mutationKind: "review_summary",
+      leaseEpoch: successorLease.leaseEpoch,
+      mutate: async () => {
+        outerEntries += 1;
+        return { commentId: 8 };
+      },
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(outerEntries).toBe(1);
+    expect(innerSends).toBe(1);
+    expect(successorError).toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+  });
 
   it.each(["supersede/cancel-clear", "expiry-steal"] as const)(
     "sends one GitHub summary after %s",
