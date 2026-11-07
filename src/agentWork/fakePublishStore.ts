@@ -1,9 +1,4 @@
-import {
-  OPERATION_INTENT_MUTATING_EPOCH_KEY,
-  OPERATION_INTENT_SEND_STARTED_KEY,
-  type PublishRecordStore,
-  type PublishIntentStore,
-} from "./publishOnce.ts";
+import type { PublishRecordStore, PublishIntentStore } from "./publishOnce.ts";
 import { fencedWrite } from "./fencedWrite.ts";
 import { isRecord } from "../util/typeGuards.ts";
 import { logWarn } from "../evlog.ts";
@@ -15,6 +10,9 @@ import {
   type OperationIntentRow,
   type OperationIntentStatus,
 } from "./operationIntentRepository.ts";
+
+const OPERATION_INTENT_SEND_STARTED_KEY = "__sendStarted";
+const OPERATION_INTENT_MUTATING_EPOCH_KEY = "__mutatingEpoch";
 
 type StoredIntent = {
   id: string;
