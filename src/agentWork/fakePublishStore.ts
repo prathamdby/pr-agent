@@ -1,4 +1,9 @@
-import type { PublishRecordStore, PublishIntentStore } from "./publishOnce.ts";
+import {
+  OPERATION_INTENT_MUTATING_EPOCH_KEY,
+  OPERATION_INTENT_SEND_STARTED_KEY,
+  type PublishRecordStore,
+  type PublishIntentStore,
+} from "./publishOnce.ts";
 import { fencedWrite } from "./fencedWrite.ts";
 import { isRecord } from "../util/typeGuards.ts";
 import { logWarn } from "../evlog.ts";
@@ -129,6 +134,8 @@ export function createFakePublishStore(): PublishIntentStore {
         existing == null ||
         existing.status !== "pending" ||
         existing.detail.__mutating !== true ||
+        existing.detail[OPERATION_INTENT_SEND_STARTED_KEY] !== false ||
+        existing.detail[OPERATION_INTENT_MUTATING_EPOCH_KEY] !== params.leaseEpoch ||
         Object.hasOwn(existing.detail, "__result")
       ) {
         return;
@@ -140,10 +147,20 @@ export function createFakePublishStore(): PublishIntentStore {
     async findInFlightMutatingIntent(_client, params) {
       const caller = rows.get(rowKey(params.workItemId, params.operationKey));
       const callerHoldsLease = caller?.leaseEpoch != null;
+      const liveEpoch = callerHoldsLease ? (caller?.leaseEpoch ?? null) : null;
       const match = [...rows.values()]
         .filter((row) => {
           if (row.status !== "pending" || row.detail.__mutating !== true) return false;
           if (Object.hasOwn(row.detail, "__result")) return false;
+          const armedEpoch = row.detail[OPERATION_INTENT_MUTATING_EPOCH_KEY];
+          if (
+            row.detail[OPERATION_INTENT_SEND_STARTED_KEY] === false &&
+            typeof armedEpoch === "number" &&
+            liveEpoch != null &&
+            armedEpoch !== liveEpoch
+          ) {
+            return false;
+          }
           if (row.workItemId === params.workItemId) {
             return row.operationKey === params.operationKey;
           }

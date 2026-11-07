@@ -87,6 +87,8 @@ export type OperationIntentRecovery<T> =
   | { readonly kind: "absent" };
 
 export const OPERATION_INTENT_MUTATING_KEY = "__mutating";
+export const OPERATION_INTENT_SEND_STARTED_KEY = "__sendStarted";
+export const OPERATION_INTENT_MUTATING_EPOCH_KEY = "__mutatingEpoch";
 export const OPERATION_INTENT_RESULT_KEY = "__result";
 
 export function askReplyOperationKey(resourceKey: string, targetCommentId?: number): string {
@@ -615,14 +617,39 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     detail: {
       ...params.mutationDetail,
       [OPERATION_INTENT_MUTATING_KEY]: true,
+      ...(params.leaseEpoch != null
+        ? {
+            [OPERATION_INTENT_SEND_STARTED_KEY]: false,
+            [OPERATION_INTENT_MUTATING_EPOCH_KEY]: params.leaseEpoch,
+          }
+        : {}),
     },
   });
 
   let mutateSucceeded = false;
+  let sendStarted = false;
   try {
     await assertMutationReady(params);
     if (params.leaseEpoch != null) {
       await assertPrActorLeaseHeld(params.client, params.workItemId, params.leaseEpoch);
+      const marked = await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(
+        params.client,
+        {
+          workItemId: params.workItemId,
+          operationKey: params.operationKey,
+          ...leaseEpochDetail(params),
+          detail: { [OPERATION_INTENT_SEND_STARTED_KEY]: true },
+        },
+      );
+      if (marked == null) {
+        throw new AppError({
+          domain: "agent_work",
+          kind: "pr_actor_lease_lost",
+          message: "PR actor lease is no longer held by this execution",
+          context: { workItemId: params.workItemId, leaseEpoch: params.leaseEpoch },
+        });
+      }
+      sendStarted = true;
     }
     const result = await params.mutate();
     mutateSucceeded = true;
@@ -648,11 +675,18 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     });
     return result;
   } catch (error) {
-    if (!mutateSucceeded && isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
+    if (
+      !sendStarted &&
+      !mutateSucceeded &&
+      params.leaseEpoch != null &&
+      isAppError(error) &&
+      error.code === "agent_work.pr_actor_lease_lost"
+    ) {
       try {
         await (params.store ?? postgresPublishStore).releaseUnsentInFlightIntent(params.client, {
           workItemId: params.workItemId,
           operationKey: params.operationKey,
+          leaseEpoch: params.leaseEpoch,
         });
       } catch (releaseError) {
         logWarn("operation_intent_unsent_release_failed", {

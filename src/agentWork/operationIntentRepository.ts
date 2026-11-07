@@ -213,7 +213,11 @@ export async function mergeOperationIntentDetail(
 
 export async function releaseUnsentInFlightIntent(
   client: Pool | PoolClient,
-  params: { readonly workItemId: string; readonly operationKey: string },
+  params: {
+    readonly workItemId: string;
+    readonly operationKey: string;
+    readonly leaseEpoch: number;
+  },
 ): Promise<void> {
   await queryOne(
     client,
@@ -225,8 +229,11 @@ export async function releaseUnsentInFlightIntent(
         AND status = 'pending'
         AND detail->'__mutating' = 'true'::jsonb
         AND NOT (detail ? '__result')
+        AND detail->'__sendStarted' = 'false'::jsonb
+        AND jsonb_typeof(detail->'__mutatingEpoch') = 'number'
+        AND detail->'__mutatingEpoch' = to_jsonb($3::bigint)
       RETURNING id`,
-    [params.workItemId, params.operationKey],
+    [params.workItemId, params.operationKey, params.leaseEpoch],
   );
 }
 
@@ -255,6 +262,23 @@ export async function findInFlightMutatingIntent(
         AND i.status = 'pending'
         AND i.detail->'__mutating' = 'true'::jsonb
         AND NOT (i.detail ? '__result')
+        AND NOT (
+          i.detail->'__sendStarted' = 'false'::jsonb
+          AND i.detail ? '__mutatingEpoch'
+          AND jsonb_typeof(i.detail->'__mutatingEpoch') = 'number'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM pr_actor_leases armed
+             WHERE armed.resource_key = caller.resource_key
+               AND armed.work_type = caller.type
+               AND armed.lease_epoch = CASE
+                     WHEN jsonb_typeof(i.detail->'__mutatingEpoch') = 'number'
+                     THEN (i.detail->>'__mutatingEpoch')::bigint
+                     ELSE NULL
+                   END
+               AND armed.expires_at > now()
+          )
+        )
         AND (
           (i.work_item_id = $1 AND i.operation_key = $2)
           OR (

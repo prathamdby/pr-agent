@@ -15,13 +15,13 @@ ItemOf(w) ==
 VARIABLES
   leaseEpoch, leaseItem, leaseExpired,
   phase, heldEpoch, signalAborted,
-  intentMutating, sends,
+  intentMutating, intentSendStarted, intentEpoch, sends,
   durableEpoch, durableItem, staleDurable,
   itemTerminal
 
 vars == <<leaseEpoch, leaseItem, leaseExpired,
           phase, heldEpoch, signalAborted,
-          intentMutating, sends,
+          intentMutating, intentSendStarted, intentEpoch, sends,
           durableEpoch, durableItem, staleDurable,
           itemTerminal>>
 
@@ -33,6 +33,8 @@ TypeOk ==
   /\ heldEpoch \in [Workers -> 0..MaxEpoch]
   /\ signalAborted \in [Workers -> BOOLEAN]
   /\ intentMutating \in [Items -> BOOLEAN]
+  /\ intentSendStarted \in [Items -> BOOLEAN]
+  /\ intentEpoch \in [Items -> 0..MaxEpoch]
   /\ sends \in [Items -> 0..3]
   /\ durableEpoch \in 0..MaxEpoch
   /\ durableItem \in Items \cup {"none"}
@@ -51,7 +53,18 @@ Held(w) ==
   /\ ~leaseExpired
 
 \* One pending __mutating intent for the resource. Operation key is not part of it.
-ResourceMutating == \E i \in Items : intentMutating[i]
+\* A pre-send marker whose arming epoch is no longer live is not in flight.
+LiveArmed(i) ==
+  /\ leaseItem = i
+  /\ ~leaseExpired
+  /\ leaseEpoch = intentEpoch[i]
+
+InFlight(i) ==
+  /\ intentMutating[i]
+  /\ \/ intentSendStarted[i]
+     \/ LiveArmed(i)
+
+ResourceInFlight == \E i \in Items : InFlight(i)
 
 LeaseFree == leaseItem = "none" \/ leaseExpired
 
@@ -63,6 +76,8 @@ Init ==
   /\ heldEpoch = [w \in Workers |-> 0]
   /\ signalAborted = [w \in Workers |-> FALSE]
   /\ intentMutating = [i \in Items |-> FALSE]
+  /\ intentSendStarted = [i \in Items |-> FALSE]
+  /\ intentEpoch = [i \in Items |-> 0]
   /\ sends = [i \in Items |-> 0]
   /\ durableEpoch = 0
   /\ durableItem = "none"
@@ -79,7 +94,7 @@ Acquire(w) ==
   /\ leaseExpired' = FALSE
   /\ phase' = [phase EXCEPT ![w] = "held"]
   /\ heldEpoch' = [heldEpoch EXCEPT ![w] = leaseEpoch + 1]
-  /\ UNCHANGED <<signalAborted, intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+  /\ UNCHANGED <<signalAborted, intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* TTL elapsed. The renewal bit is the model's expires_at.
 Expire ==
@@ -88,7 +103,7 @@ Expire ==
   /\ ~leaseExpired
   /\ leaseExpired' = TRUE
   /\ UNCHANGED <<leaseEpoch, leaseItem, phase, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* renewPrActorLease. Matches epoch and work_item_id. Does not read expires_at.
 Renew(w) ==
@@ -97,7 +112,7 @@ Renew(w) ==
   /\ leaseExpired
   /\ leaseExpired' = FALSE
   /\ UNCHANGED <<leaseEpoch, leaseItem, phase, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* releasePrActorLeaseHeldByWorkItems. Clears the holder. Does not bump lease_epoch.
 CancelClear ==
@@ -105,7 +120,7 @@ CancelClear ==
   /\ leaseItem' = "none"
   /\ leaseExpired' = TRUE
   /\ UNCHANGED <<leaseEpoch, phase, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* startCancelObserve or a failed renew. A later poll, not the SQL clear itself.
 ObserveLoss(w) ==
@@ -114,57 +129,63 @@ ObserveLoss(w) ==
   /\ ~Held(w)
   /\ signalAborted' = [signalAborted EXCEPT ![w] = TRUE]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, phase, heldEpoch,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
-\* mergeOperationIntentDetail writes __mutating before the GitHub call.
-\* The EXISTS check reads expires_at. A second worker recovers the resource intent.
+\* mergeOperationIntentDetail writes __mutating and the arming epoch before the GitHub call.
+\* The EXISTS check reads expires_at. A stale pre-send marker does not block this step.
 MarkMutating(w) ==
   /\ phase[w] = "held"
   /\ Held(w)
-  /\ ~ResourceMutating
+  /\ ~ResourceInFlight
   /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = TRUE]
+  /\ intentSendStarted' = [intentSendStarted EXCEPT ![ItemOf(w)] = FALSE]
+  /\ intentEpoch' = [intentEpoch EXCEPT ![ItemOf(w)] = heldEpoch[w]]
   /\ phase' = [phase EXCEPT ![w] = "mutating"]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
                  sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
-\* publishOnceBody recovers a pending __mutating intent on this resource.
+\* publishOnceBody recovers a pending in-flight intent on this resource.
+\* A pre-send marker whose arming epoch is not live is not recovered.
 \* The other work item recovers even when its operation key differs.
 RecoverInFlight(w) ==
   /\ phase[w] = "held"
   /\ Held(w)
-  /\ ResourceMutating
+  /\ ResourceInFlight
   /\ phase' = [phase EXCEPT ![w] = "done"]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 DropBeforeMutating(w) ==
   /\ phase[w] = "held"
   /\ ~Held(w)
   /\ phase' = [phase EXCEPT ![w] = "done"]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
-\* assertPrActorLeaseHeld in createLeaseMutationBoundary, immediately before mutate.
-\* A lost lease before the GitHub call releases this item's unsent __mutating flag.
+\* The pre-send lease read, then the __sendStarted write, then mutate.
+\* ~Held releases only this attempt's unsent marker: matching arming epoch, send not started.
 Arm(w) ==
   /\ phase[w] = "mutating"
   /\ IF Held(w)
      THEN /\ phase' = [phase EXCEPT ![w] = "armed"]
+          /\ intentSendStarted' = [intentSendStarted EXCEPT ![ItemOf(w)] = TRUE]
           /\ UNCHANGED intentMutating
      ELSE /\ phase' = [phase EXCEPT ![w] = "done"]
-          /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = FALSE]
+          /\ UNCHANGED intentSendStarted
+          /\ IF intentEpoch[ItemOf(w)] = heldEpoch[w] /\ ~intentSendStarted[ItemOf(w)]
+             THEN intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = FALSE]
+             ELSE UNCHANGED intentMutating
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* withPrSurfaceMutationBoundary. throwIfAborted, then the lease read, then the GitHub call.
-\* ~Held here is the pre-send lease read. It releases the unsent __mutating flag.
-\* A still-held abort does not, because that gate is not a lost lease.
+\* __sendStarted is already set, so ~Held does not clear the marker.
+\* A still-held abort does not send.
 AbortGate(w) ==
   /\ phase[w] = "armed"
   /\ IF ~Held(w)
      THEN /\ phase' = [phase EXCEPT ![w] = "done"]
-          /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = FALSE]
-          /\ UNCHANGED sends
+          /\ UNCHANGED <<intentMutating, sends>>
      ELSE IF signalAborted[w]
           THEN /\ phase' = [phase EXCEPT ![w] = "done"]
                /\ UNCHANGED <<intentMutating, sends>>
@@ -173,7 +194,7 @@ AbortGate(w) ==
                /\ sends' = [sends EXCEPT ![ItemOf(w)] = sends[ItemOf(w)] + 1]
                /\ UNCHANGED intentMutating
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentSendStarted, intentEpoch, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* reconcileOperationIntent and recordPublishStep. The EXISTS lease predicate is FenceOn.
 Reconcile(w) ==
@@ -191,7 +212,7 @@ Reconcile(w) ==
                /\ durableItem' = durableItem
                /\ staleDurable' = staleDurable
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, heldEpoch, signalAborted,
-                 intentMutating, sends, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, itemTerminal>>
 
 \* releasePrActorLease. Matches lease_epoch only. A stale epoch updates zero rows.
 Release(w) ==
@@ -201,14 +222,14 @@ Release(w) ==
   /\ leaseItem' = "none"
   /\ leaseExpired' = TRUE
   /\ UNCHANGED <<leaseEpoch, phase, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 \* A review work item has reached a terminal status.
 MarkTerminal(w) ==
   /\ ~itemTerminal[ItemOf(w)]
   /\ itemTerminal' = [itemTerminal EXCEPT ![ItemOf(w)] = TRUE]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, phase, heldEpoch, signalAborted,
-                 intentMutating, sends, durableEpoch, durableItem, staleDurable>>
+                 intentMutating, intentSendStarted, intentEpoch, sends, durableEpoch, durableItem, staleDurable>>
 
 \* closeReviewVerdict when leaseEpoch is null. The item is terminal and no
 \* worker is Held or still on the leased send path. One shared lease means
@@ -220,9 +241,10 @@ TerminalClose(w) ==
   /\ \A holder \in Workers : phase[holder] \notin {"held", "mutating", "armed"}
   /\ sends["i1"] + sends["i2"] = 0
   /\ intentMutating' = [intentMutating EXCEPT ![ItemOf(w)] = TRUE]
+  /\ intentSendStarted' = [intentSendStarted EXCEPT ![ItemOf(w)] = TRUE]
   /\ sends' = [sends EXCEPT ![ItemOf(w)] = 1]
   /\ UNCHANGED <<leaseEpoch, leaseItem, leaseExpired, phase, heldEpoch, signalAborted,
-                 durableEpoch, durableItem, staleDurable, itemTerminal>>
+                 intentEpoch, durableEpoch, durableItem, staleDurable, itemTerminal>>
 
 Pause == UNCHANGED vars
 

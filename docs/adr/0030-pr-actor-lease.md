@@ -48,8 +48,14 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    Terminal hooks omit only the durable cancellation read so verdict cleanup can
    run. Neither cancellation nor takeover can withdraw a request already in flight.
    A final gate failure before delegation stays retryable because no request
-   started. A lost lease on that gate releases the unsent `__mutating` flag,
-   so the next holder does not recover a GitHub call that never started.
+   started. A lost lease before the send starts is not an in-flight mutation. The
+   intent records the arming epoch and `__sendStarted: false`. The reader
+   ignores that pending row once the epoch is no longer live, so a stalled
+   holder cannot force `outcome_unknown`. The holder's release clears only
+   that stored epoch and cannot wipe a newer attempt of the same row.
+   Once `__sendStarted` is set, including before a nested surface call, a
+   lost lease keeps the marker and the next holder recovers instead of
+   sending again.
    Errors after delegation retain the provider's acceptance rules.
    Nested mutation keys include the parent operation key, method, and input
    hash. Different inputs get distinct intents; identical retries reuse the
