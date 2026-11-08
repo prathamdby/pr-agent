@@ -33,11 +33,11 @@ import {
   type LocalPrWorkspace,
   prepareLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.ts";
+import { isTriageSearchPathAllowed } from "../src/agent/tools/pathPolicy.ts";
 import {
   buildCheckoutCoverage,
   gitGrepWorkspace,
   type GitGrepWorkspaceParams,
-  isTriageSearchPathAllowed,
   createWritableRepositoryReader,
   type LocalPrChangedFile,
   type WorkspacePathDiff,
