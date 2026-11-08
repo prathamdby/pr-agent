@@ -830,6 +830,32 @@ describe("schedulePushFollowUp", () => {
     expect(insert?.[1]?.[0]).toBe("child-kept");
   });
 
+  it("returns an enqueued child without rewriting its row", async () => {
+    const query = vi.fn().mockResolvedValueOnce({
+      rowCount: 1,
+      rows: [
+        {
+          payload: {
+            mode: "review",
+            source: "slash",
+            pushFollowUp: {
+              webhookEventId: "evt-1",
+              replacementWorkItemId: "child-live",
+              state: "enqueued",
+            },
+          },
+        },
+      ],
+    });
+    const pool = fakePool(query);
+    const { result, send } = await schedule(parent(), pool);
+    expect(result).toMatchObject({ kind: "rescheduled", replacementWorkItemId: "child-live" });
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      query.mock.calls.some((call) => String(call[0]).includes("INSERT INTO agent_work_items")),
+    ).toBe(false);
+  });
+
   it("returns no child when the parent is no longer running", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
     const pool = fakePool(query);

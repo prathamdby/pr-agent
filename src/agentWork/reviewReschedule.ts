@@ -479,6 +479,12 @@ async function createPushFollowUpWorkItem(
     if (payload.source !== "slash" || payload.staleHeadReplacement != null) return null;
     const followUp = payload.pushFollowUp;
     if (followUp == null) return null;
+    if (followUp.state === "enqueued" && followUp.replacementWorkItemId != null) {
+      return {
+        replacementWorkItemId: followUp.replacementWorkItemId,
+        webhookEventId: followUp.webhookEventId,
+      };
+    }
 
     let replacementWorkItemId = followUp.replacementWorkItemId;
     if (!replacementWorkItemId) {
@@ -512,17 +518,14 @@ async function createPushFollowUpWorkItem(
     }
 
     const childPayload = pushFollowUpChildPayload(payload);
-    await client.query(
+    const inserted = await client.query<{ id: string }>(
       `INSERT INTO agent_work_items (
          id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, priority, payload
        )
        VALUES ($1, $2, 'review', 'auto', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
-       ON CONFLICT (id) DO UPDATE SET
-         payload = EXCLUDED.payload,
-         head_sha = EXCLUDED.head_sha,
-         source = EXCLUDED.source,
-         updated_at = now()`,
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id`,
       [
         replacementWorkItemId,
         followUp.webhookEventId,
@@ -536,11 +539,13 @@ async function createPushFollowUpWorkItem(
         JSON.stringify(childPayload),
       ],
     );
-    await transferProgressCommentOwnership(client, {
-      workItemId: replacementWorkItemId,
-      resourceKey: item.resourceKey,
-      reviewLens: item.reviewLens,
-    });
+    if ((inserted.rowCount ?? 0) > 0) {
+      await transferProgressCommentOwnership(client, {
+        workItemId: replacementWorkItemId,
+        resourceKey: item.resourceKey,
+        reviewLens: item.reviewLens,
+      });
+    }
     await writePushFollowUpJobs(client, boss, item, replacementWorkItemId, followUp.webhookEventId);
     return { replacementWorkItemId, webhookEventId: followUp.webhookEventId };
   });
