@@ -28,7 +28,7 @@ the head moves. Operators who want a review of each later push had to comment
    reads the newest head. A queued follow-up with no live review job is
    superseded. A running follow-up receives a cancellation request. A running
    `/review` without that marker is stamped with `pushFollowUp` and finishes. The worker then schedules one automatic
-   follow-up for the newest head. A second push while that marker is unset
+   follow-up for the newest head. A later schedule of that same parent, including a job retry after the child is enqueued, returns that child and does not rewrite its head, payload, or progress-comment owner. A second push while that marker is unset
    does not insert another review.
 
 3. **Admission is stored evidence.** Under `approval`, an awaiting row skips

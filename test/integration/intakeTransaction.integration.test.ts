@@ -4251,6 +4251,26 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     });
     await result.afterComplete(boss);
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(jobs.length);
+    const resolvedHead = "a".repeat(40);
+    await pool.query(
+      `UPDATE agent_work_items SET status = 'running', head_sha = $2 WHERE id = $1`,
+      [result.replacementWorkItemId, resolvedHead],
+    );
+    const again = await schedulePushFollowUp({
+      pool,
+      item: parent,
+      payload: parent.payload,
+      reviewCadence: "every_push",
+      prSurface: { getHeadSha: async () => "live-head" },
+      boundHeadSha: ref.headSha,
+      leaseEpoch: acquisition.leaseEpoch,
+      pullRequestClosed: false,
+      boss,
+    });
+    expect(again).toMatchObject({ replacementWorkItemId: result.replacementWorkItemId });
+    const kept = await getWorkItem(pool, result.replacementWorkItemId);
+    expect(kept).toMatchObject({ status: "running", headSha: resolvedHead });
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(jobs.length);
   });
 
   it("every_push replaces a queued follow-up that has no review job", async () => {
