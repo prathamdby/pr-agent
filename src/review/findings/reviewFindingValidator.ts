@@ -4,7 +4,7 @@ import { planInlinePlacements, type InlinePlacement } from "../placement/reviewD
 import type {
   CachedPrDiffIndex,
   CommentableRightLineRanges,
-} from "../placement/reviewDiffIndex.ts";
+} from "../../prWorkspace/reviewDiffIndex.ts";
 
 const INTERNAL_FAILURE_PHRASING: RegExp[] = [
   /\bstructured publish\b.*\bfailed\b/is,

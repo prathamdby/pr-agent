@@ -7,7 +7,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../../src/review/placement/reviewDiffIndex.ts";
+} from "../../src/prWorkspace/reviewDiffIndex.ts";
 import type { AcceptedPlacement } from "../../src/review/orchestrator/orchestratorTypes.ts";
 import {
   applyFindingLedgerDelta,

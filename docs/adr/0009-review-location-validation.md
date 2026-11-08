@@ -12,7 +12,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 ## Decision
 
-1. **Cached diff index** — Load GitHub pull-request file listing into the cached diff index during workspace setup (`ingestListPullRequestFilesResult` in `src/review/placement/reviewDiffIndex.ts`, fed by `src/github/listPullRequestFiles.ts`). Derive `commentableRightLineRanges` per file. Do not fetch a fresh diff at publish time.
+1. **Cached diff index** — Load GitHub pull-request file listing into the cached diff index during workspace setup (`ingestListPullRequestFilesResult` in `src/prWorkspace/reviewDiffIndex.ts`, fed by `src/github/listPullRequestFiles.ts`). Derive `commentableRightLineRanges` per file. Do not fetch a fresh diff at publish time.
 
 2. **Server-side placement** — Validate each finding against cached ranges before calling GitHub. Unresolvable findings become **summary-only findings**; the model does not choose placement.
 

@@ -7,7 +7,7 @@ import { relative, resolve, sep } from "node:path";
 import { AppError, isAppError } from "../errors/appError.ts";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.ts";
 import { runGitProcess, type GitProcessResult } from "./gitProcess.ts";
-import type { CachedPrDiffIndex } from "../review/placement/reviewDiffIndex.ts";
+import type { CachedPrDiffIndex } from "./reviewDiffIndex.ts";
 import {
   createFffWorkspaceSearch,
   type WorkspaceFileSearchParams,

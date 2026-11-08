@@ -2,7 +2,10 @@ import type { ReviewFinding } from "../reviewSchema.ts";
 import { isInlineSeverity } from "../reviewSchema.ts";
 import type { FindingId } from "../findingIdentity/findingMarker.ts";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.ts";
-import { resolveInlineAnchorLine, type CachedPrDiffIndex } from "./reviewDiffIndex.ts";
+import {
+  resolveInlineAnchorLine,
+  type CachedPrDiffIndex,
+} from "../../prWorkspace/reviewDiffIndex.ts";
 
 export type InlinePlacement = {
   readonly finding: ReviewFinding;

@@ -64,7 +64,7 @@ import {
 } from "../../prompts/shared/safety.ts";
 import { AppError } from "../../errors/appError.ts";
 import { MAX_TOOL_ROUNDS } from "../../settings/index.ts";
-import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.ts";
+import { parseCommentableRightLineRanges } from "../../prWorkspace/reviewDiffIndex.ts";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;

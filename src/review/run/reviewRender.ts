@@ -37,7 +37,7 @@ import {
   type FindingId,
   type FindingRowMarker,
 } from "../findingIdentity/findingMarker.ts";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import type { CachedPrDiffIndex } from "../../prWorkspace/reviewDiffIndex.ts";
 import type { InventoryFinding } from "../findingIdentity/findingInventory.ts";
 import {
   findingSeverityLabel,

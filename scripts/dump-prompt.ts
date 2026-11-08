@@ -32,7 +32,7 @@ import {
 import type { Config } from "../src/settings/index.ts";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.ts";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
-import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
+import { createCachedPrDiffIndex } from "../src/prWorkspace/reviewDiffIndex.ts";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.ts";
 import {
   buildAskSystemPrompt,

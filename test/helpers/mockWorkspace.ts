@@ -1,5 +1,5 @@
 import { createWritableRepositoryReader } from "../../src/prWorkspace/repositoryReader.ts";
-import { createCachedPrDiffIndex } from "../../src/review/placement/reviewDiffIndex.ts";
+import { createCachedPrDiffIndex } from "../../src/prWorkspace/reviewDiffIndex.ts";
 import { type LocalPrWorkspace } from "../../src/prWorkspace/localPrWorkspace.ts";
 import { buildCheckoutCoverage } from "../../src/prWorkspace/repositoryReader.ts";
 

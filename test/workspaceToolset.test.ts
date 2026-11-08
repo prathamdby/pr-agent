@@ -28,7 +28,7 @@ import {
 } from "../src/agent/tools/readWorkspaceTextFile.ts";
 import { createAskPathGate } from "../src/agent/ask/askSafety.ts";
 import { formatCheckoutCoverageBlock } from "../src/prompts/orchestrator/context.ts";
-import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.ts";
+import { createCachedPrDiffIndex } from "../src/prWorkspace/reviewDiffIndex.ts";
 import {
   type LocalPrWorkspace,
   prepareLocalPrWorkspace,

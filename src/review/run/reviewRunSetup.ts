@@ -8,7 +8,10 @@ import {
   buildWorkspaceTools,
   type ReviewThreadSource,
 } from "../../agent/tools/workspaceToolset.ts";
-import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import {
+  createCachedPrDiffIndex,
+  type CachedPrDiffIndex,
+} from "../../prWorkspace/reviewDiffIndex.ts";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../prompts/shared/safety.ts";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.ts";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.ts";

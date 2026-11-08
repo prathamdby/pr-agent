@@ -15,10 +15,7 @@ import type {
   ListPullRequestFilesResult,
   PullRequestFileEntry,
 } from "../github/listPullRequestFiles.ts";
-import {
-  createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
-} from "../review/placement/reviewDiffIndex.ts";
+import { createCachedPrDiffIndex, ingestListPullRequestFilesResult } from "./reviewDiffIndex.ts";
 import {
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
   LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,

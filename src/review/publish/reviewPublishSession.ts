@@ -4,7 +4,7 @@ import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
 import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
 import type { Config, AnyReviewLens } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import type { CachedPrDiffIndex } from "../../prWorkspace/reviewDiffIndex.ts";
 import type { ReviewPublishContext } from "../reviewSchema.ts";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.ts";
 import type { ReviewRecovery } from "../recovery/reviewRecovery.ts";

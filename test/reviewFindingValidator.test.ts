@@ -3,7 +3,7 @@ import { validateReviewPayload } from "../src/review/findings/reviewFindingValid
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.ts";
+} from "../src/prWorkspace/reviewDiffIndex.ts";
 import { REVIEW_GATE_PROSE_FIELDS } from "../src/review/reviewSchema.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 

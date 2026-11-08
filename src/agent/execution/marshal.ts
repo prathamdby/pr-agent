@@ -9,7 +9,7 @@ import {
   recordDeliveredFileRead,
   type EvidenceLedger,
 } from "../../review/findings/evidenceLedger.ts";
-import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.ts";
+import { parseCommentableRightLineRanges } from "../../prWorkspace/reviewDiffIndex.ts";
 import { utf8ByteLength } from "./json.ts";
 import { isRecord } from "../../util/typeGuards.ts";
 
