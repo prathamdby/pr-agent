@@ -1,9 +1,8 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.ts";
-import type { ReplyTarget } from "../types.ts";
+import type { CodeAnchor, ReplyTarget } from "../types.ts";
 import { ASK_THROTTLED_BODY, ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.ts";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.ts";
 import { admitAsk, type AskQuotaConfig, type AskQuotaRejectionReason } from "../askQuota.ts";

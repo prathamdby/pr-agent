@@ -19,13 +19,13 @@ import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.ts";
 import {
   type AckJobData,
   type AckTarget,
+  type CodeAnchor,
   type JobCorrelation,
   type PrRef,
   type TriageMode,
   type WebhookHeaders,
   prResourceKey,
 } from "../types.ts";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.ts";
 import type { ReplyTarget } from "../types.ts";
 import {
