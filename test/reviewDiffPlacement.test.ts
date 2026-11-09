@@ -7,7 +7,7 @@ import { isLineResolutionPublishError } from "../src/github/reviewErrors.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.ts";
+} from "../src/prWorkspace/reviewDiffIndex.ts";
 import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.ts";
 
 describe("reviewDiffPlacement", () => {

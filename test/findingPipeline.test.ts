@@ -7,7 +7,7 @@ import { mintFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.ts";
+} from "../src/prWorkspace/reviewDiffIndex.ts";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
 import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import {

@@ -3,7 +3,7 @@ import { MAX_INLINE_REVIEW_COMMENTS, REVIEW_SEVERITY_RANK } from "../../settings
 import type { AnchorFailure } from "./reviewFindingValidator.ts";
 import { validateReviewPayload } from "./reviewFindingValidator.ts";
 import { redactReviewPayloadSecrets } from "./reviewPublicOutput.ts";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.ts";
+import type { CachedPrDiffIndex } from "../../prWorkspace/reviewDiffIndex.ts";
 import {
   applyInlineCommentCap,
   planInlinePlacements,

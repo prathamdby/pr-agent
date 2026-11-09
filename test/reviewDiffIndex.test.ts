@@ -4,7 +4,7 @@ import {
   resolveInlineAnchorLine,
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.ts";
+} from "../src/prWorkspace/reviewDiffIndex.ts";
 
 import { cachedDiffForFiles } from "./helpers/reviewPublishTestHelpers.ts";
 
