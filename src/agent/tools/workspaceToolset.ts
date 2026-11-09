@@ -1,6 +1,6 @@
 import { logDebug } from "../../evlog.ts";
+import { createPathPolicy } from "./pathPolicy.ts";
 import {
-  createPathPolicy,
   assertContainedWorkspacePath,
   type CheckoutCoverage,
   type GitGrepWorkspaceResult,
