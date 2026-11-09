@@ -6,7 +6,6 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/queueConstants.ts";
-import type { CodeAnchor } from "../agent/ask/askRunTypes.ts";
 import type { ReviewMode } from "../review/reviewSchema.ts";
 import type { WorkSource } from "../review/reviewSchema.ts";
 
@@ -162,6 +161,14 @@ export type ReviewWorkPayload = {
   readonly staleHeadReplacement?: StaleHeadReplacement;
   readonly pushFollowUp?: PushFollowUp;
   readonly cancelAttribution?: ReviewCancelAttribution;
+};
+
+export type CodeAnchor = {
+  path: string;
+  line: number;
+  startLine?: number;
+  side?: "LEFT" | "RIGHT";
+  diffHunk?: string;
 };
 
 export type AskWorkPayload = {

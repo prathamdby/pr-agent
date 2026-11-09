@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { AppError } from "../../errors/appError.ts";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
 import type { ReplyTarget } from "../types.ts";
 import type {
   AckTarget,
   AskWorkPayload,
+  CodeAnchor,
   DescriptionWorkPayload,
   ReviewWorkPayload,
   TriageMode,

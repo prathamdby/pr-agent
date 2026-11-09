@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { ReplyTarget } from "../../agentWork/types.ts";
+import type { CodeAnchor, ReplyTarget } from "../../agentWork/types.ts";
 import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type {
@@ -9,14 +9,6 @@ import type {
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
 import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.ts";
-
-export type CodeAnchor = {
-  path: string;
-  line: number;
-  startLine?: number;
-  side?: "LEFT" | "RIGHT";
-  diffHunk?: string;
-};
 
 export type AskCiState = {
   readonly rollup: string;

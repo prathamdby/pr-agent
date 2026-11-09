@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.ts";
+import type { CodeAnchor } from "../../agentWork/types.ts";
 import {
   githubPrNumberSchema,
   githubSafeIdSchema,
