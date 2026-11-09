@@ -1026,7 +1026,9 @@ export async function runOrchestratedPrReview(
   ): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
-    state.progressRevision = 7;
+    const progressRevision =
+      stopped.reason === "host_abort" ? nextProgressRevision(state.progressRevision) : 7;
+    state.progressRevision = progressRevision;
     if (stopped.reason === "cancelled") {
       await writeCancelledProgressComment({
         pool: coordination.pool,
@@ -1053,7 +1055,7 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
-      progressRevision: 7,
+      progressRevision,
       tickState: {
         kind: "terminal",
         reason: stopped.reason,

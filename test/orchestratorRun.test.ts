@@ -2351,6 +2351,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual([]);
     const terminal = testState.ticks.find((tick) => tick.kind === "terminal");
     expect(terminal?.reason).toBe("host_abort");
+    expect(terminal?.progressRevision).toBeLessThan(7);
     expect(terminal?.recon).toBe("running");
     const body = renderReviewProgressComment({
       mode: "review",
@@ -2427,6 +2428,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.failureNotices).toBe(0);
     const terminal = testState.ticks.find((tick) => tick.kind === "terminal");
     expect(terminal?.reason).toBe("host_abort");
+    expect(terminal?.progressRevision).toBeLessThan(7);
   });
 
   it("aborts and joins every specialist when the host signal fires during the pump wait", async () => {

@@ -912,7 +912,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     createSession,
   });
 
-  if (result.stopReason === "host_abort") {
+  if (result.stopReason === "host_abort" && !result.published) {
     throw new AppError({
       domain: "agent",
       kind: "session_aborted",
