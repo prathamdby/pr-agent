@@ -53,6 +53,7 @@ export type ReviewRunResult = {
   readonly publishAttempts: number;
   readonly publishStepCount: number;
   readonly publishSuperseded: boolean;
+  readonly stopReason?: "superseded" | "stale_head" | "host_abort" | "cancelled";
   readonly lastFailure?: ClassifiedFailure;
   readonly findingCheck?: FindingCheck;
   readonly coverage?: ReviewCoverage;

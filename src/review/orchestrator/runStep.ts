@@ -46,11 +46,6 @@ const STEPS = {
 
 const step = <K extends ReviewStepKind>(kind: K) => STEPS[kind];
 
-function afterBrief(facts: ReviewStepFacts): ReviewStep {
-  if (facts.hostAborted && facts.lifecycle === "running") return step("stop_on_host_abort");
-  return afterAbortCheck(facts);
-}
-
 function afterAbortCheck(facts: ReviewStepFacts): ReviewStep {
   return facts.lifecycle !== "stopped" ? step("dispatch_specialists") : finish(facts);
 }
@@ -74,21 +69,26 @@ function recoverOrSettle(facts: ReviewStepFacts): ReviewStep {
 }
 
 export function nextStep(last: ReviewStepKind | null, facts: ReviewStepFacts): ReviewStep {
+  if (facts.hostAborted && facts.lifecycle === "running" && last !== "stop_on_host_abort") {
+    return step("stop_on_host_abort");
+  }
   switch (last) {
     case null:
       return facts.hasSession ? step("recon") : briefOrAfter(facts);
     case "recon":
       return briefOrAfter(facts);
     case "repair_brief":
-      return afterBrief(facts);
+      return afterAbortCheck(facts);
     case "stop_on_host_abort":
       return afterAbortCheck(facts);
     case "dispatch_specialists":
       return finish(facts);
     case "synthesis":
+      if (facts.lifecycle !== "running") return finish(facts);
       return summaryLoopOpen(facts) ? step("repair_summary") : recoverOrSettle(facts);
     case "repair_summary":
     case "recover_summary":
+      if (facts.lifecycle !== "running") return finish(facts);
       return recoverOrSettle(facts);
     case "terminal_tick":
     case "finalize_deadline":
@@ -107,5 +107,5 @@ export function nextStep(last: ReviewStepKind | null, facts: ReviewStepFacts): R
 function briefOrAfter(facts: ReviewStepFacts): ReviewStep {
   return !facts.briefSubmitted && !facts.sessionRetired && facts.hasSession
     ? step("repair_brief")
-    : afterBrief(facts);
+    : afterAbortCheck(facts);
 }

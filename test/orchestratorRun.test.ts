@@ -2397,6 +2397,38 @@ describe("runOrchestratedPrReview", () => {
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
   });
 
+  it("stops judgment when the host aborts and the gate still continues", async () => {
+    const controller = new AbortController();
+    testState.sendDelay = { phase: "judgment", ms: 200 };
+    const run = runOrchestratedPrReview({
+      ...params(),
+      signal: controller.signal,
+      gate: { check: async () => ({ kind: "continue" }) },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    await vi.waitFor(() => expect(testState.outcomes.size).toBe(4));
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    for (const specialist of ["security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await vi.waitFor(() =>
+      expect(testState.sentPrompts.some((prompt) => prompt.includes("Judge the "))).toBe(true),
+    );
+    controller.abort();
+
+    await expect(run).resolves.toMatchObject({
+      published: false,
+      publishSuperseded: true,
+      stopReason: "host_abort",
+    });
+    expect(testState.publishOrder).not.toContain("summary");
+    expect(testState.deterministicSummaries).toHaveLength(0);
+    expect(testState.failureNotices).toBe(0);
+    const terminal = testState.ticks.find((tick) => tick.kind === "terminal");
+    expect(terminal?.reason).toBe("host_abort");
+  });
+
   it("aborts and joins every specialist when the host signal fires during the pump wait", async () => {
     const controller = new AbortController();
     let gateChecks = 0;
@@ -2782,10 +2814,22 @@ describe("nextStep", () => {
       "settle_summary",
     ],
     [
-      "settles when the run stopped during recovery",
+      "ticks terminally when recovery stops",
       "repair_summary",
       { lifecycle: "stopped" },
-      "settle_summary",
+      "terminal_tick",
+    ],
+    [
+      "stops a host abort that arrives after specialists start",
+      "dispatch_specialists",
+      { hostAborted: true },
+      "stop_on_host_abort",
+    ],
+    [
+      "ticks terminally when synthesis stops",
+      "synthesis",
+      { lifecycle: "stopped" },
+      "terminal_tick",
     ],
   ];
 

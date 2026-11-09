@@ -58,9 +58,11 @@ finding ledger for that specialist (posted or resumed **inline review threads**
 plus **summary-only findings**). "No findings" means zero acceptances or an
 explicit empty / `no_findings` report — never "zero inline threads" alone when
 summary-only acceptances exist. An unjudged report shows `Not judged` on that
-row. It does not show a findings count. A host abort after the brief stops the
-run before specialists start. The terminal progress note is `Stopped. The host
-aborted this run.` The final summary replaces the last tick in
+row. It does not show a findings count. A host abort stops the run wherever
+it is, including during judgment or synthesis, and does not publish the
+summary or close the check. The work item stays running for another worker.
+The terminal progress note is `Stopped. The host aborted this run.` The final
+summary replaces the last tick in
 place and must not contradict that ledger truth.
 
 Revisioned progress and summary upserts hold the existing resource/lens advisory

@@ -912,6 +912,15 @@ async function runFullReviewAgainstRepositoryView(args: {
     createSession,
   });
 
+  if (result.stopReason === "host_abort") {
+    throw new AppError({
+      domain: "agent",
+      kind: "session_aborted",
+      message: "Review stopped because the host aborted this run",
+      context: { workItemId: item.id },
+    });
+  }
+
   if (staleHeadAtPublish.value) {
     if (payload.staleHeadRescheduled) {
       throw staleHeadReplacementExhaustedError(item);
