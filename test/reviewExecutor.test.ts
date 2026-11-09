@@ -1089,6 +1089,39 @@ describe("review work definition", () => {
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
 
+  it("leaves a host-aborted review running instead of closing it as superseded", async () => {
+    mocks.runOrchestratedPrReview.mockResolvedValueOnce({
+      published: false,
+      publishAttempts: 1,
+      publishStepCount: 2,
+      publishSuperseded: true,
+      stopReason: "host_abort",
+    });
+
+    await expect(runExecution()).rejects.toMatchObject({
+      code: "agent.session_aborted",
+    });
+    expect(verdictMethods.close).not.toHaveBeenCalled();
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+  });
+
+  it("closes the check when the summary published before the host abort", async () => {
+    mocks.runOrchestratedPrReview.mockResolvedValueOnce({
+      published: true,
+      publishAttempts: 1,
+      publishStepCount: 3,
+      publishSuperseded: true,
+      stopReason: "host_abort",
+      findingCheck: { conclusion: "success", blockingCount: 0 },
+      coverage: { kind: "full" },
+    });
+
+    await expect(runExecution()).resolves.toBeUndefined();
+    expect(verdictMethods.close).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "published", conclusion: "success", blockingCount: 0 }),
+    );
+  });
+
   it("preserves superseded gate stops without checking the pull request head", async () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(

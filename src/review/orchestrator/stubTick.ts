@@ -40,7 +40,7 @@ export type TickProgressCommentArgs = TickProgressCommentBase &
         readonly tickState: SpecialistStatusTick;
       }
     | {
-        readonly progressRevision: 7;
+        readonly progressRevision: ProgressTickRevision | 7;
         readonly tickState: TerminalTick;
       }
   );

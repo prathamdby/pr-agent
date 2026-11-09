@@ -795,6 +795,14 @@ export async function runOrchestratedPrReview(
     return true;
   };
 
+  const stopForHostAbort = async (): Promise<void> => {
+    if (state.lifecycle.kind === "stopped" || state.lifecycle.kind === "finalizing") return;
+    if (await stopFromGateResult(await params.gate.check())) return;
+    state.lifecycle = { kind: "stopped", reason: "host_abort" };
+    abortSpecialists();
+    await retireSession();
+  };
+
   const sendWithRetry = async (
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
@@ -897,7 +905,7 @@ export async function runOrchestratedPrReview(
         if (send.kind === "aborted") {
           void sendPromise.catch(() => undefined);
           await session.abort().catch(() => undefined);
-          await stopFromGateResult(await params.gate.check());
+          await stopForHostAbort();
           return {
             kind: "failed",
             error: new AppError({
@@ -925,7 +933,7 @@ export async function runOrchestratedPrReview(
         });
         firstError ??= appError;
         if (isCancelAbortError(error) || params.signal?.aborted) {
-          await stopFromGateResult(await params.gate.check());
+          await stopForHostAbort();
           return { kind: "failed", error: appError };
         }
         if (isProviderRefusalError(appError)) {
@@ -1018,7 +1026,9 @@ export async function runOrchestratedPrReview(
   ): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
-    state.progressRevision = 7;
+    const progressRevision =
+      stopped.reason === "host_abort" ? nextProgressRevision(state.progressRevision) : 7;
+    state.progressRevision = progressRevision;
     if (stopped.reason === "cancelled") {
       await writeCancelledProgressComment({
         pool: coordination.pool,
@@ -1045,7 +1055,7 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
-      progressRevision: 7,
+      progressRevision,
       tickState: {
         kind: "terminal",
         reason: stopped.reason,
@@ -1235,12 +1245,7 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "stop_on_host_abort": {
-        const stopped = await stopFromGateResult(await params.gate.check());
-        if (!stopped) {
-          state.lifecycle = { kind: "stopped", reason: "host_abort" };
-          abortSpecialists();
-          await retireSession();
-        }
+        await stopForHostAbort();
         break;
       }
       case "dispatch_specialists": {
@@ -1533,6 +1538,7 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "settle_summary": {
+        if (state.lifecycle.kind === "stopped") break;
         if (publishThread.getStopReason() != null || summaryState.stoppedReason != null) {
           state.summary = { kind: "pending" };
         } else if (summaryState.published) {
@@ -1556,6 +1562,7 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "deterministic_summary": {
+        if (state.lifecycle.kind === "stopped") break;
         await publishDeterministicSummary();
         markCompleteUnlessStopped();
         break;
@@ -1647,6 +1654,7 @@ export async function runOrchestratedPrReview(
     publishAttempts,
     publishStepCount,
     publishSuperseded: state.lifecycle.kind === "stopped",
+    ...(state.lifecycle.kind === "stopped" ? { stopReason: state.lifecycle.reason } : {}),
     ...(lastFailure != null ? { lastFailure } : {}),
     ...(summaryState.published
       ? {
