@@ -1,8 +1,6 @@
 ---
 globs:
   - "src/prompts/**"
-  - "src/agent/*/*Prompt.ts"
-  - "src/agent/*/*UserMessage.ts"
   - "src/review/ci/ciAuthor.ts"
   - "src/settings/**"
 ---
