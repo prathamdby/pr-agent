@@ -14,6 +14,7 @@ const {
   listCheckRunsForRef,
   listLabelsOnIssue,
   createReview,
+  dismissReview,
   listReviews,
   installationOctokit,
 } = vi.hoisted(() => {
@@ -24,6 +25,7 @@ const {
   const listCheckRunsForRef = vi.fn();
   const listLabelsOnIssue = vi.fn();
   const createReview = vi.fn();
+  const dismissReview = vi.fn();
   const listReviews = vi.fn();
   const installationOctokit = vi.fn(() => ({
     paginate: async (
@@ -68,6 +70,7 @@ const {
       },
       pulls: {
         createReview,
+        dismissReview,
         listReviews,
       },
     },
@@ -80,6 +83,7 @@ const {
     listCheckRunsForRef,
     listLabelsOnIssue,
     createReview,
+    dismissReview,
     listReviews,
     installationOctokit,
   };
@@ -92,6 +96,7 @@ vi.mock("../src/github/appAuth.ts", () => ({
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
+  dismissPullRequestReview,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
   listPullRequestLabels,
@@ -262,6 +267,7 @@ describe("findPublishedThreadBatch", () => {
       body: marker,
       commitId: "sha-1",
       htmlUrl: `https://github.com/o/r/pull/1#pullrequestreview-${id}`,
+      state: "COMMENTED" as const,
     });
     controls.setPullRequestReviews([review(11, "human-reviewer"), review(12, "pr-agent[bot]")]);
 
@@ -269,6 +275,36 @@ describe("findPublishedThreadBatch", () => {
       reviewId: 12,
       reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-12",
     });
+  });
+});
+
+describe("dismissPullRequestReview", () => {
+  beforeEach(() => {
+    dismissReview.mockReset();
+    installationOctokit.mockClear();
+  });
+
+  it("forwards the review id and message", async () => {
+    dismissReview.mockResolvedValueOnce({ data: {} });
+    const expiresAtTs = 1_700_000_000_000;
+    await dismissPullRequestReview(
+      "tok",
+      "o",
+      "r",
+      1,
+      { reviewId: 44, message: "Superseded by a later review." },
+      expiresAtTs,
+    );
+    expect(installationOctokit).toHaveBeenCalledWith("tok", expiresAtTs);
+    expect(dismissReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        pull_number: 1,
+        review_id: 44,
+        message: "Superseded by a later review.",
+      }),
+    );
   });
 });
 

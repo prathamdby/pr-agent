@@ -4,6 +4,7 @@ import {
   classifyGithubError,
   githubRequestPath,
   isDuplicateCheckRunCreationError,
+  isSelfPullRequestReviewEventRejection,
   looksLikeGithubError,
 } from "../src/github/githubErrors.ts";
 
@@ -180,6 +181,46 @@ describe("looksLikeGithubError", () => {
           message: "GitHub API investigation: insufficient credits",
         }),
       ),
+    ).toBe(false);
+  });
+});
+
+describe("isSelfPullRequestReviewEventRejection", () => {
+  it("accepts GitHub 422s for approving or requesting changes on an author PR", () => {
+    expect(
+      isSelfPullRequestReviewEventRejection({
+        status: 422,
+        message: "Can not approve your own pull request",
+      }),
+    ).toBe(true);
+    expect(
+      isSelfPullRequestReviewEventRejection({
+        status: 422,
+        response: {
+          data: { message: "Can not request changes on your own pull request" },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects other 422s so empty-body and spam validation stay failures", () => {
+    expect(
+      isSelfPullRequestReviewEventRejection({
+        status: 422,
+        message: "Validation Failed",
+        response: {
+          data: {
+            message: "Validation Failed",
+            errors: [{ resource: "PullRequestReview", code: "missing_field", field: "body" }],
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isSelfPullRequestReviewEventRejection({
+        status: 403,
+        message: "Can not approve your own pull request",
+      }),
     ).toBe(false);
   });
 });

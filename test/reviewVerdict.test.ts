@@ -146,6 +146,7 @@ import * as closeRepository from "../src/agentWork/publishRecordRepository.ts";
 import {
   closeOutcomeForCoverage,
   closeReviewVerdictsForWorkItems,
+  githubReviewEventFromCloseOutcome,
   ownVerdictSurfaces,
   isOwnCheckOpen,
   ownVerdictFromSummaryDetail,
@@ -648,6 +649,68 @@ describe("review check run lifecycle", () => {
         ownCheckFailSeverity: "P0",
       }),
     ).toEqual({ kind: "published", conclusion: "failure", blockingCount: 2 });
+  });
+
+  it("maps the close outcome onto a GitHub review event without using findingCheck alone", () => {
+    expect(
+      githubReviewEventFromCloseOutcome({
+        kind: "published",
+        conclusion: "failure",
+        blockingCount: 1,
+      }),
+    ).toBe("REQUEST_CHANGES");
+    expect(
+      githubReviewEventFromCloseOutcome({
+        kind: "published",
+        conclusion: "success",
+        blockingCount: 0,
+      }),
+    ).toBe("APPROVE");
+    expect(
+      githubReviewEventFromCloseOutcome({
+        kind: "published",
+        conclusion: "neutral",
+        blockingCount: 0,
+      }),
+    ).toBe("COMMENT");
+    const unreadSuccess = closeOutcomeForCoverage(
+      { kind: "partial", paths: ["src/a.ts"], note: "Unread changed files: src/a.ts." },
+      { conclusion: "success", blockingCount: 0 },
+    );
+    expect(unreadSuccess).toEqual({
+      kind: "partial",
+      note: "Unread changed files: src/a.ts.",
+    });
+    expect(githubReviewEventFromCloseOutcome(unreadSuccess)).toBe("COMMENT");
+    const partialBlocker = closeOutcomeForCoverage(
+      {
+        kind: "partial",
+        failed: ["security"],
+        note: "Coverage partial: security specialist failed.",
+      },
+      { conclusion: "failure", blockingCount: 1 },
+    );
+    expect(partialBlocker).toEqual({
+      kind: "published",
+      conclusion: "failure",
+      blockingCount: 1,
+    });
+    expect(githubReviewEventFromCloseOutcome(partialBlocker)).toBe("REQUEST_CHANGES");
+    expect(githubReviewEventFromCloseOutcome({ kind: "cancelled" })).toBeUndefined();
+    expect(githubReviewEventFromCloseOutcome({ kind: "superseded" })).toBeUndefined();
+    expect(githubReviewEventFromCloseOutcome({ kind: "stale_head" })).toBeUndefined();
+    expect(githubReviewEventFromCloseOutcome({ kind: "crashed" })).toBeUndefined();
+    expect(githubReviewEventFromCloseOutcome({ kind: "not_published" })).toBeUndefined();
+  });
+
+  it("keeps unread success a comment even when findingCheck would succeed", () => {
+    const check = { conclusion: "success" as const, blockingCount: 0 };
+    expect(
+      githubReviewEventFromCloseOutcome(
+        closeOutcomeForCoverage({ kind: "partial", note: "Not judged: tests." }, check),
+      ),
+    ).toBe("COMMENT");
+    expect(githubReviewEventFromCloseOutcome({ kind: "published", ...check })).toBe("APPROVE");
   });
 
   it("creates and records an in-progress check run", async () => {

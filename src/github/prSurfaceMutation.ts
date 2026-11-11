@@ -95,6 +95,7 @@ function voidPrSurfaceMutationMethod(method: keyof PrSurfaceMutationMethods): bo
     case "setAcknowledgementReaction":
     case "editComment":
     case "setReviewCommitStatus":
+    case "dismissPullRequestReview":
     case "resolveInlineReviewThread":
     case "setLabels":
     case "finishReviewCheck":

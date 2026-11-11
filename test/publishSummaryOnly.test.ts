@@ -573,4 +573,273 @@ describe("publishReviewSummaryOnly", () => {
     ).rejects.toMatchObject({ code: "review.summary_coverage_none" });
     expect(upsertProgressComment).not.toHaveBeenCalled();
   });
+
+  it("submits an APPROVE review after a complete summary with no blockers", async () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    const { surface } = configuredSummarySurface();
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const dismissPullRequestReview = vi.spyOn(surface, "dismissPullRequestReview");
+    const result = await publishSummaryForTest({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [] }),
+      ledger: createFindingLedger(),
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "APPROVE",
+        commitId: "sha",
+      }),
+    );
+    const body = publishThreadBatch.mock.calls[0]?.[0]?.body ?? "";
+    expect(body).toContain("## PR Agent Review");
+    expect(dismissPullRequestReview).not.toHaveBeenCalled();
+  });
+
+  it("requests changes for a published failure and leaves prior verdicts standing", async () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    const { surface, controls } = configuredSummarySurface();
+    controls.setPullRequestReviews([
+      {
+        id: 21,
+        userId: 1,
+        authorLogin: "pr-agent[bot]",
+        body: "prior comment",
+        commitId: "old",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-21",
+        state: "APPROVED",
+      },
+    ]);
+    const item = finding(10);
+    const ledger = createFindingLedger({
+      accepted: [
+        {
+          kind: "summary_only",
+          source: "quality",
+          placement: { finding: item, inlineLine: 10, inlinePosted: false },
+          findingId: legacyFindingId("fp"),
+          reason: "budget",
+        },
+      ],
+    });
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const dismissPullRequestReview = vi.spyOn(surface, "dismissPullRequestReview");
+    const result = await publishSummaryForTest({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [item] }),
+      ledger,
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "REQUEST_CHANGES", commitId: "sha" }),
+    );
+    expect(dismissPullRequestReview).not.toHaveBeenCalled();
+  });
+
+  it("comments on a partial run and dismisses this app's standing verdicts", async () => {
+    const client = {
+      query: vi.fn(async () => ({ rows: [{ locked: true }] })),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const pool = {
+      options: { max: 4 },
+      connect: vi.fn(async () => client),
+    } as unknown as Pool;
+    const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    const { surface, controls } = configuredSummarySurface();
+    controls.setPullRequestReviews([
+      {
+        id: 11,
+        userId: 1,
+        authorLogin: "pr-agent[bot]",
+        body: "older request",
+        commitId: "old-1",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-11",
+        state: "CHANGES_REQUESTED",
+      },
+      {
+        id: 12,
+        userId: 1,
+        authorLogin: "pr-agent[bot]",
+        body: "latest request",
+        commitId: "old-2",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-12",
+        state: "CHANGES_REQUESTED",
+      },
+      {
+        id: 13,
+        userId: 1,
+        authorLogin: "pr-agent[bot]",
+        body: "prior approve",
+        commitId: "old-3",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-13",
+        state: "APPROVED",
+      },
+      {
+        id: 14,
+        userId: 2,
+        authorLogin: "human-reviewer",
+        body: "human request",
+        commitId: "old-4",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-14",
+        state: "CHANGES_REQUESTED",
+      },
+    ]);
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const dismissPullRequestReview = vi.spyOn(surface, "dismissPullRequestReview");
+    const result = await publishSummaryForTest({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [] }),
+      ledger: createFindingLedger(),
+      recordPublishStep,
+      coverage: {
+        kind: "partial",
+        failed: ["security"],
+        note: "Coverage partial: security specialist failed.",
+      },
+    });
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "COMMENT", commitId: "sha" }),
+    );
+    expect(dismissPullRequestReview.mock.calls.map((call) => call[0]?.reviewId).toSorted()).toEqual(
+      [11, 12, 13],
+    );
+    expect(dismissPullRequestReview).not.toHaveBeenCalledWith(
+      expect.objectContaining({ reviewId: 14 }),
+    );
+  });
+
+  it("falls back to COMMENT when GitHub rejects a self-authored APPROVE and then dismisses prior verdicts", async () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    const { surface, controls } = configuredSummarySurface();
+    controls.setPullRequestReviews([
+      {
+        id: 31,
+        userId: 1,
+        authorLogin: "pr-agent[bot]",
+        body: "standing approve",
+        commitId: "old",
+        htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-31",
+        state: "APPROVED",
+      },
+    ]);
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    publishThreadBatch.mockRejectedValueOnce(
+      Object.assign(new Error("Can not approve your own pull request"), { status: 422 }),
+    );
+    const dismissPullRequestReview = vi.spyOn(surface, "dismissPullRequestReview");
+    const result = await publishSummaryForTest({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [] }),
+      ledger: createFindingLedger(),
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ event: "APPROVE" }),
+    );
+    expect(publishThreadBatch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ event: "COMMENT", commitId: "sha" }),
+    );
+    expect(dismissPullRequestReview).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewId: 31 }),
+    );
+  });
+
+  it("keeps the published summary when the terminal review fails", async () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    const { surface } = configuredSummarySurface();
+    vi.spyOn(surface, "publishThreadBatch").mockRejectedValue(new Error("GitHub unavailable"));
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      return { ...verdict, close };
+    });
+    const result = await publishSummaryForTest({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: false, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      prSurface: surface,
+      payload: makeReviewPayload({ findings: [] }),
+      ledger: createFindingLedger(),
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    expect(result).toEqual({
+      kind: "published",
+      summaryCommentId: 2,
+      check: { conclusion: "success", blockingCount: 0 },
+    });
+    expect(close).toHaveBeenCalledWith({
+      kind: "published",
+      conclusion: "success",
+      blockingCount: 0,
+    });
+  });
 });

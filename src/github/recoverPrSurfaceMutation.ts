@@ -15,6 +15,7 @@ const PR_SURFACE_WIRE_NAMES = {
   editComment: "editComment",
   setReviewCommitStatus: "setReviewCommitStatus",
   publishThreadBatch: "publishThreadBatch",
+  dismissPullRequestReview: "dismissPullRequestReview",
   resolveInlineReviewThread: "resolveInlineReviewThread",
   setLabels: "setLabels",
   startReviewCheck: "startReviewCheck",
@@ -130,6 +131,11 @@ export function extractPrSurfaceRecoverDetail(
     case "resolveInlineReviewThread": {
       const threadId = typeof args[0] === "string" ? args[0] : undefined;
       return threadId != null ? { threadId } : {};
+    }
+    case "dismissPullRequestReview": {
+      const params = args[0];
+      if (!isRecord(params) || typeof params.reviewId !== "number") return {};
+      return { reviewId: params.reviewId };
     }
     case "setAcknowledgementReaction":
     case "setReviewCommitStatus":
@@ -294,6 +300,19 @@ export async function recoverPrSurfaceMutation(
         (thread) => thread.threadNodeId === threadId && thread.isResolved,
       );
       recovery = resolved ? { kind: "reconciled", value: undefined } : { kind: "absent" };
+      break;
+    }
+    case "dismissPullRequestReview": {
+      const reviewId = detailNumber(intent.detail, "reviewId");
+      if (reviewId == null) {
+        recovery = { kind: "absent" };
+        break;
+      }
+      const reviews = await surface.listPullRequestReviews();
+      const dismissed = reviews.some(
+        (review) => review.id === reviewId && review.state === "DISMISSED",
+      );
+      recovery = dismissed ? { kind: "reconciled", value: undefined } : { kind: "absent" };
       break;
     }
     case "setAcknowledgementReaction":

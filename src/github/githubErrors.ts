@@ -146,6 +146,18 @@ export function githubErrorMessage(error: unknown): string {
   return String(error);
 }
 
+export function isSelfPullRequestReviewEventRejection(error: unknown): boolean {
+  if (httpStatus(error) !== 422) return false;
+  const response = isRecord(error) && isRecord(error.response) ? error.response : undefined;
+  const data = response != null && isRecord(response.data) ? response.data : undefined;
+  const responseMessage = typeof data?.message === "string" ? data.message : "";
+  const text = `${githubErrorMessage(error)} ${responseMessage}`.toLowerCase();
+  return (
+    text.includes("can not approve your own pull request") ||
+    text.includes("can not request changes on your own pull request")
+  );
+}
+
 function githubErrorText(error: unknown): string {
   if (error instanceof Error) return `${error.name} ${error.message}`.toLowerCase();
   return githubErrorMessage(error).toLowerCase();

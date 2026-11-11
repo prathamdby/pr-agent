@@ -135,7 +135,15 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
     path: string,
   ) {
     controls.setPullRequestReviews([
-      { id: 100, userId: 99, authorLogin: null, body: pointerBody, commitId: null, htmlUrl: "" },
+      {
+        id: 100,
+        userId: 99,
+        authorLogin: null,
+        body: pointerBody,
+        commitId: null,
+        htmlUrl: "",
+        state: "COMMENTED",
+      },
     ]);
     const base = {
       pullRequestReviewId: null,

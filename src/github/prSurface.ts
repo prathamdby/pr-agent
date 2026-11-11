@@ -19,6 +19,7 @@ export type {
   PrConversationComment,
   PrReview,
   PrReviewComment,
+  PrReviewState,
   ProgressCommentUpsert,
   PrSurface,
   PrSurfaceMutation,

@@ -5,6 +5,7 @@ import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.ts";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.ts";
 import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.ts";
+import { tryPublishCloseOutcomeReview } from "../review/publish/publishCloseOutcomeReview.ts";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.ts";
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.ts";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.ts";
@@ -182,5 +183,16 @@ export async function tryLightweightAutoReviewCompletion(
     },
     leaseEpoch: params.leaseEpoch,
   }).record();
+  await tryPublishCloseOutcomeReview({
+    prSurface: params.prSurface,
+    outcome: { kind: "published", ...check },
+    headSha: params.item.headSha,
+    workItemId: params.item.id,
+    pool,
+    leaseEpoch: params.leaseEpoch,
+    owner: params.item.owner,
+    repo: params.item.repo,
+    prNumber: params.item.prNumber,
+  });
   return { handled: true, published: true, summaryId: summary.id, check };
 }

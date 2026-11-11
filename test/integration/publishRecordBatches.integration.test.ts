@@ -296,7 +296,7 @@ raw.surface.publishThreadBatch = async (review) => {
   effects.inlineCalls += 1;
   const id = 700 + effects.inlineCalls;
   effects.batches.push({ id, userId: 1, authorLogin: "pr-agent[bot]", body: review.body,
-    commitId: review.commitId, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#pullrequestreview-" + id });
+    commitId: review.commitId, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#pullrequestreview-" + id, state: "COMMENTED" });
   for (const [index, comment] of (review.comments ?? []).entries()) effects.comments.push({
     id: id * 10 + index, inReplyToId: null, pullRequestReviewId: id, userId: 1,
     authorLogin: "pr-agent[bot]", body: comment.body, path: comment.path, line: comment.line,

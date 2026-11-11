@@ -178,6 +178,10 @@ export function reviewLabelsOperationKey(resourceKey: string): string {
   return `review:labels:${resourceKey}`;
 }
 
+export function reviewVerdictReviewOperationKey(workItemId: string): string {
+  return `review:verdict_review:${workItemId}`;
+}
+
 export function operationIntentMarker(operationKey: string, operationInstance: string): string {
   return `<!-- pr-agent:operation-intent ${crypto
     .createHash("sha256")

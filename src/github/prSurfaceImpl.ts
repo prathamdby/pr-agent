@@ -15,6 +15,7 @@ import { httpStatus } from "./httpStatus.ts";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
+  dismissPullRequestReview as dismissGithubPullRequestReview,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
   listPullRequestLabels,
@@ -53,6 +54,7 @@ import type {
   ReviewCheckOutcome,
   ThreadBatchReview,
 } from "./prSurfaceTypes.ts";
+import { prReviewState } from "./prSurfaceHelpers.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import { AppError } from "../errors/appError.ts";
 import {
@@ -193,6 +195,7 @@ async function listPullRequestReviewsForPr(
     body: review.body ?? null,
     commitId: review.commit_id ?? null,
     htmlUrl: review.html_url,
+    state: prReviewState(review.state),
   }));
 }
 
@@ -636,6 +639,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return { reviewId: result.id, reviewUrl: result.url };
     },
 
+    async dismissPullRequestReview(review) {
+      const { token, expiresAtTs } = await ensureAuth();
+      await dismissGithubPullRequestReview(token, owner, repo, prNumber, review, expiresAtTs);
+    },
+
     async listInlineReviewThreads() {
       const { token, expiresAtTs } = await ensureAuth();
       return listReviewThreadResolution(token, owner, repo, prNumber, expiresAtTs);
@@ -883,6 +891,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     listPullRequestReviews: guard("pullRequestsRead", surface.listPullRequestReviews.bind(surface)),
     setReviewCommitStatus: guard("statusesWrite", surface.setReviewCommitStatus.bind(surface)),
     publishThreadBatch: guard("reviewWrite", surface.publishThreadBatch.bind(surface)),
+    dismissPullRequestReview: guard("reviewWrite", surface.dismissPullRequestReview.bind(surface)),
     listInlineReviewThreads: guard(
       "pullRequestsRead",
       surface.listInlineReviewThreads.bind(surface),

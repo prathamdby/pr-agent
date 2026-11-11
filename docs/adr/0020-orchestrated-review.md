@@ -4,7 +4,10 @@
 
 Accepted. Amended by [ADR 0054](0054-finding-identity-on-github.md): judgment
 observations carry a `relation` to inventory finding IDs, and judgment also
-accepts `declare_duplicate`.
+accepts `declare_duplicate`. Amended by
+[ADR 0062](0062-github-review-verdict-event.md): incremental thread batches
+stay `COMMENT`; after the summary, one extra GitHub review uses the close
+outcome, and a terminal `COMMENT` dismisses this app's standing verdicts.
 
 This ADR replaces separate security, quality, and tests lens work items and
 sentinels. It amends [ADR 0003](0003-structured-review-output.md),
@@ -47,8 +50,10 @@ evidence, and a bounded fix direction. A compound candidate is split into
 atomic findings; each qualifier is published and the bundle is not. Specialist
 reports remain evidence, never authority. A judgment turn may publish a
 thread batch through one GitHub `COMMENT` review. A run can publish multiple
-GitHub reviews, one per accepted batch, up to `MAX_THREAD_PUBLISH_CALLS`. The
-final summary is published only after all specialists resolve or the run
+GitHub reviews, one per accepted batch, up to `MAX_THREAD_PUBLISH_CALLS`.
+Those incremental reviews stay `COMMENT`. After the summary, one extra GitHub
+review uses the already-computed close outcome ([ADR 0062](0062-github-review-verdict-event.md)).
+The final summary is published only after all specialists resolve or the run
 enters its deterministic degradation path.
 
 The single review progress comment is edited with a specialist tick after each
@@ -161,8 +166,9 @@ run uses the general mode.
   acknowledge the caller without enqueueing another run.
 - A run can create multiple GitHub reviews because each thread batch is an
   independent `COMMENT` event. This increases notification volume to roughly
-  five author notifications in the common four-specialist case. The product
-  accepts that cost for incremental feedback.
+  five author notifications in the common four-specialist case, plus one
+  terminal review after the summary. The product accepts that cost for
+  incremental feedback and a Files-changed verdict.
 - The Checks name is `PR Agent Review`. Branch protection rules must remove the
   three old per-lens check names.
 - `ReviewPayload` and its validation survive as the summary tool contract,
