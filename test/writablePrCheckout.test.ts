@@ -43,6 +43,7 @@ import {
   gitPersonFromGithubUser,
   githubNoreplyEmail,
 } from "../src/agent/triage/commitAttribution.ts";
+import { spillTextToSessionFile } from "../src/agent/tools/readWorkspaceTextFile.ts";
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.ts";
 
 const execFile = promisify(execFileCb);
@@ -577,6 +578,30 @@ describe("writable PR checkout", () => {
       await expect(stat(staleDir)).rejects.toThrow();
     } finally {
       await rm(staleDir, { recursive: true, force: true });
+    }
+  });
+
+  it("deletes stale read-spill files and keeps fresh ones", async () => {
+    const stale = await spillTextToSessionFile("stale-spill-body\n", {
+      workItemId: "stale-item",
+      toolCall: "read",
+    });
+    const fresh = await spillTextToSessionFile("fresh-spill-body\n", {
+      workItemId: "fresh-item",
+      toolCall: "read",
+    });
+    try {
+      const old = new Date(Date.now() - 10_000);
+      await utimes(stale.spillPath, old, old);
+      expect((await stat(fresh.spillPath)).mode & 0o777).toBe(0o600);
+
+      await cleanupStaleLocalPrWorkspaces({ staleAgeSeconds: 1 });
+
+      await expect(stat(stale.spillPath)).rejects.toThrow();
+      expect(await readFile(fresh.spillPath, "utf8")).toBe("fresh-spill-body\n");
+    } finally {
+      await rm(stale.spillPath, { force: true });
+      await rm(fresh.spillPath, { force: true });
     }
   });
 

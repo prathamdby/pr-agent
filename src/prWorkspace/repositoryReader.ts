@@ -426,9 +426,38 @@ function workspaceGitFailureMessage(
     : `git ${operation} failed with ${status} (${failureKind})`;
 }
 
+const WORKSPACE_GIT_INHERITED_ENV = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "USER",
+  "LOGNAME",
+  "LANG",
+  "SYSTEMROOT",
+  "GIT_EXEC_PATH",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "CURL_CA_BUNDLE",
+  "GIT_SSL_CAINFO",
+  "GIT_SSL_CAPATH",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+] as const;
+
 function workspaceGitEnv(opts: WorkspaceGitOptions): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of WORKSPACE_GIT_INHERITED_ENV) {
+    const value = process.env[name];
+    if (value !== undefined) env[name] = value;
+  }
   return {
-    ...process.env,
+    ...env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_LFS_SKIP_SMUDGE: "1",

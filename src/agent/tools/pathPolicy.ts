@@ -43,10 +43,7 @@ export function createPathPolicy(
   return {
     allows,
     assertDiff,
-    resolveRead: async (path) =>
-      profile.kind === "investigation"
-        ? assertWorkspacePath(root, assertDiff(path))
-        : assertContainedWorkspacePath(root, assertDiff(path)),
+    resolveRead: async (path) => assertContainedWorkspacePath(root, assertDiff(path)),
     allowsSearch: (path) =>
       profile.kind === "investigation"
         ? Promise.resolve(allows(path))
