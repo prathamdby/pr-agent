@@ -395,4 +395,55 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
     expect(summaryWrite).toHaveBeenCalledWith(expect.objectContaining({ hintCommentId: 55 }));
   });
+
+  it("submits an APPROVE review after a published docs-only summary", async () => {
+    const { surface } = fakeSurface();
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const result = await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem(),
+      reviewLens: "review",
+      prSurface: surface,
+      model: "grok-4.5",
+      leaseEpoch: null,
+      checkFailSeverity: "P2",
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+    expect(result).toMatchObject({ handled: true, published: true });
+    expect(publishThreadBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "APPROVE", commitId: "sha" }),
+    );
+  });
+
+  it("comments after a lightweight summary when the inventory is incomplete", async () => {
+    const { surface, controls } = fakeSurface();
+    controls.setThreadResolutionStatus("partial", "thread pagination failed");
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const result = await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem(),
+      reviewLens: "review",
+      prSurface: surface,
+      model: "grok-4.5",
+      leaseEpoch: null,
+      checkFailSeverity: "P2",
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+    expect(result).toMatchObject({
+      handled: true,
+      published: true,
+      check: { conclusion: "neutral", blockingCount: 0 },
+    });
+    expect(publishThreadBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "COMMENT", commitId: "sha" }),
+    );
+  });
 });

@@ -152,6 +152,27 @@ export async function createPullRequestReviewWithComments(
   return { id: data.id, url: data.html_url };
 }
 
+export async function dismissPullRequestReview(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  params: {
+    readonly reviewId: number;
+    readonly message: string;
+  },
+  expiresAtTs?: number,
+): Promise<void> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  await octokit.rest.pulls.dismissReview({
+    owner,
+    repo,
+    pull_number: pullNumber,
+    review_id: params.reviewId,
+    message: params.message,
+  });
+}
+
 export type IssueCommentRef = { id: number; url: string };
 export type ResolvedSummaryCommentRef = IssueCommentRef & {
   source: "hint" | "scan";

@@ -69,6 +69,7 @@ export function seedBotFindingThreads(
       body: renderReviewPointerLensMarker(thread.lens),
       commitId: null,
       htmlUrl: "",
+      state: "COMMENTED",
     })),
   );
   let nextReplyId = 100_000;

@@ -293,10 +293,12 @@ raw.surface.upsertProgressComment = async (...args) => {
   return result;
 };
 raw.surface.publishThreadBatch = async (review) => {
-  effects.inlineCalls += 1;
-  const id = 700 + effects.inlineCalls;
+  const incremental = (review.comments ?? []).length > 0;
+  if (incremental) effects.inlineCalls += 1;
+  const id = 700 + effects.batches.length + 1;
+  const state = review.event === "APPROVE" ? "APPROVED" : review.event === "REQUEST_CHANGES" ? "CHANGES_REQUESTED" : "COMMENTED";
   effects.batches.push({ id, userId: 1, authorLogin: "pr-agent[bot]", body: review.body,
-    commitId: review.commitId, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#pullrequestreview-" + id });
+    commitId: review.commitId, htmlUrl: "https://github.com/" + item.owner + "/" + item.repo + "/pull/1#pullrequestreview-" + id, state });
   for (const [index, comment] of (review.comments ?? []).entries()) effects.comments.push({
     id: id * 10 + index, inReplyToId: null, pullRequestReviewId: id, userId: 1,
     authorLogin: "pr-agent[bot]", body: comment.body, path: comment.path, line: comment.line,
@@ -305,7 +307,7 @@ raw.surface.publishThreadBatch = async (review) => {
   await persistEffects();
   raw.controls.setPullRequestReviews(effects.batches);
   raw.controls.setReviewComments(effects.comments);
-  if (stage === "crash") {
+  if (stage === "crash" && incremental) {
     process.send?.({ kind: "boundary", pid: process.pid, leaseEpoch: lease.leaseEpoch, sourceEntry });
     await new Promise(() => {});
   }

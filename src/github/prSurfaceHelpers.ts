@@ -1,4 +1,40 @@
-import type { PrConversationComment, PrSurface, PublishedBatch } from "./prSurfaceTypes.ts";
+import type {
+  PrConversationComment,
+  PrReviewState,
+  PrSurface,
+  PublishedBatch,
+  ThreadBatchReview,
+} from "./prSurfaceTypes.ts";
+
+export function prReviewState(value: unknown): PrReviewState {
+  switch (value) {
+    case "APPROVED":
+    case "CHANGES_REQUESTED":
+    case "COMMENTED":
+    case "DISMISSED":
+    case "PENDING":
+      return value;
+    default:
+      return "COMMENTED";
+  }
+}
+
+export function prReviewStateFromEvent(
+  event: ThreadBatchReview["event"],
+): Exclude<PrReviewState, "DISMISSED" | "PENDING"> {
+  switch (event) {
+    case "APPROVE":
+      return "APPROVED";
+    case "REQUEST_CHANGES":
+      return "CHANGES_REQUESTED";
+    case "COMMENT":
+      return "COMMENTED";
+    default: {
+      const _exhaustive: never = event;
+      return _exhaustive;
+    }
+  }
+}
 
 export function findCommentIdByMarker<T extends PrConversationComment>(
   comments: readonly T[],

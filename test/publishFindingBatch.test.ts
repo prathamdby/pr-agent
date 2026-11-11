@@ -1575,6 +1575,7 @@ describe("publishFindingBatch", () => {
               body: lostReview.body,
               commitId: lostReview.commitId ?? null,
               htmlUrl: remoteReview.reviewUrl,
+              state: "COMMENTED",
             },
           ];
     });
@@ -1658,6 +1659,7 @@ describe("publishFindingBatch", () => {
               body: lostReview.body,
               commitId: lostReview.commitId ?? null,
               htmlUrl: "https://github.com/o/r/pull/1#pullrequestreview-78",
+              state: "COMMENTED",
             },
           ],
     );

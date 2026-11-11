@@ -957,6 +957,40 @@ export function summaryCommentVerdictMeta(params: {
   };
 }
 
+export type GithubReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+
+export function githubReviewEventFromCloseOutcome(
+  outcome: OwnVerdictOutcome,
+): GithubReviewEvent | undefined {
+  switch (outcome.kind) {
+    case "published":
+      switch (outcome.conclusion) {
+        case "failure":
+          return "REQUEST_CHANGES";
+        case "success":
+          return "APPROVE";
+        case "neutral":
+          return "COMMENT";
+        default: {
+          const _exhaustive: never = outcome.conclusion;
+          return _exhaustive;
+        }
+      }
+    case "partial":
+      return "COMMENT";
+    case "cancelled":
+    case "superseded":
+    case "stale_head":
+    case "crashed":
+    case "not_published":
+      return undefined;
+    default: {
+      const _exhaustive: never = outcome;
+      return _exhaustive;
+    }
+  }
+}
+
 export function closeOutcomeForCoverage(
   coverage: ReviewCoverage | undefined,
   check: FindingCheck | undefined,

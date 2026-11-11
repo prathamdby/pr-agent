@@ -22,6 +22,11 @@ export function decodeCheckRef(value: unknown) {
   return value;
 }
 
+export function decodePublishedBatch(value: unknown) {
+  v.assert(publishedBatchSchema, value);
+  return value;
+}
+
 export function decodeVoidResult(value: unknown): void {
   v.assert(v.void(), value);
 }
@@ -38,8 +43,7 @@ export function decodePrSurfaceMutationResult(
     case "startReviewCheck":
       return decodeCheckRef(value);
     case "publishThreadBatch":
-      v.assert(publishedBatchSchema, value);
-      return value;
+      return decodePublishedBatch(value);
     case "updatePullRequest":
       v.assert(pullRequestUpdateSchema, value);
       return value;
@@ -49,6 +53,7 @@ export function decodePrSurfaceMutationResult(
     case "setAcknowledgementReaction":
     case "editComment":
     case "setReviewCommitStatus":
+    case "dismissPullRequestReview":
     case "resolveInlineReviewThread":
     case "setLabels":
     case "finishReviewCheck":

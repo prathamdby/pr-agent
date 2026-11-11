@@ -173,8 +173,35 @@ describe("PrSurface seam", () => {
     ).rejects.toMatchObject({
       code: "github.essential_access_denied",
     });
+    await expect(
+      surface.dismissPullRequestReview({ reviewId: 9, message: "Superseded by a later review." }),
+    ).rejects.toMatchObject({
+      code: "github.essential_access_denied",
+    });
     expect(createReview).not.toHaveBeenCalled();
     expect(pullsGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps published review events onto list-review states", async () => {
+    const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    await surface.publishThreadBatch({ body: "approve", event: "APPROVE", commitId: "sha" });
+    await surface.publishThreadBatch({
+      body: "request",
+      event: "REQUEST_CHANGES",
+      commitId: "sha",
+    });
+    await surface.publishThreadBatch({ body: "comment", event: "COMMENT", commitId: "sha" });
+    const listed = await surface.listPullRequestReviews();
+    expect(listed.map((review) => review.state)).toEqual([
+      "APPROVED",
+      "CHANGES_REQUESTED",
+      "COMMENTED",
+    ]);
+    await surface.dismissPullRequestReview({
+      reviewId: listed[0]?.id ?? 0,
+      message: "Superseded by a later review.",
+    });
+    expect((await surface.listPullRequestReviews())[0]?.state).toBe("DISMISSED");
   });
 
   it("persists Actions denial exposed by the read helper without denying other operations", async () => {

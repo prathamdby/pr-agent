@@ -46,6 +46,12 @@ function reconciledAs(finding: ReviewFinding, outcome: ReconcileOutcome) {
     outcomes: new Map([[reconciledFindingKey(finding), outcome]]),
   };
 }
+
+function incrementalThreadBatches(harness: PublishReviewTestHarness) {
+  return harness.publishThreadBatch.mock.calls.filter(
+    (call) => (call[0]?.comments?.length ?? 0) > 0,
+  );
+}
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
@@ -101,7 +107,7 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(harness.upsertProgressComment.mock.calls[0]?.[0]).toContain("Summary only");
     expect(publishState.threadCallCount).toBe(9);
@@ -123,7 +129,7 @@ describe("publishReview core", () => {
       recordPublishStep,
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(recordPublishStep).not.toHaveBeenCalledWith("inline_review", expect.anything());
   });
 
@@ -187,7 +193,7 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.stringContaining(sentinel),
       sentinel,
@@ -218,7 +224,7 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
@@ -297,7 +303,7 @@ describe("publishReview core", () => {
       ],
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.listReviewComments).toHaveBeenCalledTimes(1);
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
     const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0] ?? "";
@@ -371,7 +377,7 @@ describe("publishReview core", () => {
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),
     ).rejects.toThrow(/progress comment/i);
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
   });
 
   it("does not create a zero-comment review when a repeated run has no findings", async () => {
@@ -390,7 +396,10 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.body).toContain(
+      "recorded this run's review event",
+    );
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
@@ -422,7 +431,7 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.upsertProgressComment).toHaveBeenCalled();
   });
 
@@ -430,7 +439,7 @@ describe("publishReview core", () => {
     const publishState = testPublishState();
     await publishReviewForTest({ ...baseParams, publishState });
 
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(incrementalThreadBatches(harness)).toHaveLength(0);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.stringContaining("Summary only"),
       REVIEW_SUMMARY_SENTINEL,

@@ -43,6 +43,20 @@ export type ListReviewCommentsResult = {
   readonly comments: readonly PrReviewComment[];
   readonly truncated: boolean;
 };
+export type PrReviewState =
+  | "APPROVED"
+  | "CHANGES_REQUESTED"
+  | "COMMENTED"
+  | "DISMISSED"
+  | "PENDING";
+
+export type ThreadBatchReview = {
+  readonly body: string;
+  readonly event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  readonly comments?: readonly InlineReviewComment[];
+  readonly commitId?: string;
+};
+
 export type PrReview = {
   readonly id: number;
   readonly userId: number | null;
@@ -50,17 +64,13 @@ export type PrReview = {
   readonly body: string | null;
   readonly commitId: string | null;
   readonly htmlUrl: string;
+  readonly state: PrReviewState;
 };
+
 export type ReviewCommitStatusParams = {
   readonly state: "success" | "failure" | "error" | "pending";
   readonly description: string;
   readonly targetUrl?: string;
-};
-export type ThreadBatchReview = {
-  readonly body: string;
-  readonly event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
-  readonly comments?: readonly InlineReviewComment[];
-  readonly commitId?: string;
 };
 export type PublishedBatch = { readonly reviewId: number; readonly reviewUrl: string };
 export type CheckRef = { readonly id: number; readonly url: string | null };
@@ -149,6 +159,10 @@ export type PrSurfaceMutationMethods = {
   editComment(commentId: number, body: string): Promise<void>;
   setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams): Promise<void>;
   publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;
+  dismissPullRequestReview(params: {
+    readonly reviewId: number;
+    readonly message: string;
+  }): Promise<void>;
   resolveInlineReviewThread(threadId: string): Promise<void>;
   setLabels(labels: readonly string[]): Promise<void>;
   startReviewCheck(headSha: string, externalId: string, summary?: string): Promise<CheckRef>;

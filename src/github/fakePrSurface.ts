@@ -18,12 +18,14 @@ import type {
   PrConversationComment,
   PrReview,
   PrReviewComment,
+  PrReviewState,
   PrSurface,
   PrSurfaceMutationBoundary,
   PullRequestUpdate,
   PushedCommitSummary,
   ThreadBatchReview,
 } from "./prSurfaceTypes.ts";
+import { prReviewStateFromEvent } from "./prSurfaceHelpers.ts";
 import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.ts";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.ts";
 import type { ReviewCheckRunConclusion } from "./reviewPublish.ts";
@@ -62,6 +64,11 @@ export type FakePrSurfaceEvent =
     }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
   | { readonly kind: "publishThreadBatch"; readonly review: ThreadBatchReview }
+  | {
+      readonly kind: "dismissPullRequestReview";
+      readonly reviewId: number;
+      readonly message: string;
+    }
   | { readonly kind: "listInlineReviewThreads" }
   | { readonly kind: "getReviewThread"; readonly threadNodeId: string }
   | { readonly kind: "resolveInlineReviewThread"; readonly threadId: string }
@@ -213,6 +220,7 @@ export function createFakePrSurface(
     readonly url: string;
     readonly review: ThreadBatchReview;
     readonly authorLogin: string;
+    state: PrReviewState;
   }> = [];
 
   let headSha = options?.headSha ?? "fake-head-sha";
@@ -596,6 +604,7 @@ export function createFakePrSurface(
           body: batch.review.body,
           commitId: batch.review.commitId ?? null,
           htmlUrl: batch.url,
+          state: batch.state,
         })),
       ];
     },
@@ -643,11 +652,26 @@ export function createFakePrSurface(
         url: reviewUrl,
         review,
         authorLogin: "pr-agent[bot]",
+        state: prReviewStateFromEvent(review.event),
       });
       return {
         reviewId,
         reviewUrl,
       };
+    },
+
+    async dismissPullRequestReview(review) {
+      events.push({
+        kind: "dismissPullRequestReview",
+        reviewId: review.reviewId,
+        message: review.message,
+      });
+      seededReviews = seededReviews.map((seeded) =>
+        seeded.id === review.reviewId ? { ...seeded, state: "DISMISSED" } : seeded,
+      );
+      for (const batch of publishedThreadBatches) {
+        if (batch.id === review.reviewId) batch.state = "DISMISSED";
+      }
     },
 
     async listInlineReviewThreads() {

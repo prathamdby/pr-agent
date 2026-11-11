@@ -19,6 +19,7 @@ import type { PrReviewComment } from "../../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
 import { publicationAttemptRejected } from "../../github/reviewErrors.ts";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
+import { tryPublishCloseOutcomeReview } from "./publishCloseOutcomeReview.ts";
 import {
   carriedReaffirmedFindings,
   createFindingLedger,
@@ -394,6 +395,8 @@ export async function publishReviewSummaryOnly(
     updated: summary.updated,
   });
 
+  const settledOutcome =
+    closeOutcome.kind === "not_published" ? { kind: "published" as const, ...check } : closeOutcome;
   if (session.verdict != null) {
     await reviewVerdict({
       pool: session.verdict.pool,
@@ -408,10 +411,19 @@ export async function publishReviewSummaryOnly(
       leaseEpoch: session.verdict.leaseEpoch,
       commitStatusEnabled: session.cfg.features.commitStatus,
       summaryCommentId: summary.id,
-    }).close(
-      closeOutcome.kind === "not_published" ? { kind: "published", ...check } : closeOutcome,
-    );
+    }).close(settledOutcome);
   }
+  await tryPublishCloseOutcomeReview({
+    prSurface: session.prSurface,
+    outcome: settledOutcome,
+    headSha,
+    workItemId: session.verdict?.workItemId ?? session.workItemId,
+    pool: session.verdict?.pool ?? session.pool,
+    leaseEpoch: session.verdict?.leaseEpoch,
+    owner,
+    repo,
+    prNumber,
+  });
 
   if (!labelsAvailable) return finishPublished(summary.id);
   if (currentLabels instanceof Error) {
