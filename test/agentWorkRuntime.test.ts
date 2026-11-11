@@ -190,9 +190,13 @@ describe("agent work runtime teardown", () => {
         resolve();
       };
     });
+    let resumeAnalytics: () => void = () => undefined;
     runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
       runtimeMocks.trace.push("analytics.start");
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await new Promise<void>((resolve) => {
+        resumeAnalytics = resolve;
+      });
+      releaseDurable();
       runtimeMocks.trace.push("analytics.done");
     });
 
@@ -224,9 +228,8 @@ describe("agent work runtime teardown", () => {
       { timeout: 2_000 },
     );
     expect(runtimeMocks.trace).toContain("analytics.start");
-    await new Promise((resolve) => setTimeout(resolve, 40));
     const poolEndedBeforeRelease = runtimeMocks.trace.includes("pool.end");
-    releaseDurable();
+    resumeAnalytics();
     await disposed;
 
     expect(poolEndedBeforeRelease).toBe(false);
