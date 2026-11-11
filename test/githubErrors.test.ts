@@ -223,6 +223,16 @@ describe("isSelfPullRequestReviewEventRejection", () => {
       }),
     ).toBe(false);
   });
+
+  it("walks AppError.cause so a boundary-wrapped 422 still matches", () => {
+    const wrapped = new AppError({
+      domain: "operation_intent",
+      kind: "mutation_failed",
+      message: "GitHub mutation failed",
+      cause: Object.assign(new Error("Can not approve your own pull request"), { status: 422 }),
+    });
+    expect(isSelfPullRequestReviewEventRejection(wrapped)).toBe(true);
+  });
 });
 
 describe("githubRequestPath", () => {

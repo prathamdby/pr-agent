@@ -396,7 +396,10 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(incrementalThreadBatches(harness)).toHaveLength(0);
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.body).toContain(
+      "recorded this run's review event",
+    );
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });

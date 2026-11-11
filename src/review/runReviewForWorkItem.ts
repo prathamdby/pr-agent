@@ -67,6 +67,7 @@ import {
 } from "./run/reviewRunMetrics.ts";
 import { logInfo, logWarn } from "../evlog.ts";
 import { attachSummaryCommentCoordination } from "./publish/reviewSummaryComment.ts";
+import { tryPublishCloseOutcomeReview } from "./publish/publishCloseOutcomeReview.ts";
 import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.ts";
 import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.ts";
 import { prBodyHasDescriptionReviewMap } from "../agent/description/descriptionRender.ts";
@@ -274,6 +275,17 @@ async function closeStoredReviewVerdict(args: {
     leaseEpoch,
     commitStatusEnabled,
   }).close(outcome);
+  await tryPublishCloseOutcomeReview({
+    prSurface,
+    outcome,
+    headSha: item.headSha,
+    workItemId: item.id,
+    pool,
+    leaseEpoch,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+  });
 }
 
 async function runLightweightCompletionOrSkip(args: {

@@ -136,6 +136,7 @@ import * as verdictOwner from "../src/agentWork/reviewVerdict.ts";
 import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.ts";
 import type { Pool, PoolClient } from "pg";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.ts";
+import { publishCloseOutcomeReview } from "../src/review/publish/publishCloseOutcomeReview.ts";
 import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.ts";
 import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.ts";
 import {
@@ -799,6 +800,23 @@ describe("publishReviewSummaryOnly", () => {
     expect(dismissPullRequestReview).toHaveBeenCalledWith(
       expect.objectContaining({ reviewId: 31 }),
     );
+  });
+
+  it("reuses the terminal review when the same work item publishes twice", async () => {
+    const pool = { connect: vi.fn() } as unknown as Pool;
+    const { surface } = configuredSummarySurface();
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
+    const params = {
+      prSurface: surface,
+      outcome: { kind: "published" as const, conclusion: "success" as const, blockingCount: 0 },
+      headSha: "sha",
+      workItemId: "wi-1",
+      pool,
+      leaseEpoch: null,
+    };
+    await publishCloseOutcomeReview(params);
+    await publishCloseOutcomeReview(params);
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the published summary when the terminal review fails", async () => {

@@ -17,10 +17,7 @@ import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorCont
 import type { PrSurface } from "../../github/prSurface.ts";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
 import { decodePublishedBatch } from "../../github/prSurfaceResults.ts";
-
-const TERMINAL_REVIEW_BODY =
-  "PR Agent recorded this run's review event. See the `## PR Agent Review` summary comment.";
-const DISMISS_MESSAGE = "Superseded by a later review.";
+import { TERMINAL_REVIEW_BODY, TERMINAL_REVIEW_DISMISS_MESSAGE } from "../statusCopy.ts";
 
 async function submitTerminalReview(params: {
   readonly prSurface: PrSurface;
@@ -61,7 +58,7 @@ async function dismissStandingVerdicts(prSurface: PrSurface): Promise<void> {
     try {
       await prSurface.dismissPullRequestReview({
         reviewId: review.id,
-        message: DISMISS_MESSAGE,
+        message: TERMINAL_REVIEW_DISMISS_MESSAGE,
       });
     } catch (error) {
       firstError ??= error;

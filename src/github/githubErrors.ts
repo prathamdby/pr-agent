@@ -147,15 +147,17 @@ export function githubErrorMessage(error: unknown): string {
 }
 
 export function isSelfPullRequestReviewEventRejection(error: unknown): boolean {
-  if (httpStatus(error) !== 422) return false;
-  const response = isRecord(error) && isRecord(error.response) ? error.response : undefined;
-  const data = response != null && isRecord(response.data) ? response.data : undefined;
-  const responseMessage = typeof data?.message === "string" ? data.message : "";
-  const text = `${githubErrorMessage(error)} ${responseMessage}`.toLowerCase();
-  return (
-    text.includes("can not approve your own pull request") ||
-    text.includes("can not request changes on your own pull request")
-  );
+  return errorChain(error).some((level) => {
+    if (httpStatus(level) !== 422) return false;
+    const response = isRecord(level) && isRecord(level.response) ? level.response : undefined;
+    const data = response != null && isRecord(response.data) ? response.data : undefined;
+    const responseMessage = typeof data?.message === "string" ? data.message : "";
+    const text = `${githubErrorMessage(level)} ${responseMessage}`.toLowerCase();
+    return (
+      text.includes("can not approve your own pull request") ||
+      text.includes("can not request changes on your own pull request")
+    );
+  });
 }
 
 function githubErrorText(error: unknown): string {
