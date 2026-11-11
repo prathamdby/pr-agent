@@ -258,7 +258,7 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `npm run test`                                                | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                                 |
 | `npm run test:watch`                                          | Vitest watch mode                                                                                                                    |
 | `npm run test:integration`                                    | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                              |
-| `npm run test:integration:inventory`                          | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                                       |
+| `npm run test:integration:inventory`                          | Same suite, but may skip DB cases and the Docker-dependent compose suite when those dependencies are absent                          |
 | `npm run site:dev`                                            | Landing site local dev (`pr-agent-landing`)                                                                                          |
 | `npm run site:build`                                          | Landing site production build                                                                                                        |
 | `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                               |

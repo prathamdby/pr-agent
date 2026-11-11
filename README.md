@@ -406,7 +406,7 @@ DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent npm run test:i
 npm run check:code
 ```
 
-Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases: `npm run test:integration:inventory`.
+Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases and the Docker-dependent compose suite when those dependencies are absent: `npm run test:integration:inventory`.
 
 For host development, install Node 24.22.1 LTS with npm 11.19.1 or a newer npm 11 release, then run `npm ci`. The supported Node range is `^24.22.1`. `npm run dev` watches imported TypeScript and loads `.env` when present. Restart after environment or configuration changes. Give web and worker distinct `PORT` values.
 

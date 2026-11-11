@@ -23,8 +23,12 @@ function openWorkerTraces(cfg: Config): () => Promise<void> {
   return initTraces(cfg);
 }
 
-export const AgentWorkExecutionsLive = (cfg: Config) =>
-  Layer.effect(
+export const AgentWorkExecutionsLive = (
+  cfg: Config,
+  options?: { readonly settleTimeoutMs?: number },
+) => {
+  const settleTimeoutMs = options?.settleTimeoutMs ?? SHUTDOWN_SETTLE_TIMEOUT_MS;
+  return Layer.effect(
     AgentWorkExecutions,
     Effect.acquireRelease(
       Effect.sync(() => ({
@@ -34,11 +38,11 @@ export const AgentWorkExecutionsLive = (cfg: Config) =>
       ({ tracker, closeTraces }) =>
         Effect.promise(async () => {
           const outcomes: PromiseSettledResult<unknown>[] = await Promise.allSettled([
-            tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS),
+            tracker.settle(settleTimeoutMs),
           ]);
           outcomes.push(
             ...(await Promise.allSettled([
-              tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS, { durableOnly: true }),
+              tracker.settle(settleTimeoutMs, { durableOnly: true }),
               shutdownAnalytics(),
               closeTraces(),
             ])),
@@ -48,7 +52,7 @@ export const AgentWorkExecutionsLive = (cfg: Config) =>
             logWarn("agent_worker_shutdown_incomplete", {
               pendingHandlers: remaining.pendingHandlers,
               pendingDurableDispatches: remaining.pendingDurable,
-              settleTimeoutMs: SHUTDOWN_SETTLE_TIMEOUT_MS,
+              settleTimeoutMs,
             });
           }
           for (const outcome of outcomes) {
@@ -57,6 +61,7 @@ export const AgentWorkExecutionsLive = (cfg: Config) =>
         }),
     ).pipe(Effect.map(({ tracker }) => tracker)),
   );
+};
 
 export const AgentWorkPoolLive = (cfg: Config) =>
   Layer.effect(
