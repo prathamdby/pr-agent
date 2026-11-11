@@ -67,7 +67,7 @@ With no open findings, verification skips the agent after checking the live head
 FEATURE_ASK: off | manual. Default manual. /ask and App-bot mention questions.
 FEATURE_TRIAGE: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Size and security labels. off still syncs Category labels. No model tokens.
-FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pending when admitted review work starts, independently of Checks access; success or failure from published findings; error on cancel, crash, stale head, unpublished, partial coverage, or published neutral when earlier findings are unloadable. No model tokens.
+FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pending when admitted review work starts, independently of Checks access; success or failure from published findings; error on cancel, crash, stale head, unpublished, published neutral when earlier findings are unloadable, or partial coverage unless an open finding is already at or above REVIEW_CHECK_FAIL_SEVERITY, in which case the status is failure. No model tokens.
 Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it. The check and optional commit status use that same verdict. Ambiguous publication stays fail-closed.
 FEATURE_TITLE_REWRITE: false | true. Default true. Applies to every description publish, including default auto-on-open, not only /describe. Rewrites the PR title using make-pr default title rules. Set false to keep the existing title.
 Landing-page capability copy:
