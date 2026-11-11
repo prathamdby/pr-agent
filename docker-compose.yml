@@ -60,7 +60,7 @@ services:
       start_period: 15s
 
   pr-agent-worker:
-    # Same worker registers ack, CI-refresh, review, ask, description, triage,
+    # Same worker registers ack, CI-projection, review, ask, description, triage,
     # verification, and retention. Compose healthcheck uses /ready.
     build: .
     image: pr-agent:local
