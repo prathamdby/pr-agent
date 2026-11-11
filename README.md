@@ -99,7 +99,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
 4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
 5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
-6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Add `pull_request_review` when `FEATURE_REVIEW=approval` for approving PR reviews. A `pull_request` workflow starting on an awaiting fork's head is also an approval signal, except a fork author associated as `CONTRIBUTOR`, `NONE`, `FIRST_TIME_CONTRIBUTOR`, or `FIRST_TIMER`.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `pull_request_review`, `workflow_run`, `check_suite`, `check_run`, and `status`. Default `FEATURE_REVIEW=approval` ingests maintainer Approve only from `pull_request_review` `submitted`. A `pull_request` workflow starting on an awaiting fork's head is also an approval signal, except a fork author associated as `CONTRIBUTOR`, `NONE`, `FIRST_TIME_CONTRIBUTOR`, or `FIRST_TIMER`.
 7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
 
@@ -110,16 +110,18 @@ Create the GitHub App and paste a real private key before you start Compose. The
 | Contents        | Read         | Read code. Add write only for `/triage` pushes.                                 |
 | Metadata        | Read         | Required by GitHub for apps                                                     |
 | Checks          | Read & write | Review check run + CI summary inputs                                            |
-| Actions         | Read         | Condensed job logs when CI fails                                                |
+| Actions         | Read         | Required to subscribe to `workflow_run`. Condensed job logs when CI fails.      |
 | Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
 
 Before a new review, PR Agent checks the App's current grants for that repository.
 Missing code or PR reads, reviews, or conversation publication stops the run
-before it reads a checkout or calls the model. Checks, commit statuses, Actions
-logs, labels, and reactions are optional. Missing access disables only those
-operations and adds one notice to the review. Conversation comments and labels
-accept Issues or Pull requests grants at the required level. Reviews do not
-require Contents write.
+before it reads a checkout or calls the model. Checks, commit statuses, labels,
+and reactions are optional. Missing access disables only those operations and
+adds one notice to the review. GitHub will not offer `workflow_run` without
+Actions: Read. Skipping that grant drops workflow-start admission and
+Actions-completion CI refresh. Condensed job logs are the degrade-only piece.
+Conversation comments and labels accept Issues or Pull requests grants at the
+required level. Reviews do not require Contents write.
 
 An incomplete or inaccessible CI source cannot show passing or no-CI copy.
 Known failures remain visible with a partial-view notice. Restore the grant and
@@ -261,7 +263,7 @@ Late older ticks from the same review do not replace newer progress or its final
 
 Crash recovery serializes its failure decision with lease renewals and restarted jobs. Busy or timed-out recovery passes leave the review alone and try again later.
 
-Default `FEATURE_VERIFICATION=auto` spends tokens on every push. Switch it to `manual` or `off` if that bill is too high.
+Default `FEATURE_VERIFICATION=auto` spends tokens on `synchronize` pushes with open findings. Switch it to `manual` or `off` if that bill is too high.
 
 <details>
 <summary>What the probes do not prove</summary>

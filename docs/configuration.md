@@ -130,7 +130,7 @@ Upgrade web and worker together.
 | Description concurrency       | `DESCRIPTION_CONCURRENCY`                 | `1`                         | pg-boss description queue workers                                                                                                                                                                                                    |
 | Triage concurrency            | `TRIAGE_CONCURRENCY`                      | `1`                         | pg-boss triage queue workers                                                                                                                                                                                                         |
 | Verification concurrency      | `VERIFICATION_CONCURRENCY`                | `1`                         | pg-boss verification queue workers                                                                                                                                                                                                   |
-| Ack worker concurrency        | `ACK_CONCURRENCY`                         | `2`                         | reactions + progress stub                                                                                                                                                                                                            |
+| Ack worker concurrency        | `ACK_CONCURRENCY`                         | `2`                         | reactions + progress stub; also `agent-work-ci-projection`                                                                                                                                                                           |
 | Installation group cap        | `INSTALLATION_GROUP_CONCURRENCY`          | `2`                         | pg-boss group policy                                                                                                                                                                                                                 |
 | Queue retry limit             | `QUEUE_RETRY_LIMIT`                       | `3`                         | pg-boss job retries per delivery; each work item admits at most `QUEUE_RETRY_LIMIT + 1` fresh work attempts, including substantive resumes; lifecycle claims and hops are free                                                       |
 | Queue retry delay             | `QUEUE_RETRY_DELAY_SECONDS`               | `30`                        |                                                                                                                                                                                                                                      |
@@ -406,7 +406,9 @@ match. Every terminal path uses `reviewVerdict(...).close`.
 Full coverage concludes `failure` for open findings at or above
 `REVIEW_CHECK_FAIL_SEVERITY` (default `P2`) and `success` when none block.
 `P3` fails only when the threshold is `P3`. Partial coverage uses check
-`neutral` and status `error`.
+`neutral` and status `error` unless an open finding is already at or above
+that threshold, in which case it is published failure, status `failure`, and
+GitHub review `REQUEST_CHANGES`.
 Cancellation, supersession, and stale-head replacement use check `cancelled`;
 crash/unpublished uses `action_required`. Their statuses use `error`.
 Commit-status keys remain per state (`review:commit_status:<resource>:<head>:<state>`).
