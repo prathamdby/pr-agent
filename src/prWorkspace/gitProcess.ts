@@ -28,6 +28,7 @@ export type GitProcessOptions = {
   readonly env: NodeJS.ProcessEnv;
   readonly timeoutMs: number;
   readonly maxBufferBytes: number;
+  readonly stdin?: Buffer | string;
 };
 
 type SignalOutcome = "delivered" | "gone" | { readonly errorCode: string };
@@ -78,7 +79,7 @@ export function runGitProcess(
       cwd: options.cwd,
       env: options.env,
       detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.stdin == null ? "ignore" : "pipe", "pipe", "pipe"],
     });
     const pgid = child.pid;
 
@@ -99,6 +100,7 @@ export function runGitProcess(
       if (settled) return;
       settled = true;
       clearTimers();
+      child.stdin?.destroy();
       child.stdout?.destroy();
       child.stderr?.destroy();
       resolve({
@@ -235,6 +237,10 @@ export function runGitProcess(
     child.stderr?.on("data", collect(stderrChunks, "stderr"));
     child.stdout?.on("error", () => undefined);
     child.stderr?.on("error", () => undefined);
+    if (options.stdin != null && child.stdin != null) {
+      child.stdin.on("error", () => undefined);
+      child.stdin.end(options.stdin);
+    }
 
     child.on("error", (error) => {
       if (spawnErrorCode == null && !exited) spawnErrorCode = systemErrorCode(error);

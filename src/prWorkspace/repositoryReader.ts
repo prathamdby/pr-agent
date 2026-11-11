@@ -254,6 +254,7 @@ export type WorkspaceGitOptions = {
   cwd: string;
   gitDir?: string;
   extraEnv?: Record<string, string>;
+  stdin?: Buffer | string;
   timeoutMs: number;
   tokenFile?: string;
   askpass?: string;
@@ -478,6 +479,7 @@ function startWorkspaceGit(
     env: workspaceGitEnv(opts),
     timeoutMs: opts.timeoutMs,
     maxBufferBytes: opts.maxBufferBytes ?? LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
+    stdin: opts.stdin,
   });
 }
 
@@ -496,6 +498,7 @@ export async function runWorkspaceGit(
   opts: WorkspaceGitOptions,
 ): Promise<{
   stdout: string;
+  stdoutBuffer: Buffer;
   stderr: string;
   diagnostics: WorkspaceGitDiagnostics;
 }> {
@@ -504,6 +507,7 @@ export async function runWorkspaceGit(
   if (!isCleanExit(result)) throw workspaceGitFailure(result, operation, opts);
   return {
     stdout: result.stdout.toString("utf8"),
+    stdoutBuffer: result.stdout,
     stderr: result.stderr.toString("utf8"),
     diagnostics: gitDiagnostics(result, operation, opts, null),
   };

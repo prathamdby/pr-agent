@@ -38,7 +38,8 @@ operators cannot mistake partial disk coverage for full-repo certainty.
 
 ## Amendment (2026-10-17): fetch failure modes
 
-Workspace Git runs in its own process group with stdin closed, `LC_ALL=C`, and
+Workspace Git runs in its own process group with stdin closed unless the caller
+supplies bounded stdin, `LC_ALL=C`, and
 a bounded output buffer (`src/prWorkspace/gitProcess.ts`). A deadline or output
 cap sends SIGTERM to the group, waits `LOCAL_WORKSPACE_GIT_KILL_GRACE_MS`, sends
 SIGKILL, and confirms the group is gone within `LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS`.

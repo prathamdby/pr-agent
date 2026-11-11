@@ -682,10 +682,24 @@ describe("local PR workspace", () => {
     const baseSha = "a".repeat(40);
     const blobSha = "b".repeat(40);
     const tree = `100644 blob ${blobSha}\t.pr-agent/ok.mdc\0`;
-    const git = (script: (command: string) => { readonly stdout: string } | Promise<never>) => {
-      return async (args: readonly string[]) => {
-        const command = args.includes("fetch") ? "fetch" : (args[0] ?? "");
-        return script(command);
+    const git = (
+      script: (
+        command: string,
+        args: readonly string[],
+        io?: { readonly stdin?: Buffer | string; readonly extraEnv?: Record<string, string> },
+      ) => { readonly stdout: string; readonly stdoutBuffer?: Buffer } | Promise<never>,
+    ) => {
+      return async (
+        args: readonly string[],
+        _timeoutMs?: number,
+        io?: { readonly stdin?: Buffer | string; readonly extraEnv?: Record<string, string> },
+      ) => {
+        const command = args.includes("fetch")
+          ? args.includes("--stdin")
+            ? "prefetch"
+            : "fetch"
+          : (args[0] ?? "");
+        return script(command, args, io);
       };
     };
 
@@ -694,39 +708,196 @@ describe("local PR workspace", () => {
       maxFetchBytes: 1,
       timeoutMs: 1_000,
       git: git((command) => {
-        if (command === "fetch" || command === "ls-tree") {
+        if (command === "fetch" || command === "prefetch" || command === "ls-tree") {
           return { stdout: command === "ls-tree" ? tree : "" };
         }
-        if (command === "cat-file") return { stdout: "4\n" };
         if (command === "count-objects") return { stdout: "size: 2\nsize-pack: 0\n" };
         throw new Error(command);
       }),
     });
     expect(overCap).toEqual({ kind: "unavailable", reason: "object_store_cap", baseSha });
 
+    const absentCalls: string[] = [];
     const absent = await readBasePolicySnapshot({
       baseSha,
       maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
+        absentCalls.push(command);
         if (command === "fetch" || command === "ls-tree") return { stdout: "" };
         if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         throw new Error(command);
       }),
     });
     expect(absent).toEqual({ kind: "absent", baseSha });
+    expect(absentCalls).toEqual(["fetch", "ls-tree", "count-objects"]);
 
-    const failed = await readBasePolicySnapshot({
+    const failedFetch = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch") throw new Error("fetch failed");
+        throw new Error(command);
+      }),
+    });
+    expect(failedFetch).toEqual({ kind: "unavailable", reason: "fetch_failed", baseSha });
+
+    const failedPrefetch = await readBasePolicySnapshot({
       baseSha,
       maxFetchBytes: 1_000_000,
       timeoutMs: 1_000,
       git: git((command) => {
         if (command === "fetch") return { stdout: "" };
         if (command === "ls-tree") return { stdout: tree };
+        throw new Error("prefetch failed");
+      }),
+    });
+    expect(failedPrefetch).toEqual({ kind: "unavailable", reason: "blob_read_failed", baseSha });
+
+    const failed = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: git((command) => {
+        if (command === "fetch" || command === "prefetch") return { stdout: "" };
+        if (command === "ls-tree") return { stdout: tree };
+        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
         throw new Error("cat-file failed");
       }),
     });
     expect(failed).toEqual({ kind: "unavailable", reason: "blob_read_failed", baseSha });
+  });
+
+  it("prefetches unique blobs once and reads in-cap bodies under GIT_NO_LAZY_FETCH", async () => {
+    const baseSha = "a".repeat(40);
+    const sharedSha = "b".repeat(40);
+    const smallSha = "c".repeat(40);
+    const overSha = "d".repeat(40);
+    const utfSha = "e".repeat(40);
+    const utfBody = Buffer.from("café — → 日本語 🎯\n");
+    const sharedBody = Buffer.from("s".repeat(9_000));
+    const smallBody = Buffer.from("ok\n");
+    const tree = [
+      `100644 blob ${sharedSha}\t.pr-agent/shared.mdc`,
+      `100644 blob ${sharedSha}\tAGENTS.md`,
+      `100644 blob ${smallSha}\t.pr-agent/a.mdc`,
+      `100644 blob ${smallSha}\t.pr-agent/z.mdc`,
+      `100644 blob ${overSha}\t.pr-agent/big.mdc`,
+      `100644 blob ${utfSha}\t.pr-agent/utf.mdc`,
+      `120000 blob ${smallSha}\t.pr-agent/link.mdc`,
+    ].join("\0");
+    const calls: Array<{
+      readonly command: string;
+      readonly args: readonly string[];
+      readonly stdin?: Buffer | string;
+      readonly extraEnv?: Record<string, string>;
+    }> = [];
+    const snapshot = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: async (args, _timeoutMs, io) => {
+        const command = args.includes("fetch")
+          ? args.includes("--stdin")
+            ? "prefetch"
+            : "fetch"
+          : (args[0] ?? "");
+        calls.push({ command, args, stdin: io?.stdin, extraEnv: io?.extraEnv });
+        if (command === "fetch") return { stdout: "" };
+        if (command === "ls-tree") return { stdout: tree };
+        if (command === "prefetch") {
+          expect(args).toEqual(
+            expect.arrayContaining([
+              "fetch",
+              "--no-tags",
+              "--no-write-fetch-head",
+              "--no-recurse-submodules",
+              "origin",
+              "--stdin",
+            ]),
+          );
+          expect(args).not.toContain("--filter=blob:none");
+          expect(io?.stdin).toBe(`${[sharedSha, smallSha, overSha, utfSha].join("\n")}\n`);
+          return { stdout: "" };
+        }
+        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
+        if (command === "cat-file" && args.some((arg) => arg.startsWith("--batch-check="))) {
+          expect(io?.extraEnv).toEqual({ GIT_NO_LAZY_FETCH: "1" });
+          return {
+            stdout: [
+              `${sharedSha} blob 9000`,
+              `${smallSha} blob 3`,
+              `${overSha} blob 8193`,
+              `${utfSha} blob ${utfBody.length}`,
+              "",
+            ].join("\n"),
+          };
+        }
+        if (command === "cat-file" && args.includes("--batch")) {
+          expect(io?.extraEnv).toEqual({ GIT_NO_LAZY_FETCH: "1" });
+          expect(io?.stdin).toBe(`${[sharedSha, smallSha, utfSha].join("\n")}\n`);
+          const chunks = [sharedBody, smallBody, utfBody].flatMap((body, index) => {
+            const sha = [sharedSha, smallSha, utfSha][index] ?? "";
+            return [Buffer.from(`${sha} blob ${body.length}\n`), body, Buffer.from("\n")];
+          });
+          return { stdout: "", stdoutBuffer: Buffer.concat(chunks) };
+        }
+        throw new Error(command);
+      },
+    });
+    expect(snapshot).toEqual({
+      kind: "ok",
+      baseSha,
+      files: [
+        { path: ".pr-agent/a.mdc", blobSha: smallSha, body: "ok\n" },
+        { path: ".pr-agent/utf.mdc", blobSha: utfSha, body: utfBody.toString("utf8") },
+        { path: ".pr-agent/z.mdc", blobSha: smallSha, body: "ok\n" },
+        { path: "AGENTS.md", blobSha: sharedSha, body: sharedBody.toString("utf8") },
+      ],
+      drops: [
+        { path: ".pr-agent/big.mdc", reason: "over_cap" },
+        { path: ".pr-agent/link.mdc", reason: "non_regular_mode" },
+        { path: ".pr-agent/shared.mdc", reason: "over_cap" },
+      ],
+    });
+    expect(calls.filter((call) => call.command === "prefetch")).toHaveLength(1);
+    expect(calls.filter((call) => call.args[0] === "cat-file")).toHaveLength(2);
+    expect(
+      calls.filter((call) => call.args[0] === "cat-file").map((call) => call.extraEnv),
+    ).toEqual([{ GIT_NO_LAZY_FETCH: "1" }, { GIT_NO_LAZY_FETCH: "1" }]);
+  });
+
+  it("skips blob fetch and cat-file when every allowlisted path is non-regular", async () => {
+    const baseSha = "a".repeat(40);
+    const blobSha = "b".repeat(40);
+    const commands: string[] = [];
+    const snapshot = await readBasePolicySnapshot({
+      baseSha,
+      maxFetchBytes: 1_000_000,
+      timeoutMs: 1_000,
+      git: async (args) => {
+        const command = args.includes("fetch")
+          ? args.includes("--stdin")
+            ? "prefetch"
+            : "fetch"
+          : (args[0] ?? "");
+        commands.push(command);
+        if (command === "fetch") return { stdout: "" };
+        if (command === "ls-tree") {
+          return { stdout: `120000 blob ${blobSha}\t.pr-agent/link.mdc\0` };
+        }
+        if (command === "count-objects") return { stdout: "size: 0\nsize-pack: 0\n" };
+        throw new Error(command);
+      },
+    });
+    expect(snapshot).toEqual({
+      kind: "ok",
+      baseSha,
+      files: [],
+      drops: [{ path: ".pr-agent/link.mdc", reason: "non_regular_mode" }],
+    });
+    expect(commands).toEqual(["fetch", "ls-tree", "count-objects"]);
   });
 });
 
@@ -1322,9 +1493,130 @@ describe("workspace git fetch over HTTP", () => {
     },
     90_000,
   );
+
+  it("keeps policy snapshot upload-pack POSTs constant as allowlisted files grow", async () => {
+    const utfBody = "café — → 日本語 🎯\n";
+    const sharedBody = "s".repeat(9_000);
+    const duplicateBody = "same-blob\n";
+    const counts: number[] = [];
+    for (const ruleCount of [10, 18]) {
+      const root = await mkdtemp(join(tmpdir(), `workspace-policy-http-${ruleCount}-`));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await mkdir(join(repo, ".pr-agent"));
+        await writeFile(join(repo, ".pr-agent", "shared.mdc"), sharedBody);
+        await writeFile(join(repo, "AGENTS.md"), sharedBody);
+        await writeFile(join(repo, ".pr-agent", "big.mdc"), "b".repeat(8193));
+        await writeFile(join(repo, "secret-target.txt"), "secret-target-body\n");
+        await symlink("../secret-target.txt", join(repo, ".pr-agent", "link.mdc"));
+        await writeFile(join(repo, ".pr-agent", "utf.mdc"), utfBody);
+        await writeFile(join(repo, ".pr-agent", "dup-a.mdc"), duplicateBody);
+        await writeFile(join(repo, ".pr-agent", "dup-z.mdc"), duplicateBody);
+        for (let index = 0; index < ruleCount; index += 1) {
+          await writeFile(
+            join(repo, ".pr-agent", `rule-${String(index).padStart(2, "0")}.mdc`),
+            `rule ${index}\n`,
+          );
+        }
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base"]);
+        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+        await git(root, ["init", "--bare", remote]);
+        await git(remote, ["config", "uploadpack.allowFilter", "true"]);
+        await git(remote, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
+        await git(repo, ["push", remote, "HEAD:refs/pull/1/head"]);
+        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const server = await startGitHttpServer(root, () => "serve");
+        try {
+          const workspace = await prepareLocalPrWorkspace({
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            baseSha,
+            installationToken: "unused",
+            prFiles,
+            remoteUrlOverride: server.url,
+          });
+          try {
+            expect(workspace.policySnapshot.kind).toBe("ok");
+            if (workspace.policySnapshot.kind !== "ok") return;
+            const byPath = new Map(
+              workspace.policySnapshot.files.map((file) => [file.path, file.body]),
+            );
+            expect(byPath.get("AGENTS.md")).toBe(sharedBody);
+            expect(byPath.get(".pr-agent/utf.mdc")).toBe(utfBody);
+            expect(byPath.get(".pr-agent/dup-a.mdc")).toBe(duplicateBody);
+            expect(byPath.get(".pr-agent/dup-z.mdc")).toBe(duplicateBody);
+            expect(byPath.has(".pr-agent/shared.mdc")).toBe(false);
+            expect(byPath.has(".pr-agent/big.mdc")).toBe(false);
+            expect(byPath.has(".pr-agent/link.mdc")).toBe(false);
+            for (let index = 0; index < ruleCount; index += 1) {
+              expect(byPath.get(`.pr-agent/rule-${String(index).padStart(2, "0")}.mdc`)).toBe(
+                `rule ${index}\n`,
+              );
+            }
+            expect(workspace.policySnapshot.files).toHaveLength(ruleCount + 4);
+            expect(workspace.policySnapshot.drops).toEqual([
+              { path: ".pr-agent/big.mdc", reason: "over_cap" },
+              { path: ".pr-agent/link.mdc", reason: "non_regular_mode" },
+              { path: ".pr-agent/shared.mdc", reason: "over_cap" },
+            ]);
+            const posts = server.requests.filter(
+              (request) => request.method === "POST" && request.path.includes("git-upload-pack"),
+            );
+            expect(posts.length).toBeLessThan(ruleCount);
+            counts.push(posts.length);
+          } finally {
+            await workspace.cleanup();
+          }
+        } finally {
+          await server.close();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+    expect(counts).toHaveLength(2);
+    expect(counts[0]).toBe(counts[1]);
+    expect(counts[0]).toBeLessThanOrEqual(4);
+  }, 60_000);
 });
 
 describe("workspace git process ownership", () => {
+  it("swallows EPIPE when git exits before bounded stdin is written", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-stdin-epipe-"));
+    try {
+      const error = appErrorOf(
+        await rejectionOf(
+          runWorkspaceGit(["-c", "alias.die=!exit 1", "die"], {
+            cwd: root,
+            timeoutMs: 5_000,
+            stdin: Buffer.alloc(1_048_576, 0x61),
+          }),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.git_failed");
+      expect(error.context).toMatchObject({
+        operation: "other",
+        failureKind: "git",
+        exitCode: 1,
+        killed: false,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("escalates to SIGKILL for a descendant that ignores SIGTERM after its leader exits", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-process-tree-"));
     const pidFile = join(root, "helper.pid");

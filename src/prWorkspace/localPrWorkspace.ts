@@ -368,7 +368,11 @@ async function finishLocalPrWorkspace(
     files: filesForIndex,
   });
 
-  const git = (args: readonly string[], timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS) =>
+  const git = (
+    args: readonly string[],
+    timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    io?: { readonly stdin?: Buffer | string; readonly extraEnv?: Record<string, string> },
+  ) =>
     runWorkspaceGit(args, {
       gitDir: privateGitDir,
       cwd: privateGitDir,
@@ -378,6 +382,8 @@ async function finishLocalPrWorkspace(
       workTree: agentCwd,
       checkoutMode,
       redactSecrets: [params.installationToken],
+      stdin: io?.stdin,
+      extraEnv: io?.extraEnv,
     });
 
   let checkoutPaths = new Set<string>();
