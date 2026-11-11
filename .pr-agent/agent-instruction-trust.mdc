@@ -2,10 +2,16 @@
 globs:
   - "src/review/agentInstructionFiles.ts"
   - "src/review/runReviewForWorkItem.ts"
-  - "src/prompts/{correctness,security,quality,tests,orchestrator}/**"
+  - "src/prompts/correctness/prompt.ts"
+  - "src/prompts/security/prompt.ts"
+  - "src/prompts/quality/prompt.ts"
+  - "src/prompts/tests/prompt.ts"
+  - "src/prompts/orchestrator/prompt.ts"
   - "src/prompts/shared/safety.ts"
   - "src/settings/reviewConstants.ts"
+  - "src/prWorkspace/policySnapshot.ts"
+  - "src/review/proposedPolicyChanges.ts"
   - "test/agentInstructionFiles.test.ts"
 ---
 
-`loadAgentInstructionFiles` (`src/review/agentInstructionFiles.ts`) reads only root `AGENT_INSTRUCTION_FILENAMES` (`AGENTS.md`, `CLAUDE.md`, `REVIEW.md`) from the PR head checkout. Only `runReviewForWorkItem.ts` calls it, beside `loadRepoPolicy`, under `MAX_AGENT_INSTRUCTION_BYTES` and `MAX_AGENT_INSTRUCTION_FILE_BYTES`. Trust has one source: `isSameRepoPullRequest(pullRequest)`. Same-repo head renders the binding "Trusted context" block; fork, missing, or malformed `full_name` renders `wrapUntrustedBlock("agent_instruction_file", ...)` after `neutralizeForgedTrustHeaders` strips forged "Trusted context" and "binding" lines. Do not derive `sameRepo` from author association, labels, or comment text; do not follow `@include` or nested paths; do not loosen those regexes. Ask, description, triage, and verification never receive this block. Cite listed files only when loaded. A binding violation is an ordinary finding under the specialist gate. Guard: `test/agentInstructionFiles.test.ts`.
+An `ok` `policySnapshot` at the recorded base commit supplies the blobs for `loadRepoPolicy` and `loadAgentInstructionFiles` (`src/review/runReviewForWorkItem.ts`, `src/prWorkspace/policySnapshot.ts`). Only `ok` binds `.mdc` rules and root `AGENTS.md` / `CLAUDE.md` / `REVIEW.md`. Head copies of those paths render through `renderProposedPolicyChanges` (`src/review/proposedPolicyChanges.ts`) wrapped by `wrapUntrustedBlock` (`src/prompts/shared/safety.ts`). Verification reads `.mdc` only from the same snapshot. Ask, describe, and triage receive neither binding block. Caps stay `MAX_AGENT_INSTRUCTION_BYTES` and `MAX_AGENT_INSTRUCTION_FILE_BYTES` (`src/settings/reviewConstants.ts`). Guard: `test/agentInstructionFiles.test.ts`.

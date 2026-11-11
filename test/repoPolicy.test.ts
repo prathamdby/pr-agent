@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ import {
   renderRepoPolicyBlock,
   ruleConsidersFile,
   type RepoPolicyResult,
+  type RepoPolicyRule,
 } from "../src/review/repoPolicy.ts";
 
 async function policyFixture(files: Record<string, string>): Promise<string> {
@@ -27,6 +29,54 @@ async function policyFixture(files: Record<string, string>): Promise<string> {
     await writeFile(join(dir, name), content, "utf8");
   }
   return root;
+}
+
+function policyBodyIsComplete(body: string): boolean {
+  const trimmed = body.trimEnd();
+  return trimmed.endsWith(".") || trimmed.endsWith(")");
+}
+
+function policyBodyIsBalanced(body: string): boolean {
+  let inCode = false;
+  let depth = 0;
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === "\\" && index + 1 < body.length && body[index + 1] === "`") {
+      index += 1;
+      continue;
+    }
+    if (char === "`") {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth -= 1;
+      if (depth < 0) return false;
+    }
+  }
+  return !inCode && depth === 0;
+}
+
+function globMatchesTrackedFile(glob: string, trackedFiles: readonly string[]): boolean {
+  const rule: RepoPolicyRule = {
+    filename: "glob.mdc",
+    relativePath: ".pr-agent/glob.mdc",
+    alwaysApply: false,
+    globs: [glob],
+    body: "Glob coverage.",
+  };
+  return trackedFiles.some((file) => ruleConsidersFile(rule, file));
+}
+
+function trackedRepoFiles(): string[] {
+  return execFileSync("git", ["ls-files"], { encoding: "utf8" })
+    .split("\n")
+    .filter((path) => path.length > 0);
 }
 
 describe("loadRepoPolicy", () => {
@@ -224,9 +274,27 @@ Always enforce this rule.
     expect(drops.filter((drop) => drop.reason === "body-cut")).toEqual([]);
     expect(drops.filter((drop) => drop.reason === "file-skipped")).toEqual([]);
     expect(result.policy.rules).toHaveLength(20);
+    const trackedFiles = trackedRepoFiles();
     for (const rule of result.policy.rules) {
       expect(rule.body.length).toBeLessThanOrEqual(MAX_REPO_POLICY_INSTRUCTION_CHARS);
+      expect(policyBodyIsComplete(rule.body)).toBe(true);
+      expect(policyBodyIsBalanced(rule.body)).toBe(true);
+      expect(rule.globs.filter((glob) => !globMatchesTrackedFile(glob, trackedFiles))).toEqual([]);
     }
+  });
+});
+
+describe("policy body integrity", () => {
+  it("rejects a mid-word cut as incomplete", () => {
+    expect(policyBodyIsComplete("classifyS")).toBe(false);
+  });
+
+  it("rejects an unclosed backtick as unbalanced", () => {
+    expect(policyBodyIsBalanced("`src/age")).toBe(false);
+  });
+
+  it("rejects a dead glob that matches no tracked file", () => {
+    expect(globMatchesTrackedFile("src/codeIndex/**", trackedRepoFiles())).toBe(false);
   });
 });
 
