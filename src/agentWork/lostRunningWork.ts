@@ -334,7 +334,15 @@ async function finishCancelRequestedQueuedWork(pool: Pool): Promise<void> {
     [STALE_QUEUED_WORK_BATCH_SIZE],
   );
   for (const row of rows.rows) {
-    await transitionCancelRequestedStaleQueued(pool, row);
+    try {
+      await transitionCancelRequestedStaleQueued(pool, row);
+    } catch (error) {
+      logWarn("stale_queued_work_reconcile_failed", {
+        workItemId: row.id,
+        workType: row.type,
+        message: errorMessage(error),
+      });
+    }
   }
 }
 
