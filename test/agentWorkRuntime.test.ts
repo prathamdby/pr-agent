@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { retryTransientConnect, TRANSIENT_CONNECT_ATTEMPTS } from "../src/db/transientConnect.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
+const TEST_SETTLE_TIMEOUT_MS = 120;
+
 const runtimeMocks = vi.hoisted(() => {
   const trace: string[] = [];
   const settleCalls: { timeoutMs: number; durableOnly: boolean }[] = [];
   const warnings: string[] = [];
+  const warningMeta: Array<Record<string, unknown> | undefined> = [];
   const pool = {
     end: vi.fn(async () => {
       trace.push("pool.end");
@@ -18,6 +21,7 @@ const runtimeMocks = vi.hoisted(() => {
     trace,
     settleCalls,
     warnings,
+    warningMeta,
     pool,
     boss,
     createPgPool: vi.fn(() => pool),
@@ -85,8 +89,9 @@ vi.mock("../src/evlog.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
-    logWarn: (event: string) => {
+    logWarn: (event: string, meta?: Record<string, unknown>) => {
       runtimeMocks.warnings.push(event);
+      runtimeMocks.warningMeta.push(meta);
     },
   };
 });
@@ -147,10 +152,30 @@ describe("agent work runtime teardown", () => {
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
   });
 
+  it("records the production settle default on an idle one-arg executions layer", async () => {
+    runtimeMocks.settleCalls.length = 0;
+    runtimeMocks.warnings.length = 0;
+    runtimeMocks.warningMeta.length = 0;
+    const { AgentWorkExecutionsLive } = await import("../src/agentWork/runtime.ts");
+    const cfg = makeTestConfig({ runtime: { role: "worker" } });
+    const started = Date.now();
+
+    await Effect.runPromise(Effect.scoped(Layer.build(AgentWorkExecutionsLive(cfg))));
+
+    expect(Date.now() - started).toBeLessThan(50);
+    expect(runtimeMocks.settleCalls).toEqual([
+      { timeoutMs: 5_000, durableOnly: false },
+      { timeoutMs: 5_000, durableOnly: true },
+      { timeoutMs: 0, durableOnly: false },
+    ]);
+    expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
+  });
+
   it("overlaps delayed analytics with the durable reserve before ending the pool", async () => {
     runtimeMocks.trace.length = 0;
     runtimeMocks.settleCalls.length = 0;
     runtimeMocks.warnings.length = 0;
+    runtimeMocks.warningMeta.length = 0;
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.ts");
@@ -165,9 +190,13 @@ describe("agent work runtime teardown", () => {
         resolve();
       };
     });
+    let resumeAnalytics: () => void = () => undefined;
     runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
       runtimeMocks.trace.push("analytics.start");
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await new Promise<void>((resolve) => {
+        resumeAnalytics = resolve;
+      });
+      releaseDurable();
       runtimeMocks.trace.push("analytics.done");
     });
 
@@ -183,7 +212,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive(cfg)),
+      Layer.provide(AgentWorkExecutionsLive(cfg, { settleTimeoutMs: TEST_SETTLE_TIMEOUT_MS })),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -196,12 +225,11 @@ describe("agent work runtime teardown", () => {
             runtimeMocks.trace.includes("pool.end"),
         ).toBe(true);
       },
-      { timeout: 15_000 },
+      { timeout: 2_000 },
     );
     expect(runtimeMocks.trace).toContain("analytics.start");
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
     const poolEndedBeforeRelease = runtimeMocks.trace.includes("pool.end");
-    releaseDurable();
+    resumeAnalytics();
     await disposed;
 
     expect(poolEndedBeforeRelease).toBe(false);
@@ -213,22 +241,23 @@ describe("agent work runtime teardown", () => {
       "analytics.done",
       "pool.end",
     ]);
-    expect(Date.now() - started).toBeLessThan(8_500);
+    expect(Date.now() - started).toBeLessThan(2_000);
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
-  }, 20_000);
+  }, 5_000);
 
   it("waits for durable marks before propagating an analytics shutdown failure", async () => {
     runtimeMocks.trace.length = 0;
     runtimeMocks.settleCalls.length = 0;
     runtimeMocks.warnings.length = 0;
+    runtimeMocks.warningMeta.length = 0;
     runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
     const analyticsError = new Error("analytics shutdown failed");
     runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 40));
       runtimeMocks.trace.push("analytics.failed");
       throw analyticsError;
     });
@@ -251,7 +280,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive(cfg)),
+      Layer.provide(AgentWorkExecutionsLive(cfg, { settleTimeoutMs: TEST_SETTLE_TIMEOUT_MS })),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -260,7 +289,7 @@ describe("agent work runtime teardown", () => {
       () => {
         expect(runtimeMocks.trace).toContain("analytics.failed");
       },
-      { timeout: 15_000 },
+      { timeout: 2_000 },
     );
     const poolEndedBeforeRelease = runtimeMocks.trace.includes("pool.end");
     releaseDurable();
@@ -281,12 +310,13 @@ describe("agent work runtime teardown", () => {
     ]);
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
-  }, 20_000);
+  }, 5_000);
 
   it("warns and still ends the pool when a durable dispatch outlasts the reserve", async () => {
     runtimeMocks.trace.length = 0;
     runtimeMocks.settleCalls.length = 0;
     runtimeMocks.warnings.length = 0;
+    runtimeMocks.warningMeta.length = 0;
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.ts");
     const cfg = makeTestConfig({ runtime: { role: "worker" } });
@@ -308,7 +338,7 @@ describe("agent work runtime teardown", () => {
       ),
     ).pipe(
       Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
-      Layer.provide(AgentWorkExecutionsLive(cfg)),
+      Layer.provide(AgentWorkExecutionsLive(cfg, { settleTimeoutMs: TEST_SETTLE_TIMEOUT_MS })),
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
@@ -316,14 +346,17 @@ describe("agent work runtime teardown", () => {
     await Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
     const elapsed = Date.now() - started;
 
-    expect(elapsed).toBeGreaterThanOrEqual(9_000);
-    expect(elapsed).toBeLessThan(15_000);
+    expect(elapsed).toBeGreaterThanOrEqual(2 * TEST_SETTLE_TIMEOUT_MS);
+    expect(elapsed).toBeLessThan(2_000);
     expect(runtimeMocks.warnings).toContain("agent_worker_shutdown_incomplete");
+    expect(runtimeMocks.warningMeta).toContainEqual(
+      expect.objectContaining({ settleTimeoutMs: TEST_SETTLE_TIMEOUT_MS }),
+    );
     expect(runtimeMocks.trace[runtimeMocks.trace.length - 1]).toBe("pool.end");
 
     releaseDurable();
     await durable;
-  }, 25_000);
+  }, 5_000);
 });
 
 function connectError(code: string): Error {
@@ -340,6 +373,7 @@ function restoreBootDoubles(): void {
   runtimeMocks.stopBoss.mockClear();
   runtimeMocks.pool.end.mockClear();
   runtimeMocks.warnings.length = 0;
+  runtimeMocks.warningMeta.length = 0;
 }
 
 describe("agent work runtime boot", () => {
