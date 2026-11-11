@@ -183,7 +183,8 @@ the shared Git helper and general `maxResultsParam` are not globally capped.
 `RepositoryReader` has two production adapters: the pinned PR view and the
 writable triage checkout. `PathPolicy` retains review/ask's changed-sensitive-path
 gate, verification's sensitive-path refusal, and triage's sensitive/control-path
-and resolved-containment checks. Tool profiles retain their distinct ordered
+checks. Investigation, verification, and triage reads all use realpath
+containment. Tool profiles retain their distinct ordered
 descriptions, schemas, wire output, spill cleanup and delivered-read evidence.
 Commit attribution lives in `src/agent/triage/commitAttribution.ts`; checkout
 identity validation and final commit/push guards remain at the mutation boundary.

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES,
   LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES,
+  READ_SPILL_FILENAME_PREFIX,
 } from "../../settings/index.ts";
 import {
   readTextWithOutputBudget,
@@ -13,6 +14,8 @@ import {
   type FileReadOutput,
   type FileReadWindowParams,
 } from "./toolOutputBudget.ts";
+
+export { READ_SPILL_FILENAME_PREFIX };
 
 export const MISSING_FROM_CHECKOUT_REASON = "Path is missing from the checkout.";
 export const BINARY_FILE_REASON = "Binary file cannot be read as text.";
@@ -169,9 +172,9 @@ export async function spillTextToSessionFile(
   const size = Buffer.byteLength(text, "utf8");
   const cleanWorkItem = scope.workItemId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
   const cleanToolCall = scope.toolCall.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
-  const fileName = `pr-agent-read-spill-${cleanWorkItem.length > 0 ? cleanWorkItem : "call"}-${cleanToolCall.length > 0 ? cleanToolCall : "call"}-${randomUUID().slice(0, 8)}.txt`;
+  const fileName = `${READ_SPILL_FILENAME_PREFIX}${cleanWorkItem.length > 0 ? cleanWorkItem : "call"}-${cleanToolCall.length > 0 ? cleanToolCall : "call"}-${randomUUID().slice(0, 8)}.txt`;
   const spillPath = join(tmpdir(), fileName);
-  await writeFile(spillPath, text, "utf8");
+  await writeFile(spillPath, text, { encoding: "utf8", mode: 0o600 });
   const buf = Buffer.from(text, "utf8");
   let tail: string;
   if (buf.length <= tailBytes) {
@@ -193,8 +196,6 @@ export async function spillTextToSessionFile(
     note: `Output (${size} bytes) exceeded the spill threshold; full text spilled to ${spillPath}. Spilled content is not read evidence — re-read the source path via readWorkspaceFile with explicit startLine/maxLines before citing any line in a finding.`,
   };
 }
-
-export const READ_SPILL_FILENAME_PREFIX = "pr-agent-read-spill-";
 
 export async function disposeSpillFile(spillPath: string): Promise<void> {
   const base = spillPath.split(/[\\/]/).pop() ?? "";

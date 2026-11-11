@@ -1417,6 +1417,46 @@ describe("workspace git process ownership", () => {
     }
   });
 
+  it("scrubs secrets from the git child environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-git-env-"));
+    const previous = {
+      DATABASE_URL: process.env.DATABASE_URL,
+      GITHUB_APP_PRIVATE_KEY: process.env.GITHUB_APP_PRIVATE_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      WEBHOOK_SECRET: process.env.WEBHOOK_SECRET,
+      HTTPS_PROXY: process.env.HTTPS_PROXY,
+      SSH_AUTH_SOCK: process.env.SSH_AUTH_SOCK,
+    };
+    process.env.DATABASE_URL = "postgres://synthetic:secret@127.0.0.1:5432/pr_agent";
+    process.env.GITHUB_APP_PRIVATE_KEY = "synthetic-github-app-private-key";
+    process.env.OPENAI_API_KEY = "sk-synthetic-openai-key";
+    process.env.WEBHOOK_SECRET = "synthetic-webhook-secret";
+    process.env.HTTPS_PROXY = "https://proxy.test.example";
+    process.env.SSH_AUTH_SOCK = "/tmp/synthetic-ssh-agent.sock";
+    try {
+      const result = await runWorkspaceGit(["-c", "alias.dumpenv=!printenv", "dumpenv"], {
+        cwd: root,
+        timeoutMs: 5_000,
+      });
+      expect(result.stdout).toMatch(/^PATH=/m);
+      expect(result.stdout).toContain("HTTPS_PROXY=https://proxy.test.example");
+      expect(result.stdout).not.toContain("DATABASE_URL=");
+      expect(result.stdout).not.toContain("GITHUB_APP_PRIVATE_KEY=");
+      expect(result.stdout).not.toContain("OPENAI_API_KEY=");
+      expect(result.stdout).not.toContain("WEBHOOK_SECRET=");
+      expect(result.stdout).not.toContain("SSH_AUTH_SOCK=");
+      expect(result.stdout).not.toContain("synthetic-github-app-private-key");
+      expect(result.stdout).not.toContain("sk-synthetic-openai-key");
+      expect(result.stdout).not.toContain("synthetic-webhook-secret");
+    } finally {
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("redacts secrets split across stream chunks and diagnostic cut boundaries", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-redaction-"));
     const secret = "SYNTHETICSECRETVALUE0123456789abcdefXYZ";

@@ -29,6 +29,7 @@ import {
   LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
+  READ_SPILL_FILENAME_PREFIX,
 } from "../settings/index.ts";
 import { AppError, isAppError } from "../errors/appError.ts";
 import { logWarn } from "../evlog.ts";
@@ -270,11 +271,26 @@ async function cleanupStalePiAgentDirs(staleAgeSeconds: number): Promise<void> {
   }
 }
 
+async function cleanupStaleReadSpillFiles(staleAgeSeconds: number): Promise<void> {
+  const now = Date.now();
+  for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.startsWith(READ_SPILL_FILENAME_PREFIX)) continue;
+    const full = join(tmpdir(), entry.name);
+    const entryStat = await statIfPresent(full);
+    if (!entryStat?.isFile()) continue;
+    const ageMs = now - entryStat.mtimeMs;
+    if (ageMs > staleAgeSeconds * 1000) {
+      await rm(full).catch(() => undefined);
+    }
+  }
+}
+
 export async function cleanupStaleLocalPrWorkspaces(
   options: { readonly staleAgeSeconds?: number } = {},
 ): Promise<void> {
   const staleAgeSeconds = options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS;
   await cleanupStalePiAgentDirs(staleAgeSeconds);
+  await cleanupStaleReadSpillFiles(staleAgeSeconds);
   await sweepStaleOwnedWorkspaces({ staleAgeSeconds });
 }
 

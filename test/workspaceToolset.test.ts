@@ -1484,7 +1484,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("readWorkspaceFile names a directory reached through a symlink", async () => {
+  it("readWorkspaceFile rejects an in-tree directory symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
@@ -1493,20 +1493,15 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "docs-link"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "docs-link" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
-
-      expect(out.refused).toBe(true);
-      expect(out.reason).toContain("directory");
-      expect(out.reason).not.toContain("missing");
+      await expect(executors.readWorkspaceFile?.({ path: "docs-link" })).rejects.toMatchObject({
+        code: "pr_workspace.symlink_escape",
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("readWorkspaceFile names a FIFO reached through an innocent-looking symlink", async () => {
+  it("readWorkspaceFile rejects an in-tree FIFO symlink", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
@@ -1516,15 +1511,33 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/innocent.txt"]);
       const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/innocent.txt" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
-
-      expect(out.refused).toBe(true);
-      expect(out.reason).toContain("FIFO");
+      await expect(
+        executors.readWorkspaceFile?.({ path: "logs/innocent.txt" }),
+      ).rejects.toMatchObject({
+        code: "pr_workspace.symlink_escape",
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile blocks a symlink that escapes the workspace root", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "workspace-tools-outside-"));
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeFile(join(outside, "secret.env"), "TOKEN=leak\n");
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "docs"), { recursive: true });
+      await symlink(join(outside, "secret.env"), join(root, "docs", "notes.md"));
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "docs/notes.md"]);
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
+      await expect(executors.readWorkspaceFile?.({ path: "docs/notes.md" })).rejects.toMatchObject({
+        code: "pr_workspace.symlink_escape",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 
