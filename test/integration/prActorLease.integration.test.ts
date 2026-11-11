@@ -2879,6 +2879,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const reconcileSpy = vi
         .spyOn(lostRunningModule, "reconcileLostRunningWork")
         .mockResolvedValue(undefined);
+      vi.spyOn(lostRunningModule, "reconcileStaleQueuedWork").mockResolvedValue(undefined);
       vi.spyOn(projectionRepairModule, "scanProjectionRepairPending").mockResolvedValue({
         pendingScanned: 0,
         enqueued: 0,

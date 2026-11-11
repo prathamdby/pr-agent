@@ -1,6 +1,10 @@
 import { productionInstallationSurface } from "./installationSurface.ts";
 import { unfencedSurface } from "./writeFence.ts";
-import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
+import {
+  liveQueueJobSql,
+  lostRunningWorkLivenessSql,
+  staleQueuedWorkLivenessSql,
+} from "./workItemTransitions.ts";
 import { createPublishContext } from "./publishOnce.ts";
 import { recordLostRunningTerminal } from "./durableJob.ts";
 import type { Pool } from "pg";
@@ -21,9 +25,12 @@ import {
 import {
   getWorkItemCore,
   markLostRunningWorkFailed,
+  markStaleQueuedWorkFailed,
   transitionCancelRequestedLostRunning,
+  transitionCancelRequestedStaleQueued,
 } from "./workItemStateRepository.ts";
-import type { LostRunningWorkItem } from "./workerHealth.ts";
+import type { WorkType } from "./types.ts";
+import type { LostRunningWorkItem, StaleQueuedWorkItem } from "./workerHealth.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import {
   loadGithubCapabilityObservation,
@@ -303,6 +310,54 @@ export async function reconcileLostRunningWork(params: {
       });
     } catch (error) {
       logWarn("lost_running_work_reconcile_failed", {
+        workItemId: item.workItemId,
+        resourceKey: item.resourceKey,
+        workType: item.workType,
+        message: errorMessage(error),
+      });
+    }
+  }
+}
+
+async function finishCancelRequestedQueuedWork(pool: Pool): Promise<void> {
+  const rows = await pool.query<{ id: string; linked: boolean; type: WorkType }>(
+    `SELECT w.id::text AS id, (w.superseded_by IS NOT NULL) AS linked, w.type
+       FROM agent_work_items w
+      WHERE w.status = 'queued'
+        AND w.cancel_requested_at IS NOT NULL
+        AND (
+          (w.type = 'ask' ${liveQueueJobSql()})
+          OR (w.type <> 'ask' ${staleQueuedWorkLivenessSql("statement_timestamp()")})
+        )
+      ORDER BY w.created_at ASC
+      LIMIT $1`,
+    [STALE_QUEUED_WORK_BATCH_SIZE],
+  );
+  for (const row of rows.rows) {
+    await transitionCancelRequestedStaleQueued(pool, row);
+  }
+}
+
+export async function reconcileStaleQueuedWork(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly items: readonly StaleQueuedWorkItem[];
+}): Promise<void> {
+  await finishCancelRequestedQueuedWork(params.pool);
+  for (const item of params.items) {
+    try {
+      const core = await getWorkItemCore(params.pool, item.workItemId);
+      if (core == null || core.status !== "queued") continue;
+      const marked = await markStaleQueuedWorkFailed(params.pool, item.workItemId);
+      if (!marked) continue;
+      if (core.type !== "review") continue;
+      await closeOpenOwnVerdict({
+        cfg: params.cfg,
+        pool: params.pool,
+        workItemId: item.workItemId,
+      });
+    } catch (error) {
+      logWarn("stale_queued_work_reconcile_failed", {
         workItemId: item.workItemId,
         resourceKey: item.resourceKey,
         workType: item.workType,

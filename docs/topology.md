@@ -123,8 +123,8 @@ Worker shutdown is ordered and bounded. Intake closes first, pg-boss drains on
 flush, before the Postgres pool ends. A dispatch still running at that cutoff
 logs `agent_worker_shutdown_incomplete`; the cutoff ends the wait, not the
 dispatch, so its late terminal write fails against the ended pool. A later
-worker recovers the row through the existing watchdog chain or lost-running
-sweep.
+worker recovers the row through the existing watchdog chain, lost-running
+sweep, or stale-queued sweep.
 
 Lost-running diagnostics are advisory. The sweeper locks the lease key and
 excludes job writes before a fresh READ COMMITTED failure statement. A missing
@@ -133,6 +133,10 @@ protected-query timeout leaves the item unchanged for a later pass. Query and
 idle-in-transaction limits are local to that transaction (1,000 ms each).
 Only a committed mark permits a candidate's crashed verdict close; revived work
 stays running. Terminal reviews with open checks still have a separate repair lane.
+Stale-queued diagnostics use the same lock-and-recheck path for dead `queued`
+rows of all five durable types, with key-level lease liveness for leased types
+and no lease lock for ask. A committed `queue_delivery_lost` mark does not emit
+`"work completed"`.
 
 Progress publish records remain owner-gated independently of the actor lease.
 A zero-row progress write rechecks the lease, then warns and raises
