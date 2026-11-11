@@ -10,15 +10,8 @@ import {
 import type { WorkStatus, WorkType } from "./types.ts";
 import type { WriteFence } from "./writeFence.ts";
 
-export function lostRunningWorkLivenessSql(
-  clock: "$1::timestamptz" | "statement_timestamp()",
-): string {
+export function liveQueueJobSql(): string {
   return `AND NOT EXISTS (
-            SELECT 1 FROM pr_actor_leases l
-             WHERE l.work_item_id = w.id
-               AND l.expires_at > ${clock}
-          )
-          AND NOT EXISTS (
             SELECT 1 FROM pgboss.job j
              WHERE j.name = CASE w.type
                WHEN 'review' THEN '${REVIEW_QUEUE}'
@@ -34,6 +27,33 @@ export function lostRunningWorkLivenessSql(
                  OR j.data @> jsonb_build_object('workItemId', w.id::text)
                )
           )`;
+}
+
+export function lostRunningWorkLivenessSql(
+  clock: "$1::timestamptz" | "statement_timestamp()",
+): string {
+  return `AND NOT EXISTS (
+            SELECT 1 FROM pr_actor_leases l
+             WHERE l.work_item_id = w.id
+               AND l.expires_at > ${clock}
+          )
+          ${liveQueueJobSql()}`;
+}
+
+export function staleQueuedWorkLivenessSql(
+  clock: "$1::timestamptz" | "statement_timestamp()",
+): string {
+  return `AND CASE
+            WHEN w.type = 'ask' THEN true
+            ELSE NOT EXISTS (
+              SELECT 1 FROM pr_actor_leases l
+               WHERE l.resource_key = w.resource_key
+                 AND l.work_type = w.type
+                 AND l.work_item_id IS NOT NULL
+                 AND l.expires_at > ${clock}
+            )
+          END
+          ${liveQueueJobSql()}`;
 }
 
 export function leaseFenceSql(workItemIdColumn: string, epochParam: string): string {

@@ -4,10 +4,21 @@ import type { Pool, PoolClient } from "pg";
 import { inTransaction, queryOne } from "../db/postgres.ts";
 import { logWarn } from "../evlog.ts";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
-import { isAnyReviewLens, normalizeReviewLens, type AnyReviewLens } from "../settings/index.ts";
+import {
+  isAnyReviewLens,
+  normalizeReviewLens,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
+  type AnyReviewLens,
+} from "../settings/index.ts";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.ts";
 import { lockPrActorLeaseForUpdate } from "./prActorLease.ts";
-import { leaseFenceSql, lostRunningWorkLivenessSql, transition } from "./workItemTransitions.ts";
+import {
+  leaseFenceSql,
+  liveQueueJobSql,
+  lostRunningWorkLivenessSql,
+  staleQueuedWorkLivenessSql,
+  transition,
+} from "./workItemTransitions.ts";
 import {
   attachWorkItemPayload,
   STALE_HEAD_REPLACEMENT_ID_SQL,
@@ -383,10 +394,28 @@ export async function transitionCancelRequestedLostRunning(
   return result.rowCount > 0;
 }
 
-export async function markLostRunningWorkFailed(
+export async function transitionCancelRequestedStaleQueued(
+  pool: Pool,
+  row: { readonly id: string; readonly linked: boolean; readonly type: WorkType },
+): Promise<boolean> {
+  const result = await transition(pool, {
+    selector: { id: row.id },
+    from: ["queued"],
+    to: row.linked ? "superseded" : "cancelled",
+    fence: unleasedFence(),
+    where: () =>
+      `AND w.cancel_requested_at IS NOT NULL
+      ${row.type === "ask" ? liveQueueJobSql() : staleQueuedWorkLivenessSql("statement_timestamp()")}`,
+  });
+  return result.rowCount > 0;
+}
+
+async function markOrphanedWorkFailed(
   pool: Pool,
   id: string,
-  minAgeSeconds: number,
+  status: "running" | "queued",
+  lastError: "worker_lost" | "queue_delivery_lost",
+  where: (bind: (value: unknown) => string, type: WorkType) => string,
 ): Promise<boolean> {
   let protectedQuery = false;
   try {
@@ -399,8 +428,8 @@ export async function markLostRunningWorkFailed(
         `SELECT resource_key, type FROM agent_work_items
           WHERE id = $1
             AND type IN ('review', 'description', 'triage', 'verification', 'ask')
-            AND status = 'running' AND cancel_requested_at IS NULL`,
-        [id],
+            AND status = $2 AND cancel_requested_at IS NULL`,
+        [id, status],
       );
       if (!target) return false;
 
@@ -428,14 +457,11 @@ export async function markLostRunningWorkFailed(
       }
       const result = await transition(client, {
         selector: { id, resourceKey: target.resource_key, type: target.type },
-        from: ["running"],
+        from: [status],
         to: "failed",
         unlessCancelRequested: true,
-        lastError: "worker_lost",
-        where: (bind) => `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
-            AND w.started_at IS NOT NULL
-            AND w.started_at < statement_timestamp() - (${bind(minAgeSeconds)} * interval '1 second')
-            ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+        lastError,
+        where: (bind) => where(bind, target.type),
         fence: unleasedFence(),
       });
       protectedQuery = false;
@@ -453,6 +479,37 @@ export async function markLostRunningWorkFailed(
     }
     throw error;
   }
+}
+
+export async function markLostRunningWorkFailed(
+  pool: Pool,
+  id: string,
+  minAgeSeconds: number,
+): Promise<boolean> {
+  return markOrphanedWorkFailed(
+    pool,
+    id,
+    "running",
+    "worker_lost",
+    (bind) =>
+      `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
+            AND w.started_at IS NOT NULL
+            AND w.started_at < statement_timestamp() - (${bind(minAgeSeconds)} * interval '1 second')
+            ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+  );
+}
+
+export async function markStaleQueuedWorkFailed(pool: Pool, id: string): Promise<boolean> {
+  return markOrphanedWorkFailed(
+    pool,
+    id,
+    "queued",
+    "queue_delivery_lost",
+    (bind, type) =>
+      `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
+            AND w.created_at < statement_timestamp() - (${bind(STALE_QUEUED_WORK_GRACE_SECONDS)} * interval '1 second')
+            ${type === "ask" ? liveQueueJobSql() : staleQueuedWorkLivenessSql("statement_timestamp()")}`,
+  );
 }
 
 export async function markWorkFailed(

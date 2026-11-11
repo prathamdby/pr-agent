@@ -36,7 +36,7 @@ import {
   startWorkerHealthServer,
   WORKER_CONSUMER_QUEUES,
 } from "./workerHealth.ts";
-import { reconcileLostRunningWork } from "./lostRunningWork.ts";
+import { reconcileLostRunningWork, reconcileStaleQueuedWork } from "./lostRunningWork.ts";
 import { scanProjectionRepairPending } from "./projectionRepair.ts";
 import { errorMessage, toError } from "../errors/errorMessage.ts";
 
@@ -206,6 +206,18 @@ export const AgentWorkerLive = (
               });
             } catch (e) {
               logWarn("lost_running_work_sweep_failed", {
+                message: errorMessage(e),
+                ...errorLogFields(e),
+              });
+            }
+            try {
+              await reconcileStaleQueuedWork({
+                cfg,
+                pool,
+                items: report.staleQueuedWorkItems,
+              });
+            } catch (e) {
+              logWarn("stale_queued_work_sweep_failed", {
                 message: errorMessage(e),
                 ...errorLogFields(e),
               });

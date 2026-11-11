@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -14,6 +14,7 @@ import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository
 import {
   listTerminalReviewsWithOpenOwnChecks,
   reconcileLostRunningWork,
+  reconcileStaleQueuedWork,
 } from "../../src/agentWork/lostRunningWork.ts";
 import * as workState from "../../src/agentWork/workItemStateRepository.ts";
 import {
@@ -47,10 +48,14 @@ import {
   VERIFICATION_QUEUE,
 } from "../../src/settings/index.ts";
 import type { QueueConfig } from "../../src/agentWork/types.ts";
+import { admitAsk, defaultAskQuotaConfig } from "../../src/agentWork/askQuota.ts";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.ts";
 import { makeTestConfig } from "../helpers/config.ts";
 import { hasDatabase, integrationPool } from "./db.ts";
 
 const OWNER = "stale-queue-it";
+const ASK_INSTALLATION_ID = 85501;
+const ASK_EVENT = "stale-queued-ask-quota";
 const DATABASE_URL = process.env.DATABASE_URL!;
 
 const queueConfig: QueueConfig = makeTestConfig({
@@ -89,13 +94,30 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     vi.restoreAllMocks();
     await pool.query(`DELETE FROM pgboss.job WHERE data->>'owner' = $1`, [OWNER]);
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'cancelled', completed_at = now(), updated_at = now()
+        WHERE owner = $1 AND status IN ('queued', 'running')`,
+      [OWNER],
+    );
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [ASK_EVENT]);
+    await pool.query(
+      `DELETE FROM ask_quota_buckets
+        WHERE scope_key = $1 OR scope_key LIKE $2 OR scope_key LIKE $3`,
+      [
+        `installation:${ASK_INSTALLATION_ID}`,
+        `repository:${ASK_INSTALLATION_ID}:%`,
+        `actor:${ASK_INSTALLATION_ID}:%`,
+      ],
+    );
   });
 
   async function insertAgedQueuedWork(options?: {
-    readonly type?: "review" | "description";
+    readonly type?: "review" | "description" | "triage" | "verification" | "ask";
     readonly ageSeconds?: number;
     readonly now?: Date;
+    readonly installationId?: number;
   }): Promise<{
     readonly id: string;
     readonly resourceKey: string;
@@ -105,17 +127,27 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
     const now = options?.now ?? new Date();
     const resourceKey = `${OWNER}/r#${id.slice(0, 8)}`;
+    const source = type === "triage" || type === "ask" ? "slash" : "auto";
     await pool.query(
       `INSERT INTO agent_work_items (
          id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, payload, created_at, updated_at
        )
        VALUES (
-         $1, $2, 'auto', 'queued', $3, 'r', 1, 1, 'h', 'review', $4, '{}'::jsonb,
-         $5::timestamptz - ($6 * interval '1 second'),
-         $5::timestamptz - ($6 * interval '1 second')
+         $1, $2, $3, 'queued', $4, 'r', 1, $5, 'h', 'review', $6, '{}'::jsonb,
+         $7::timestamptz - ($8 * interval '1 second'),
+         $7::timestamptz - ($8 * interval '1 second')
        )`,
-      [id, type, OWNER, resourceKey, now.toISOString(), ageSeconds],
+      [
+        id,
+        type,
+        source,
+        OWNER,
+        options?.installationId ?? 1,
+        resourceKey,
+        now.toISOString(),
+        ageSeconds,
+      ],
     );
     return { id, resourceKey };
   }
@@ -142,10 +174,74 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       boss,
       pool,
       now,
-      diagnosticQueues: [REVIEW_QUEUE, DESCRIPTION_QUEUE],
+      diagnosticQueues: [REVIEW_QUEUE, DESCRIPTION_QUEUE, ASK_QUEUE],
       dlqQueues: [],
     });
     return report.staleQueuedWorkItems.map((row) => row.workItemId);
+  }
+
+  async function insertAgedQuotaAsk(options?: {
+    readonly ageSeconds?: number;
+    readonly now?: Date;
+  }): Promise<{ readonly id: string; readonly resourceKey: string }> {
+    const id = randomUUID();
+    const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
+    const now = options?.now ?? new Date();
+    await inTransaction(pool, async (client) => {
+      const event = await new DeliveryTx(client, {
+        event: ASK_EVENT,
+        delivery: id,
+        rawBody: Buffer.from(id),
+      }).insert("slash_ask");
+      if (event.duplicate) throw new Error("expected fresh stale-queued ask delivery");
+      const admission = await admitAsk(
+        client,
+        {
+          workItemId: id,
+          webhookEventId: event.id,
+          ref: {
+            installationId: ASK_INSTALLATION_ID,
+            owner: OWNER,
+            repo: "r",
+            prNumber: 1,
+            headSha: "h",
+          },
+          question: "why?",
+          replyTarget: { kind: "prConversation", prNumber: 1 },
+          commentId: createHash("sha256").update(id).digest().readUInt32BE(0),
+          commenterId: 7,
+        },
+        {
+          ...defaultAskQuotaConfig(),
+          actorMaxOutstanding: 20,
+          repositoryMaxOutstanding: 20,
+          installationMaxOutstanding: 20,
+        },
+      );
+      if (admission.kind !== "admitted") throw new Error("expected admitted stale-queued ask");
+    });
+    await pool.query(
+      `UPDATE agent_work_items
+          SET created_at = $2::timestamptz - ($3 * interval '1 second'),
+              updated_at = $2::timestamptz - ($3 * interval '1 second')
+        WHERE id = $1`,
+      [id, now.toISOString(), ageSeconds],
+    );
+    const row = await pool.query<{ resource_key: string }>(
+      "SELECT resource_key FROM agent_work_items WHERE id = $1",
+      [id],
+    );
+    return { id, resourceKey: row.rows[0]?.resource_key ?? `${OWNER}/r#1` };
+  }
+
+  async function outstandingAskCount(): Promise<number | null> {
+    const { rows } = await pool.query<{ outstanding_count: number }>(
+      `SELECT outstanding_count
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${ASK_INSTALLATION_ID}`],
+    );
+    return rows[0]?.outstanding_count ?? null;
   }
 
   it("flags a queued review with no live lease and no pg-boss job", async () => {
@@ -153,16 +249,15 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     expect(await staleIds()).toContain(id);
   });
 
-  it("leaves a queued ask without a job non-terminal", async () => {
-    const { id } = await insertAgedQueuedWork();
-    await pool.query("UPDATE agent_work_items SET type = 'ask', source = 'slash' WHERE id = $1", [
-      id,
-    ]);
-    expect(await staleIds()).not.toContain(id);
+  it("leaves lost-running a no-op on a queued ask and fails it through stale-queued reconciliation", async () => {
+    const { id } = await insertAgedQuotaAsk();
+    expect(await staleIds()).toContain(id);
+    expect(await outstandingAskCount()).toBe(1);
     const before = await pool.query(
       "SELECT status, last_error FROM agent_work_items WHERE id = $1",
       [id],
     );
+    const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
     await reconcileLostRunningWork({
       cfg: makeTestConfig(),
       pool,
@@ -172,6 +267,23 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
         .rows,
     ).toEqual(before.rows);
+    await reconcileStaleQueuedWork({
+      cfg: makeTestConfig(),
+      pool,
+      items: [{ workItemId: id, resourceKey: OWNER, workType: "ask", ageSeconds: 360 }],
+    });
+    expect(
+      (
+        await pool.query(
+          "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
+          [id],
+        )
+      ).rows,
+    ).toEqual([
+      { status: "failed", last_error: "queue_delivery_lost", completed_at: expect.any(Date) },
+    ]);
+    expect(await outstandingAskCount()).toBe(0);
+    expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
   });
 
   it("does not flag a queued review that still has an intake job waiting", async () => {
@@ -243,6 +355,285 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     });
     expect(await staleIds(now)).toContain(id);
   });
+
+  it("does not flag a queued ask at the grace boundary", async () => {
+    const now = new Date("2026-08-19T12:00:00.000Z");
+    const { id } = await insertAgedQuotaAsk({
+      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
+      now,
+    });
+    expect(await staleIds(now)).not.toContain(id);
+  });
+
+  it("does not fail a queued ask inside the grace window", async () => {
+    const { id } = await insertAgedQuotaAsk({
+      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS - 5,
+    });
+    expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
+    expect(
+      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
+    ).toEqual([{ status: "queued" }]);
+    expect(await outstandingAskCount()).toBe(1);
+  });
+
+  it("does not flag a queued ask that still has a live ASK_QUEUE job", async () => {
+    const { id } = await insertAgedQuotaAsk();
+    const jobId = await boss.send(
+      ASK_QUEUE,
+      { kind: "ask", workItemId: id, owner: OWNER },
+      { group: { id: String(ASK_INSTALLATION_ID) } },
+    );
+    expect(jobId).not.toBeNull();
+    expect(await staleIds()).not.toContain(id);
+    await reconcileStaleQueuedWork({
+      cfg: makeTestConfig(),
+      pool,
+      items: [{ workItemId: id, resourceKey: OWNER, workType: "ask", ageSeconds: 360 }],
+    });
+    expect(
+      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
+    ).toEqual([{ status: "queued" }]);
+    expect(await outstandingAskCount()).toBe(1);
+  });
+
+  it.each(["review", "description", "triage", "verification"] as const)(
+    "fails a truly stale queued %s item",
+    async (workType) => {
+      const cfg = makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: true },
+      });
+      const { id, resourceKey } = await insertAgedQueuedWork({ type: workType });
+      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "synthetic-integration-token",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      });
+      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      if (workType === "review") {
+        const check = await fake.surface.startReviewCheck("h", id, "Running");
+        await recordReviewCheckRun(pool, {
+          workItemId: id,
+          resourceKey,
+          reviewLens: "review",
+          githubId: check.id,
+          detail: { status: "in_progress" },
+        });
+      }
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      expect(await staleIds()).toContain(id);
+      await reconcileStaleQueuedWork({
+        cfg,
+        pool,
+        items: [{ workItemId: id, resourceKey, workType, ageSeconds: 360 }],
+      });
+      expect(
+        (
+          await pool.query(
+            "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
+            [id],
+          )
+        ).rows,
+      ).toEqual([
+        { status: "failed", last_error: "queue_delivery_lost", completed_at: expect.any(Date) },
+      ]);
+      expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
+      if (workType === "review") {
+        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
+          expect.objectContaining({ conclusion: "action_required" }),
+        ]);
+      } else {
+        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
+          [],
+        );
+      }
+    },
+  );
+
+  it.each([
+    ...(["review", "description", "triage", "verification"] as const).flatMap((workType) =>
+      (["renewal", "job insert"] as const).map((revival) => ({ workType, revival })),
+    ),
+    { workType: "ask" as const, revival: "job insert" as const },
+  ])(
+    "preserves queued $workType when $revival commits during failure",
+    async ({ workType, revival }) => {
+      const cfg = makeTestConfig();
+      const { id, resourceKey } =
+        workType === "ask"
+          ? await insertAgedQuotaAsk()
+          : await insertAgedQueuedWork({ type: workType });
+      const queue = {
+        review: REVIEW_QUEUE,
+        description: DESCRIPTION_QUEUE,
+        triage: TRIAGE_QUEUE,
+        verification: VERIFICATION_QUEUE,
+        ask: ASK_QUEUE,
+      }[workType];
+      let epoch: number | null = null;
+      if (revival === "renewal") {
+        const lease = await acquirePrActorLease(pool, {
+          resourceKey,
+          workType,
+          workItemId: id,
+          holderId: OWNER,
+          ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
+        });
+        if (!lease.acquired) throw new Error("Expected initial lease");
+        epoch = lease.leaseEpoch;
+        await pool.query(
+          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
+          [id],
+        );
+      }
+      const jobId = randomUUID();
+      const before = await pool.query(
+        "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
+        [id],
+      );
+      const blocker = await pool.connect();
+      const writer = await pool.connect();
+      let blockerOpen = false;
+      let writerOpen = false;
+      try {
+        await blocker.query("BEGIN");
+        blockerOpen = true;
+        await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
+        await writer.query("BEGIN");
+        writerOpen = true;
+        if (revival === "renewal") {
+          if (epoch == null) throw new Error("Expected initial epoch");
+          expect(
+            await renewPrActorLease(writer, {
+              resourceKey,
+              workType,
+              workItemId: id,
+              leaseEpoch: epoch,
+              ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
+            }),
+          ).toBe(true);
+        } else {
+          await writer.query(
+            "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'active', $3::jsonb)",
+            [jobId, queue, JSON.stringify({ owner: OWNER, workItemId: id })],
+          );
+        }
+        expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
+        await writer.query("COMMIT");
+        writerOpen = false;
+        await blocker.query("COMMIT");
+        blockerOpen = false;
+        await reconcileStaleQueuedWork({
+          cfg,
+          pool,
+          items: [{ workItemId: id, resourceKey, workType, ageSeconds: 360 }],
+        });
+        expect(
+          (
+            await pool.query(
+              "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
+              [id],
+            )
+          ).rows,
+        ).toEqual(before.rows);
+      } finally {
+        if (writerOpen) await writer.query("ROLLBACK");
+        if (blockerOpen) await blocker.query("ROLLBACK");
+        writer.release();
+        blocker.release();
+      }
+    },
+  );
+
+  it("defers a stale queued mark on item contention", async () => {
+    const { id } = await insertAgedQueuedWork();
+    const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+    const blocker = await pool.connect();
+    let open = false;
+    try {
+      await blocker.query("BEGIN");
+      open = true;
+      await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
+      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
+      expect((await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows).toEqual(
+        before.rows,
+      );
+    } finally {
+      if (open) await blocker.query("ROLLBACK");
+      blocker.release();
+    }
+  });
+
+  it("rolls back a timed-out protected stale queued mark", async () => {
+    const { id } = await insertAgedQueuedWork({ ageSeconds: 1800 });
+    const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+    const sweeper = await pool.connect();
+    const read = sweeper.query.bind(sweeper);
+    const release = sweeper.release.bind(sweeper);
+    vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
+    const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
+    vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
+      if (typeof text === "string" && /UPDATE\s+agent_work_items/i.test(text)) {
+        await read("SELECT pg_sleep(5)");
+      }
+      return read(text, values);
+    });
+    try {
+      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
+      expect((await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows).toEqual(
+        before.rows,
+      );
+    } finally {
+      connect.mockRestore();
+      vi.mocked(sweeper.query).mockRestore();
+      vi.mocked(sweeper.release).mockRestore();
+      release();
+    }
+  });
+
+  it("fails a stale queued ask while the lease table is exclusively locked", async () => {
+    const { id } = await insertAgedQuotaAsk();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("LOCK TABLE pr_actor_leases IN ACCESS EXCLUSIVE MODE");
+      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(true);
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
+    expect(
+      (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
+        .rows,
+    ).toEqual([{ status: "failed", last_error: "queue_delivery_lost" }]);
+    expect(await outstandingAskCount()).toBe(0);
+  });
+
+  it.each(["cancelled", "superseded"] as const)(
+    "finishes a cancel-requested queued review as %s",
+    async (status) => {
+      const { id } = await insertAgedQueuedWork();
+      if (status === "superseded") {
+        const successor = await insertAgedQueuedWork();
+        await pool.query(
+          `UPDATE agent_work_items
+              SET cancel_requested_at = now(), superseded_by = $2
+            WHERE id = $1`,
+          [id, successor.id],
+        );
+      } else {
+        await pool.query("UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1", [
+          id,
+        ]);
+      }
+      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+      await reconcileStaleQueuedWork({ cfg: makeTestConfig(), pool, items: [] });
+      expect(
+        (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
+      ).toEqual([{ status }]);
+      expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
+    },
+  );
 
   it.each(
     (["review", "description", "triage", "verification"] as const).flatMap((workType) =>

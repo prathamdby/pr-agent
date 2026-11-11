@@ -17,7 +17,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../settings/index.ts";
 import { AGENT_DEAD_LETTER_QUEUES } from "./boss.ts";
-import { lostRunningWorkLivenessSql } from "./workItemTransitions.ts";
+import { lostRunningWorkLivenessSql, staleQueuedWorkLivenessSql } from "./workItemTransitions.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 
 export const WORKER_CONSUMER_QUEUES = [
@@ -221,31 +221,10 @@ export async function collectQueueDiagnostics(params: {
               w.type AS work_type,
               EXTRACT(EPOCH FROM ($1::timestamptz - w.created_at)) AS age_seconds
          FROM agent_work_items w
-        WHERE w.type IN ('review', 'description', 'triage', 'verification')
+        WHERE w.type IN ('review', 'description', 'triage', 'verification', 'ask')
           AND w.status = 'queued'
           AND w.created_at < $1::timestamptz - ($2 * interval '1 second')
-          AND NOT EXISTS (
-            SELECT 1 FROM pr_actor_leases l
-             WHERE l.resource_key = w.resource_key
-               AND l.work_type = w.type
-               AND l.work_item_id IS NOT NULL
-               AND l.expires_at > $1::timestamptz
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM pgboss.job j
-             WHERE j.name = CASE w.type
-               WHEN 'review' THEN '${REVIEW_QUEUE}'
-               WHEN 'description' THEN '${DESCRIPTION_QUEUE}'
-               WHEN 'triage' THEN '${TRIAGE_QUEUE}'
-               WHEN 'verification' THEN '${VERIFICATION_QUEUE}'
-             END
-               AND j.state IN ('created', 'active', 'retry')
-               AND (
-                 j.id = w.id
-                 OR j.singleton_key = w.id::text
-                 OR j.data @> jsonb_build_object('workItemId', w.id::text)
-               )
-          )
+          ${staleQueuedWorkLivenessSql("$1::timestamptz")}
         ORDER BY w.created_at ASC
         LIMIT $3::int`,
       [params.now.toISOString(), STALE_QUEUED_WORK_GRACE_SECONDS, STALE_QUEUED_WORK_BATCH_SIZE],

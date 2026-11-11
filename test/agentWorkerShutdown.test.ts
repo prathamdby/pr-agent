@@ -40,6 +40,7 @@ vi.mock("../src/agentWork/retention.ts", () => ({
 
 vi.mock("../src/agentWork/lostRunningWork.ts", () => ({
   reconcileLostRunningWork: vi.fn(async () => undefined),
+  reconcileStaleQueuedWork: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/agentWork/projectionRepair.ts", () => ({
