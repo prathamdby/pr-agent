@@ -12,7 +12,7 @@ type GhCommentProps = {
 export function GhComment({ surface, frame = "inline", children }: GhCommentProps) {
   const chassis = frame === "window" ? "window" : "rounded-sm bg-surface shadow-soft";
   return (
-    <article className={`overflow-hidden text-xs leading-relaxed text-text ${chassis}`}>
+    <article className={`overflow-hidden text-xs leading-mock text-text ${chassis}`}>
       <header className="flex items-center gap-2 border-b border-line bg-surface-raised px-3 py-2">
         <img
           src="/logo.png"
@@ -127,7 +127,7 @@ export function GhPill({ tone, children }: { readonly tone: Tone; readonly child
 
 export function GhPre({ children }: { readonly children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-relaxed text-text">
+    <pre className="overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-mock text-text">
       <code>{children}</code>
     </pre>
   );

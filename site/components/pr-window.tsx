@@ -12,7 +12,7 @@ const TABS = [
 export function PrWindow() {
   return (
     <div
-      className="window w-full overflow-hidden text-xs leading-relaxed text-text"
+      className="window w-full overflow-hidden text-xs leading-mock text-text"
       aria-hidden="true"
     >
       <div className="flex items-center gap-3 border-b border-line bg-surface-raised px-3 py-2">

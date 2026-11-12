@@ -14,10 +14,10 @@ export function NotFound() {
         <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
           <div>
             <Eyebrow>404</Eyebrow>
-            <h1 className="mt-4 text-[clamp(2rem,4vw,3rem)] font-medium leading-[1.08] tracking-[-0.03em] text-text">
+            <h1 className="mt-5 text-[clamp(2rem,4vw,3rem)] font-display leading-display tracking-display text-text">
               This page does not exist
             </h1>
-            <p className="mt-4 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lead">
+            <p className="mt-3 max-w-[46ch] text-base leading-description text-text-secondary sm:text-lead">
               The PR Agent site is one landing page plus a few machine-readable files. Everything it
               publishes is listed here.
             </p>
@@ -48,7 +48,7 @@ export function NotFound() {
                 >
                   {resource.path}
                 </a>
-                <span className="text-sm leading-relaxed text-text-secondary">
+                <span className="text-sm leading-body text-text-secondary">
                   {resource.description}
                 </span>
               </li>

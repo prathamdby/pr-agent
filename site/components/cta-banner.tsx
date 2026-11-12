@@ -12,7 +12,7 @@ export function CtaBanner() {
       <div className="container-x">
         <h2
           id="cta-heading"
-          className="text-[clamp(2.375rem,4.8vw,4rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text"
+          className="text-[clamp(2.375rem,4.8vw,4rem)] font-display leading-display tracking-display text-text"
         >
           Run the{" "}
           <span className="word-pill wash overflow-visible shadow-soft max-sm:mx-auto max-sm:my-2.5 max-sm:flex max-sm:w-fit">
@@ -23,7 +23,7 @@ export function CtaBanner() {
           </span>{" "}
           yourself
         </h2>
-        <p className="mx-auto mt-5 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg">
+        <p className="mx-auto mt-5 max-w-[46ch] text-base leading-support text-text-secondary sm:text-lg">
           Clone the repository, fill one env file, and start the stack with Compose. The first
           review lands on your next pull request.
         </p>

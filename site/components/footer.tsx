@@ -63,7 +63,7 @@ export function Footer({ continuesSky = false }: { continuesSky?: boolean }) {
               />
               <span className="text-ui font-semibold tracking-[-0.01em]">{PRODUCT_NAME}</span>
             </a>
-            <p className="mt-4 max-w-md text-sm leading-relaxed text-text-secondary lg:max-w-xs">
+            <p className="mt-4 max-w-md text-sm leading-body text-text-secondary lg:max-w-xs">
               AI pull request reviews on servers you run. MIT licensed, no per-seat fee, your GitHub
               credentials and model keys stay with you.
             </p>

@@ -11,6 +11,7 @@ import { renderWebMcpScript } from "@/lib/webMcp";
 import { HERO_HEADING } from "@/lib/content";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
+import { renderThemeScript } from "@/lib/theme";
 import appCss from "./globals.css?url";
 
 export const Route = createRootRoute({
@@ -153,9 +154,10 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: renderThemeScript() }} />
         <script
           dangerouslySetInnerHTML={{
             __html:

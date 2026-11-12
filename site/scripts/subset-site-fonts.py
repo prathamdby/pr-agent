@@ -34,7 +34,7 @@ class Face:
 
 
 FACES = (
-    Face("Geist", "Geist-Variable.ttf", "Geist-Variable.woff2", ("ccmp", "liga", "kern", "tnum")),
+    Face("Geist", "Geist-Variable.ttf", "Geist-Variable.woff2", ("ccmp", "liga", "kern", "tnum", "ss08")),
     Face("Geist Mono", "GeistMono-Variable.ttf", "GeistMono-Variable.woff2", ("ccmp",)),
 )
 

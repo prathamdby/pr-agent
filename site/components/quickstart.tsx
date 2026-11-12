@@ -27,11 +27,11 @@ function Step({ n, title, body, children }: StepProps) {
   return (
     <li className="grid gap-6 card p-6 sm:p-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
       <div>
-        <p className="tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text shadow-soft">
+        <p className="tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-pill tracking-pill whitespace-nowrap text-accent-text shadow-soft">
           Step {n}
         </p>
-        <h3 className="mt-4 text-xl font-medium tracking-[-0.015em] text-text">{title}</h3>
-        <p className="mt-3 text-ui leading-relaxed text-text-secondary">{body}</p>
+        <h3 className="mt-4 text-xl font-title tracking-[-0.015em] text-text">{title}</h3>
+        <p className="mt-3 text-ui leading-body text-text-secondary">{body}</p>
       </div>
       <div className="min-w-0">{children}</div>
     </li>
@@ -71,7 +71,7 @@ export function Quickstart() {
                   className={
                     field.mono
                       ? "font-mono text-sm break-words text-accent-text"
-                      : "text-sm leading-relaxed text-text-secondary"
+                      : "text-sm leading-body text-text-secondary"
                   }
                 >
                   {field.value}
@@ -111,7 +111,7 @@ export function Quickstart() {
                 className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-4"
               >
                 <code className="shrink-0 font-mono text-sm text-accent-text">{item.cmd}</code>
-                <span className="text-sm leading-relaxed text-pretty text-text-secondary">
+                <span className="text-sm leading-body text-pretty text-text-secondary">
                   {item.tip}
                 </span>
               </li>

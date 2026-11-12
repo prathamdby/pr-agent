@@ -77,7 +77,7 @@ function ComparisonTable() {
         <tbody className="divide-y divide-line">
           {COMPARISON_CRITERIA.map((criterion) => (
             <tr key={criterion.label}>
-              <th scope="row" className="px-5 py-3.5 text-ui leading-snug font-medium text-text">
+              <th scope="row" className="px-5 py-3.5 text-ui leading-snug font-heading text-text">
                 {criterion.label}
               </th>
               {ALTERNATIVE_ROWS.map((tool) => (
@@ -98,7 +98,7 @@ function ComparisonCards() {
     <ul className="space-y-4 md:hidden">
       {COMPARISON_CRITERIA.map((criterion) => (
         <li key={criterion.label} className="card px-5 pt-5 pb-2">
-          <h3 className="text-ui leading-snug font-medium text-text">{criterion.label}</h3>
+          <h3 className="text-ui leading-snug font-heading text-text">{criterion.label}</h3>
           <ul className="mt-2 divide-y divide-line">
             {ALTERNATIVE_ROWS.map((tool) => {
               const self = tool.id === SELF;
@@ -114,7 +114,7 @@ function ComparisonCards() {
                   <span
                     className={
                       self
-                        ? "inline-flex items-center gap-2.5 text-ui font-medium text-text"
+                        ? "inline-flex items-center gap-2.5 text-ui font-heading text-text"
                         : "inline-flex items-center gap-2.5 text-ui text-text-secondary"
                     }
                   >

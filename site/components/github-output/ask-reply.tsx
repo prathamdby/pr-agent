@@ -3,7 +3,7 @@ import { GhComment, GhLabel } from "@/components/github-output/primitives";
 export function AskReplyMock() {
   return (
     <GhComment surface="Pull request conversation reply" frame="window">
-      <div className="space-y-3 text-label leading-relaxed">
+      <div className="space-y-3 text-label leading-mock">
         <p className="text-text-secondary">
           <span className="font-semibold text-text">Question:</span> Why is the retry wrapper needed
           around the webhook dispatcher?

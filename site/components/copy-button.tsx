@@ -25,7 +25,7 @@ export function CopyButton({
     if (copiedAt === null) {
       return undefined;
     }
-    const timer = setTimeout(() => setCopiedAt(null), 1800);
+    const timer = setTimeout(() => setCopiedAt(null), 1600);
     return () => clearTimeout(timer);
   }, [copiedAt]);
 
@@ -57,7 +57,7 @@ export function CopyButton({
 
   return (
     <>
-      <button type="button" onClick={copy} className={chassis}>
+      <button type="button" onClick={copy} data-copied={copied} className={chassis}>
         {prefix}
         {iconAfter ? null : icon}
         <span className="grid">

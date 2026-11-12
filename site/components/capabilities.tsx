@@ -39,9 +39,9 @@ function Copy({ id }: { readonly id: CapabilityId }) {
   const item = capability(id);
   return (
     <>
-      <h3 className="text-lead leading-snug font-medium text-text">{item.title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-text-secondary">{item.trigger}.</p>
-      <p className="mt-3 text-sm leading-relaxed text-text-tertiary">{item.detail}</p>
+      <h3 className="text-lead leading-snug font-title tracking-title text-text">{item.title}</h3>
+      <p className="mt-2 text-sm leading-body text-text-secondary">{item.trigger}.</p>
+      <p className="mt-3 text-sm leading-body text-text-tertiary">{item.detail}</p>
     </>
   );
 }
