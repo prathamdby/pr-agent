@@ -19,7 +19,7 @@ export function Pricing() {
           >
             No per-seat fee, ever
           </SectionTitle>
-          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-lead">
+          <p className="mt-3 max-w-[52ch] text-base leading-description text-text-secondary sm:text-lead">
             Know the cost before you connect GitHub or add an AI provider.
           </p>
         </div>
@@ -42,10 +42,10 @@ export function Pricing() {
                   </span>
                 </div>
                 <div className={`flex-1 px-3 ${flipped ? "order-first pt-3 pb-4" : "pt-4 pb-3"}`}>
-                  <h3 className="text-lead leading-snug font-medium text-text">{plan.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-text-secondary">
-                    {plan.detail}
-                  </p>
+                  <h3 className="text-lead leading-snug font-title tracking-title text-text">
+                    {plan.title}
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-body text-text-secondary">{plan.detail}</p>
                 </div>
               </li>
             );

@@ -19,7 +19,7 @@ export function Section({ id, labelledBy, className, children }: SectionProps) {
 
 export function Eyebrow({ children }: { readonly children: ReactNode }) {
   return (
-    <p className="inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-medium text-accent-text shadow-soft">
+    <p className="inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-title tracking-label text-accent-text shadow-soft">
       <span aria-hidden="true" className="h-1.5 w-3.5 rounded-full bg-accent-solid" />
       {children}
     </p>
@@ -40,7 +40,7 @@ export function SectionTitle({ id, eyebrow, figure, children }: SectionTitleProp
       {figure}
       <h2
         id={id}
-        className="mt-4 text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text"
+        className="mt-5 text-[clamp(1.875rem,3.4vw,2.625rem)] font-display leading-[1.12] tracking-[-0.025em] text-text"
       >
         {children}
       </h2>
@@ -58,13 +58,13 @@ type SectionHeadingProps = {
 
 export function SectionHeading({ id, eyebrow, title, description, action }: SectionHeadingProps) {
   return (
-    <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between md:gap-12">
+    <div className="flex flex-col gap-7 md:flex-row md:items-end md:justify-between md:gap-12">
       <div className="max-w-2xl">
         <SectionTitle id={id} eyebrow={eyebrow}>
           {title}
         </SectionTitle>
         {description ? (
-          <p className="mt-4 max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-lead">
+          <p className="mt-3 max-w-[58ch] text-base leading-description text-text-secondary sm:text-lead">
             {description}
           </p>
         ) : null}

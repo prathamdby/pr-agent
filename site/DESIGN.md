@@ -10,20 +10,21 @@ The page is a TanStack Start app (React 19, Tailwind v4). Tailwind’s stock pal
 2. [House rules](#house-rules)
 3. [Typography](#typography)
 4. [Colour](#colour)
-5. [Radii](#radii)
-6. [Depth](#depth)
-7. [Motion](#motion)
-8. [Layout](#layout)
-9. [Components](#components)
-10. [Icons and marks](#icons-and-marks)
-11. [Content and voice](#content-and-voice)
-12. [Do and don’t](#do-and-dont)
-13. [Verification](#verification)
-14. [File map](#file-map)
+5. [Themes](#themes)
+6. [Radii](#radii)
+7. [Depth](#depth)
+8. [Motion](#motion)
+9. [Layout](#layout)
+10. [Components](#components)
+11. [Icons and marks](#icons-and-marks)
+12. [Content and voice](#content-and-voice)
+13. [Do and don’t](#do-and-dont)
+14. [Verification](#verification)
+15. [File map](#file-map)
 
 ## Reference and mood
 
-The PR Agent Design System is a light, calm, product-led look: a white sheet on a grey backdrop, one blue accent, soft blue washes behind real GitHub output, and a lot of air. Hold these traits whatever section you add:
+The PR Agent Design System is a calm, product-led look, light or dark: a white sheet on a grey backdrop, one blue accent, soft blue washes behind real GitHub output, and a lot of air. Hold these traits whatever section you add:
 
 - **A white sheet over a light grey backdrop.** `.page-frame` is the sheet: `bg-surface`, `min-height: 100svh`, and from `min-width: 84rem` it caps at `max-width: 84rem`, centres, and takes `--shadow-card`. The `<body>` behind it is `bg-bg`. The sheet runs from the top edge, so the sticky header has nothing to fight, to the bottom edge, where the footer wordmark meets the fold.
 - **Generous whitespace.** Sections breathe with `py-16 sm:py-20 lg:py-24`. Nothing sits closer than it must.
@@ -33,7 +34,7 @@ The PR Agent Design System is a light, calm, product-led look: a white sheet on 
 - **GitHub-styled output mocks inside those washes** (`site/components/github-output/`), so the reader sees what lands on a pull request rather than an abstract illustration.
 - **A sky fold closing the page.** The closing banner and the footer share one sky that deepens from the white sheet to the logo’s sky blue (`.sky-fold-lead` and `.sky-fold`), and a giant white brand wordmark rises out of it (`.wordmark-clip` and `.wordmark-sky`, rendered by `site/components/footer.tsx`).
 - **Clean cut and calm.** Depth comes from soft layered shadows, never from borders. Hairline `border-line` rules only separate rows inside a card or frame a mock’s chrome.
-- **No dark mode.** `color-scheme: light` on `html`, `theme-color` `#ffffff` in the head.
+- **Two themes, one switch.** Light and dark share every component. `:root[data-theme="dark"]` re-points the primitives and nothing else changes. A script in the head sets the theme before first paint, from `localStorage` or else the system preference, and keeps `theme-color` in step (`#ffffff` light, `#0b111c` dark). See [Themes](#themes).
 
 ## House rules
 
@@ -50,18 +51,19 @@ These rules are followed without exception. They are grouped the way the site ap
 
 ### Animation
 
-- Animate from the trigger. The mobile menu drops out of the header (`translate: 0 -4px` to `0 0`); the copied check grows out of the copy icon (`.swap`).
-- Frequently used menus open instantly and only animate on close. `.menu-panel` uses `@starting-style` to skip the entrance and transitions `opacity, translate, filter, display` on the way out. Escape closes it and returns focus to the menu button. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit: the panel sits in the header’s flow, so a fade-out would still be taking up space when the browser measures the anchor, and the scroll would land a full menu height past it.
-- Exits are subtler than entrances and end in a 4px blur: `.menu-panel[data-open="false"]` and `.swap > [data-shown="false"]` both finish at `filter: blur(4px)`.
-- Name the transition properties. Never `transition: all`. `.btn` lists `background-color, color, box-shadow, scale`.
-- Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98. The hero pill link, which is button-shaped, does the same with `active:scale-[0.97]`.
+- Animate from the trigger. The mobile menu grows out of the menu button’s corner (`transform-origin: top right`, `scale 0.94` to `1`); the copied check grows out of the copy icon (`.swap`).
+- The mobile menu opens in 180ms and closes in 120ms, both `ease-out`, so it leaves faster than it arrives. `.menu-panel` and `.menu-scrim` use `@starting-style` for the entrance and `transition-behavior: allow-discrete` for `display`. Escape closes the menu and returns focus to the menu button; a click on the scrim closes it too. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit, so nothing is still fading when the browser measures the anchor.
+- Exits are quicker than entrances. `.swap > [data-shown="false"]` finishes at `filter: blur(4px)`.
+- Name the transition properties. Never `transition: all`. `.btn` lists `background-color, color, box-shadow, translate, scale`.
+- Buttons lift and press. The primary button rises `translateY(-1px)` on hover and sinks to `scale 0.97` on press in 80ms; every `.btn` presses. Release takes 220ms on `cubic-bezier(0.2, 0.8, 0.2, 1)`, so it settles back with a slight spring. The accepted press range is 0.95–0.98. The hero pill link, which is button-shaped, presses with `active:scale-[0.97]`.
 - Icon swaps cross-fade: the new icon goes `scale 0.25` to `1` and `blur 4px` to `0` while the old one shrinks away (`.swap`).
 - Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.menu-panel`, and `.disclosure` transition; `rise` and `panel-in` are keyframes. `panel-in` only plays when a tab is picked with the pointer: on page load and while arrowing through the strip the panel switches instantly, because keyboard-driven actions should not animate.
-- Disable transitions while switching themes. There is one theme today. If a second arrives, zero `transition-duration` for the frame the switch happens in.
+- Themes crossfade; they do not snap and they do not freeze transitions. The toggle runs the switch inside `document.startViewTransition`, and `::view-transition-old(root)` and `::view-transition-new(root)` run 200ms. The toggle has its own `view-transition-name: theme-toggle` and is drawn live, so its thumb never ghosts. Where the API is missing, or under `prefers-reduced-motion: reduce`, the theme changes instantly.
 - `will-change: transform` on anything that jitters by 1–2px during motion: `.window`.
 - Stagger entrances in small groups. The hero runs `motion-safe:animate-rise` at 0ms, 90ms, and 180ms for its three blocks.
 - No animation on page load unless intentional. The hero rise is the one intentional load animation. Every other section is still until the reader acts.
 - Hover feedback is instant: colour and background hovers run 150ms, never longer.
+- All motion goes away under `prefers-reduced-motion: reduce`: no lift, no press scale, no sheen, no copy ring, no menu scale, no thumb travel or icon rotation.
 
 ### Typography
 
@@ -82,14 +84,16 @@ These rules are followed without exception. They are grouped the way the site ap
 - Components use semantic tokens only, never primitives. `--palette-*` is read only inside `@theme`.
 - Tokens are named by purpose (`surface-raised`, `text-tertiary`, `wash-strong`), not by hue.
 - `accent` is reserved for the brand blue. Status colours have their own tokens.
-- Contrast is measured against the real background. `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`. Two exceptions are approved: the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)), and the cloud-filled `$0` in the pricing band, which is display art at 200px and up and stays real text (see [Section, heading, eyebrow](#section-heading-eyebrow)).
-- A dark theme, if ever added, is a separate palette behind one switch mechanism, not per-component overrides.
+- Contrast is measured against the real background, in both themes. Light `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`. Dark `text-tertiary` (`#8390a6`) reads 5.9:1 on `surface` (`#0b111c`), 5.4:1 on `surface-raised` (`#131a27`), and 4.9:1 on `surface-hover`; dark `text-secondary` (`#a7b2c4`) reads 8.8:1 on `surface`; `accent-text` (`#7ab8ff`) reads 9.1:1. Two exceptions are approved: the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)), and the cloud-filled `$0` in the pricing band, which is display art at 200px and up and stays real text (see [Section, heading, eyebrow](#section-heading-eyebrow)).
+- Dark is a second set of values for the same primitives behind one switch, `:root[data-theme="dark"]`. Components never branch on the theme and carry no `dark:` overrides.
 - Gradients interpolate `in oklab`: `.wash`, `.sky-tint`, `.sky-rise`, `.sky-band`, `.figure-sky`, `.sky-fold-lead`, `.sky-fold`, `.wordmark-sky`, and the comparison column wash (`bg-linear-to-b/oklab`).
 
 ### Accessibility
 
 - Native elements first: `<button>`, `<a>`, `<details name="faq">`, `<table>`, `<dl>`, `<figure>`, `<ol>`.
-- `:focus-visible`, not `:focus`: `outline: 2px solid var(--color-focus); outline-offset: 2px`.
+- `:focus-visible`, not `:focus`: `outline: 2px solid var(--color-focus); outline-offset: 2px`, which reads as a 2px gap and a 2px blue ring.
+- The theme toggle is a `role="group"` named “Theme” holding two `aria-pressed` buttons named “Light theme” and “Dark theme”. The icons stay decorative.
+- While the mobile menu is open, `main` and the footer are `inert`, Tab cycles inside the header and the menu, and Escape returns focus to the menu button.
 - `tabindex` is only ever `0` or `-1`: the roving tab strip in `site/components/use-cases.tsx` and the scrollable preview region.
 - Icon-only buttons carry `aria-label`. The menu button reads “Open menu” or “Close menu” with `aria-expanded` and `aria-controls`.
 - Every `<img>` has `alt`. The logo beside the product name uses `alt=""` because the name carries the meaning.
@@ -100,7 +104,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - Mock links are inert. The triage mock’s `thread` cells are styled like GitHub links but render as `span`, because a mock has no real thread to open.
 - `pointer-events: none` on decoration: rails, the header sentinel, wash textures, the hero, pricing, and sky fold clouds, the hero fade, the comparison column wash, the wordmark.
 - Hover styles only inside `@media (hover: hover)` in `globals.css`. Tailwind v4’s `hover:` variant is already gated the same way.
-- `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` zeroes the `.btn`, `.disclosure-icon`, `.menu-panel`, and `.swap` transitions and turns smooth scrolling off.
+- `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` removes the button lift, press scale, sheen, and copy ring, zeroes the `.btn-trailing` chevron, `.disclosure-icon`, `.menu-panel`, `.menu-scrim`, `.theme-thumb`, and `.swap` transitions, and turns smooth scrolling off.
 - `role="status"` for quiet confirmations (`CopyButton`, where the region is a sibling of the button so the confirmation never joins the button’s accessible name); `role="alert"` only for something that needs attention now.
 - Never colour alone. Every comparison mark and pill pairs its colour with an icon or text.
 - The skip link is the first focusable element in `<body>`.
@@ -133,7 +137,9 @@ These rules are followed without exception. They are grouped the way the site ap
 
 Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand. The woff2 files are produced by `python3 site/scripts/subset-site-fonts.py` from the TTF masters. The script requires fontTools 4.68.0 and brotli 1.2.1 (`python3 -m pip install fonttools==4.68.0 brotli==1.2.1`). They keep Latin-1, Latin Extended-A, and the painted extras. Rerun the script when painted text gains a missing character or when a new weight or OpenType feature is used.
 
-Weights: 400 for body copy and ghost nav items, 500 for headings, buttons, and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
+Geist runs with `font-feature-settings: "ss08"` on `html` (the alternate forms the type spec asks for) and the default `ss03` off; `code`, `pre`, and `kbd` reset to `normal`. The subset script keeps `ss08`, so a font rebuild must not drop it.
+
+Weights are tokens (see [Type scale](#type-scale)): 400 for body copy and ghost nav items, 480 for display headings, 520 for card titles and eyebrows, 530 for row headings, 560 for step pills, 500 for buttons and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
 
 ### Type sizes
 
@@ -149,34 +155,60 @@ Stock Tailwind steps (`text-xs` 12px, `text-sm` 14px, `text-base` 16px, `text-lg
 
 The tokens are `rem`, so they follow a reader's browser font size the way `text-sm` already does.
 
+### Type scale
+
+Weight, tracking, and line height are `@theme` tokens too, so a recipe names the job (`font-display`) rather than a number. Each is a utility: `--font-weight-*` gives `font-*`, `--tracking-*` gives `tracking-*`, `--leading-*` gives `leading-*`.
+
+| Token                   | Value              | Utility               | Purpose                                                 |
+| ----------------------- | ------------------ | --------------------- | ------------------------------------------------------- |
+| `--font-weight-body`    | `400`              | `font-body`           | Body copy, set on `body`                                |
+| `--font-weight-display` | `480`              | `font-display`        | Hero, CTA, 404, section `h2`, and tab panel `h3`        |
+| `--font-weight-title`   | `520`              | `font-title`          | Card titles, step titles, eyebrows                      |
+| `--font-weight-heading` | `530`              | `font-heading`        | Row headings, FAQ questions, comparison rows, menu rows |
+| `--font-weight-pill`    | `560`              | `font-pill`           | Step pills and step labels                              |
+| `--tracking-display`    | `-0.04em`          | `tracking-display`    | Hero, CTA, and 404 headings                             |
+| `--tracking-title`      | `-0.005em`         | `tracking-title`      | Card titles                                             |
+| `--tracking-label`      | `0.01em`           | `tracking-label`      | Eyebrows                                                |
+| `--tracking-pill`       | `0.02em`           | `tracking-pill`       | Step pills and step labels                              |
+| `--leading-display`     | `1`                | `leading-display`     | Hero, CTA, and 404 headings                             |
+| `--leading-support`     | `calc(1.5 + air)`  | `leading-support`     | Hero support and the CTA sentence                       |
+| `--leading-description` | `calc(1.55 + air)` | `leading-description` | Section descriptions                                    |
+| `--leading-body`        | `calc(1.6 + air)`  | `leading-body`        | Card body, muted detail, FAQ answers, code blocks       |
+| `--leading-mock`        | `calc(1.65 + air)` | `leading-mock`        | Text inside the GitHub mocks                            |
+
+`air` is `--leading-air`, `0` in light and `0.05` in dark. Light type on a dark ground blooms and looks heavier than the same type the other way round, so dark compensates in the primitives rather than in components. The weight tokens read `--weight-*` primitives (light: body 400, display 480, title 520, heading 530; dark: body 380, display 470, title 490, heading 500), body text takes `--tracking-body: 0.005em` (set on `body` with the body weight), and the line heights gain `0.05` (body 1.65, mock 1.7).
+
+Vertical rhythm around a section heading: the eyebrow sits 20px above the `h2` (`mt-5`), the description 12px below it (`mt-3`), and the action 28px below the description (`gap-7` in `SectionHeading`).
+
 ### Headings
 
 | Where                     | Recipe                                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Hero `h1`                 | `max-w-75 text-[clamp(2.5rem,5.6vw,4.75rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text sm:max-w-245`      |
-| CTA banner `h2`           | `text-[clamp(2.375rem,4.8vw,4rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text`                             |
-| 404 `h1`                  | `text-[clamp(2rem,4vw,3rem)] font-medium leading-[1.08] tracking-[-0.03em] text-text`                                    |
-| Section `h2`              | `text-[clamp(1.875rem,3.4vw,2.625rem)] font-medium leading-[1.12] tracking-[-0.025em] text-text`                         |
-| Tab panel `h3`            | `text-2xl font-medium tracking-[-0.02em] text-text`                                                                      |
-| Quickstart step `h3`      | `text-xl font-medium tracking-[-0.015em] text-text`                                                                      |
-| Feature step `h3`         | `text-lg leading-snug font-medium text-text sm:text-xl`                                                                  |
-| Card and pricing `h3`     | `text-lead leading-snug font-medium text-text`                                                                           |
-| Row heading, FAQ question | `text-ui leading-snug font-medium text-text`                                                                             |
+| Hero `h1`                 | `max-w-75 text-[clamp(2.5rem,5.6vw,4.75rem)] font-display leading-display tracking-display text-text sm:max-w-245`       |
+| CTA banner `h2`           | `text-[clamp(2.375rem,4.8vw,4rem)] font-display leading-display tracking-display text-text`                              |
+| 404 `h1`                  | `text-[clamp(2rem,4vw,3rem)] font-display leading-display tracking-display text-text`                                    |
+| Section `h2`              | `text-[clamp(1.875rem,3.4vw,2.625rem)] font-display leading-[1.12] tracking-[-0.025em] text-text`                        |
+| Tab panel `h3`            | `text-2xl font-display tracking-[-0.02em] text-text`                                                                     |
+| Quickstart step `h3`      | `text-xl font-title tracking-[-0.015em] text-text`                                                                       |
+| Feature step `h3`         | `text-lg leading-snug font-title text-text sm:text-xl`                                                                   |
+| Card and pricing `h3`     | `text-lead leading-snug font-title tracking-title text-text`                                                             |
+| Row heading, FAQ question | `text-ui leading-snug font-heading text-text`                                                                            |
 | Pricing figure            | `figure-sky tabular` (`clamp(12.5rem, 20.8vw, 17.5rem)`, weight 500, line height `0.84`, tracking `-0.06em`, cloud fill) |
 
-The pattern: `font-medium`, tighter tracking as the size grows (`-0.015em` at 20px up to `-0.035em` at 76px), line height between `1.04` and `1.12` (the pricing figure, at `0.84` and `-0.06em`, is display art), and `clamp()` for anything that scales with the viewport. Headings never go bold. The hero `h1` keeps the brand in a `sr-only` span (`HERO_BRAND`) so the accessible name matches the markdown page while only the tagline is visible.
+The pattern: weights in the 480–530 range, tighter tracking as the size grows (`-0.015em` at 20px up to `-0.04em` at 76px), line height of `1` for the largest display type and `1.12` for section headings (the pricing figure, at `0.84` and `-0.06em`, is display art), and `clamp()` for anything that scales with the viewport. Headings never go bold. The hero `h1` keeps the brand in a `sr-only` span (`HERO_BRAND`) so the accessible name matches the markdown page while only the tagline is visible.
 
 ### Body and labels
 
-| Role                | Recipe                                                                                         |
-| ------------------- | ---------------------------------------------------------------------------------------------- |
-| Hero support        | `max-w-155 text-base leading-relaxed text-text-secondary sm:text-lg`                           |
-| Section description | `max-w-[58ch] text-base leading-relaxed text-text-secondary sm:text-lead`                      |
-| Card body           | `text-ui leading-relaxed text-text-secondary` or `text-sm leading-relaxed text-text-secondary` |
-| Muted detail        | `text-sm leading-relaxed text-text-tertiary`                                                   |
-| Eyebrow             | `text-label font-medium text-accent-text` on a `sky-tint` pill                                 |
-| Small print         | `text-label text-text-tertiary`                                                                |
-| Mock body           | `text-xs leading-relaxed text-text`, `text-meta` for meta, `text-badge` for the bot badge      |
+| Role                | Recipe                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| Hero support        | `max-w-155 text-base leading-support text-text-secondary sm:text-lg`                     |
+| Section description | `max-w-[58ch] text-base leading-description text-text-secondary sm:text-lead`            |
+| Card body           | `text-ui leading-body text-text-secondary` or `text-sm leading-body text-text-secondary` |
+| Muted detail        | `text-sm leading-body text-text-tertiary`                                                |
+| Eyebrow             | `text-label font-title tracking-label text-accent-text` on a `sky-tint` pill             |
+| Step pill           | `text-xs font-pill tracking-pill text-accent-text` on a `sky-tint` pill                  |
+| Small print         | `text-label text-text-tertiary`                                                          |
+| Mock body           | `text-xs leading-mock text-text`, `text-meta` for meta, `text-badge` for the bot badge   |
 
 Numbers that count or line up take `.tabular` (`font-variant-numeric: tabular-nums`): `$0`, `Step 1`, `#284`, tab counts, the copyright year.
 
@@ -186,67 +218,108 @@ Numbers that count or line up take `.tabular` (`font-variant-numeric: tabular-nu
 
 Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block reads them, so a component can only reach a colour through the purpose it serves. The one exception is the shadow ink: `--shadow-ink` and the `.wash` base rules pick between the two `--palette-ink-*` channels (see [Depth](#depth)). Blues are sampled from `site/assets/logo-source.png`.
 
-| Primitive               | Value      | Feeds                                     |
-| ----------------------- | ---------- | ----------------------------------------- |
-| `--palette-white`       | `#ffffff`  | `surface`, `on-accent`                    |
-| `--palette-gray-50`     | `#f6f7f9`  | `bg`, `surface-raised`                    |
-| `--palette-gray-100`    | `#eef0f3`  | `surface-hover`                           |
-| `--palette-gray-200`    | `#e3e6eb`  | `line`                                    |
-| `--palette-gray-500`    | `#687286`  | `text-tertiary`                           |
-| `--palette-gray-700`    | `#4a5568`  | `text-secondary`                          |
-| `--palette-gray-950`    | `#0f1522`  | `text`                                    |
-| `--palette-blue-50`     | `#edf5ff`  | `accent-soft`, `wash-soft`                |
-| `--palette-blue-100`    | `#d9eafe`  | `wash-mid`                                |
-| `--palette-blue-200`    | `#b9dcfc`  | `wash-strong`                             |
-| `--palette-blue-500`    | `#339bfd`  | `accent-bright`, `focus` (logo sky)       |
-| `--palette-blue-600`    | `#1e69e9`  | `accent-solid` (logo royal)               |
-| `--palette-blue-700`    | `#1858cc`  | `accent-hover`, `accent-text`             |
-| `--palette-green-100`   | `#dcf7e3`  | `success-soft`                            |
-| `--palette-green-700`   | `#1a7f37`  | `success`                                 |
-| `--palette-red-100`     | `#ffe9e6`  | `danger-soft`                             |
-| `--palette-red-700`     | `#c9262f`  | `danger`                                  |
-| `--palette-amber-100`   | `#fff1cf`  | `warning-soft`                            |
-| `--palette-amber-700`   | `#9a6700`  | `warning`                                 |
-| `--palette-ink-neutral` | `15 21 34` | Shadow ink off a wash (gray-950 channels) |
-| `--palette-ink-wash`    | `14 42 78` | Shadow ink on a wash (deep wash blue)     |
+Light values are in `:root`. The dark column is what `:root[data-theme="dark"]` re-points; a dash means the primitive never changes, so the brand blues, white, and the cloud art look the same in both themes.
+
+| Primitive                  | Light         | Dark      | Feeds                                          |
+| -------------------------- | ------------- | --------- | ---------------------------------------------- |
+| `--palette-white`          | `#ffffff`     | none      | `on-accent`, `cloud-lit`                       |
+| `--palette-backdrop`       | `#f6f7f9`     | `#05080f` | `bg`                                           |
+| `--palette-surface`        | `#ffffff`     | `#0b111c` | `surface`                                      |
+| `--palette-surface-raised` | `#f6f7f9`     | `#131a27` | `surface-raised`                               |
+| `--palette-gray-100`       | `#eef0f3`     | `#1b2333` | `surface-hover`                                |
+| `--palette-gray-200`       | `#e3e6eb`     | `#232d3e` | `line`                                         |
+| `--palette-gray-500`       | `#687286`     | `#8390a6` | `text-tertiary`                                |
+| `--palette-gray-700`       | `#4a5568`     | `#a7b2c4` | `text-secondary`                               |
+| `--palette-gray-950`       | `#0f1522`     | `#e9eef6` | `text`                                         |
+| `--palette-overlay`        | `#ffffff`     | `#131a27` | `overlay`                                      |
+| `--palette-overlay-hover`  | `#f6f7f9`     | `#1b2333` | `overlay-hover`                                |
+| `--palette-overlay-well`   | `#f6f7f9`     | `#0b111c` | `overlay-well`                                 |
+| `--palette-scrim`          | 22% ink       | 55% ink   | `scrim`                                        |
+| `--palette-blue-50`        | `#edf5ff`     | none      | `cloud-pale`                                   |
+| `--palette-blue-100`       | `#d9eafe`     | none      | `cloud-soft`                                   |
+| `--palette-blue-200`       | `#b9dcfc`     | none      | `cloud-deep`                                   |
+| `--palette-blue-600`       | `#1e69e9`     | none      | `accent-solid` (logo royal)                    |
+| `--palette-blue-hover`     | `#2a74f0`     | none      | `accent-hover`                                 |
+| `--palette-blue-press`     | `#1a5dd0`     | none      | `accent-press`                                 |
+| `--palette-wash-50`        | `#edf5ff`     | `#0f1b30` | `wash-soft`                                    |
+| `--palette-wash-100`       | `#d9eafe`     | `#142645` | `wash-mid`                                     |
+| `--palette-wash-200`       | `#b9dcfc`     | `#1c3768` | `wash-strong`                                  |
+| `--palette-sky-deep`       | `#339bfd`     | `#1d4fb0` | `accent-bright` (logo sky in light)            |
+| `--palette-accent-tint`    | `#edf5ff`     | `#12213a` | `accent-soft`                                  |
+| `--palette-accent-ink`     | `#1858cc`     | `#7ab8ff` | `accent-text`, `focus`                         |
+| `--palette-haze`           | `#ffffff`     | `#8fb4ff` | `haze`                                         |
+| `--palette-green-100`      | `#dcf7e3`     | `#0f2a19` | `success-soft`                                 |
+| `--palette-green-700`      | `#1a7f37`     | `#4aca6a` | `success`                                      |
+| `--palette-red-100`        | `#ffe9e6`     | `#2a1a20` | `danger-soft`                                  |
+| `--palette-red-700`        | `#c9262f`     | `#ff7b72` | `danger`                                       |
+| `--palette-amber-100`      | `#fff1cf`     | `#2b2312` | `warning-soft`                                 |
+| `--palette-amber-700`      | `#9a6700`     | `#e0a93a` | `warning`                                      |
+| `--palette-ink-neutral`    | `15 21 34`    | `0 0 0`   | Shadow ink off a wash                          |
+| `--palette-ink-wash`       | `14 42 78`    | `0 0 0`   | Shadow ink on a wash (deep wash blue in light) |
+| `--palette-ink-lit`        | `255 255 255` | none      | Lit edges and the dark hairline                |
+| `--palette-ink-sky`        | `143 180 255` | none      | The dark header hairline                       |
+
+The scrim values are `rgb(15 21 34 / 0.22)` and `rgb(3 6 12 / 0.55)`. Non-colour primitives that flip with the theme sit beside them: `--shadow-*-weight`, `--cloud-strength`, `--leading-air`, `--tracking-body`, `--weight-*`, `--toggle-track`, and the header edge (see [Themes](#themes)).
 
 ### Semantic tokens
 
 `@theme` declares `--color-*: initial` first. That removes Tailwind’s stock palette, so `bg-red-500` does not exist and only the tokens below become utilities (`bg-surface`, `text-accent-text`, `divide-line`, `border-line`, `bg-surface/85`, and so on).
 
-| Token                    | Primitive | Purpose                                                                                                                                |
-| ------------------------ | --------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `--color-bg`             | gray-50   | Backdrop behind the page sheet                                                                                                         |
-| `--color-surface`        | white     | Page sheet, cards, mock windows, secondary buttons, selected tab                                                                       |
-| `--color-surface-raised` | gray-50   | Wells inside cards, mock chrome, tabs shell, neutral pills, code block shells                                                          |
-| `--color-surface-hover`  | gray-100  | Hover fill for ghost and secondary buttons and menu links                                                                              |
-| `--color-line`           | gray-200  | Hairline rules between rows, mock chrome borders, rail strokes, window dots                                                            |
-| `--color-text`           | gray-950  | Headings, primary copy                                                                                                                 |
-| `--color-text-secondary` | gray-700  | Body copy, nav, mock meta                                                                                                              |
-| `--color-text-tertiary`  | gray-500  | Small labels, step numbers, provider marks, the “No” mark                                                                              |
-| `--color-accent-solid`   | blue-600  | Primary button fill and text selection, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                      |
-| `--color-accent-hover`   | blue-700  | Primary button hover                                                                                                                   |
-| `--color-accent-text`    | blue-700  | Accent text and icons on white: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                    |
-| `--color-accent-soft`    | blue-50   | Icon tile fill, command chips, the hero pill link badge                                                                                |
-| `--color-accent-bright`  | blue-500  | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
-| `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar, social marks, wordmark, the `$0` fill, and every cloud on a sky                       |
-| `--color-wash-strong`    | blue-200  | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
-| `--color-wash-mid`       | blue-100  | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
-| `--color-wash-soft`      | blue-50   | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
-| `--color-success`        | green-700 | Passing checks, “Open” and “Fixed” pills, the copied check mark                                                                        |
-| `--color-success-soft`   | green-100 | Fill behind `success` pills                                                                                                            |
-| `--color-danger`         | red-700   | Failing checks                                                                                                                         |
-| `--color-danger-soft`    | red-100   | Fill behind `danger` pills                                                                                                             |
-| `--color-warning`        | amber-700 | “Dismissed” pill                                                                                                                       |
-| `--color-warning-soft`   | amber-100 | Fill behind `warning` pills                                                                                                            |
-| `--color-focus`          | blue-500  | `:focus-visible` outline                                                                                                               |
+| Token                    | Primitive      | Purpose                                                                                                                                |
+| ------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-bg`             | backdrop       | Backdrop behind the page sheet                                                                                                         |
+| `--color-surface`        | surface        | Page sheet, cards, mock windows, secondary buttons, selected tab                                                                       |
+| `--color-surface-raised` | surface-raised | Wells inside cards, mock chrome, tabs shell, neutral pills, code block shells                                                          |
+| `--color-surface-hover`  | gray-100       | Hover fill for ghost and secondary buttons                                                                                             |
+| `--color-line`           | gray-200       | Hairline rules between rows, mock chrome borders, rail strokes, window dots, the dark theme thumb                                      |
+| `--color-overlay`        | overlay        | The floating mobile menu card                                                                                                          |
+| `--color-overlay-hover`  | overlay-hover  | The hovered or focused menu row                                                                                                        |
+| `--color-overlay-well`   | overlay-well   | The well behind the GitHub link in the menu                                                                                            |
+| `--color-scrim`          | scrim          | The blurred veil under the open mobile menu                                                                                            |
+| `--color-text`           | gray-950       | Headings, primary copy                                                                                                                 |
+| `--color-text-secondary` | gray-700       | Body copy, nav, mock meta                                                                                                              |
+| `--color-text-tertiary`  | gray-500       | Small labels, step numbers, provider marks, the “No” mark                                                                              |
+| `--color-accent-solid`   | blue-600       | Primary button fill and text selection, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                      |
+| `--color-accent-hover`   | blue-hover     | Primary button hover                                                                                                                   |
+| `--color-accent-press`   | blue-press     | Primary button pressed                                                                                                                 |
+| `--color-accent-text`    | accent-ink     | Accent text and icons: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                             |
+| `--color-accent-soft`    | accent-tint    | Icon tile fill, command chips, the hero pill link badge                                                                                |
+| `--color-accent-bright`  | sky-deep       | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
+| `--color-on-accent`      | white          | Text and icons on `accent-solid`; the legal bar and social marks                                                                       |
+| `--color-wash-strong`    | wash-200       | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
+| `--color-wash-mid`       | wash-100       | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
+| `--color-wash-soft`      | wash-50        | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
+| `--color-haze`           | haze           | Cloud puffs on a sky: white in light, a faint blue haze in dark (strength set by `--cloud-strength`)                                   |
+| `--color-cloud-lit`      | white          | Cloud art that stays light in both themes: the footer wordmark and the pricing figure                                                  |
+| `--color-cloud-pale`     | blue-50        | Same art, pale step                                                                                                                    |
+| `--color-cloud-soft`     | blue-100       | Same art, soft step                                                                                                                    |
+| `--color-cloud-deep`     | blue-200       | Same art, deep step                                                                                                                    |
+| `--color-success`        | green-700      | Passing checks, “Open” and “Fixed” pills, the copied check mark and ring                                                               |
+| `--color-success-soft`   | green-100      | Fill behind `success` pills                                                                                                            |
+| `--color-danger`         | red-700        | Failing checks                                                                                                                         |
+| `--color-danger-soft`    | red-100        | Fill behind `danger` pills                                                                                                             |
+| `--color-warning`        | amber-700      | “Dismissed” pill                                                                                                                       |
+| `--color-warning-soft`   | amber-100      | Fill behind `warning` pills                                                                                                            |
+| `--color-focus`          | accent-ink     | `:focus-visible` outline                                                                                                               |
 
 Rules that go with the table:
 
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` uses `background: var(--color-accent-solid)` and `color: var(--color-on-accent)`, the same pair as `.btn-primary`.
-- `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
-- The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
+- `bg-surface/85` with `backdrop-blur-md` is the translucent header once it sticks; at the top of the page it is transparent over the hero sky. The two other translucent layers are the menu scrim (`--color-scrim` with `backdrop-filter: blur(2px)`) and the theme toggle track (`--toggle-track` of `surface`).
+- The social card in `site/scripts/generate-og-image.mjs` is light-only art and draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
+
+## Themes
+
+Light is the default set of values; dark re-points a subset of them. There is one mechanism and it is the same for every component.
+
+- **The switch.** `data-theme="light" | "dark"` on `<html>`. In `globals.css` the `:root` block holds the light primitives and a nested `&[data-theme="dark"]` block re-points the ones that flip (the table under [Primitives](#primitives)), sets `color-scheme: dark`, and flips the weights of shadows, clouds, type, and the header edge. Semantic tokens and components never change.
+- **Before first paint.** `renderThemeScript()` in `site/lib/theme.ts` is inlined in the head by `site/app/__root.tsx`. It reads `localStorage.theme` (`"light"` or `"dark"`), falls back to `prefers-color-scheme`, sets `data-theme`, and updates `theme-color` (`#ffffff` or `#0b111c`, from `THEME_CHROME`). `<html>` carries `suppressHydrationWarning` because the attribute differs from the server render. Nothing flashes.
+- **The toggle.** `site/components/theme-toggle.tsx`: a two-slot pill (`.theme-toggle`) with a raised thumb (`.theme-thumb`) that slides 30px under the active slot. Sun and Moon are Hugeicons at `size-4`, stroke 1.5. The group is named “Theme” and the buttons “Light theme” and “Dark theme” with `aria-pressed`. A click keeps the choice in memory and tries to store it, so the system preference only decides until the reader picks, even when storage is blocked. With no choice in memory or storage the page follows the system as it changes. It sits before the GitHub link on desktop and before “Deploy” on a phone, always visible.
+- **Motion.** The thumb travels in 200ms on `cubic-bezier(0.2, 0.8, 0.2, 1)`. The sun turns 90° as it goes inactive; the moon settles from −30° with a small overshoot. The page crossfades in 200ms through a view transition, and is instant where the API is missing or motion is reduced.
+- **What stays light in dark.** The footer wordmark and the pricing `$0` keep their light cloud fill (`cloud-*` tokens), the primary button keeps its blue, and `on-accent` stays white. Cloud puffs on skies turn into a faint haze (`--color-haze` at `--cloud-strength`).
+- **Dark type.** Lighter weights, a touch more tracking and leading; see [Type scale](#type-scale).
+- **Dark depth.** Shadows invert: a white hairline edge and heavy drops; see [Depth](#depth).
 
 ## Radii
 
@@ -286,20 +359,29 @@ Worked example, the CTA command box in `site/components/cta-banner.tsx`: the box
 
 Depth comes from layered shadows. Each layer doubles its offset and blur at about 3% alpha, so the edge stays crisp while the falloff is long and soft, the way light from above behaves. The first layer of every token is a 1px hairline that stands in for a border.
 
-Every layer is `rgb(var(--shadow-ink) / α)`, and a shadow takes the hue of the surface it falls on. `--shadow-ink` is `--palette-ink-neutral` by default. `.wash *` and `.sky-tint *` switch descendants of a wash or a sky-tinted mark to `--palette-ink-wash`, because a grey shadow on blue reads as dirt; the wash's own shadow falls on the page and stays neutral. `.wash :is(.window, .bg-surface) *` switches back to neutral inside any white surface sitting on the wash, so buttons, tabs, and chips inside a window keep grey shadows.
+Every layer is `rgb(var(--shadow-ink) / α)` (the 1px edge uses `--shadow-edge` when set), and a shadow takes the hue of the surface it falls on. `--shadow-ink` is `--palette-ink-neutral` by default. `.wash *` and `.sky-tint *` switch descendants of a wash or a sky-tinted mark to `--palette-ink-wash`, because a grey shadow on blue reads as dirt; the wash's own shadow falls on the page and stays neutral. `.wash :is(.window, .bg-surface) *` switches back to neutral inside any white surface sitting on the wash, so buttons, tabs, and chips inside a window keep grey shadows.
+
+In dark the same tokens flip their weights instead of getting new values: `--shadow-ink` channels become black, the hairline becomes white (`--shadow-edge`) at `--shadow-edge-weight` 1.4, drops scale by `--shadow-drop-weight` 7.3, the blue glow under a window by `--shadow-glow-weight` 2.3, the header drops go to 0, and the menu card scales by `--shadow-menu-weight` 4.3. Light keeps every weight at 1.
 
 Apply shadows through the `shadow-*` utilities, or `@apply shadow-*` inside a component class. Never write `box-shadow: var(--shadow-*)`: a custom property resolves `--shadow-ink` where it is declared, on `:root`, so the wash ink would never reach it.
 
-| Token             | Layers                                                                         | Where                                                                                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--shadow-ring`   | `0 0 0 1px` at 7%                                                              | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block shells. A border without a border                                                                                                             |
-| `--shadow-soft`   | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                    | Secondary buttons, the hero pill link, eyebrows, step pills, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, pricing panels and price pills, the word pills and their avatars |
-| `--shadow-card`   | `--shadow-soft` plus `16, 32` at 3%                                            | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing shells and tiles, `.skip-link`, `.page-frame`                                                                              |
-| `--shadow-float`  | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)` | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                                                                                                           |
-| `--shadow-button` | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder       | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                                                                                                          |
-| `--shadow-header` | `0 1px 0` at 5%, then `2, 4, 8, 16` at 2%                                      | The header once it sticks (`data-stuck="true"`)                                                                                                                                                                                     |
+| Token                   | Layers                                                                                             | Where                                                                                                                                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--shadow-ring`         | `0 0 0 1px` at 7%                                                                                  | Chips, wells, the bot badge, the URL pill, check-run boxes, neutral pills, code block shells. A border without a border                                                                                                             |
+| `--shadow-soft`         | 1px hairline at 5%, then `1, 2, 4, 8` at 3%                                                        | Secondary buttons, the hero pill link, eyebrows, step pills, feature step tiles, the `CodeBlock` code box, inline `GhComment`, `.tabs-panel` and the selected tab, pricing panels and price pills, the word pills and their avatars |
+| `--shadow-card`         | `--shadow-soft` plus `16, 32` at 3%                                                                | Cards, `.tabs-shell`, the comparison table, the FAQ card, quickstart steps, the CTA command box, pricing shells and tiles, `.skip-link`, `.page-frame`                                                                              |
+| `--shadow-float`        | `--shadow-card` with `16, 32` at 4%, plus `0 64px 64px rgb(30 105 233 / 0.06)`                     | `.window` mock shells. The last layer is a faint blue glow so a window lifts off its wash                                                                                                                                           |
+| `--shadow-button`       | `inset 0 1px 0 rgb(255 255 255 / 0.16)`, then the `--shadow-soft` ladder                           | Primary buttons: a lit top edge over the same ladder as a secondary button, so the pair sits at one height                                                                                                                          |
+| `--shadow-header`       | `0 1px 0` header edge, then `2, 4, 8, 16` at 2%                                                    | The header once it sticks (`data-stuck="true"`)                                                                                                                                                                                     |
+| `--shadow-header-edge`  | `0 1px 0` header edge                                                                              | The header at rest. Light: fully transparent. Dark: a sky-blue hairline at 10%                                                                                                                                                      |
+| `--shadow-button-lift`  | lit top edge at 20%, 1px hairline, then `2, 4, 8, 14` blur in the brand blue at 18%, 16%, 14%, 12% | Primary button on hover                                                                                                                                                                                                             |
+| `--shadow-button-press` | `inset 0 1px 2px` ink at 18%, hairline, `0 1px 1px` brand blue                                     | Primary button pressed                                                                                                                                                                                                              |
+| `--shadow-menu`         | lit top edge, 1px hairline at 6%, then `2, 8, 16, 24` drops (heavy in dark)                        | The floating mobile menu card                                                                                                                                                                                                       |
+| `--shadow-thumb`        | 1px hairline, then `1` and `2` drops                                                               | The raised thumb of the theme toggle                                                                                                                                                                                                |
+| `--shadow-well`         | `inset 0 0 0 1px` at 6%                                                                            | The GitHub well in the mobile menu                                                                                                                                                                                                  |
+| `--shadow-track`        | `inset 0 0 0 1px` at 6.8%                                                                          | The theme toggle track                                                                                                                                                                                                              |
 
-Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-float`, `shadow-button`, `shadow-header`. Use `border-line` only for rules between rows (`divide-y divide-line`, `border-b border-line`) and for the mock chrome; never to outline a card or a button.
+Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-float`, `shadow-button`, `shadow-button-lift`, `shadow-button-press`, `shadow-header`, `shadow-header-edge`, `shadow-menu`, `shadow-thumb`, `shadow-well`, `shadow-track`. Use `border-line` only for rules between rows (`divide-y divide-line`, `border-b border-line`) and for the mock chrome; never to outline a card or a button.
 
 ## Motion
 
@@ -311,14 +393,17 @@ Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-fl
 
 Recipes, all in `globals.css`:
 
-- **Buttons.** `.btn` transitions `background-color, color, box-shadow, scale` with durations `150ms, 150ms, 150ms, 200ms` and timing `ease, ease, ease, ease-out`. `.btn:active { scale: 0.97 }`.
+- **Buttons.** `.btn` transitions `background-color, color, box-shadow, translate, scale` for `150ms, 150ms, 160ms, 160ms, 220ms`, with the scale on `cubic-bezier(0.2, 0.8, 0.2, 1)` so release overshoots slightly. `.btn:active` presses to `scale: 0.97` in 80ms. Inside `@media (hover: hover)` the primary button gains `accent-hover`, `translate: 0 -1px`, and `--shadow-button-lift`, and its trailing chevron moves `2px` right in 160ms. Pressed, it takes `accent-press` and `--shadow-button-press`. The hero link and the pill link also press.
+- **Sheen.** `.btn-sheen` (the hero “Deploy yourself” only) carries a `::after` band that sweeps once, 700ms `ease-in-out`, 1.2s after load (`sheen`), and again each time the pointer arrives (`sheen-replay`). Both are gated by `prefers-reduced-motion: no-preference`.
+- **Copy confirmation.** `CopyButton` sets `data-copied="true"` for 1600ms. The `Check` pops in (`check-pop`, 0.6 to 1.1 to 1) as the icon swaps, and a green ring pulses once around the button (`copy-ring`, 180ms). The visible “Copied” label stays, so the width never moves.
+- **Mobile menu.** See the header section: open 180ms, close 120ms, scale `0.94` from the top right.
+- **Theme toggle.** See [Themes](#themes).
 - **Icon swap.** `.swap` is an `inline-grid` with every child on `grid-area: 1 / 1`; children transition `opacity, scale, filter` for 200ms. `[data-shown="false"]` is `opacity: 0; scale: 0.25; filter: blur(4px)`. Used by the menu button (`Menu` and `X`) and `CopyButton` (`Copy` and `Check`). The `data-shown` state sits on wrapper spans around the icons, because the Hugeicons component does not forward data attributes to its SVG; put it on the icon and both icons render at once.
-- **Mobile menu.** `.menu-panel` transitions `opacity, translate, filter, display` for 160ms `ease-out` with `transition-behavior: allow-discrete`. Closed is `display: none; opacity: 0; translate: 0 -4px; filter: blur(4px)`. Open sets the resting values inside `@starting-style` too, so opening is instant and only closing animates.
 - **Disclosures.** `.disclosure-icon` transitions `rotate 200ms`; `.disclosure[open] .disclosure-icon { rotate: 45deg }` turns the plus into a cross. Under `prefers-reduced-motion: no-preference`, `.disclosure::details-content` transitions `block-size 240ms` and `content-visibility 240ms allow-discrete`, which relies on `interpolate-size: allow-keywords` on `html`.
 - **Sticky header.** `transition-[box-shadow,background-color] duration-200`, with `data-[stuck=true]:shadow-header` and the `bg-surface/85` fill (see [Layout](#layout)).
 - **Hovers.** `transition-colors duration-150` on links; the `.btn` variants change background inside `@media (hover: hover)`.
 - **Skip link.** `transition: transform 150ms var(--ease-out-quart)` from `translateY(-200%)` to `0` on `:focus-visible`.
-- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
+- **Reduced motion.** `html { scroll-behavior: auto }`; `.btn` keeps only its colour and shadow transitions; the lift, press, chevron slide, sheen, copy ring, menu scale, thumb travel, and icon rotation are removed; and `.skip-link, .disclosure-icon, .menu-panel, .menu-scrim, .theme-thumb, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
 
 ## Layout
 
@@ -353,13 +438,13 @@ Recipes, all in `globals.css`:
 }
 ```
 
-| Class            | Fill and ink                                      | Depth             | Hover (`@media (hover: hover)`)     |
-| ---------------- | ------------------------------------------------- | ----------------- | ----------------------------------- |
-| `.btn-primary`   | `accent-solid` on `on-accent`                     | `--shadow-button` | `accent-hover`                      |
-| `.btn-secondary` | `surface` on `text`                               | `--shadow-soft`   | `surface-hover`                     |
-| `.btn-ghost`     | transparent on `text-secondary`                   | none              | `surface-hover`, ink becomes `text` |
-| `.btn-trailing`  | `padding-inline: 1rem 0.75rem` for an icon after  |                   |                                     |
-| `.btn-leading`   | `padding-inline: 0.75rem 1rem` for an icon before |                   |                                     |
+| Class            | Fill and ink                                      | Depth             | Hover (`@media (hover: hover)`)                                                      |
+| ---------------- | ------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `.btn-primary`   | `accent-solid` on `on-accent`                     | `--shadow-button` | `accent-hover`, lift, `--shadow-button-lift`, chevron `+2px`; pressed `accent-press` |
+| `.btn-secondary` | `surface` on `text`                               | `--shadow-soft`   | `surface-hover`                                                                      |
+| `.btn-ghost`     | transparent on `text-secondary`                   | none              | `surface-hover`, ink becomes `text`                                                  |
+| `.btn-trailing`  | `padding-inline: 1rem 0.75rem` for an icon after  |                   |                                                                                      |
+| `.btn-leading`   | `padding-inline: 0.75rem 1rem` for an icon before |                   |                                                                                      |
 
 `Button` and `ButtonLink` in `site/components/button.tsx` compose those classes from `variant`, `trailingIcon`, and `leadingIcon`, wrap the label in a `<span>`, and add `target="_blank" rel="noopener noreferrer"` when `external` is set. External links use `ArrowUpRight` in `text-text-tertiary`; internal ones use `ChevronRight`. Header buttons override the height with `h-9`; nav items are `btn btn-ghost h-9 px-3 font-normal`; the icon-only menu button is `btn btn-ghost size-9 px-0` with an `aria-label`.
 
@@ -390,9 +475,9 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 </section>
 ```
 
-- `Eyebrow`: `inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-medium text-accent-text shadow-soft` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word. The tilt matches the word pills.
-- `SectionTitle`: the eyebrow, an optional `figure` slot, then the section `h2` recipe at `mt-4`, as a fragment. It takes the `h2` `id`, the eyebrow text, and the figure (only pricing passes one).
-- `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
+- `Eyebrow`: `inline-flex -rotate-2 items-center gap-2 rounded-full sky-tint py-1.5 pr-3.5 pl-2.5 text-label font-title tracking-label text-accent-text shadow-soft` with a `h-1.5 w-3.5 rounded-full bg-accent-solid` dash before the word. The tilt matches the word pills.
+- `SectionTitle`: the eyebrow, an optional `figure` slot, then the section `h2` recipe at `mt-5`, as a fragment. It takes the `h2` `id`, the eyebrow text, and the figure (only pricing passes one).
+- `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-3`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
 - Sections with a side column (features, FAQ) and the centred pricing band place `SectionTitle` in that column themselves instead of using `SectionHeading`.
 - Pricing builds its own band, `<section className="sky-band py-20 sm:py-24 lg:py-30">`, around the usual `container-x scroll-mt-5` with `#pricing`. The heading block is `mx-auto flex max-w-2xl flex-col items-center text-center`: the eyebrow, the `$0` figure passed to `SectionTitle` as `figure` (`figure-sky tabular mt-7 mb-2`), the `h2`, and one `max-w-[52ch]` line. The plans are shell cards: each `li` is a white shell (`flex flex-col rounded-xl bg-surface p-2 shadow-card`) holding a `wash wash-clouds flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
 - `.sky-band` is white at both edges with a sky between. Its stops are in `rem` from the top (`surface` at 0, `wash-mid` at 9rem, a peak of `color-mix(in oklab, var(--color-wash-strong) 92%, var(--color-accent-bright))` at 24rem, `wash-mid` at 50rem, `surface` at 100%), so the deepest blue stays behind `$0` however tall the stacked cards make the band on a phone. `.sky-band::before` adds four white puffs on the edges, blurred by 16px.
@@ -404,14 +489,14 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 - **Icon tile**: `grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text` holding a `size-5` icon. The features timeline uses the round sky variant, `grid size-11 place-items-center rounded-full sky-tint text-accent-text shadow-soft`, joined by a `w-px bg-line` spine.
 - **Chip**: `.chip` is `@apply rounded-xs bg-surface-raised px-2 py-1 text-xs shadow-ring`. Ink, weight, and font family stay with the caller.
 - **Command chip**: `chip font-mono font-medium text-accent-text`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
-- **Step pill**: `tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text shadow-soft`.
+- **Step pill**: `tabular inline-flex h-7 -rotate-2 items-center rounded-full sky-tint px-2.5 text-xs font-pill tracking-pill whitespace-nowrap text-accent-text shadow-soft`.
 - **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-label whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
 - **Well** (a list inside a card): `divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring`.
 - **Feature cue**: `inline-flex max-w-full items-center chip font-mono text-text-secondary`.
 
 ### CodeBlock and CopyButton
 
-`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-label leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
+`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-label leading-body shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
 
 `site/components/copy-button.tsx` confirms with an icon swap and a label change, so the state never rests on colour alone:
 
@@ -447,23 +532,23 @@ const icon = (
 </>;
 ```
 
-Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-label` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
+Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1600ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-label` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
 
 ### GitHub output primitives
 
 `site/components/github-output/primitives.tsx` renders bot output the way GitHub’s light theme does, so the examples look like the real thing.
 
-| Primitive   | Recipe                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GhComment` | `article overflow-hidden text-xs leading-relaxed text-text` in a `window` frame or the inline `rounded-sm bg-surface shadow-soft`; header `border-b border-line bg-surface-raised px-3 py-2` with the logo, `pr-agent`, a `bot` badge (`rounded-xs px-1 py-px text-badge font-medium text-text-secondary shadow-ring`), “commented just now”, and the `surface` label on `sm` |
-| `GhTitle`   | `border-b border-line pb-1.5 text-sm font-semibold text-text`, a markdown `##` as GitHub renders it                                                                                                                                                                                                                                                                           |
-| `GhNote`    | `border-l-[3px] border-accent-solid py-0.5 pl-3 text-text-secondary` with an `Info` icon and “Note” in `text-accent-text`                                                                                                                                                                                                                                                     |
-| `GhCode`    | `rounded-xs bg-surface-raised px-1 py-px font-mono text-meta text-text`                                                                                                                                                                                                                                                                                                       |
-| `GhLabel`   | `font-semibold text-text`                                                                                                                                                                                                                                                                                                                                                     |
-| `GhKvTable` | `w-full border-collapse text-left`, rows `border-b border-line align-top last:border-b-0`, `th` `w-24 py-2 pr-3 font-semibold sm:w-28`, no header row                                                                                                                                                                                                                         |
-| `GhDetails` | `details.disclosure.group` with a `ChevronRight size-3.5` that rotates 90° on open                                                                                                                                                                                                                                                                                            |
-| `GhPill`    | `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium whitespace-nowrap` plus a tone                                                                                                                                                                                                                                                                 |
-| `GhPre`     | `overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-relaxed text-text`                                                                                                                                                                                                                                                                            |
+| Primitive   | Recipe                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GhComment` | `article overflow-hidden text-xs leading-mock text-text` in a `window` frame or the inline `rounded-sm bg-surface shadow-soft`; header `border-b border-line bg-surface-raised px-3 py-2` with the logo, `pr-agent`, a `bot` badge (`rounded-xs px-1 py-px text-badge font-medium text-text-secondary shadow-ring`), “commented just now”, and the `surface` label on `sm` |
+| `GhTitle`   | `border-b border-line pb-1.5 text-sm font-semibold text-text`, a markdown `##` as GitHub renders it                                                                                                                                                                                                                                                                        |
+| `GhNote`    | `border-l-[3px] border-accent-solid py-0.5 pl-3 text-text-secondary` with an `Info` icon and “Note” in `text-accent-text`                                                                                                                                                                                                                                                  |
+| `GhCode`    | `rounded-xs bg-surface-raised px-1 py-px font-mono text-meta text-text`                                                                                                                                                                                                                                                                                                    |
+| `GhLabel`   | `font-semibold text-text`                                                                                                                                                                                                                                                                                                                                                  |
+| `GhKvTable` | `w-full border-collapse text-left`, rows `border-b border-line align-top last:border-b-0`, `th` `w-24 py-2 pr-3 font-semibold sm:w-28`, no header row                                                                                                                                                                                                                      |
+| `GhDetails` | `details.disclosure.group` with a `ChevronRight size-3.5` that rotates 90° on open                                                                                                                                                                                                                                                                                         |
+| `GhPill`    | `inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-meta font-medium whitespace-nowrap` plus a tone                                                                                                                                                                                                                                                              |
+| `GhPre`     | `overflow-x-auto rounded-xs bg-surface-raised p-2.5 font-mono text-meta leading-mock text-text`                                                                                                                                                                                                                                                                            |
 
 Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-soft text-danger`, `warning` is `bg-warning-soft text-warning`, `neutral` is `bg-surface-raised text-text-secondary shadow-ring`, `accent` is `bg-accent-soft text-accent-text`. The four mocks (`review-summary.tsx`, `description-block.tsx`, `ask-reply.tsx`, `triage-report.tsx`) mirror the real renderers named in their doc comments; keep their structure in step with the output the bot actually posts.
 
@@ -521,11 +606,13 @@ Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-te
 
 ### FAQ
 
-`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `card px-5 sm:px-6`. The summary is `group/summary flex items-center justify-between gap-6 py-5 text-ui font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`; hovering the question darkens the icon with `group-hover/summary:text-text`. Answers are `max-w-[52ch] pb-5 text-ui leading-relaxed text-text-secondary`.
+`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `card px-5 sm:px-6`. The summary is `group/summary flex items-center justify-between gap-6 py-5 text-ui font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`; hovering the question darkens the icon with `group-hover/summary:text-text`. Answers are `max-w-[52ch] pb-5 text-ui leading-body text-text-secondary`.
 
 ### Header and mobile menu
 
-`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`.
+`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, the theme toggle, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. The toggle comes before the GitHub link on desktop and before “Deploy” on a phone, and is always visible. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks (see [Layout](#layout)); in dark it keeps a sky-blue hairline (`shadow-header-edge`) at rest. While the menu is open the button becomes a raised 36px tile (`aria-expanded:bg-surface aria-expanded:text-text aria-expanded:shadow-soft`) showing the `X`.
+
+The mobile menu floats. `.menu-panel` is a fixed card at `inset: 4.5rem 0.75rem auto` (72px from the top, 12px from the sides, under the 64px header), `padding: 0.5rem`, `--radius-lg`, `bg-overlay`, `--shadow-menu`, `z-index: 50`. Rows are `.menu-row` (48px, 10px radius, 16px, `font-heading`, `-0.01em`, `ChevronRight size-4 text-text-tertiary` on the right; hover and focus fill `overlay-hover`). A `mx-3 my-1.5 h-px bg-line` divider separates them from `.menu-well`, the 44px GitHub link on `overlay-well` with `--shadow-well`. `.menu-scrim` sits outside the `<header>` from 64px down to the bottom edge, blurs the page by 2px, and closes the menu when clicked. Both animate as described in [Motion](#motion). While open, `main` and the footer are `inert`, Tab is trapped in the header and the menu, Escape closes and returns focus to the menu button, and growing past `md` closes it. Anchors still land 100px down because the menu closes without an exit when a link is followed.
 
 ### Footer and wordmark
 
@@ -642,7 +729,7 @@ Every UI icon comes from `site/components/icons.tsx`, which wraps `@hugeicons/re
 />
 ```
 
-The 1.5 stroke matches Geist at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Eye`, `Document`, `Question`, `Refresh`, `Wrench`, `Feather`, `Wallet`, `Shield`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
+The 1.5 stroke matches Geist at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `Sun`, `Moon`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Eye`, `Document`, `Question`, `Refresh`, `Wrench`, `Feather`, `Wallet`, `Shield`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
 
 The only hand-drawn SVGs on the page are illustration, not icons: the dashed rails in the commands bento.
 
@@ -694,9 +781,9 @@ Learned over the design session. Treat these as review criteria for any site cha
 - Put a white tile, card, or pill behind a logo.
 - Let a preview, a mock, or a tab change the height of its row.
 - Show a native scrollbar inside a card.
-- Use `transition: all`, animate on page load outside the hero, or animate a menu’s entrance.
+- Use `transition: all`, or animate on page load outside the hero (the hero rise and the one-time “Deploy yourself” sheen).
 - Use an em dash, title case, or a sentence that talks about the product instead of to the reader.
-- Add a dark mode, a second theme mechanism, or per-component colour overrides.
+- Add a second theme mechanism, a `dark:` variant, or per-component colour overrides. Re-point a primitive instead.
 - Preserve complexity because it already exists. The smallest recipe that makes the design clear wins (`AGENTS.md`, Design taste).
 
 ## Verification
@@ -733,7 +820,7 @@ Run these before calling a site change done. They are the checks the maintainer 
 
    The check reads source text, so it cannot see contrast, behaviour, or class names built at runtime. A red rule is a finding: fix the code rather than raise the baseline. `--bootstrap` rewrites the baseline and refuses to run under `CI=true`.
 
-2. Screenshots at three widths. Start the dev server (`npm run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
+2. Screenshots at three widths, in light and dark (set `localStorage.theme` to `"dark"` and reload). Start the dev server (`npm run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
 
    ```bash
    work="$(mktemp -d)"
@@ -771,12 +858,14 @@ Run these before calling a site change done. They are the checks the maintainer 
 | Path                                  | Owns                                                                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities                              |
-| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                                                 |
+| `site/app/__root.tsx`                 | Head metadata, theme script, font preload, skip link, `.page-frame`                                                   |
 | `site/app/index.tsx`                  | Section order                                                                                                         |
 | `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                                                |
 | `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                                                |
 | `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                                             |
-| `site/components/header.tsx`          | Sticky header, transparent until it sticks, mobile menu                                                               |
+| `site/components/header.tsx`          | Sticky header, transparent until it sticks, floating mobile menu and scrim                                            |
+| `site/components/theme-toggle.tsx`    | The light and dark switch                                                                                             |
+| `site/lib/theme.ts`                   | Storage key, `theme-color` values, and the inline script that sets the theme before first paint                       |
 | `site/components/hero.tsx`            | Hero copy, word pill, staggered entrance, window stage under the hero sky                                             |
 | `site/components/pr-window.tsx`       | The decorative pull request window                                                                                    |
 | `site/components/providers.tsx`       | Provider strip                                                                                                        |

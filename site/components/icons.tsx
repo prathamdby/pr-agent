@@ -16,6 +16,7 @@ import {
   Linkedin02Icon,
   Menu01Icon,
   MinusSignIcon,
+  Moon02Icon,
   NewTwitterIcon,
   NoteEditIcon,
   PlusSignIcon,
@@ -23,6 +24,7 @@ import {
   SecurityCheckIcon,
   ServerStack01Icon,
   StarIcon,
+  Sun03Icon,
   TerminalIcon,
   Tick02Icon,
   ViewIcon,
@@ -58,6 +60,8 @@ export const Check = fromGlyph(Tick02Icon);
 export const Copy = fromGlyph(Copy01Icon);
 export const Menu = fromGlyph(Menu01Icon);
 export const X = fromGlyph(Cancel01Icon);
+export const Sun = fromGlyph(Sun03Icon);
+export const Moon = fromGlyph(Moon02Icon);
 export const GitHubMark = fromGlyph(GithubIcon);
 export const XMark = fromGlyph(NewTwitterIcon);
 export const LinkedInMark = fromGlyph(Linkedin02Icon);

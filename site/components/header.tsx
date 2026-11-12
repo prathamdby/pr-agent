@@ -2,7 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ButtonLink } from "@/components/button";
-import { ArrowUpRight, ChevronRight, GitHubMark, Menu, X } from "@/components/icons";
+import { ChevronRight, GitHubMark, Menu, X } from "@/components/icons";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { PRODUCT_NAME } from "@/lib/seo";
 import { REPO_URL } from "@/lib/site";
 
@@ -13,11 +14,16 @@ const NAV = [
   { href: "/#faq", label: "FAQ" },
 ] as const;
 
+const INERT_SELECTOR = "main, .page-frame > footer";
+const FOCUSABLE = "a[href], button:not([disabled])";
+
 export function Header() {
   const [open, setOpen] = useState(false);
   const [instant, setInstant] = useState(false);
   const [stuck, setStuck] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLElement>(null);
+  const menu = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -38,14 +44,48 @@ export function Header() {
     if (!open) {
       return undefined;
     }
+    const covered = document.querySelectorAll(INERT_SELECTOR);
+    covered.forEach((node) => node.setAttribute("inert", ""));
+    const wide = matchMedia("(min-width: 48rem)");
+    const onWide = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setInstant(true);
+        setOpen(false);
+      }
+    };
+    wide.addEventListener("change", onWide);
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
         menuButton.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab" || header.current === null || menu.current === null) {
+        return;
+      }
+      const stops = [
+        ...header.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+        ...menu.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+      ].filter((node) => node.offsetParent !== null);
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (first === undefined || last === undefined) {
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      covered.forEach((node) => node.removeAttribute("inert"));
+      wide.removeEventListener("change", onWide);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [open]);
 
   const closeForNavigation = () => {
@@ -63,6 +103,11 @@ export function Header() {
     setOpen((value) => !value);
   };
 
+  const dismiss = () => {
+    setInstant(false);
+    setOpen(false);
+  };
+
   return (
     <>
       <div
@@ -71,9 +116,10 @@ export function Header() {
         className="pointer-events-none absolute inset-x-0 top-0 h-px"
       />
       <header
+        ref={header}
         data-stuck={stuck}
         data-open={open}
-        className="sticky top-0 z-40 transition-[box-shadow,background-color] duration-200 data-[open=true]:bg-surface/85 data-[open=true]:backdrop-blur-md data-[stuck=true]:bg-surface/85 data-[stuck=true]:shadow-header data-[stuck=true]:backdrop-blur-md"
+        className="sticky top-0 z-40 shadow-header-edge transition-[box-shadow,background-color] duration-200 data-[stuck=true]:bg-surface/85 data-[stuck=true]:shadow-header data-[stuck=true]:backdrop-blur-md"
       >
         <div className="container-x flex h-16 items-center justify-between gap-4">
           <Link
@@ -102,6 +148,7 @@ export function Header() {
           </nav>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <a
               href={REPO_URL}
               target="_blank"
@@ -122,7 +169,7 @@ export function Header() {
             <button
               ref={menuButton}
               type="button"
-              className="btn btn-ghost size-9 px-0 md:hidden"
+              className="btn btn-ghost size-9 px-0 aria-expanded:bg-surface aria-expanded:text-text aria-expanded:shadow-soft md:hidden"
               aria-expanded={open}
               aria-controls="mobile-menu"
               aria-label={open ? "Close menu" : "Open menu"}
@@ -139,38 +186,41 @@ export function Header() {
             </button>
           </div>
         </div>
-
-        <div
-          id="mobile-menu"
-          data-open={open}
-          data-instant={instant}
-          className="menu-panel border-t border-line md:hidden"
-        >
-          <nav aria-label="Primary, mobile" className="container-x flex flex-col py-3">
-            {NAV.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                onClick={closeForNavigation}
-                className="flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover"
-              >
-                {item.label}
-              </a>
-            ))}
-            <a
-              href={REPO_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setOpen(false)}
-              className="flex h-11 items-center gap-2 rounded-sm px-3 text-ui text-text hover:bg-surface-hover"
-            >
-              <GitHubMark className="size-4" />
-              GitHub
-              <ArrowUpRight className="size-3.5 text-text-tertiary" />
-            </a>
-          </nav>
-        </div>
       </header>
+
+      <div
+        aria-hidden="true"
+        data-open={open}
+        data-instant={instant}
+        className="menu-scrim md:hidden"
+        onClick={dismiss}
+      />
+      <nav
+        ref={menu}
+        id="mobile-menu"
+        aria-label="Primary, mobile"
+        data-open={open}
+        data-instant={instant}
+        className="menu-panel md:hidden"
+      >
+        {NAV.map((item) => (
+          <a key={item.href} href={item.href} onClick={closeForNavigation} className="menu-row">
+            {item.label}
+            <ChevronRight className="size-4 text-text-tertiary" />
+          </a>
+        ))}
+        <div aria-hidden="true" className="mx-3 my-1.5 h-px bg-line" />
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={dismiss}
+          className="menu-well"
+        >
+          <GitHubMark className="size-4" />
+          GitHub
+        </a>
+      </nav>
     </>
   );
 }

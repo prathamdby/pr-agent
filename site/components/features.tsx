@@ -14,7 +14,7 @@ export function Features() {
           <SectionTitle id="features-heading" eyebrow="How it works">
             How a pull request gets its first pass
           </SectionTitle>
-          <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-text-secondary sm:text-lead">
+          <p className="mt-3 max-w-[52ch] text-base leading-description text-text-secondary sm:text-lead">
             One deploy. After that, every pull request follows the same path inside GitHub. No extra
             dashboard, no per-seat bill from PR Agent.
           </p>
@@ -49,13 +49,13 @@ export function Features() {
                   <Icon className="size-5" />
                 </span>
                 <div className="min-w-0 pt-1.5">
-                  <p className="tabular text-xs font-medium text-text-tertiary">Step {index + 1}</p>
-                  <h3 className="mt-1 text-lg leading-snug font-medium text-text sm:text-xl">
+                  <p className="tabular text-xs font-pill tracking-pill text-text-tertiary">
+                    Step {index + 1}
+                  </p>
+                  <h3 className="mt-1 text-lg leading-snug font-title text-text sm:text-xl">
                     {feature.title}
                   </h3>
-                  <p className="mt-2 text-ui leading-relaxed text-text-secondary">
-                    {feature.detail}
-                  </p>
+                  <p className="mt-2 text-ui leading-body text-text-secondary">{feature.detail}</p>
                   <p className="mt-4 inline-flex max-w-full items-center chip font-mono text-text-secondary">
                     {feature.cue}
                   </p>

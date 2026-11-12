@@ -9,7 +9,7 @@ export function Providers() {
             <h2 id="providers-heading" className="text-sm font-medium text-text">
               Bring your own model keys
             </h2>
-            <p className="mt-1 text-label leading-relaxed text-text-secondary">
+            <p className="mt-1 text-label leading-body text-text-secondary">
               Switch providers by changing one setting. Your GitHub workflow stays the same.
             </p>
           </div>

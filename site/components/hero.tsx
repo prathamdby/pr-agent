@@ -48,7 +48,7 @@ export function Hero() {
           </a>
           <h1
             id="hero-heading"
-            className="mt-6 max-w-75 text-[clamp(2.5rem,5.6vw,4.75rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text sm:max-w-245"
+            className="mt-6 max-w-75 text-[clamp(2.5rem,5.6vw,4.75rem)] font-display leading-display tracking-display text-text sm:max-w-245"
           >
             <span className="sr-only">{HERO_BRAND}: </span>
             <span className="sm:block">{HERO_LEAD}</span>{" "}
@@ -63,11 +63,15 @@ export function Hero() {
         </div>
 
         <div className="flex w-full flex-col items-center motion-safe:animate-rise motion-safe:[animation-delay:90ms]">
-          <p className="mt-6 max-w-155 text-base leading-relaxed text-text-secondary sm:text-lg">
+          <p className="mt-6 max-w-155 text-base leading-support text-text-secondary sm:text-lg">
             {HERO_SUPPORT}
           </p>
           <div className="mt-8 grid w-full gap-3 sm:flex sm:w-auto sm:justify-center">
-            <ButtonLink href="#usage" trailingIcon={<ChevronRight className="size-4" />}>
+            <ButtonLink
+              href="#usage"
+              className="btn-sheen"
+              trailingIcon={<ChevronRight className="size-4" />}
+            >
               Deploy yourself
             </ButtonLink>
             <CopyButton

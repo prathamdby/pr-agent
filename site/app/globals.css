@@ -21,20 +21,38 @@
   can only reach a colour through the purpose it serves.
   Blues are sampled from site/assets/logo-source.png: sky #339bfd, royal #1e69e9.
 */
+/*
+  Dark is a second set of values for the same names. `:root[data-theme="dark"]` re-points the
+  primitives that flip; the semantic tokens below never change. Primitives that must look the
+  same in both themes (white, the cloud art blues, the brand blues) are never overridden.
+*/
 :root {
   --palette-white: #ffffff;
-  --palette-gray-50: #f6f7f9;
+  --palette-backdrop: #f6f7f9;
+  --palette-surface: #ffffff;
+  --palette-surface-raised: #f6f7f9;
   --palette-gray-100: #eef0f3;
   --palette-gray-200: #e3e6eb;
   --palette-gray-500: #687286;
   --palette-gray-700: #4a5568;
   --palette-gray-950: #0f1522;
+  --palette-overlay: #ffffff;
+  --palette-overlay-hover: #f6f7f9;
+  --palette-overlay-well: #f6f7f9;
+  --palette-scrim: rgb(15 21 34 / 0.22);
   --palette-blue-50: #edf5ff;
   --palette-blue-100: #d9eafe;
   --palette-blue-200: #b9dcfc;
-  --palette-blue-500: #339bfd;
   --palette-blue-600: #1e69e9;
-  --palette-blue-700: #1858cc;
+  --palette-blue-hover: #2a74f0;
+  --palette-blue-press: #1a5dd0;
+  --palette-wash-50: #edf5ff;
+  --palette-wash-100: #d9eafe;
+  --palette-wash-200: #b9dcfc;
+  --palette-sky-deep: #339bfd;
+  --palette-accent-tint: #edf5ff;
+  --palette-accent-ink: #1858cc;
+  --palette-haze: #ffffff;
   --palette-green-100: #dcf7e3;
   --palette-green-700: #1a7f37;
   --palette-red-100: #ffe9e6;
@@ -45,12 +63,94 @@
   /* Shadow inks as bare channels, so each shadow layer sets its own alpha. */
   --palette-ink-neutral: 15 21 34;
   --palette-ink-wash: 14 42 78;
+  --palette-ink-lit: 255 255 255;
+  --palette-ink-sky: 143 180 255;
 
   /*
     A shadow takes the hue of the surface it falls on. Neutral by default; the `.wash` rules in
     the base layer switch it to a deep wash blue for objects sitting directly on a wash.
   */
   --shadow-ink: var(--palette-ink-neutral);
+  --shadow-brand: 30 105 233;
+
+  /*
+    How hard each part of a shadow reads. Light themes show depth in the drops and keep the edge
+    faint; dark themes flip it: a white hairline edge and much heavier drops. `--shadow-edge` is
+    only set in dark, where the hairline stops following the ink.
+  */
+  --shadow-drop-weight: 1;
+  --shadow-edge-weight: 1;
+  --shadow-glow-weight: 1;
+  --shadow-header-weight: 1;
+  --shadow-menu-weight: 1;
+  --shadow-menu-near: 1;
+  --shadow-menu-lit: 0;
+  --header-edge: var(--shadow-ink);
+  --header-edge-alpha: 0.05;
+  --header-edge-rest: 0;
+
+  /* Cloud puffs: opaque white in light, a faint sky haze in dark. */
+  --cloud-strength: 1;
+
+  /* Body text takes a hair more air and less weight on a dark ground. */
+  --leading-air: 0;
+  --tracking-body: 0;
+  --weight-body: 400;
+  --weight-display: 480;
+  --weight-title: 520;
+  --weight-heading: 530;
+  --toggle-track: 45%;
+
+  &[data-theme="dark"] {
+    color-scheme: dark;
+    --palette-backdrop: #05080f;
+    --palette-surface: #0b111c;
+    --palette-surface-raised: #131a27;
+    --palette-gray-100: #1b2333;
+    --palette-gray-200: #232d3e;
+    --palette-gray-500: #8390a6;
+    --palette-gray-700: #a7b2c4;
+    --palette-gray-950: #e9eef6;
+    --palette-overlay: #131a27;
+    --palette-overlay-hover: #1b2333;
+    --palette-overlay-well: #0b111c;
+    --palette-scrim: rgb(3 6 12 / 0.55);
+    --palette-wash-50: #0f1b30;
+    --palette-wash-100: #142645;
+    --palette-wash-200: #1c3768;
+    --palette-sky-deep: #1d4fb0;
+    --palette-accent-tint: #12213a;
+    --palette-accent-ink: #7ab8ff;
+    --palette-haze: #8fb4ff;
+    --palette-green-100: #0f2a19;
+    --palette-green-700: #4aca6a;
+    --palette-red-100: #2a1a20;
+    --palette-red-700: #ff7b72;
+    --palette-amber-100: #2b2312;
+    --palette-amber-700: #e0a93a;
+    --palette-ink-neutral: 0 0 0;
+    --palette-ink-wash: 0 0 0;
+
+    --shadow-edge: var(--palette-ink-lit);
+    --shadow-drop-weight: 7.3;
+    --shadow-edge-weight: 1.4;
+    --shadow-glow-weight: 2.3;
+    --shadow-header-weight: 0;
+    --shadow-menu-weight: 4.3;
+    --shadow-menu-near: 0;
+    --shadow-menu-lit: 0.05;
+    --header-edge: var(--palette-ink-sky);
+    --header-edge-alpha: 0.1;
+    --header-edge-rest: 0.1;
+    --cloud-strength: 0.13;
+    --leading-air: 0.05;
+    --tracking-body: 0.005em;
+    --weight-body: 380;
+    --weight-display: 470;
+    --weight-title: 490;
+    --weight-heading: 500;
+    --toggle-track: 55%;
+  }
 }
 
 @theme {
@@ -67,15 +167,44 @@
   --text-ui: 0.9375rem; /* 15px: card copy, row and FAQ headings, tabs, menu links, brand name */
   --text-lead: 1.0625rem; /* 17px: card titles, and section descriptions from `sm` */
 
+  /*
+    Weights sit in 20s: large type reads heavier than its number and small type lighter, so display
+    sizes take 20 off 500 and small headings add 20. Dark takes a step down in the dark block.
+  */
+  --font-weight-body: var(--weight-body);
+  --font-weight-display: var(--weight-display);
+  --font-weight-title: var(--weight-title);
+  --font-weight-heading: var(--weight-heading);
+  --font-weight-pill: 560;
+
+  /* Tracking tightens as type grows and opens for 12 to 13px labels. */
+  --tracking-display: -0.04em;
+  --tracking-title: -0.005em;
+  --tracking-label: 0.01em;
+  --tracking-pill: 0.02em;
+
+  /* Line height by size: tighter as the text grows. `--leading-air` is the dark theme's extra. */
+  --leading-display: 1;
+  --leading-support: calc(1.5 + var(--leading-air));
+  --leading-description: calc(1.55 + var(--leading-air));
+  --leading-body: calc(1.6 + var(--leading-air));
+  --leading-mock: calc(1.65 + var(--leading-air));
+
   /* Drop the stock palette so only the semantic tokens below become utilities. */
   --color-*: initial;
 
   /* Surfaces */
-  --color-bg: var(--palette-gray-50);
-  --color-surface: var(--palette-white);
-  --color-surface-raised: var(--palette-gray-50);
+  --color-bg: var(--palette-backdrop);
+  --color-surface: var(--palette-surface);
+  --color-surface-raised: var(--palette-surface-raised);
   --color-surface-hover: var(--palette-gray-100);
   --color-line: var(--palette-gray-200);
+
+  /* Floating layers: the mobile menu card, its hovered row, and the well under its link */
+  --color-overlay: var(--palette-overlay);
+  --color-overlay-hover: var(--palette-overlay-hover);
+  --color-overlay-well: var(--palette-overlay-well);
+  --color-scrim: var(--palette-scrim);
 
   /* Text */
   --color-text: var(--palette-gray-950);
@@ -84,16 +213,26 @@
 
   /* Brand accent */
   --color-accent-solid: var(--palette-blue-600);
-  --color-accent-hover: var(--palette-blue-700);
-  --color-accent-text: var(--palette-blue-700);
-  --color-accent-soft: var(--palette-blue-50);
-  --color-accent-bright: var(--palette-blue-500);
+  --color-accent-hover: var(--palette-blue-hover);
+  --color-accent-press: var(--palette-blue-press);
+  --color-accent-text: var(--palette-accent-ink);
+  --color-accent-soft: var(--palette-accent-tint);
+  --color-accent-bright: var(--palette-sky-deep);
   --color-on-accent: var(--palette-white);
 
   /* Blue wash behind product mock-ups and the closing banner */
-  --color-wash-strong: var(--palette-blue-200);
-  --color-wash-soft: var(--palette-blue-50);
-  --color-wash-mid: var(--palette-blue-100);
+  --color-wash-strong: var(--palette-wash-200);
+  --color-wash-soft: var(--palette-wash-50);
+  --color-wash-mid: var(--palette-wash-100);
+
+  /* Cloud puffs on a sky: white in light, a faint haze in dark */
+  --color-haze: var(--palette-haze);
+
+  /* Cloud art that stays light in both themes: the footer wordmark and the pricing figure */
+  --color-cloud-lit: var(--palette-white);
+  --color-cloud-pale: var(--palette-blue-50);
+  --color-cloud-soft: var(--palette-blue-100);
+  --color-cloud-deep: var(--palette-blue-200);
 
   /* Status colours inside the GitHub mock-ups; each is paired with an icon or label */
   --color-success: var(--palette-green-700);
@@ -103,7 +242,7 @@
   --color-warning: var(--palette-amber-700);
   --color-warning-soft: var(--palette-amber-100);
 
-  --color-focus: var(--palette-blue-500);
+  --color-focus: var(--palette-accent-ink);
 
   /*
     Radii compose concentrically: an element nested with 4px of padding steps down one size
@@ -125,33 +264,80 @@
     `var(--shadow-*)`: a custom property resolves `--shadow-ink` on `:root`, so the wash ink
     would never reach it.
   */
-  --shadow-ring: 0 0 0 1px rgb(var(--shadow-ink) / 0.07);
+  --shadow-ring: 0 0 0 1px
+    rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.07 * var(--shadow-edge-weight)));
+  --shadow-well: inset 0 0 0 1px
+    rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.06 * var(--shadow-edge-weight)));
+  --shadow-track: inset 0 0 0 1px
+    rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.08 * var(--shadow-edge-weight) * 0.85));
   --shadow-soft:
-    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
-    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
-    0 8px 8px rgb(var(--shadow-ink) / 0.03);
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.05 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 2px 2px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 4px 4px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 8px 8px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight)));
   --shadow-card:
-    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
-    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
-    0 8px 8px rgb(var(--shadow-ink) / 0.03), 0 16px 16px rgb(var(--shadow-ink) / 0.03),
-    0 32px 32px rgb(var(--shadow-ink) / 0.03);
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.05 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 2px 2px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 4px 4px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 8px 8px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 16px 16px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 32px 32px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight)));
   --shadow-float:
-    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
-    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
-    0 8px 8px rgb(var(--shadow-ink) / 0.03), 0 16px 16px rgb(var(--shadow-ink) / 0.04),
-    0 32px 32px rgb(var(--shadow-ink) / 0.04), 0 64px 64px rgb(30 105 233 / 0.06);
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.05 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 2px 2px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 4px 4px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 8px 8px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 16px 16px rgb(var(--shadow-ink) / calc(0.04 * var(--shadow-drop-weight) * 0.75)),
+    0 32px 32px rgb(var(--shadow-ink) / calc(0.04 * var(--shadow-drop-weight) * 0.75)),
+    0 64px 64px rgb(var(--shadow-brand) / calc(0.06 * var(--shadow-glow-weight)));
   /*
     `--shadow-soft` under a solid fill, so a primary button sits at the same height as the
     secondary beside it. The inset line is the lit top edge.
   */
   --shadow-button:
-    inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(var(--shadow-ink) / 0.05),
-    0 1px 1px rgb(var(--shadow-ink) / 0.03), 0 2px 2px rgb(var(--shadow-ink) / 0.03),
-    0 4px 4px rgb(var(--shadow-ink) / 0.03), 0 8px 8px rgb(var(--shadow-ink) / 0.03);
+    inset 0 1px 0 rgb(var(--palette-ink-lit) / 0.16),
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.05 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 2px 2px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 4px 4px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight))),
+    0 8px 8px rgb(var(--shadow-ink) / calc(0.03 * var(--shadow-drop-weight)));
+  /* The primary button on hover: two more layers and a brighter lit edge, so it reads as lifted. */
+  --shadow-button-lift:
+    inset 0 1px 0 rgb(var(--palette-ink-lit) / 0.2),
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.04 * var(--shadow-edge-weight))),
+    0 2px 2px rgb(var(--shadow-brand) / 0.18), 0 4px 4px rgb(var(--shadow-brand) / 0.16),
+    0 8px 8px rgb(var(--shadow-brand) / 0.14), 0 14px 18px rgb(var(--shadow-brand) / 0.12);
+  /* The primary button pressed: the lit edge gives way to an inset shade. */
+  --shadow-button-press:
+    inset 0 1px 2px rgb(var(--palette-ink-neutral) / 0.18),
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.04 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-brand) / 0.18);
+  /*
+    The header's hairline. In light it only shows once the header sticks; in dark a sky-blue
+    hairline shows at all times and the drops fall away.
+  */
   --shadow-header:
-    0 1px 0 rgb(var(--shadow-ink) / 0.05), 0 2px 2px rgb(var(--shadow-ink) / 0.02),
-    0 4px 4px rgb(var(--shadow-ink) / 0.02), 0 8px 8px rgb(var(--shadow-ink) / 0.02),
-    0 16px 16px rgb(var(--shadow-ink) / 0.02);
+    0 1px 0 rgb(var(--header-edge) / var(--header-edge-alpha)),
+    0 2px 2px rgb(var(--shadow-ink) / calc(0.02 * var(--shadow-header-weight))),
+    0 4px 4px rgb(var(--shadow-ink) / calc(0.02 * var(--shadow-header-weight))),
+    0 8px 8px rgb(var(--shadow-ink) / calc(0.02 * var(--shadow-header-weight))),
+    0 16px 16px rgb(var(--shadow-ink) / calc(0.02 * var(--shadow-header-weight)));
+  --shadow-header-edge: 0 1px 0 rgb(var(--header-edge) / var(--header-edge-rest));
+  /* The floating mobile menu card. */
+  --shadow-menu:
+    inset 0 1px 0 rgb(var(--palette-ink-lit) / var(--shadow-menu-lit)),
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.06 * var(--shadow-edge-weight))),
+    0 2px 4px rgb(var(--shadow-ink) / calc(0.06 * var(--shadow-menu-near))),
+    0 8px 16px rgb(var(--shadow-ink) / calc(0.08 * var(--shadow-menu-weight))),
+    0 24px 48px rgb(var(--shadow-ink) / calc(0.12 * var(--shadow-menu-weight)));
+  /* The raised thumb of the theme toggle. */
+  --shadow-thumb:
+    0 0 0 1px rgb(var(--shadow-edge, var(--shadow-ink)) / calc(0.06 * var(--shadow-edge-weight))),
+    0 1px 1px rgb(var(--shadow-ink) / calc(0.08 * var(--shadow-drop-weight) * 0.85)),
+    0 2px 4px rgb(var(--shadow-ink) / calc(0.08 * var(--shadow-drop-weight) * 0.6));
 
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 
@@ -189,6 +375,7 @@
     background: var(--color-bg);
     color: var(--color-text);
     color-scheme: light;
+    font-feature-settings: "ss08";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-underline-position: from-font;
@@ -224,6 +411,8 @@
     min-height: 100svh;
     background: var(--color-bg);
     color: var(--color-text);
+    font-weight: var(--font-weight-body);
+    letter-spacing: var(--tracking-body);
     text-wrap: pretty;
   }
 
@@ -250,6 +439,7 @@
   pre,
   kbd {
     font-family: var(--font-mono);
+    font-feature-settings: normal;
   }
 
   img {
@@ -313,7 +503,10 @@
     }
   }
 
-  /* Shared button chassis. Variants add colours through utilities. */
+  /*
+    Shared button chassis. Variants add colours through utilities. Press is quick and release is
+    slower, so a button sinks fast and settles back with a spring.
+  */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -330,13 +523,15 @@
     /* Tailwind v4 resets buttons to the default cursor; links and buttons should feel the same. */
     cursor: pointer;
     user-select: none;
-    transition-property: background-color, color, box-shadow, scale;
-    transition-duration: 150ms, 150ms, 150ms, 200ms;
-    transition-timing-function: ease, ease, ease, ease-out;
+    transition-property: background-color, color, box-shadow, translate, scale;
+    transition-duration: 150ms, 150ms, 160ms, 160ms, 220ms;
+    transition-timing-function: ease, ease, ease-out, ease-out, cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .btn:active {
     scale: 0.97;
+    transition-duration: 150ms, 150ms, 80ms, 80ms, 80ms;
+    transition-timing-function: ease, ease, ease-out, ease-out, ease-out;
   }
 
   /* An icon on the right needs less padding on that side to look centred. */
@@ -348,10 +543,21 @@
     padding-inline: 0.75rem 1rem;
   }
 
+  .btn-trailing > svg {
+    transition-property: translate;
+    transition-duration: 160ms;
+    transition-timing-function: ease-out;
+  }
+
   .btn-primary {
     background: var(--color-accent-solid);
     color: var(--color-on-accent);
     @apply shadow-button;
+  }
+
+  .btn-primary:active {
+    background: var(--color-accent-press);
+    @apply shadow-button-press;
   }
 
   .btn-secondary {
@@ -368,6 +574,18 @@
   @media (hover: hover) {
     .btn-primary:hover {
       background: var(--color-accent-hover);
+      translate: 0 -1px;
+      @apply shadow-button-lift;
+    }
+
+    .btn-primary:hover:active {
+      translate: 0 0;
+      background: var(--color-accent-press);
+      @apply shadow-button-press;
+    }
+
+    .btn-primary.btn-trailing:hover > svg {
+      translate: 2px 0;
     }
 
     .btn-secondary:hover {
@@ -377,6 +595,64 @@
     .btn-ghost:hover {
       background: var(--color-surface-hover);
       color: var(--color-text);
+    }
+  }
+
+  /*
+    One light sweep across the hero call to action: once, 1.2s after load, and again each time the
+    pointer arrives. The band is parked off the left edge until its animation starts.
+  */
+  .btn-sheen {
+    position: relative;
+    overflow: clip;
+  }
+
+  .btn-sheen::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    translate: -120% 0;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      color-mix(in oklab, var(--color-on-accent) 38%, transparent) 50%,
+      transparent 70%
+    );
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .btn-sheen::after {
+      animation: sheen 700ms ease-in-out 1.2s 1 backwards;
+    }
+  }
+
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .btn-sheen:hover::after {
+      animation: sheen-replay 700ms ease-in-out 1 both;
+    }
+  }
+
+  /*
+    Copy confirms itself: the check pops in as the icon swaps, and a green ring pulses once
+    around the button. The label is untouched, so the width never jumps.
+  */
+  .btn[data-copied="true"] {
+    position: relative;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .btn[data-copied="true"]::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      animation: copy-ring 180ms ease-out both;
+    }
+
+    .btn[data-copied="true"] .swap > [data-shown="true"] {
+      animation: check-pop 180ms ease-out both;
     }
   }
 
@@ -415,12 +691,36 @@
     pointer-events: none;
     /* A bank of puffs along the bottom edge on both sides, unequal so it reads as weather. */
     background-image:
-      radial-gradient(ellipse 34% 26% at 18% 82%, rgb(255 255 255 / 0.95), transparent 70%),
-      radial-gradient(ellipse 20% 16% at 36% 92%, rgb(255 255 255 / 0.9), transparent 70%),
-      radial-gradient(ellipse 30% 24% at 80% 86%, rgb(255 255 255 / 0.92), transparent 70%),
-      radial-gradient(ellipse 16% 13% at 93% 70%, rgb(255 255 255 / 0.85), transparent 70%),
-      radial-gradient(ellipse 26% 20% at 86% 20%, rgb(255 255 255 / 0.8), transparent 70%),
-      radial-gradient(ellipse 14% 11% at 10% 16%, rgb(255 255 255 / 0.75), transparent 70%);
+      radial-gradient(
+        ellipse 34% 26% at 18% 82%,
+        color-mix(in oklab, var(--color-haze) calc(95% * var(--cloud-strength)), transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 20% 16% at 36% 92%,
+        color-mix(in oklab, var(--color-haze) calc(90% * var(--cloud-strength)), transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 30% 24% at 80% 86%,
+        color-mix(in oklab, var(--color-haze) calc(92% * var(--cloud-strength)), transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 16% 13% at 93% 70%,
+        color-mix(in oklab, var(--color-haze) calc(85% * var(--cloud-strength)), transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 26% 20% at 86% 20%,
+        color-mix(in oklab, var(--color-haze) calc(80% * var(--cloud-strength)), transparent),
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 14% 11% at 10% 16%,
+        color-mix(in oklab, var(--color-haze) calc(75% * var(--cloud-strength)), transparent),
+        transparent 70%
+      );
     filter: blur(12px);
   }
 
@@ -493,10 +793,22 @@
     rotate: 45deg;
   }
 
-  /* The mobile menu opens instantly and only animates on the way out. */
+  /*
+    The mobile menu floats under the header, 12px in from the screen edges, and grows out of the
+    menu button's corner. It opens in 180ms and closes in 120ms, so it leaves faster than it
+    arrives. The scrim blurs the page a little and takes the click that closes the menu.
+  */
   .menu-panel {
-    transition-property: opacity, translate, filter, display;
-    transition-duration: 160ms;
+    position: fixed;
+    inset: 4.5rem 0.75rem auto;
+    z-index: 50;
+    padding: 0.5rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-overlay);
+    @apply shadow-menu;
+    transform-origin: top right;
+    transition-property: opacity, scale, display;
+    transition-duration: 120ms;
     transition-timing-function: ease-out;
     transition-behavior: allow-discrete;
   }
@@ -504,29 +816,172 @@
   .menu-panel[data-open="false"] {
     display: none;
     opacity: 0;
-    translate: 0 -4px;
-    filter: blur(4px);
+    scale: 0.94;
   }
 
   .menu-panel[data-open="true"] {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
     opacity: 1;
-    translate: 0 0;
-    filter: blur(0);
+    scale: 1;
+    transition-duration: 180ms;
 
     @starting-style {
-      opacity: 1;
-      translate: 0 0;
-      filter: blur(0);
+      opacity: 0;
+      scale: 0.94;
+    }
+  }
+
+  .menu-scrim {
+    position: fixed;
+    inset: 4rem 0 0;
+    z-index: 30;
+    background: var(--color-scrim);
+    backdrop-filter: blur(2px);
+    transition-property: opacity, display;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+  }
+
+  .menu-scrim[data-open="false"] {
+    display: none;
+    opacity: 0;
+  }
+
+  .menu-scrim[data-open="true"] {
+    display: block;
+    opacity: 1;
+    transition-duration: 180ms;
+
+    @starting-style {
+      opacity: 0;
     }
   }
 
   /*
-    Following a menu link closes the panel with no exit: the panel sits in the header's flow, so
-    while it faded out the anchor scroll would land a full menu height past its target.
+    Following a menu link closes the menu with no exit, so nothing is still fading while the
+    browser scrolls to the anchor.
   */
-  .menu-panel[data-instant="true"] {
+  .menu-panel[data-instant="true"],
+  .menu-scrim[data-instant="true"] {
     transition: none;
+  }
+
+  .menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3rem;
+    padding-inline: 0.75rem;
+    border-radius: 0.625rem;
+    font-size: 1rem;
+    font-weight: var(--font-weight-heading);
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    transition-property: background-color;
+    transition-duration: 150ms;
+  }
+
+  .menu-row:focus-visible {
+    background: var(--color-overlay-hover);
+  }
+
+  @media (hover: hover) {
+    .menu-row:hover {
+      background: var(--color-overlay-hover);
+    }
+  }
+
+  .menu-well {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.75rem;
+    margin: 0.125rem 0.25rem 0.25rem;
+    border-radius: 0.625rem;
+    background: var(--color-overlay-well);
+    @apply shadow-well;
+    font-size: var(--text-ui);
+    font-weight: 500;
+    line-height: 1;
+    color: var(--color-text);
+  }
+
+  /* The theme switch: two slots, with a raised thumb that slides under the active one. */
+  .theme-toggle {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-surface) var(--toggle-track), transparent);
+    @apply shadow-track;
+    view-transition-name: theme-toggle;
+  }
+
+  .theme-thumb {
+    position: absolute;
+    inset: 3px auto 3px 3px;
+    width: 28px;
+    border-radius: 9999px;
+    background: var(--color-surface);
+    @apply shadow-thumb;
+    transition-property: translate;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  :root[data-theme="dark"] .theme-thumb {
+    translate: 30px 0;
+    background: var(--color-line);
+  }
+
+  .theme-slot {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 9999px;
+    color: var(--color-text-tertiary);
+    cursor: pointer;
+    transition-property: color;
+    transition-duration: 200ms;
+  }
+
+  .theme-slot > svg {
+    transition-property: rotate;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .theme-slot[data-slot="sun"] {
+    color: var(--color-text);
+  }
+
+  :root[data-theme="dark"] .theme-slot[data-slot="sun"] {
+    color: var(--color-text-tertiary);
+  }
+
+  :root[data-theme="dark"] .theme-slot[data-slot="sun"] > svg {
+    rotate: 90deg;
+  }
+
+  :root[data-theme="dark"] .theme-slot[data-slot="moon"] {
+    color: var(--color-text);
+  }
+
+  .theme-slot[data-slot="moon"] > svg {
+    rotate: -30deg;
+    transition-timing-function: cubic-bezier(0.34, 1.7, 0.64, 1);
+  }
+
+  :root[data-theme="dark"] .theme-slot[data-slot="moon"] > svg {
+    rotate: 0deg;
   }
 
   /* Cross-fade for a swapped icon: the new one grows in while the old one shrinks away. */
@@ -615,32 +1070,32 @@
     background-image:
       radial-gradient(
         ellipse 22% 12% at 8% 10%,
-        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(85% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 14% 8% at 22% 4%,
-        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(70% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 24% 13% at 92% 14%,
-        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(85% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 12% 7% at 78% 6%,
-        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(65% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 20% 16% at 4% 58%,
-        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(90% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 22% 18% at 97% 52%,
-        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(90% * var(--cloud-strength)), transparent),
         transparent 70%
       );
     filter: blur(14px);
@@ -688,22 +1143,22 @@
     background-image:
       radial-gradient(
         ellipse 22% 10% at 6% 40%,
-        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(90% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 14% 7% at 18% 30%,
-        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(70% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 24% 11% at 95% 34%,
-        color-mix(in oklab, var(--color-on-accent) 90%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(90% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 12% 6% at 82% 46%,
-        color-mix(in oklab, var(--color-on-accent) 70%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(70% * var(--cloud-strength)), transparent),
         transparent 70%
       );
     filter: blur(16px);
@@ -722,13 +1177,13 @@
     letter-spacing: -0.06em;
     color: transparent;
     background-image:
-      radial-gradient(ellipse 30% 26% at 24% 36%, var(--color-on-accent), transparent 70%),
-      radial-gradient(ellipse 26% 24% at 74% 52%, var(--color-on-accent), transparent 70%),
+      radial-gradient(ellipse 30% 26% at 24% 36%, var(--color-cloud-lit), transparent 70%),
+      radial-gradient(ellipse 26% 24% at 74% 52%, var(--color-cloud-lit), transparent 70%),
       linear-gradient(
         to bottom in oklab,
-        var(--color-on-accent) 18%,
-        var(--color-wash-soft) 60%,
-        var(--color-wash-mid) 92%
+        var(--color-cloud-lit) 18%,
+        var(--color-cloud-pale) 60%,
+        var(--color-cloud-soft) 92%
       );
     -webkit-background-clip: text;
     background-clip: text;
@@ -780,32 +1235,32 @@
     background-image:
       radial-gradient(
         ellipse 22% 12% at 5% 48%,
-        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(85% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 13% 7% at 17% 38%,
-        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(65% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 24% 13% at 96% 42%,
-        color-mix(in oklab, var(--color-on-accent) 85%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(85% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 12% 7% at 83% 54%,
-        color-mix(in oklab, var(--color-on-accent) 65%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(65% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 16% 9% at 30% 66%,
-        color-mix(in oklab, var(--color-on-accent) 55%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(55% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 18% 10% at 70% 70%,
-        color-mix(in oklab, var(--color-on-accent) 55%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(55% * var(--cloud-strength)), transparent),
         transparent 70%
       );
     filter: blur(16px);
@@ -822,12 +1277,12 @@
     background-image:
       radial-gradient(
         ellipse 26% 60% at 88% 100%,
-        color-mix(in oklab, var(--color-on-accent) 80%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(80% * var(--cloud-strength)), transparent),
         transparent 70%
       ),
       radial-gradient(
         ellipse 16% 44% at 9% 100%,
-        color-mix(in oklab, var(--color-on-accent) 75%, transparent),
+        color-mix(in oklab, var(--color-haze) calc(75% * var(--cloud-strength)), transparent),
         transparent 70%
       );
     filter: blur(12px);
@@ -868,13 +1323,13 @@
     white-space: nowrap;
     color: transparent;
     background-image:
-      radial-gradient(ellipse 18% 22% at 14% 42%, var(--color-on-accent), transparent 70%),
-      radial-gradient(ellipse 20% 24% at 58% 50%, var(--color-on-accent), transparent 70%),
+      radial-gradient(ellipse 18% 22% at 14% 42%, var(--color-cloud-lit), transparent 70%),
+      radial-gradient(ellipse 20% 24% at 58% 50%, var(--color-cloud-lit), transparent 70%),
       linear-gradient(
         to bottom in oklab,
-        var(--color-on-accent) 20%,
-        var(--color-wash-soft) 55%,
-        var(--color-wash-strong) 85%
+        var(--color-cloud-lit) 20%,
+        var(--color-cloud-pale) 55%,
+        var(--color-cloud-deep) 85%
       );
     -webkit-background-clip: text;
     background-clip: text;
@@ -952,11 +1407,94 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn,
+  .btn {
+    transition-property: background-color, color, box-shadow;
+    transition-duration: 150ms;
+  }
+
+  .btn-trailing > svg,
   .skip-link,
   .disclosure-icon,
   .menu-panel,
+  .menu-scrim,
+  .theme-thumb,
+  .theme-slot > svg,
   .swap > * {
     transition-duration: 0ms;
+  }
+
+  .btn:active {
+    scale: none;
+  }
+
+  @media (hover: hover) {
+    .btn-primary:hover,
+    .btn-primary:hover:active,
+    .btn-primary.btn-trailing:hover > svg {
+      translate: none;
+    }
+  }
+
+  .menu-panel,
+  .menu-scrim {
+    scale: none;
+  }
+
+  .theme-slot > svg {
+    rotate: none !important;
+  }
+}
+
+/* The page colours crossfade when the theme changes; the toggle itself is drawn live. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: ease;
+}
+
+::view-transition-old(theme-toggle) {
+  display: none;
+}
+
+::view-transition-new(theme-toggle) {
+  animation: none;
+}
+
+@keyframes sheen {
+  from {
+    translate: -120% 0;
+  }
+  to {
+    translate: 120% 0;
+  }
+}
+
+@keyframes sheen-replay {
+  from {
+    translate: -120% 0;
+  }
+  to {
+    translate: 120% 0;
+  }
+}
+
+@keyframes copy-ring {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-success) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@keyframes check-pop {
+  0% {
+    scale: 0.6;
+  }
+  60% {
+    scale: 1.1;
+  }
+  100% {
+    scale: 1;
   }
 }

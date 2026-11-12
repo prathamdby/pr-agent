@@ -194,10 +194,10 @@ export function UseCases() {
               <code className="inline-flex w-fit rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text">
                 {item.command}
               </code>
-              <h3 className="mt-4 text-2xl font-medium tracking-[-0.02em] text-text">
+              <h3 className="mt-4 text-2xl font-display tracking-[-0.02em] text-text">
                 {item.title}
               </h3>
-              <p className="mt-3 text-ui leading-relaxed text-text-secondary">{item.description}</p>
+              <p className="mt-3 text-ui leading-body text-text-secondary">{item.description}</p>
               <ul className="mt-6 divide-y divide-line">
                 {item.bullets.map((bullet) => (
                   <li
