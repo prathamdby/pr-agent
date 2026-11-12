@@ -8,6 +8,7 @@ type CopyButtonProps = {
   readonly iconAfter?: boolean;
   readonly prefix?: ReactNode;
   readonly target?: string;
+  readonly className?: string;
 };
 
 export function CopyButton({
@@ -17,6 +18,7 @@ export function CopyButton({
   iconAfter = false,
   prefix,
   target,
+  className,
 }: CopyButtonProps) {
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
   const copied = copiedAt !== null;
@@ -36,11 +38,16 @@ export function CopyButton({
       .catch(() => {});
   };
 
-  const chassis = {
-    primary: "btn btn-primary btn-leading h-9 rounded-xs text-label",
-    secondary: prefix ? "btn btn-secondary px-3" : "btn btn-secondary btn-trailing",
-    ghost: "btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs",
-  }[variant];
+  const chassis = [
+    {
+      primary: "btn btn-primary btn-leading h-9 rounded-xs text-label",
+      secondary: prefix ? "btn btn-secondary px-3" : "btn btn-secondary btn-trailing",
+      ghost: "btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs",
+    }[variant],
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const icon = (
     <span className="swap size-4" aria-hidden="true">
@@ -60,16 +67,12 @@ export function CopyButton({
       <button type="button" onClick={copy} className={chassis}>
         {prefix}
         {iconAfter ? null : icon}
-        <span className="grid">
-          <span
-            className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}
-          >
+        <span className="copy-label">
+          <span data-shown={!copied} aria-hidden={copied}>
             {label}
             {targetText}
           </span>
-          <span
-            className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}
-          >
+          <span data-shown={copied} aria-hidden={!copied}>
             Copied
             {targetText}
           </span>

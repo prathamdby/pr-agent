@@ -39,6 +39,10 @@ export const Route = createRootRoute({
         content: "#ffffff",
       },
       {
+        name: "color-scheme",
+        content: "light dark",
+      },
+      {
         name: "robots",
         content: "index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1",
       },

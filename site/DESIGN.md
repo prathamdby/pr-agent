@@ -23,9 +23,9 @@ The page is a TanStack Start app (React 19, Tailwind v4). Tailwind’s stock pal
 
 ## Reference and mood
 
-The PR Agent Design System is a light, calm, product-led look: a white sheet on a grey backdrop, one blue accent, soft blue washes behind real GitHub output, and a lot of air. Hold these traits whatever section you add:
+The PR Agent Design System is a calm, product-led look: a sheet on a grey backdrop, one blue accent, soft blue washes behind real GitHub output, and a lot of air. Light is the default. Dark follows `prefers-color-scheme` only. Hold these traits whatever section you add:
 
-- **A white sheet over a light grey backdrop.** `.page-frame` is the sheet: `bg-surface`, `min-height: 100svh`, and from `min-width: 84rem` it caps at `max-width: 84rem`, centres, and takes `--shadow-card`. The `<body>` behind it is `bg-bg`. The sheet runs from the top edge, so the sticky header has nothing to fight, to the bottom edge, where the footer wordmark meets the fold.
+- **A sheet over a grey backdrop.** `.page-frame` is the sheet: `bg-surface`, `min-height: 100svh`, and from `min-width: 84rem` it caps at `max-width: 84rem`, centres, and takes `--shadow-card`. The `<body>` behind it is `bg-bg`. The sheet runs from the top edge, so the sticky header has nothing to fight, to the bottom edge, where the footer wordmark meets the fold. Light: white on gray-50. Dark: gray-900 on gray-925.
 - **Generous whitespace.** Sections breathe with `py-16 sm:py-20 lg:py-24`. Nothing sits closer than it must.
 - **One blue accent, sampled from the logo** (`site/assets/logo-source.png`): sky `#339bfd` and royal `#1e69e9`. Everything else is grey or white.
 - **Wash panels behind product mock-ups.** A soft blue gradient that deepens towards the bottom (`.wash`), with blurred cloud puffs (`.wash-clouds`).
@@ -33,7 +33,7 @@ The PR Agent Design System is a light, calm, product-led look: a white sheet on 
 - **GitHub-styled output mocks inside those washes** (`site/components/github-output/`), so the reader sees what lands on a pull request rather than an abstract illustration.
 - **A sky fold closing the page.** The closing banner and the footer share one sky that deepens from the white sheet to the logo’s sky blue (`.sky-fold-lead` and `.sky-fold`), and a giant white brand wordmark rises out of it (`.wordmark-clip` and `.wordmark-sky`, rendered by `site/components/footer.tsx`).
 - **Clean cut and calm.** Depth comes from soft layered shadows, never from borders. Hairline `border-line` rules only separate rows inside a card or frame a mock’s chrome.
-- **No dark mode.** `color-scheme: light` on `html`, `theme-color` `#ffffff` in the head.
+- **Dark follows the system.** `color-scheme: light dark` on `html`, a `color-scheme` meta of `light dark`, and `theme-color` `#ffffff` in the head. No toggle, no stored preference, no `data-theme`.
 
 ## House rules
 
@@ -45,22 +45,22 @@ These rules are followed without exception. They are grouped the way the site ap
 - Align optically, not geometrically. `.btn` uses `line-height: 1` with `items-center` so icon and label share one optical centre; list bullets sit at `mt-2 size-1.5` rather than on the line box centre.
 - A button with an icon on one side takes less padding on that side: `.btn-trailing` is `padding-inline: 1rem 0.75rem`, `.btn-leading` is `0.75rem 1rem`.
 - Depth is layered `box-shadow`, not borders. The first layer of every shadow token is a hairline standing in for a border.
-- Raster images carry a 1px, 8% outline so a light image still has an edge: `img { outline: 1px solid rgb(0 0 0 / 0.08); outline-offset: -1px; }`. The logo, which already has an edge, opts out with `outline-none`.
+- Raster images carry a 1px, 8% outline so a light image still has an edge: `img { outline: 1px solid var(--img-outline); outline-offset: -1px; }`. `--img-outline` is `rgb(0 0 0 / 0.08)` in light and `rgb(255 255 255 / 0.08)` in dark. The logo, which already has an edge, opts out with `outline-none`.
 - Icon stroke matches text weight: Hugeicons stroke-rounded at `strokeWidth={1.5}` beside Geist at 400–500.
 
 ### Animation
 
 - Animate from the trigger. The mobile menu drops out of the header (`translate: 0 -4px` to `0 0`); the copied check grows out of the copy icon (`.swap`).
-- Frequently used menus open instantly and only animate on close. `.menu-panel` uses `@starting-style` to skip the entrance and transitions `opacity, translate, filter, display` on the way out. Escape closes it and returns focus to the menu button. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit: the panel sits in the header’s flow, so a fade-out would still be taking up space when the browser measures the anchor, and the scroll would land a full menu height past it.
+- The mobile menu overlays the page under the sticky header. `.menu-panel` is `position: absolute; inset-inline: 0; top: 100%` with a `surface` fill and `shadow-float`. Opening animates 160ms `ease-out` on `opacity, translate, filter, display` from `translate 0 -4px` and `blur(4px)`. Escape closes it and returns focus to the menu button. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit, so a 160ms fade cannot delay the anchor scroll. `documentElement` overflow is locked while the panel is open and restored on close, including instant close and unmount.
 - Exits are subtler than entrances and end in a 4px blur: `.menu-panel[data-open="false"]` and `.swap > [data-shown="false"]` both finish at `filter: blur(4px)`.
 - Name the transition properties. Never `transition: all`. `.btn` lists `background-color, color, box-shadow, scale`.
 - Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98. The hero pill link, which is button-shaped, does the same with `active:scale-[0.97]`.
 - Icon swaps cross-fade: the new icon goes `scale 0.25` to `1` and `blur 4px` to `0` while the old one shrinks away (`.swap`).
-- Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.menu-panel`, and `.disclosure` transition; `rise` and `panel-in` are keyframes. `panel-in` only plays when a tab is picked with the pointer: on page load and while arrowing through the strip the panel switches instantly, because keyboard-driven actions should not animate.
-- Disable transitions while switching themes. There is one theme today. If a second arrives, zero `transition-duration` for the frame the switch happens in.
+- Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.copy-label`, `.menu-panel`, and `.disclosure` transition; `rise`, `settle-left`, `settle-right`, and `panel-in` are keyframes. `panel-in` only plays when a tab is picked with the pointer: on page load and while arrowing through the strip the panel switches instantly, because keyboard-driven actions should not animate.
+- Theme switches snap. Dark is a media query, not a JS attribute, so there is no frame to zero. Do not invent `data-theme-switching`.
 - `will-change: transform` on anything that jitters by 1–2px during motion: `.window`.
 - Stagger entrances in small groups. The hero runs `motion-safe:animate-rise` at 0ms, 90ms, and 180ms for its three blocks.
-- No animation on page load unless intentional. The hero rise is the one intentional load animation. Every other section is still until the reader acts.
+- No animation on page load unless intentional. The hero rise is the load animation, and from `sm` the Deploy yourself / Copy prompt pair also settles inward (`translate` only, 12px, same 90ms delay as the parent rise). Every other section is still until the reader acts.
 - Hover feedback is instant: colour and background hovers run 150ms, never longer.
 
 ### Typography
@@ -79,11 +79,11 @@ These rules are followed without exception. They are grouped the way the site ap
 ### Colours
 
 - Every palette step has a purpose. The primitives in `:root` are exactly the values the semantic tokens need, nothing more.
-- Components use semantic tokens only, never primitives. `--palette-*` is read only inside `@theme`.
+- Components use semantic tokens only, never primitives. `--palette-*` is read only inside `@theme` and the dark media in `:root`.
 - Tokens are named by purpose (`surface-raised`, `text-tertiary`, `wash-strong`), not by hue.
 - `accent` is reserved for the brand blue. Status colours have their own tokens.
-- Contrast is measured against the real background. `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`. Two exceptions are approved: the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)), and the cloud-filled `$0` in the pricing band, which is display art at 200px and up and stays real text (see [Section, heading, eyebrow](#section-heading-eyebrow)).
-- A dark theme, if ever added, is a separate palette behind one switch mechanism, not per-component overrides.
+- Contrast is measured against the real background. In light, `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1). In dark, `text-tertiary` (`#93a0b4`) clears 4.5:1 on `surface` (6.6:1), `surface-raised` (6.0:1), `.sky-rise` / `.sky-tint` / pale sky-fold washes. Do not lighten tertiary to prettify. Two exceptions are approved: the white legal bar on the deep end of the sky fold (see [Footer and wordmark](#footer-and-wordmark)), and the cloud-filled `$0` in the pricing band, which is display art at 200px and up and stays real text (see [Section, heading, eyebrow](#section-heading-eyebrow)).
+- Dark is a separate palette behind one switch: `@media (prefers-color-scheme: dark)` nested in `:root` after `@theme`, reassigning existing `--color-*` names from dark `--palette-*` primitives. Components keep using `bg-surface`, `text-text`, and the other utilities. No per-component colour overrides.
 - Gradients interpolate `in oklab`: `.wash`, `.sky-tint`, `.sky-rise`, `.sky-band`, `.figure-sky`, `.sky-fold-lead`, `.sky-fold`, `.wordmark-sky`, and the comparison column wash (`bg-linear-to-b/oklab`).
 
 ### Accessibility
@@ -100,7 +100,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - Mock links are inert. The triage mock’s `thread` cells are styled like GitHub links but render as `span`, because a mock has no real thread to open.
 - `pointer-events: none` on decoration: rails, the header sentinel, wash textures, the hero, pricing, and sky fold clouds, the hero fade, the comparison column wash, the wordmark.
 - Hover styles only inside `@media (hover: hover)` in `globals.css`. Tailwind v4’s `hover:` variant is already gated the same way.
-- `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` zeroes the `.btn`, `.disclosure-icon`, `.menu-panel`, and `.swap` transitions and turns smooth scrolling off.
+- `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` zeroes the `.btn`, `.disclosure-icon`, `.menu-panel`, `.swap`, and `.copy-label` transitions and turns smooth scrolling off.
 - `role="status"` for quiet confirmations (`CopyButton`, where the region is a sibling of the button so the confirmation never joins the button’s accessible name); `role="alert"` only for something that needs attention now.
 - Never colour alone. Every comparison mark and pill pairs its colour with an icon or text.
 - The skip link is the first focusable element in `<body>`.
@@ -184,7 +184,7 @@ Numbers that count or line up take `.tabular` (`font-variant-numeric: tabular-nu
 
 ### Primitives
 
-Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block reads them, so a component can only reach a colour through the purpose it serves. The one exception is the shadow ink: `--shadow-ink` and the `.wash` base rules pick between the two `--palette-ink-*` channels (see [Depth](#depth)). Blues are sampled from `site/assets/logo-source.png`.
+Raw values live in `:root` as `--palette-*`. `@theme` and the nested dark media in `:root` read them; a component can only reach a colour through the purpose it serves. The one exception is the shadow ink: `--shadow-ink` and the `.wash` base rules pick between the two `--palette-ink-*` channels (see [Depth](#depth)). Blues are sampled from `site/assets/logo-source.png`. Light primitives feed the default aliases. Dark primitives feed the `@media (prefers-color-scheme: dark)` reassignment of the same `--color-*` names.
 
 | Primitive               | Value      | Feeds                                     |
 | ----------------------- | ---------- | ----------------------------------------- |
@@ -209,6 +209,25 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 | `--palette-amber-700`   | `#9a6700`  | `warning`                                 |
 | `--palette-ink-neutral` | `15 21 34` | Shadow ink off a wash (gray-950 channels) |
 | `--palette-ink-wash`    | `14 42 78` | Shadow ink on a wash (deep wash blue)     |
+| `--palette-gray-75`     | `#e8eaef`  | Dark `text`                               |
+| `--palette-gray-300`    | `#a8b0c0`  | Dark `text-secondary`                     |
+| `--palette-gray-400`    | `#93a0b4`  | Dark `text-tertiary`                      |
+| `--palette-gray-600`    | `#2c3446`  | Dark `line`                               |
+| `--palette-gray-800`    | `#242b3a`  | Dark `surface-hover`                      |
+| `--palette-gray-850`    | `#1c2230`  | Dark `surface-raised`                     |
+| `--palette-gray-900`    | `#141924`  | Dark `surface`                            |
+| `--palette-gray-925`    | `#0c1018`  | Dark `bg`                                 |
+| `--palette-blue-300`    | `#7eb6ff`  | Dark `accent-text`                        |
+| `--palette-blue-800`    | `#163056`  | Dark `wash-strong`                        |
+| `--palette-blue-850`    | `#152848`  | Dark `wash-mid`                           |
+| `--palette-blue-900`    | `#121c30`  | Dark `wash-soft`                          |
+| `--palette-blue-950`    | `#152238`  | Dark `accent-soft`                        |
+| `--palette-green-400`   | `#3fb950`  | Dark `success`                            |
+| `--palette-green-950`   | `#132d1a`  | Dark `success-soft`                       |
+| `--palette-red-400`     | `#f85149`  | Dark `danger`                             |
+| `--palette-red-950`     | `#2d1517`  | Dark `danger-soft`                        |
+| `--palette-amber-400`   | `#e3b341`  | Dark `warning`                            |
+| `--palette-amber-950`   | `#2a2110`  | Dark `warning-soft`                       |
 
 ### Semantic tokens
 
@@ -246,7 +265,8 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` uses `background: var(--color-accent-solid)` and `color: var(--color-on-accent)`, the same pair as `.btn-primary`.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
-- The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
+- Dark remaps `bg`, `surface`, `surface-raised`, `surface-hover`, `line`, `text`, `text-secondary`, `text-tertiary`, `accent-text`, `accent-soft`, the three wash tokens, and the six status tokens. `accent-solid`, `accent-hover`, `accent-bright`, `on-accent`, and `focus` stay on the light primitives so the primary button, legal bar, and focus ring do not invert. Wash darkens so `.sky-rise` is not a pale first paint. Clouds stay `--color-on-accent` (white).
+- The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. The card stays the light hero. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
 
 ## Radii
 
@@ -303,22 +323,25 @@ Tailwind exposes them as `shadow-ring`, `shadow-soft`, `shadow-card`, `shadow-fl
 
 ## Motion
 
-| Token                | Value                                       | Purpose                                                             |
-| -------------------- | ------------------------------------------- | ------------------------------------------------------------------- |
-| `--ease-out-quart`   | `cubic-bezier(0.25, 1, 0.5, 1)`             | Every non-trivial transition and both keyframes                     |
-| `--animate-rise`     | `rise 700ms var(--ease-out-quart) both`     | Hero entrance: `opacity 0`, `translate 0 14px`, `blur(4px)` to rest |
-| `--animate-panel-in` | `panel-in 240ms var(--ease-out-quart) both` | Tab panel copy: `opacity 0`, `translate 0 6px` to rest              |
+| Token                    | Value                                                | Purpose                                                                 |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------- |
+| `--ease-out-quart`       | `cubic-bezier(0.25, 1, 0.5, 1)`                      | Every non-trivial transition and the keyframes                          |
+| `--animate-rise`         | `rise 700ms var(--ease-out-quart) both`              | Hero entrance: `opacity 0`, `translate 0 14px`, `blur(4px)` to rest     |
+| `--animate-panel-in`     | `panel-in 240ms var(--ease-out-quart) both`          | Tab panel copy: `opacity 0`, `translate 0 6px` to rest                  |
+| `--animate-settle-left`  | `settle-left 700ms var(--ease-out-quart) 90ms both`  | Hero Deploy yourself from `sm`: `translate -12px 0` to rest, no opacity |
+| `--animate-settle-right` | `settle-right 700ms var(--ease-out-quart) 90ms both` | Hero Copy prompt from `sm`: `translate 12px 0` to rest, no opacity      |
 
 Recipes, all in `globals.css`:
 
 - **Buttons.** `.btn` transitions `background-color, color, box-shadow, scale` with durations `150ms, 150ms, 150ms, 200ms` and timing `ease, ease, ease, ease-out`. `.btn:active { scale: 0.97 }`.
 - **Icon swap.** `.swap` is an `inline-grid` with every child on `grid-area: 1 / 1`; children transition `opacity, scale, filter` for 200ms. `[data-shown="false"]` is `opacity: 0; scale: 0.25; filter: blur(4px)`. Used by the menu button (`Menu` and `X`) and `CopyButton` (`Copy` and `Check`). The `data-shown` state sits on wrapper spans around the icons, because the Hugeicons component does not forward data attributes to its SVG; put it on the icon and both icons render at once.
-- **Mobile menu.** `.menu-panel` transitions `opacity, translate, filter, display` for 160ms `ease-out` with `transition-behavior: allow-discrete`. Closed is `display: none; opacity: 0; translate: 0 -4px; filter: blur(4px)`. Open sets the resting values inside `@starting-style` too, so opening is instant and only closing animates.
+- **Copy label.** `.copy-label` is a grid with every child on `grid-area: 1 / 1`; children transition `opacity, filter` for 200ms `--ease-out-quart`. `[data-shown="false"]` is `opacity: 0; filter: blur(4px)`. Used by every `CopyButton` to cross-fade the label and “Copied”. Both labels stay in one cell so the button width does not jump.
+- **Mobile menu.** `.menu-panel` is `position: absolute; inset-inline: 0; top: 100%` under the sticky header, with a `surface` fill and `shadow-float`. It transitions `opacity, translate, filter, display` for 160ms `ease-out` with `transition-behavior: allow-discrete`. Closed is `display: none; opacity: 0; translate: 0 -4px; filter: blur(4px)`. Open reaches the resting values from those closed values, so the entrance is not skipped. `data-instant="true"` still zeros the transition for anchor navigation.
 - **Disclosures.** `.disclosure-icon` transitions `rotate 200ms`; `.disclosure[open] .disclosure-icon { rotate: 45deg }` turns the plus into a cross. Under `prefers-reduced-motion: no-preference`, `.disclosure::details-content` transitions `block-size 240ms` and `content-visibility 240ms allow-discrete`, which relies on `interpolate-size: allow-keywords` on `html`.
 - **Sticky header.** `transition-[box-shadow,background-color] duration-200`, with `data-[stuck=true]:shadow-header` and the `bg-surface/85` fill (see [Layout](#layout)).
 - **Hovers.** `transition-colors duration-150` on links; the `.btn` variants change background inside `@media (hover: hover)`.
 - **Skip link.** `transition: transform 150ms var(--ease-out-quart)` from `translateY(-200%)` to `0` on `:focus-visible`.
-- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
+- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > *, .copy-label > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion. The hero settle uses `motion-safe:sm:` only.
 
 ## Layout
 
@@ -413,7 +436,7 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 
 `site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-label leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
 
-`site/components/copy-button.tsx` confirms with an icon swap and a label change, so the state never rests on colour alone:
+`site/components/copy-button.tsx` confirms with an icon swap and a label morph, so the state never rests on colour alone:
 
 ```tsx
 const icon = (
@@ -431,11 +454,11 @@ const icon = (
   <button type="button" onClick={copy} className={chassis}>
     {prefix}
     {iconAfter ? null : icon}
-    <span className="grid">
-      <span className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}>
+    <span className="copy-label">
+      <span data-shown={!copied} aria-hidden={copied}>
         {label}
       </span>
-      <span className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}>
+      <span data-shown={copied} aria-hidden={!copied}>
         Copied
       </span>
     </span>
@@ -447,11 +470,11 @@ const icon = (
 </>;
 ```
 
-Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-label` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
+Both labels occupy the same grid cell (`grid-area: 1 / 1` on `.copy-label > *`), so the button keeps the width of the longer one and the morph never shifts layout. The visible labels cross-fade with opacity and blur for 200ms. The `role="status"` region stays a sibling of the button and repeats “Copied to clipboard”; do not put that string inside the button. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-label` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label. An optional `className` joins the chassis (the hero settle).
 
 ### GitHub output primitives
 
-`site/components/github-output/primitives.tsx` renders bot output the way GitHub’s light theme does, so the examples look like the real thing.
+`site/components/github-output/primitives.tsx` renders bot output in the current page palette, so the mocks still read as comments, not as a second product skin.
 
 | Primitive   | Recipe                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -525,7 +548,7 @@ Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-te
 
 ### Header and mobile menu
 
-`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden` with `data-open`, links at `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`.
+`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden`, absolutely positioned under the sticky header so opening does not grow the header or move the hero. It carries `data-open` and `data-instant`. Links are `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`. While open, `documentElement` overflow is `hidden`.
 
 ### Footer and wordmark
 
@@ -563,7 +586,7 @@ The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap t
 
 ### Hero and CTA banner
 
-The hero (`site/components/hero.tsx`) is a `sky-rise` section holding one centred column, `container-x flex flex-col items-center pt-10 text-center sm:pt-16`, in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link and the `h1`, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line, then the window stage. The `h1` keeps the brand in a `sr-only` span and splits the tagline around `HERO_HEADING_PILL`: the lead (`sm:block`, its own line from `sm`), the word in a `word-pill sky-tint shadow-soft` pill with the same avatar and `max-sm:` recipe as the CTA banner, then the tail. On a phone the heading reads “Every pull request gets a / reviewer / you host”. The support line is `mt-6 max-w-155`. The buttons sit in `mt-8 grid w-full gap-3 sm:flex sm:w-auto sm:justify-center`, so they stack full width on a phone. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. The stage is `relative mt-14 h-95 w-full text-left sm:h-110 lg:h-125`, with the `PrWindow` at `absolute inset-x-0 top-0 mx-auto max-w-220`. The stage is shorter than the window, so the section’s `overflow: clip` cuts the window and `.sky-rise::after` fades the cut into the sheet. `text-left` stops the column’s centring from leaking into the mock.
+The hero (`site/components/hero.tsx`) is a `sky-rise` section holding one centred column, `container-x flex flex-col items-center pt-10 text-center sm:pt-16`, in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link and the `h1`, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line, then the window stage. The `h1` keeps the brand in a `sr-only` span and splits the tagline around `HERO_HEADING_PILL`: the lead (`sm:block`, its own line from `sm`), the word in a `word-pill sky-tint shadow-soft` pill with the same avatar and `max-sm:` recipe as the CTA banner, then the tail. On a phone the heading reads “Every pull request gets a / reviewer / you host”. The support line is `mt-6 max-w-155`. The buttons sit in `mt-8 grid w-full gap-3 sm:flex sm:w-auto sm:justify-center`, so they stack full width on a phone. From `sm`, with motion allowed, “Deploy yourself” takes `motion-safe:sm:animate-settle-left` and “Copy prompt” takes `motion-safe:sm:animate-settle-right` (translate only, 12px, 90ms delay baked into the tokens). Below `sm` they use the parent rise only. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. The stage is `relative mt-14 h-95 w-full text-left sm:h-110 lg:h-125`, with the `PrWindow` at `absolute inset-x-0 top-0 mx-auto max-w-220`. The stage is shorter than the window, so the section’s `overflow: clip` cuts the window and `.sky-rise::after` fades the cut into the sheet. `text-left` stops the column’s centring from leaking into the mock.
 
 `.sky-rise` is pulled up under the transparent header (`margin-top: -4rem; padding-top: 4rem`), so the sky starts at the sheet’s top edge:
 
@@ -684,7 +707,7 @@ Learned over the design session. Treat these as review criteria for any site cha
 - Merge the tab strip into its card: one shell, one shadow.
 - Use soft, realistic, layered shadows everywhere depth is needed. Never a border for depth.
 - Reuse `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`, the `.btn` chassis, `.card`, `.chip`, the icon tile, and the tokens. A new section built from those already looks right.
-- Keep the PR Agent look no matter what feature is added: white sheet, blue washes, GitHub mocks, calm spacing.
+- Keep the PR Agent look no matter what feature is added: sheet, blue washes, GitHub mocks that follow the page palette, calm spacing.
 
 **Don’t**
 
@@ -694,9 +717,9 @@ Learned over the design session. Treat these as review criteria for any site cha
 - Put a white tile, card, or pill behind a logo.
 - Let a preview, a mock, or a tab change the height of its row.
 - Show a native scrollbar inside a card.
-- Use `transition: all`, animate on page load outside the hero, or animate a menu’s entrance.
+- Use `transition: all`, or animate on page load outside the hero rise and the hero pair settle.
 - Use an em dash, title case, or a sentence that talks about the product instead of to the reader.
-- Add a dark mode, a second theme mechanism, or per-component colour overrides.
+- Add a theme toggle, a stored preference, `data-theme`, a blocking theme script, a second theme-color hex, or per-component colour overrides. Dark is `prefers-color-scheme` only.
 - Preserve complexity because it already exists. The smallest recipe that makes the design clear wins (`AGENTS.md`, Design taste).
 
 ## Verification
@@ -770,14 +793,14 @@ Run these before calling a site change done. They are the checks the maintainer 
 
 | Path                                  | Owns                                                                                                                  |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities                              |
-| `site/app/__root.tsx`                 | Head metadata, font preload, skip link, `.page-frame`                                                                 |
+| `site/app/globals.css`                | Fonts, primitives, dark palette, semantic tokens, radii, shadows, motion, component classes, utilities                |
+| `site/app/__root.tsx`                 | Head metadata, `color-scheme` meta, font preload, skip link, `.page-frame`                                            |
 | `site/app/index.tsx`                  | Section order                                                                                                         |
 | `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                                                |
 | `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                                                |
 | `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                                             |
-| `site/components/header.tsx`          | Sticky header, transparent until it sticks, mobile menu                                                               |
-| `site/components/hero.tsx`            | Hero copy, word pill, staggered entrance, window stage under the hero sky                                             |
+| `site/components/header.tsx`          | Sticky header, transparent until it sticks, overlay mobile menu, overflow lock                                        |
+| `site/components/hero.tsx`            | Hero copy, word pill, staggered entrance, pair settle, window stage under the hero sky                                |
 | `site/components/pr-window.tsx`       | The decorative pull request window                                                                                    |
 | `site/components/providers.tsx`       | Provider strip                                                                                                        |
 | `site/components/provider-logos.tsx`  | Model provider marks                                                                                                  |
@@ -790,11 +813,11 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/components/faq.tsx`             | Native accordion                                                                                                      |
 | `site/components/quickstart.tsx`      | Installation steps                                                                                                    |
 | `site/components/code-block.tsx`      | `CodeBlock`                                                                                                           |
-| `site/components/copy-button.tsx`     | `CopyButton`                                                                                                          |
+| `site/components/copy-button.tsx`     | `CopyButton` with icon swap and label morph                                                                           |
 | `site/components/cta-banner.tsx`      | Closing banner on the sky fold, word pill, clone command                                                              |
 | `site/components/footer.tsx`          | Footer columns, legal bar with social marks, wordmark, on the sky fold                                                |
 | `site/components/not-found.tsx`       | 404 page                                                                                                              |
-| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks                                                                    |
+| `site/components/github-output/*.tsx` | GitHub-styled primitives and the four output mocks, following page tokens                                             |
 | `site/lib/content.ts`                 | Every line of page copy                                                                                               |
 | `site/lib/agentResources.ts`          | Every machine-readable URL                                                                                            |
 | `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                                                 |

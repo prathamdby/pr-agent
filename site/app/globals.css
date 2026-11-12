@@ -46,11 +46,33 @@
   --palette-ink-neutral: 15 21 34;
   --palette-ink-wash: 14 42 78;
 
+  --palette-gray-75: #e8eaef;
+  --palette-gray-300: #a8b0c0;
+  --palette-gray-400: #93a0b4;
+  --palette-gray-600: #2c3446;
+  --palette-gray-800: #242b3a;
+  --palette-gray-850: #1c2230;
+  --palette-gray-900: #141924;
+  --palette-gray-925: #0c1018;
+  --palette-blue-300: #7eb6ff;
+  --palette-blue-800: #163056;
+  --palette-blue-850: #152848;
+  --palette-blue-900: #121c30;
+  --palette-blue-950: #152238;
+  --palette-green-400: #3fb950;
+  --palette-green-950: #132d1a;
+  --palette-red-400: #f85149;
+  --palette-red-950: #2d1517;
+  --palette-amber-400: #e3b341;
+  --palette-amber-950: #2a2110;
+
   /*
     A shadow takes the hue of the surface it falls on. Neutral by default; the `.wash` rules in
     the base layer switch it to a deep wash blue for objects sitting directly on a wash.
   */
   --shadow-ink: var(--palette-ink-neutral);
+
+  --img-outline: rgb(0 0 0 / 0.08);
 }
 
 @theme {
@@ -157,6 +179,8 @@
 
   --animate-rise: rise 700ms var(--ease-out-quart) both;
   --animate-panel-in: panel-in 240ms var(--ease-out-quart) both;
+  --animate-settle-left: settle-left 700ms var(--ease-out-quart) 90ms both;
+  --animate-settle-right: settle-right 700ms var(--ease-out-quart) 90ms both;
 
   @keyframes rise {
     from {
@@ -181,6 +205,49 @@
       translate: 0 0;
     }
   }
+
+  @keyframes settle-left {
+    from {
+      translate: -12px 0;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+
+  @keyframes settle-right {
+    from {
+      translate: 12px 0;
+    }
+    to {
+      translate: 0 0;
+    }
+  }
+}
+
+:root {
+  @media (prefers-color-scheme: dark) {
+    --color-bg: var(--palette-gray-925);
+    --color-surface: var(--palette-gray-900);
+    --color-surface-raised: var(--palette-gray-850);
+    --color-surface-hover: var(--palette-gray-800);
+    --color-line: var(--palette-gray-600);
+    --color-text: var(--palette-gray-75);
+    --color-text-secondary: var(--palette-gray-300);
+    --color-text-tertiary: var(--palette-gray-400);
+    --color-accent-text: var(--palette-blue-300);
+    --color-accent-soft: var(--palette-blue-950);
+    --color-wash-strong: var(--palette-blue-800);
+    --color-wash-mid: var(--palette-blue-850);
+    --color-wash-soft: var(--palette-blue-900);
+    --color-success: var(--palette-green-400);
+    --color-success-soft: var(--palette-green-950);
+    --color-danger: var(--palette-red-400);
+    --color-danger-soft: var(--palette-red-950);
+    --color-warning: var(--palette-amber-400);
+    --color-warning-soft: var(--palette-amber-950);
+    --img-outline: rgb(255 255 255 / 0.08);
+  }
 }
 
 @layer base {
@@ -188,7 +255,7 @@
     font-family: var(--font-sans);
     background: var(--color-bg);
     color: var(--color-text);
-    color-scheme: light;
+    color-scheme: light dark;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-underline-position: from-font;
@@ -253,7 +320,7 @@
   }
 
   img {
-    outline: 1px solid rgb(0 0 0 / 0.08);
+    outline: 1px solid var(--img-outline);
     outline-offset: -1px;
   }
 
@@ -493,8 +560,12 @@
     rotate: 45deg;
   }
 
-  /* The mobile menu opens instantly and only animates on the way out. */
   .menu-panel {
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    background: var(--color-surface);
+    @apply shadow-float;
     transition-property: opacity, translate, filter, display;
     transition-duration: 160ms;
     transition-timing-function: ease-out;
@@ -513,20 +584,31 @@
     opacity: 1;
     translate: 0 0;
     filter: blur(0);
-
-    @starting-style {
-      opacity: 1;
-      translate: 0 0;
-      filter: blur(0);
-    }
   }
 
-  /*
-    Following a menu link closes the panel with no exit: the panel sits in the header's flow, so
-    while it faded out the anchor scroll would land a full menu height past its target.
-  */
   .menu-panel[data-instant="true"] {
     transition: none;
+  }
+
+  .copy-label {
+    display: grid;
+  }
+
+  .copy-label > * {
+    grid-area: 1 / 1;
+    transition-property: opacity, filter;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-out-quart);
+  }
+
+  .copy-label > [data-shown="false"] {
+    opacity: 0;
+    filter: blur(4px);
+  }
+
+  .copy-label > [data-shown="true"] {
+    opacity: 1;
+    filter: blur(0);
   }
 
   /* Cross-fade for a swapped icon: the new one grows in while the old one shrinks away. */
@@ -956,7 +1038,8 @@
   .skip-link,
   .disclosure-icon,
   .menu-panel,
-  .swap > * {
+  .swap > *,
+  .copy-label > * {
     transition-duration: 0ms;
   }
 }

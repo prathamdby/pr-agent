@@ -67,7 +67,11 @@ export function Hero() {
             {HERO_SUPPORT}
           </p>
           <div className="mt-8 grid w-full gap-3 sm:flex sm:w-auto sm:justify-center">
-            <ButtonLink href="#usage" trailingIcon={<ChevronRight className="size-4" />}>
+            <ButtonLink
+              href="#usage"
+              className="motion-safe:sm:animate-settle-left"
+              trailingIcon={<ChevronRight className="size-4" />}
+            >
               Deploy yourself
             </ButtonLink>
             <CopyButton
@@ -76,6 +80,7 @@ export function Hero() {
               variant="secondary"
               iconAfter
               prefix={<AssistantMarks />}
+              className="motion-safe:sm:animate-settle-right"
             />
           </div>
           <p className="mt-4 text-label text-text-tertiary">{HERO_CTA_NOTE}</p>
