@@ -35,6 +35,17 @@ export function Header() {
   }, []);
 
   useEffect(() => {
+    const media = window.matchMedia("(min-width: 48rem)");
+    const onChange = () => {
+      if (media.matches) {
+        setOpen(false);
+      }
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     if (!open) {
       return undefined;
     }

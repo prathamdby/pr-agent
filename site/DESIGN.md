@@ -188,7 +188,7 @@ Raw values live in `:root` as `--palette-*`. `@theme` and the nested dark media 
 
 | Primitive               | Value      | Feeds                                     |
 | ----------------------- | ---------- | ----------------------------------------- |
-| `--palette-white`       | `#ffffff`  | `surface`, `on-accent`                    |
+| `--palette-white`       | `#ffffff`  | `surface`, `on-accent`, light `cloud`     |
 | `--palette-gray-50`     | `#f6f7f9`  | `bg`, `surface-raised`                    |
 | `--palette-gray-100`    | `#eef0f3`  | `surface-hover`                           |
 | `--palette-gray-200`    | `#e3e6eb`  | `line`                                    |
@@ -218,6 +218,7 @@ Raw values live in `:root` as `--palette-*`. `@theme` and the nested dark media 
 | `--palette-gray-900`    | `#141924`  | Dark `surface`                            |
 | `--palette-gray-925`    | `#0c1018`  | Dark `bg`                                 |
 | `--palette-blue-300`    | `#7eb6ff`  | Dark `accent-text`                        |
+| `--palette-blue-400`    | `#3a5f91`  | Dark `cloud`                              |
 | `--palette-blue-800`    | `#163056`  | Dark `wash-strong`                        |
 | `--palette-blue-850`    | `#152848`  | Dark `wash-mid`                           |
 | `--palette-blue-900`    | `#121c30`  | Dark `wash-soft`                          |
@@ -248,7 +249,9 @@ Raw values live in `:root` as `--palette-*`. `@theme` and the nested dark media 
 | `--color-accent-text`    | blue-700  | Accent text and icons on white: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                    |
 | `--color-accent-soft`    | blue-50   | Icon tile fill, command chips, the hero pill link badge                                                                                |
 | `--color-accent-bright`  | blue-500  | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
-| `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar, social marks, wordmark, the `$0` fill, and every cloud on a sky                       |
+| `--color-on-accent`      | white     | Text and icons on `accent-solid`; the legal bar and social marks                                                                       |
+| `--color-cloud`          | white     | Decorative sky puffs. Dark remaps this to blue-400 so the puffs are a lighter wash, not lamps                                          |
+| `--color-cloud-bright`   | white     | Lit cloud inside the `$0` figure and the wordmark. Dark remaps this to blue-300                                                        |
 | `--color-wash-strong`    | blue-200  | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
 | `--color-wash-mid`       | blue-100  | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
 | `--color-wash-soft`      | blue-50   | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
@@ -265,7 +268,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` uses `background: var(--color-accent-solid)` and `color: var(--color-on-accent)`, the same pair as `.btn-primary`.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface: the sticky header once it sticks or while its menu is open. At the top of the page the header is transparent over the hero sky.
-- Dark remaps `bg`, `surface`, `surface-raised`, `surface-hover`, `line`, `text`, `text-secondary`, `text-tertiary`, `accent-text`, `accent-soft`, the three wash tokens, and the six status tokens. `accent-solid`, `accent-hover`, `accent-bright`, `on-accent`, and `focus` stay on the light primitives so the primary button, legal bar, and focus ring do not invert. Wash darkens so `.sky-rise` is not a pale first paint. Clouds stay `--color-on-accent` (white).
+- Dark remaps `bg`, `surface`, `surface-raised`, `surface-hover`, `line`, `text`, `text-secondary`, `text-tertiary`, `accent-text`, `accent-soft`, `cloud`, `cloud-bright`, the three wash tokens, and the six status tokens. It also remaps `--palette-ink-neutral` to gray-75 channels and `--palette-ink-wash` to blue-300 channels so shadow hairlines stay visible on dark surfaces. `accent-solid`, `accent-hover`, `accent-bright`, `on-accent`, and `focus` stay on the light primitives so the primary button, legal bar, and focus ring do not invert. Wash darkens so `.sky-rise` is not a pale first paint. Clouds use `--color-cloud`: white in light, blue-400 in dark.
 - The social card in `site/scripts/generate-og-image.mjs` draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. The card stays the light hero. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
 
 ## Radii
@@ -418,8 +421,8 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 - `SectionHeading`: `SectionTitle`, then an optional `max-w-[58ch]` description at `mt-4`; an optional `action` renders beside the copy on `md` (`md:flex-row md:items-end md:justify-between md:gap-12`) and under it on narrow screens.
 - Sections with a side column (features, FAQ) and the centred pricing band place `SectionTitle` in that column themselves instead of using `SectionHeading`.
 - Pricing builds its own band, `<section className="sky-band py-20 sm:py-24 lg:py-30">`, around the usual `container-x scroll-mt-5` with `#pricing`. The heading block is `mx-auto flex max-w-2xl flex-col items-center text-center`: the eyebrow, the `$0` figure passed to `SectionTitle` as `figure` (`figure-sky tabular mt-7 mb-2`), the `h2`, and one `max-w-[52ch]` line. The plans are shell cards: each `li` is a white shell (`flex flex-col rounded-xl bg-surface p-2 shadow-card`) holding a `wash wash-clouds flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft` panel inset at the top (20px shell, 8px padding, 12px panel, so the radii stay concentric) with a `size-20 rounded-md bg-surface shadow-card` tile carrying the plan's Hugeicons mark in `text-accent-text` and a `rounded-full bg-surface shadow-soft` pill with the plan's price line; the `h3` and one `text-sm text-text-secondary` line sit in the shell's footer (`flex-1 px-3 pt-4 pb-3`). Every odd-indexed card flips at every width: the copy takes `order-first pt-3 pb-4` and sits above the panel, so the cards alternate in the three-up row and in the stacked column, and the flipped panel stays flush with the shell's bottom inset. The grid spans the container, so the cards line up with the heading and the copy above them.
-- `.sky-band` is white at both edges with a sky between. Its stops are in `rem` from the top (`surface` at 0, `wash-mid` at 9rem, a peak of `color-mix(in oklab, var(--color-wash-strong) 92%, var(--color-accent-bright))` at 24rem, `wash-mid` at 50rem, `surface` at 100%), so the deepest blue stays behind `$0` however tall the stacked cards make the band on a phone. `.sky-band::before` adds four white puffs on the edges, blurred by 16px.
-- `.figure-sky` fills `$0` with cloud, the `.wordmark-sky` recipe: two white radial puffs over a `to bottom in oklab` gradient from `on-accent` at 18% through `wash-soft` at 60% to `wash-mid` at 92%, clipped to the glyphs with `background-clip: text`. It is `clamp(12.5rem, 20.8vw, 17.5rem)`, weight 500, line height `0.84`, tracking `-0.06em`, with `padding-inline: 0.085em 0.145em` so the painted box reaches past the `$` overhang and the tracked `0`. It stays real text, so screen readers and the copy see “$0”.
+- `.sky-band` is white at both edges with a sky between. Its stops are in `rem` from the top (`surface` at 0, `wash-mid` at 9rem, a peak of `color-mix(in oklab, var(--color-wash-strong) 92%, var(--color-accent-bright))` at 24rem, `wash-mid` at 50rem, `surface` at 100%), so the deepest blue stays behind `$0` however tall the stacked cards make the band on a phone. `.sky-band::before` adds four `cloud` puffs on the edges, blurred by 16px.
+- `.figure-sky` fills `$0` with cloud, the `.wordmark-sky` recipe: two `cloud-bright` radial puffs over a `to bottom in oklab` gradient from `cloud-bright` at 18% through `wash-soft` at 60% to `wash-mid` at 92%, clipped to the glyphs with `background-clip: text`. It is `clamp(12.5rem, 20.8vw, 17.5rem)`, weight 500, line height `0.84`, tracking `-0.06em`, with `padding-inline: 0.085em 0.145em` so the painted box reaches past the `$` overhang and the tracked `0`. It stays real text, so screen readers and the copy see “$0”.
 
 ### Cards, tiles, chips, wells
 
@@ -510,7 +513,7 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 }
 ```
 
-Every wash deepens towards the bottom, the way the skies around it do. `.wash-clouds::after` paints six white radial puffs, banked along the bottom edge on both sides and unequal in size, over `inset: -20%` blurred by 12px. It is `z-index: -1` inside the wash’s isolated stacking context, so it stays under every child: the tab media well, the pricing panels, and the triage mock are `wash wash-clouds`, the CTA word pill is a bare `wash`.
+Every wash deepens towards the bottom, the way the skies around it do. `.wash-clouds::after` paints six `cloud` radial puffs, banked along the bottom edge on both sides and unequal in size, over `inset: -20%` blurred by 12px. It is `z-index: -1` inside the wash’s isolated stacking context, so it stays under every child: the tab media well, the pricing panels, and the triage mock are `wash wash-clouds`, the CTA word pill is a bare `wash`.
 
 `.sky-tint` is the pale fill for small marks on white: `to bottom in oklab` from `surface` at 0% through `wash-soft` at 45% to `wash-mid` at 100%. Eyebrows, step pills, feature step tiles, and the hero word pill use it. It joins the wash ink rule (`.wash *, .sky-tint *`), so the hero pill’s avatar casts a blue shadow on it. Every wash is `pointer-events: none` texture over a real container; children position themselves with `absolute` insets or normal flow.
 
@@ -548,7 +551,7 @@ Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-te
 
 ### Header and mobile menu
 
-`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden`, absolutely positioned under the sticky header so opening does not grow the header or move the hero. It carries `data-open` and `data-instant`. Links are `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`. While open, `documentElement` overflow is `hidden`.
+`site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks or the menu opens (see [Layout](#layout)). The mobile panel is `menu-panel border-t border-line md:hidden`, absolutely positioned under the sticky header so opening does not grow the header or move the hero. It carries `data-open` and `data-instant`. Links are `flex h-11 items-center rounded-sm px-3 text-ui text-text hover:bg-surface-hover`. While open, `documentElement` overflow is `hidden`. A `min-width: 48rem` media listener closes the panel when the viewport reaches `md`, so the lock cannot outlive the hidden menu.
 
 ### Footer and wordmark
 
@@ -582,7 +585,7 @@ The wordmark is the page’s closing note:
 }
 ```
 
-The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap tops sit 0.145em below the line box and caps are 0.71em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is cloud on the deep end of the sky fold: two white (`on-accent`) radial puffs over a `to bottom in oklab` gradient from `on-accent` at 20% through `wash-soft` at 55% to `wash-strong` at 85%, all clipped to the glyphs with `background-clip: text`. The word is shifted `-0.04em` sideways because the trailing `-0.05em` letter-spacing and the final “t” push its ink right of the box centre. It is `aria-hidden`; the product name is already in the footer above it.
+The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap tops sit 0.145em below the line box and caps are 0.71em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is cloud on the deep end of the sky fold: two `cloud-bright` radial puffs over a `to bottom in oklab` gradient from `cloud-bright` at 20% through `wash-soft` at 55% to `wash-strong` at 85%, all clipped to the glyphs with `background-clip: text`. The word is shifted `-0.04em` sideways because the trailing `-0.05em` letter-spacing and the final “t” push its ink right of the box centre. It is `aria-hidden`; the product name is already in the footer above it.
 
 ### Hero and CTA banner
 
@@ -607,7 +610,7 @@ The hero (`site/components/hero.tsx`) is a `sky-rise` section holding one centre
 }
 ```
 
-`.sky-rise::before` paints six white (`on-accent` at 65% to 90%) puffs, two banks high in the corners and two lower on the edges, blurred by 14px. `.sky-rise::after` is a 150px fade at the bottom edge from transparent through `surface` at 80% to `surface`, painted over the window.
+`.sky-rise::before` paints six `cloud` puffs (65% to 90%), two banks high in the corners and two lower on the edges, blurred by 14px. `.sky-rise::after` is a 150px fade at the bottom edge from transparent through `surface` at 80% to `surface`, painted over the window.
 
 The CTA banner (`site/components/cta-banner.tsx`) is the first half of the sky fold, a full-bleed `sky-fold-lead pt-18 pb-10 text-center sm:pt-28 sm:pb-16` band inside the sheet with a `container-x` inside it, no rounded corners and no shadow. It holds exactly three things: the heading, one `max-w-[46ch]` sentence, and the clone command box. Do not add anything to it.
 
@@ -642,7 +645,7 @@ The sky fold is one sky split across two elements, because the banner lives in `
 }
 ```
 
-The banner ends on `wash-mid` and the footer picks it up there: the landing page renders `<Footer continuesSky />`, which adds `sky-fold-continued`. The footer’s stops are measured in `rem` from its bottom edge, so the legal bar and the wordmark always land on the deep end and the link columns on the pale end, however tall the columns grow on a phone. Without the banner above it (the 404) the footer renders plain `<Footer />` and ramps up from white instead. `.sky-fold::before` adds a loose bank of six white puffs (`on-accent` at 55% to 85%) across the middle, behind the link columns, blurred by 16px. `.sky-fold::after` adds two blurred white cloud puffs (`on-accent` at 80% and 75%) low in the corners. Both sit under every child.
+The banner ends on `wash-mid` and the footer picks it up there: the landing page renders `<Footer continuesSky />`, which adds `sky-fold-continued`. The footer’s stops are measured in `rem` from its bottom edge, so the legal bar and the wordmark always land on the deep end and the link columns on the pale end, however tall the columns grow on a phone. Without the banner above it (the 404) the footer renders plain `<Footer />` and ramps up from white instead. `.sky-fold::before` adds a loose bank of six `cloud` puffs (55% to 85%) across the middle, behind the link columns, blurred by 16px. `.sky-fold::after` adds two blurred `cloud` puffs (80% and 75%) low in the corners. Both sit under every child.
 
 ### 404
 
