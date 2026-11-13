@@ -115,6 +115,49 @@ describe("readTextWithOutputBudget", () => {
     expect(out.note).toContain("startLine 2, maxLines 1");
   });
 
+  it.each([undefined, { startLine: 1, maxLines: 2 }])(
+    "keeps an exact-limit line whole and clamps only above the limit with window %j",
+    (window) => {
+      const line = "x".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS);
+      const exact = readTextWithOutputBudget(line, 128_000, window);
+      expect(exact.content).toBe(line);
+      expect(exact.clampedLines).toBeUndefined();
+
+      const over = readTextWithOutputBudget(`${line}x`, 128_000, window);
+      expect(over.content).toBe(`${line}… [line 1 clamped: 1 of ${OVER_LIMIT} characters elided]`);
+      expect(over.clampedLines).toEqual([1]);
+    },
+  );
+
+  it.each([undefined, { startLine: 2, maxLines: 2 }])(
+    "advances past a whole line at either newline boundary with window %j",
+    (window) => {
+      const text = "aaaa\nbbbb\ndddd\n";
+      const startLine = window?.startLine ?? 1;
+      for (const budget of [0, 4, 5]) {
+        const out = readTextWithOutputBudget(text, budget, window);
+        const resumeStartLine = budget === 0 ? startLine : startLine + 1;
+        expect(out.truncated).toBe(true);
+        expect(out.endLine).toBe(resumeStartLine - 1);
+        expect(out.clampedLines).toBeUndefined();
+        expect(out.resumeStartLine).toBe(resumeStartLine);
+        expect(out.note).toBe(
+          `Truncated by the response byte budget at line ${out.endLine} of 3. Resume with startLine ${resumeStartLine}.`,
+        );
+        const resumed = readTextWithOutputBudget(text, 128_000, {
+          startLine: out.resumeStartLine,
+        });
+        expect(resumed.content).toBe(
+          text
+            .trimEnd()
+            .split("\n")
+            .slice(resumeStartLine - 1)
+            .join("\n"),
+        );
+      }
+    },
+  );
+
   it("reports no clamped lines when nothing was elided", () => {
     const out = readTextWithOutputBudget("a\nb\n", 128_000);
     expect(out.clampedLines).toBeUndefined();
@@ -172,6 +215,24 @@ describe("readTextWithOutputBudget", () => {
     expect(out.note).toContain(String(out.content.length));
     expect(out.note).toContain("500000");
     expect(out.note).toContain("readWorkspaceFile");
+  });
+
+  it("reports an unreachable tail without a resume line when the last line is byte-capped", () => {
+    const out = readTextWithOutputBudget(`before\n${"m".repeat(500_000)}`, 64, {
+      startLine: 2,
+      maxLines: 1,
+    });
+    expect(out.content).toBe("m".repeat(64));
+    expect(out).toMatchObject({
+      startLine: 2,
+      endLine: 2,
+      truncated: true,
+      truncationReason: "response byte budget exceeded",
+      returnedBytes: 64,
+      clampedLines: [2],
+    });
+    expect(out.resumeStartLine).toBeUndefined();
+    expect(out.note).toContain("cannot be reached with readWorkspaceFile");
   });
 
   it("steps back at a surrogate pair boundary when clamping a long line", () => {

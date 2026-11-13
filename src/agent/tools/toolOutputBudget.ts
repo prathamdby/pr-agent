@@ -134,10 +134,11 @@ export function readTextWithOutputBudget(
     const shownPrefixClamped = clamped?.clampedLines.filter((line) => line <= endLine) ?? [];
     const byteCutLine = endLine > 0 && isMidLineByteCut(body, capped) ? endLine : undefined;
     const clampedLines = mergeClampedLines(shownPrefixClamped, byteCutLine);
+    const resumeStartLine = byteCutLine ?? endLine + 1;
     const notes: string[] = [];
     if (capped.truncated) {
       notes.push(
-        `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`,
+        `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${resumeStartLine}${byteCutLine !== undefined ? " (the last shown line may be cut off)." : "."}`,
       );
     }
     if (shownPrefixClamped.length > 0) {
@@ -153,7 +154,7 @@ export function readTextWithOutputBudget(
       returnedBytes: capped.returnedBytes,
       ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       ...(clampedLines.length > 0 ? { clampedLines } : {}),
-      ...(capped.truncated ? { resumeStartLine: endLine } : {}),
+      ...(capped.truncated ? { resumeStartLine } : {}),
       ...(note !== undefined ? { note } : {}),
     };
   }
@@ -211,9 +212,9 @@ export function readTextWithOutputBudget(
         `Line ${startLine} exceeded the response byte budget (showing ${shownChars} of ${totalChars} characters); the rest of this line cannot be reached with readWorkspaceFile.${resumeStartLine !== undefined ? ` Resume at line ${resumeStartLine} with startLine ${resumeStartLine}.` : ""}`,
       );
     } else {
-      resumeStartLine = endLine;
+      resumeStartLine = byteCutLine ?? endLine + 1;
       notes.push(
-        `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`,
+        `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${resumeStartLine}${byteCutLine !== undefined ? " (the last shown line may be cut off)." : "."}`,
       );
     }
   } else if (lineWindowTruncated) {

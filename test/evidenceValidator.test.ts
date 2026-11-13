@@ -116,4 +116,30 @@ describe("assertFindingsHaveEvidence", () => {
     expect(result.rejected[0]?.finding).toEqual(onClamped);
     expect(result.rejected[0]?.reasonCode).toBe("no_evidence");
   });
+
+  it("rejects a citation on the byte-capped last line of a single-line read", () => {
+    const ledger = createTestEvidenceLedger();
+    const read = readTextWithOutputBudget(`before\n${"m".repeat(500_000)}`, 64, {
+      startLine: 2,
+      maxLines: 1,
+    });
+    recordDeliveredFileRead(ledger, {
+      path: "src/a.ts",
+      headSha: ledger.headSha,
+      tool: "readWorkspaceFile",
+      startLine: read.startLine,
+      endLine: read.endLine,
+      content: read.content,
+      clampedLines: read.clampedLines,
+    });
+
+    expect(ledger.covers("src/a.ts", 2, 2)).toBe(false);
+    const result = assertFindingsHaveEvidence(
+      [finding({ startLine: 2, endLine: 2 })],
+      ledger,
+      ledger.headSha,
+    );
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected[0]?.reasonCode).toBe("no_evidence");
+  });
 });
