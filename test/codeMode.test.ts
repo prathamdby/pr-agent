@@ -439,6 +439,51 @@ describe("Code Mode", () => {
     if (result.ok) expect(result.output).toBe(3);
   });
 
+  it.each([
+    ['"hi"', "hi"],
+    ['"hi";', "hi"],
+    ['"a;b";', "a;b"],
+    ['const s = "a;b"; s;', "a;b"],
+    ["const a = 1; a;", 1],
+    ["const a = 1;\na + 1;\n", 2],
+    ["const x = 3; x;;", 3],
+    ["const a = 1; a; // done", 1],
+    ["const a = 1; a; /* done */", 1],
+    ["const a = 1;\n// note\na;", 1],
+    ["state.a = 1; state.b = 2; state.a // note\nstate.b", 2],
+    ["state.a = 1; state.b = 2; state.a // note\r\nstate.b", 2],
+    ["state.a = 1; state.b = 2; state.a // note\rstate.b", 2],
+    ["const a = 1 // note\na + 1;", 2],
+    ["1 + // note\n2;", 3],
+    ["(1 + // note\n2);", 3],
+    ["return 5;", 5],
+    ["const x = 1;", null],
+    ["if (true) { state.x = 1; }", null],
+    [";;", null],
+    ["// only", null],
+  ])("handles semicolon and comment cell %j", async (code, expected) => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code,
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toEqual(expected);
+  });
+
+  it("preserves throw statement endings with trailing semicolons", async () => {
+    const result = await runCodeModeScript({
+      executorKind: "in_process",
+      code: "throw new Error('boom');",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("EXECUTION_ERROR");
+      expect(result.error.message).toContain("boom");
+    }
+  });
+
   it("propagates ACCESS_DENIED from path fencing", async () => {
     const result = await runCodeModeScript({
       executorKind: "in_process",
@@ -529,6 +574,25 @@ describe("Code Mode", () => {
         { tool: "listChangedFiles", status: "completed", input: {} },
       ]);
     }
+  });
+
+  it("returns semicolon-terminated capability call results", async () => {
+    const fakeResult = { files: [{ path: "src/a.ts" }, { path: "src/b.ts" }] };
+    const direct = await runCodeModeScript({
+      executorKind: "in_process",
+      code: "await tools.listChangedFiles({});",
+      capabilities: { listChangedFiles: async () => fakeResult },
+    });
+    expect(direct.ok).toBe(true);
+    if (direct.ok) expect(direct.output).toEqual({ ...fakeResult, truncation: null });
+
+    const lengthResult = await runCodeModeScript({
+      executorKind: "in_process",
+      code: "const files = await tools.listChangedFiles({}); files.files.length;",
+      capabilities: { listChangedFiles: async () => fakeResult },
+    });
+    expect(lengthResult.ok).toBe(true);
+    if (lengthResult.ok) expect(lengthResult.output).toBe(2);
   });
 
   it("marks serializer truncation with omittedCount", () => {
@@ -752,6 +816,15 @@ describe("Code Mode", () => {
     });
     expect(afterAbort.ok).toBe(true);
     if (afterAbort.ok) expect(afterAbort.output).toBe(false);
+  });
+
+  it("persists state updates from semicolon-terminated cells", async () => {
+    const execute = buildCodeModeExecuteTool({ capabilities: {}, executorKind: "in_process" });
+    const first = asResult(await execute.executor({ code: "state.n = 2;" }));
+    const second = asResult(await execute.executor({ code: "state.n;" }));
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (second.ok) expect(second.output).toBe(2);
   });
 
   it("reports a session state conflict when a later cell commits first", async () => {
