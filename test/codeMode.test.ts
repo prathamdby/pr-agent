@@ -22,7 +22,11 @@ import { createExecutionSessionStore } from "../src/agent/execution/sessionStore
 import { AppError } from "../src/errors/appError.ts";
 import { startWorkerHealthServer } from "../src/agentWork/workerHealth.ts";
 import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.ts";
-import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.ts";
+import { readTextWithOutputBudget } from "../src/agent/tools/toolOutputBudget.ts";
+import {
+  CODE_MODE_MAX_TOOL_CALLS,
+  LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
+} from "../src/settings/index.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 import type { LocalPrChangedFile } from "../src/prWorkspace/repositoryReader.ts";
 
@@ -887,6 +891,60 @@ describe("Code Mode", () => {
       );
       expect(ledger.covers("big.ts", 800, 800)).toBe(false);
     }
+  });
+
+  it("never covers a prefix-clamped line in Code Mode until read with maxLines 1", async () => {
+    const headSha = "abc123";
+    const longLine = "l".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 250);
+    const fileText = `first\n${longLine}\nthird\n`;
+    const ledger = createEvidenceLedger(headSha);
+
+    const capabilities = {
+      readWorkspaceFile: async (args: unknown) => {
+        const startLine =
+          typeof args === "object" &&
+          args !== null &&
+          "startLine" in args &&
+          typeof args.startLine === "number"
+            ? args.startLine
+            : undefined;
+        const maxLines =
+          typeof args === "object" &&
+          args !== null &&
+          "maxLines" in args &&
+          typeof args.maxLines === "number"
+            ? args.maxLines
+            : undefined;
+        const budgeted = readTextWithOutputBudget(
+          fileText,
+          128_000,
+          startLine != null || maxLines != null ? { startLine, maxLines } : undefined,
+        );
+        return { path: "doc.md", ...budgeted };
+      },
+    };
+
+    const multi = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'await tools.readWorkspaceFile({ path: "doc.md" })',
+      capabilities,
+      evidenceLedger: ledger,
+      headSha,
+    });
+    expect(multi.ok).toBe(true);
+    expect(ledger.covers("doc.md", 1, 1)).toBe(true);
+    expect(ledger.covers("doc.md", 2, 2)).toBe(false);
+    expect(ledger.covers("doc.md", 3, 3)).toBe(true);
+
+    const single = await runCodeModeScript({
+      executorKind: "in_process",
+      code: 'await tools.readWorkspaceFile({ path: "doc.md", startLine: 2, maxLines: 1 })',
+      capabilities,
+      evidenceLedger: ledger,
+      headSha,
+    });
+    expect(single.ok).toBe(true);
+    expect(ledger.covers("doc.md", 2, 2)).toBe(true);
   });
 
   it("delivers all 179 changed files through execute", async () => {

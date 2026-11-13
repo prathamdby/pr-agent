@@ -100,13 +100,19 @@ describe("readTextWithOutputBudget", () => {
     expect(out.note).toContain("Resume with startLine 3");
   });
 
-  it("replaces an over-long line with a marker naming its line number and length", () => {
-    const text = `short\n${"x".repeat(OVER_LIMIT)}\ntail\n`;
+  it("keeps a bounded prefix of an over-long line with an inline marker", () => {
+    const longLine = "x".repeat(OVER_LIMIT);
+    const text = `short\n${longLine}\ntail\n`;
     const out = readTextWithOutputBudget(text, 128_000);
+    const expectedPrefix = "x".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS);
     expect(out.truncated).toBe(false);
-    expect(out.content).toBe(`short\n[line 2 clamped: ${OVER_LIMIT} characters elided]\ntail\n`);
+    expect(out.content).toBe(
+      `short\n${expectedPrefix}… [line 2 clamped: 1 of ${OVER_LIMIT} characters elided]\ntail\n`,
+    );
     expect(out.endLine).toBe(3);
     expect(out.clampedLines).toEqual([2]);
+    expect(out.note).toContain("2");
+    expect(out.note).toContain("startLine 2, maxLines 1");
   });
 
   it("reports no clamped lines when nothing was elided", () => {
@@ -114,22 +120,113 @@ describe("readTextWithOutputBudget", () => {
     expect(out.clampedLines).toBeUndefined();
   });
 
-  it("keeps marker line numbers absolute under a line window", () => {
-    const text = `a\nb\nc\n${"y".repeat(OVER_LIMIT)}\ne\n`;
-    const out = readTextWithOutputBudget(text, 128_000, { startLine: 4, maxLines: 1 });
-    expect(out.content).toBe(`[line 4 clamped: ${OVER_LIMIT} characters elided]`);
+  it("keeps marker line numbers absolute under a multi-line window", () => {
+    const longLine = "y".repeat(OVER_LIMIT);
+    const text = `a\nb\nc\n${longLine}\ne\n`;
+    const out = readTextWithOutputBudget(text, 128_000, { startLine: 4, maxLines: 2 });
+    expect(out.content).toBe(
+      `${"y".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS)}… [line 4 clamped: 1 of ${OVER_LIMIT} characters elided]\ne`,
+    );
     expect(out.startLine).toBe(4);
-    expect(out.endLine).toBe(4);
-    expect(out.truncated).toBe(true);
-    expect(out.resumeStartLine).toBe(5);
+    expect(out.endLine).toBe(5);
+    expect(out.truncated).toBe(false);
     expect(out.clampedLines).toEqual([4]);
   });
 
-  it("clamps a mega-line before the byte budget so surrounding lines survive", () => {
+  it("returns a single long line whole when maxLines is 1", () => {
+    const lines = Array.from({ length: 320 }, (_, index) =>
+      index === 313 ? "z".repeat(7_537) : `line-${index + 1}`,
+    );
+    const out = readTextWithOutputBudget(`${lines.join("\n")}\n`, 128_000, {
+      startLine: 314,
+      maxLines: 1,
+    });
+    expect(out.content).toBe("z".repeat(7_537));
+    expect(out.startLine).toBe(314);
+    expect(out.endLine).toBe(314);
+    expect(out.truncated).toBe(true);
+    expect(out.truncationReason).toBe("line window limit exceeded");
+    expect(out.resumeStartLine).toBe(315);
+    expect(out.clampedLines).toBeUndefined();
+  });
+
+  it("clamps a mega-line to a prefix before the byte budget so surrounding lines survive", () => {
     const text = `${"m".repeat(500_000)}\nafter\n`;
     const out = readTextWithOutputBudget(text, 128_000);
     expect(out.truncated).toBe(false);
-    expect(out.content).toBe(`[line 1 clamped: 500000 characters elided]\nafter\n`);
+    expect(out.content).toBe(
+      `${"m".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS)}… [line 1 clamped: ${500_000 - LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS} of 500000 characters elided]\nafter\n`,
+    );
+    expect(out.clampedLines).toEqual([1]);
+    expect(out.note).toContain("startLine 1, maxLines 1");
+  });
+
+  it("caps a single mega-line read at the byte budget and advances resumeStartLine", () => {
+    const text = `${"m".repeat(500_000)}\nafter\n`;
+    const out = readTextWithOutputBudget(text, 128_000, { startLine: 1, maxLines: 1 });
+    expect(Buffer.byteLength(out.content, "utf8")).toBeLessThanOrEqual(128_000);
+    expect(out.truncated).toBe(true);
+    expect(out.truncationReason).toBe("response byte budget exceeded");
+    expect(out.clampedLines).toEqual([1]);
+    expect(out.resumeStartLine).toBe(2);
+    expect(out.note).toContain(String(out.content.length));
+    expect(out.note).toContain("500000");
+    expect(out.note).toContain("readWorkspaceFile");
+  });
+
+  it("steps back at a surrogate pair boundary when clamping a long line", () => {
+    const prefix = "a".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS - 1);
+    const text = `${prefix}😀tail\n`;
+    const out = readTextWithOutputBudget(text, 128_000);
+    expect(out.clampedLines).toEqual([1]);
+    expect(out.content).toBe(
+      `${prefix}… [line 1 clamped: 6 of ${prefix.length + 6} characters elided]\n`,
+    );
+    expect(Buffer.from(out.content, "utf8").toString("utf8")).toBe(out.content);
+    expect(out.content).not.toContain("\uFFFD");
+  });
+
+  it("keeps a single-line byte-budget cut valid UTF-8 inside a 3-byte character", () => {
+    const line = "€".repeat(50_000);
+    const out = readTextWithOutputBudget(`${line}\nafter\n`, 128_000, {
+      startLine: 1,
+      maxLines: 1,
+    });
+    expect(out.truncated).toBe(true);
+    expect(out.truncationReason).toBe("response byte budget exceeded");
+    expect(Buffer.byteLength(out.content, "utf8")).toBe(127_998);
+    expect(out.content).not.toContain("\uFFFD");
+    expect(Buffer.from(out.content, "utf8").toString("utf8")).toBe(out.content);
+    expect(out.clampedLines).toEqual([1]);
+  });
+
+  it("records a mid-line byte-budget cut in clampedLines and omits exact line-boundary cuts", () => {
+    const windowedMidCut = readTextWithOutputBudget("aaaa\nbbbb\ndddd\neeee\n", 7, {
+      startLine: 2,
+      maxLines: 3,
+    });
+    expect(windowedMidCut.clampedLines).toEqual([3]);
+
+    const wholeMidCut = readTextWithOutputBudget("aaaa\nbbbb\ndddd\n", 6);
+    expect(wholeMidCut.clampedLines).toEqual([2]);
+
+    const windowedAfterNewline = readTextWithOutputBudget("aaaa\nbbbb\ndddd\n", 5, {
+      startLine: 1,
+      maxLines: 3,
+    });
+    expect(windowedAfterNewline.content).toBe("aaaa\n");
+    expect(windowedAfterNewline.clampedLines).toBeUndefined();
+
+    const windowedBeforeNewline = readTextWithOutputBudget("aaaa\nbbbb\ndddd\n", 4, {
+      startLine: 1,
+      maxLines: 3,
+    });
+    expect(windowedBeforeNewline.content).toBe("aaaa");
+    expect(windowedBeforeNewline.clampedLines).toBeUndefined();
+
+    const wholeAfterNewline = readTextWithOutputBudget("aaaa\nbbbb\ndddd\n", 5);
+    expect(wholeAfterNewline.content).toBe("aaaa\n");
+    expect(wholeAfterNewline.clampedLines).toBeUndefined();
   });
 });
 
