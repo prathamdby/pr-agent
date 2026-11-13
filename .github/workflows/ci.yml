@@ -37,6 +37,9 @@ jobs:
               - "AGENTS.md"
               - "CODEOWNERS"
               - "Dockerfile"
+              - "docker-compose.dev.yml"
+              - "docker-compose.prod.yml"
+              - "docker-compose.yml"
               - "README.md"
               - "docs/**"
               - "migrations/**"
@@ -124,7 +127,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18.7-alpine
         env:
           POSTGRES_DB: pr_agent
           POSTGRES_USER: pr_agent

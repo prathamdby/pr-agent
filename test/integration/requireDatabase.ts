@@ -13,7 +13,7 @@ export const INTEGRATION_DATABASE_HINT = [
   "Or with a one-off container:",
   "  docker run -d --name pr-agent-postgres \\",
   "    -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \\",
-  "    -p 5432:5432 postgres:16-alpine",
+  "    -p 5432:5432 postgres:18.7-alpine",
   "",
   "Inventory-only (skips DB suites when unavailable):",
   "  npm run test:integration:inventory",

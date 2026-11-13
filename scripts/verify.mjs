@@ -35,7 +35,7 @@ try {
       "POSTGRES_USER=pr_agent",
       "-e",
       "POSTGRES_PASSWORD=pr_agent",
-      "postgres:16-alpine",
+      "postgres:18.7-alpine",
     ],
     { encoding: "utf8" },
   );
