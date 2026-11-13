@@ -51,18 +51,20 @@ const CANNOT_END_CHARS = new Set([
   "{",
 ]);
 
+type StatementSpan = {
+  readonly start: number;
+  readonly end: number;
+};
+
 export function injectLastExpressionReturn(code: string): string {
-  const trimmed = code.trimEnd();
-  if (trimmed.trim().length === 0) return "return undefined";
-  const lastStart = lastTopLevelStatementStart(trimmed);
-  const prefix = trimmed.slice(0, lastStart);
-  const last = trimmed.slice(lastStart).trim();
-  if (!last) return trimmed;
-  if (/^return\b/.test(last) || /^await\b/.test(last)) {
-    return /^await\b/.test(last) ? `${prefix}return ${last}` : trimmed;
-  }
-  if (STATEMENT_START.test(last)) return trimmed;
-  return `${prefix}return ${last}`;
+  if (code.trim().length === 0) return "return undefined";
+  const span = lastTopLevelStatementSpan(code);
+  if (span === null) return code;
+  const prefix = code.slice(0, span.start);
+  const body = code.slice(span.start, span.end);
+  const suffix = code.slice(span.end);
+  if (STATEMENT_START.test(body)) return code;
+  return `${prefix}return ${body}${suffix}`;
 }
 
 function isIdentifierChar(c: string): boolean {
@@ -86,15 +88,21 @@ function canStartStatement(code: string, index: number): boolean {
   return word !== "else" && word !== "catch" && word !== "finally";
 }
 
-function lastTopLevelStatementStart(code: string): number {
+function lastTopLevelStatementSpan(code: string): StatementSpan | null {
   let depth = 0;
-  let lastStmtStart = 0;
+  let currentStart: number | null = null;
+  let lastTokenEnd = 0;
+  let lastSpan: StatementSpan | null = null;
   let inStr: string | null = null;
   let inLineComment = false;
   let inBlockComment = false;
   let lastCanEnd = false;
   let lastWord = "";
   let word = "";
+  const markToken = (start: number, end: number) => {
+    if (currentStart === null) currentStart = start;
+    lastTokenEnd = end;
+  };
   for (let i = 0; i < code.length; i += 1) {
     const c = code[i];
     const next = code[i + 1];
@@ -112,8 +120,10 @@ function lastTopLevelStatementStart(code: string): number {
     if (inStr) {
       if (c === "\\") {
         i += 1;
+        lastTokenEnd = Math.min(code.length, i + 1);
         continue;
       }
+      lastTokenEnd = i + 1;
       if (c === inStr) {
         inStr = null;
         lastCanEnd = true;
@@ -133,11 +143,13 @@ function lastTopLevelStatementStart(code: string): number {
       continue;
     }
     if (c === '"' || c === "'" || c === "`") {
+      markToken(i, i + 1);
       inStr = c;
       word = "";
       continue;
     }
     if (c === "{" || c === "(" || c === "[") {
+      markToken(i, i + 1);
       depth += 1;
       lastCanEnd = false;
       lastWord = "";
@@ -145,6 +157,7 @@ function lastTopLevelStatementStart(code: string): number {
       continue;
     }
     if (c === "}" || c === ")" || c === "]") {
+      markToken(i, i + 1);
       depth -= 1;
       lastCanEnd = true;
       lastWord = "";
@@ -152,7 +165,10 @@ function lastTopLevelStatementStart(code: string): number {
       continue;
     }
     if (depth === 0 && c === ";") {
-      lastStmtStart = i + 1;
+      if (currentStart !== null) {
+        lastSpan = { start: currentStart, end: i };
+        currentStart = null;
+      }
       lastCanEnd = false;
       lastWord = "";
       word = "";
@@ -168,16 +184,23 @@ function lastTopLevelStatementStart(code: string): number {
           j += 1;
         }
         if (j < code.length && canStartStatement(code, j)) {
-          lastStmtStart = j;
+          if (currentStart !== null) {
+            lastSpan = { start: currentStart, end: i };
+            currentStart = null;
+          }
+          lastCanEnd = false;
+          lastWord = "";
+          word = "";
         }
       }
       continue;
     }
-    if (c === " " || c === "\t") {
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
       word = "";
       continue;
     }
     if (isIdentifierChar(c)) {
+      markToken(i, i + 1);
       word += c;
       lastWord = word;
       lastCanEnd = !CONTINUATION_WORDS.has(lastWord);
@@ -186,16 +209,22 @@ function lastTopLevelStatementStart(code: string): number {
     word = "";
     lastWord = "";
     if (c === "+" && next === "+") {
+      markToken(i, i + 2);
       lastCanEnd = true;
       i += 1;
       continue;
     }
     if (c === "-" && next === "-") {
+      markToken(i, i + 2);
       lastCanEnd = true;
       i += 1;
       continue;
     }
+    markToken(i, i + 1);
     lastCanEnd = !CANNOT_END_CHARS.has(c);
   }
-  return lastStmtStart;
+  if (currentStart !== null) {
+    return { start: currentStart, end: lastTokenEnd };
+  }
+  return lastSpan;
 }
