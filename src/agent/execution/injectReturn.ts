@@ -107,8 +107,8 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
     const c = code[i];
     const next = code[i + 1];
     if (inLineComment) {
-      if (c === "\n") inLineComment = false;
-      continue;
+      if (c !== "\n" && c !== "\r") continue;
+      inLineComment = false;
     }
     if (inBlockComment) {
       if (c === "*" && next === "/") {
