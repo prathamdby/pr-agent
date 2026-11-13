@@ -673,13 +673,15 @@ describe("local workspace tools", () => {
         content: string;
         truncated: boolean;
         endLine: number;
+        clampedLines?: readonly number[];
       };
 
       expect(out.truncated).toBe(false);
       expect(out.content).toBe(
-        `[line 1 clamped: ${minified.length} characters elided]\nexport const after = 1;\n`,
+        `${minified.slice(0, LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS)}… [line 1 clamped: ${minified.length - LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS} of ${minified.length} characters elided]\nexport const after = 1;\n`,
       );
       expect(out.endLine).toBe(2);
+      expect(out.clampedLines).toEqual([1]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1272,6 +1274,32 @@ describe("local workspace tools", () => {
       expect(evidenceLedger.covers("src/min.ts", 1, 3)).toBe(false);
       expect(evidenceLedger.covers("src/min.ts", 1, 1)).toBe(true);
       expect(evidenceLedger.covers("src/min.ts", 3, 3)).toBe(true);
+
+      await executors.readWorkspaceFile?.({ path: "src/min.ts", startLine: 2, maxLines: 1 });
+      expect(evidenceLedger.covers("src/min.ts", 2, 2)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile does not record evidence for a line cut by the response byte budget", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/cut.ts": `line1\n${"a".repeat(80)}\nline3\n`,
+      });
+
+      const workspace = mockWorkspace(root, ["src/cut.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildWorkspaceTools(workspace.reader, {
+        limits: testLimits({ readResponseBytes: 20 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      await executors.readWorkspaceFile?.({ path: "src/cut.ts" });
+
+      expect(evidenceLedger.covers("src/cut.ts", 1, 1)).toBe(true);
+      expect(evidenceLedger.covers("src/cut.ts", 2, 2)).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
