@@ -21,7 +21,7 @@
 # compose down keeps the volume. Do not run both Compose files at once.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18.7-alpine
     shm_size: 128mb
     command:
       - postgres
@@ -42,7 +42,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres-data-dev:/var/lib/postgresql/data
+      - postgres-data-dev:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pr_agent} -d ${POSTGRES_DB:-pr_agent}"]
       interval: 5s

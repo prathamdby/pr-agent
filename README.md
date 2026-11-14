@@ -178,6 +178,8 @@ docker compose up -d
 
 `postgres`, `pr-agent-web`, and `pr-agent-worker` use `restart: unless-stopped`. A host reboot starts containers that were running, and `docker compose stop` keeps a service down across that reboot. A `postgres` container created before this policy stays down until you run `docker compose up -d` again. That recreate keeps the data volume. Do not run `docker compose down -v`.
 
+Postgres is `postgres:18.7-alpine`. The data volume mounts at `/var/lib/postgresql`. A database created by Postgres 16 does not open on this image. Dump it with the old image and restore it into a new volume.
+
 Migrations run when each process opens its Postgres pool.
 
 <details>
