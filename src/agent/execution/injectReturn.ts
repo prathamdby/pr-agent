@@ -104,11 +104,13 @@ const EXPRESSION_CONTINUATION_CHARS = new Set([
   ">",
 ]);
 
+const EXPRESSION_CONTINUATION_WORDS = new Set(["in", "instanceof"]);
+
 function continuesExpression(code: string, index: number): boolean {
   const c = code[index];
   if (c != null && EXPRESSION_CONTINUATION_CHARS.has(c)) return true;
   if (c === "+" || c === "-") return code[index + 1] !== c;
-  return false;
+  return EXPRESSION_CONTINUATION_WORDS.has(readWord(code, index));
 }
 
 function lastTopLevelStatementSpan(code: string): StatementSpan | null {
