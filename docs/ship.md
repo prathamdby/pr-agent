@@ -8,6 +8,8 @@ Default to end-to-end or integration proof with a verifiable artifact. For durab
 
 When test changes are already in scope, keep them proportional to the changed contract and aligned with the testing policy in [AGENTS.md](../AGENTS.md). Do not strengthen coverage by adding low-signal unit tests after the fact. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
 
+Fault-injection tests that wait for a connection failure should await the connection's error event under the test deadline. A polling timeout equal to the database timeout races the fault it is meant to observe.
+
 ## Pull requests
 
 - Open a PR only when the developer asks for one.

@@ -1496,8 +1496,13 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       const release = sweeper.release.bind(sweeper);
       const { rows } = await read<{ pid: number }>("SELECT pg_backend_pid() AS pid");
       const connectionErrors: unknown[] = [];
+      let receiveConnectionError: (() => void) | undefined;
+      const connectionError = new Promise<void>((resolve) => {
+        receiveConnectionError = resolve;
+      });
       const onError = (error: Error) => {
         connectionErrors.push(error);
+        receiveConnectionError?.();
       };
       sweeper.on("error", onError);
       let discard = false;
@@ -1508,7 +1513,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
         if (typeof text === "string" && /UPDATE\s+agent_work_items/i.test(text)) {
           if (failure === "idle timeout") {
-            await expect.poll(() => connectionErrors.length).toBeGreaterThan(0);
+            await connectionError;
           } else {
             await read("SELECT FROM");
           }
