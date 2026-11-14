@@ -29,6 +29,7 @@ import { throwIfExecutionAborted } from "../publishOnce.ts";
 import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
 import { type DurableExecutionResult } from "../durableJob.ts";
 import { escalatedVerificationInventory } from "../retryPolicy.ts";
+import { refreshReviewVerdictAfterVerification } from "../verificationReviewVerdict.ts";
 import {
   loadVerificationThreadLedger,
   type VerificationThreadLedger,
@@ -242,6 +243,18 @@ export function createVerificationWorkExecution({
         return undefined;
       };
 
+      const refreshReviewVerdict = () =>
+        refreshReviewVerdictAfterVerification({
+          cfg,
+          pool,
+          prSurface,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          headSha,
+          leaseEpoch: env.leaseEpoch,
+          canPublish: async () => (await checkCompletionGate()) == null,
+        });
+
       if (orderedThreads.length === 0) {
         const terminal = await checkCompletionGate();
         if (terminal) return terminal;
@@ -261,6 +274,7 @@ export function createVerificationWorkExecution({
           boss,
           installationId: item.installationId,
         });
+        await refreshReviewVerdict();
         return { kind: "completed" };
       }
 
@@ -410,6 +424,7 @@ export function createVerificationWorkExecution({
         boss,
         installationId: item.installationId,
       });
+      await refreshReviewVerdict();
 
       const degradation = new Set<VerificationDegradationReason>(publish.degradation);
       if (resolutionDegraded) degradation.add("thread_resolution_degraded");

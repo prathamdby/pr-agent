@@ -77,6 +77,18 @@ export async function publishCloseOutcomeReview(params: {
 }): Promise<void> {
   const event = githubReviewEventFromCloseOutcome(params.outcome);
   if (event == null) return;
+  await publishReviewVerdictEvent({ ...params, event });
+}
+
+export async function publishReviewVerdictEvent(params: {
+  readonly prSurface: PrSurface;
+  readonly event: GithubReviewEvent;
+  readonly headSha: string;
+  readonly workItemId?: string;
+  readonly pool?: Pool | PoolClient;
+  readonly leaseEpoch?: number | null;
+}): Promise<void> {
+  const { event } = params;
   if (params.pool == null || params.workItemId == null) {
     const submitted = await submitTerminalReview({
       prSurface: params.prSurface,

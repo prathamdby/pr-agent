@@ -185,6 +185,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       `${FEATURE_KEYS[2]}: off | manual | auto. Default auto. PR description generation.`,
       `${FEATURE_KEYS[3]}: off | manual | auto. Default auto. Rechecks open findings on every synchronize push or /verify. With open findings, that default spends tokens on pushes. Terminal failure edits the CI cell or one stub line.`,
       "With no open findings, verification skips the agent after checking the live head. An older-head run completes degraded instead of clean and preserves any existing verification failure signal.",
+      "After thread actions or the already-resolved shortcut, verification replaces a disagreeing standing app review: a fresh complete inventory with zero blockers changes CHANGES_REQUESTED to APPROVE; an open blocker changes APPROVED to REQUEST_CHANGES. Matching verdicts, no standing app verdict, and incomplete inventory without a known blocker publish nothing. Active full reviews take precedence. Head and cancellation gates and durable review markers protect publication. Errors do not fail verification. Checks and commit statuses are unchanged; App approvals may not satisfy required-review branch rules.",
       `${FEATURE_KEYS[4]}: off | manual. Default manual. /ask and App-bot mention questions.`,
       `${FEATURE_KEYS[5]}: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.`,
       `${FEATURE_KEYS[6]}: off | size | size+security. Default size. Size and security labels. off still syncs Category labels. No model tokens.`,

@@ -110,6 +110,7 @@ import { hasDatabase, integrationPool } from "./db.ts";
 import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
 import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.ts";
 import { publishVerification } from "../../src/agent/verification/publishVerification.ts";
+import { publishReviewVerdictEvent } from "../../src/review/publish/publishCloseOutcomeReview.ts";
 import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.ts";
 import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
 import {
@@ -707,6 +708,60 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         workItemId,
       ]);
     }
+  });
+
+  it("recovers an accepted verification verdict review after an interrupted publish", async () => {
+    const resourceKey = `${OWNER}/verification-verdict-${randomUUID()}#1`;
+    const workItemId = await insertRunningWorkItem(resourceKey);
+    await pool.query("UPDATE agent_work_items SET type = 'verification' WHERE id = $1", [
+      workItemId,
+    ]);
+    const lease = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "verification",
+      workItemId,
+      holderId: "verification-verdict-it",
+      ttlSeconds: TTL_SECONDS,
+    });
+    if (!lease.acquired) throw new Error("expected verification lease");
+    await claimWorkForExecution(pool, workItemId, lease.leaseEpoch);
+    const fake = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 }, { headSha: "h" });
+    const publish = fake.surface.publishThreadBatch.bind(fake.surface);
+    vi.spyOn(fake.surface, "publishThreadBatch").mockImplementationOnce(async (review) => {
+      await publish(review);
+      vi.spyOn(fake.surface, "listPullRequestReviews").mockRejectedValueOnce(
+        new Error("recovery read interrupted after GitHub acceptance"),
+      );
+      throw new Error("process interrupted after GitHub acceptance");
+    });
+    const params = {
+      prSurface: fake.surface,
+      event: "APPROVE" as const,
+      headSha: "h",
+      workItemId,
+      pool,
+      leaseEpoch: lease.leaseEpoch,
+    };
+    await expect(publishReviewVerdictEvent(params)).rejects.toMatchObject({
+      code: "operation_intent.recovery_failed",
+    });
+    await expect(publishReviewVerdictEvent(params)).resolves.toBeUndefined();
+    expect(fake.controls.threadBatches).toHaveLength(1);
+    expect(fake.controls.threadBatches[0]).toMatchObject({ event: "APPROVE", commitId: "h" });
+    const intent = await intentRepository.getOperationIntent(
+      pool,
+      workItemId,
+      `review:verdict_review:${workItemId}`,
+    );
+    expect(intent).toMatchObject({ status: "reconciled" });
+    console.info(
+      "verification-verdict-recovery-evidence",
+      JSON.stringify({
+        reviews: fake.controls.threadBatches.length,
+        intentStatus: intent?.status,
+        headSha: "h",
+      }),
+    );
   });
 
   it.each(["dismiss-create", "dismiss-edit", "fixed-edit"])(

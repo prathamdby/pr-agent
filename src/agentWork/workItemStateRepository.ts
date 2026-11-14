@@ -163,6 +163,22 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
+export async function getActiveReviewWorkItem(
+  client: Pool | PoolClient,
+  resourceKey: string,
+): Promise<{ id: string } | null> {
+  const result = await client.query<{ id: string }>(
+    `SELECT id
+       FROM agent_work_items
+      WHERE resource_key = $1
+        AND type = 'review'
+        AND status IN ('queued', 'running')
+      LIMIT 1`,
+    [resourceKey],
+  );
+  return result.rows[0] ?? null;
+}
+
 export type ReviewQueuePosition = {
   readonly position: number;
   readonly total: number;

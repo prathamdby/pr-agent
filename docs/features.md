@@ -113,6 +113,14 @@ Notes:
 - With no open findings, verification skips the agent after checking the live
   head. An older-head run completes degraded instead of clean and preserves
   any existing verification failure signal.
+- After thread actions, including the already-resolved shortcut, verification
+  refreshes this app's standing GitHub review only when the verdict changes.
+  A fresh complete inventory with no blocking findings replaces `CHANGES_REQUESTED`
+  with `APPROVE`; a reopened blocker replaces `APPROVED` with `REQUEST_CHANGES`.
+  Matching verdicts, no standing app verdict, and incomplete inventory without
+  a known blocker publish nothing. Active full reviews take precedence.
+  Checks and commit statuses are unchanged. App approval may not satisfy
+  required-review branch rules. See [ADR 0062](adr/0062-github-review-verdict-event.md).
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` is available in every mode on open PRs.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.
