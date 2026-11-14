@@ -29,6 +29,7 @@ export type ReviewMetricEvent =
       readonly kind: "session_send_span";
       readonly sendMs: number;
     }
+  | { readonly kind: "model_generation" }
   | {
       readonly kind: "external_failure";
       readonly failure: ClassifiedFailure;
@@ -75,6 +76,26 @@ export type ReviewMetricEvent =
       readonly findingsCount: number;
       readonly severities: readonly string[];
     };
+
+export type SpecialistHandover = {
+  readonly specialistReadCount: number;
+  readonly specialistRereadCount: number;
+  readonly handoverRereadPathCount: number;
+  readonly acceptedFindingCount: number;
+  readonly acceptedFindingInRiskAreaCount: number;
+};
+
+export type PreSpecialistTelemetry = {
+  readonly source: "ran" | "cached";
+  readonly orchestratorProvider?: string;
+  readonly orchestratorModel?: string;
+  readonly dispatchMs: number;
+  readonly generationCount: number;
+  readonly generationMs: number;
+  readonly handoverPathCount: number;
+  readonly firstSpecialistReportMs?: number;
+  readonly handover?: SpecialistHandover;
+};
 
 export type ReviewRunMetricsSnapshot = {
   readonly provider: string;
@@ -133,6 +154,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly generationMs: number;
   readonly providerOutputTps?: number;
   readonly tokenCoverage: "full_run" | "orchestrator_only";
+  readonly preSpecialist?: PreSpecialistTelemetry;
 };
 
 type MutableReviewRunMetrics = {
@@ -187,6 +209,8 @@ type MutableReviewRunMetrics = {
   toolMs: number;
   providerSendMs: number;
   specialistTokensRecorded: boolean;
+  generationCount: number;
+  preSpecialist: PreSpecialistTelemetry | null;
 };
 
 function createEmptyMetrics(meta: {
@@ -249,6 +273,8 @@ function createEmptyMetrics(meta: {
     toolMs: 0,
     providerSendMs: 0,
     specialistTokensRecorded: false,
+    generationCount: 0,
+    preSpecialist: null,
   };
 }
 
@@ -356,6 +382,9 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       break;
     case "session_send_span":
       metrics.providerSendMs += event.sendMs;
+      break;
+    case "model_generation":
+      metrics.generationCount += 1;
       break;
     case "external_failure":
       metrics.lastFailure = {
@@ -513,6 +542,45 @@ export function recordPromptCacheBreak(observed: {
   metrics.cacheBreakSession = observed.session;
 }
 
+export function recordSpecialistDispatch(dispatch: {
+  readonly source: PreSpecialistTelemetry["source"];
+  readonly orchestrator?: { readonly provider: string; readonly model: string };
+  readonly handoverPathCount: number;
+}): void {
+  const metrics = getOrInitMetrics();
+  if (!metrics || metrics.preSpecialist != null) return;
+  metrics.preSpecialist = {
+    source: dispatch.source,
+    ...(dispatch.orchestrator != null
+      ? {
+          orchestratorProvider: dispatch.orchestrator.provider,
+          orchestratorModel: dispatch.orchestrator.model,
+        }
+      : {}),
+    dispatchMs: Math.max(0, Date.now() - metrics.startedAtMs),
+    generationCount: metrics.generationCount,
+    generationMs: Math.max(0, metrics.providerSendMs - metrics.toolMs),
+    handoverPathCount: dispatch.handoverPathCount,
+  };
+}
+
+export function recordFirstSpecialistReport(): void {
+  const metrics = getOrInitMetrics();
+  const stage = metrics?.preSpecialist;
+  if (!metrics || stage == null || stage.firstSpecialistReportMs != null) return;
+  metrics.preSpecialist = {
+    ...stage,
+    firstSpecialistReportMs: Math.max(0, Date.now() - metrics.startedAtMs),
+  };
+}
+
+export function recordSpecialistHandover(handover: SpecialistHandover): void {
+  const metrics = getOrInitMetrics();
+  const stage = metrics?.preSpecialist;
+  if (!metrics || stage == null) return;
+  metrics.preSpecialist = { ...stage, handover };
+}
+
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   const metrics = getOrInitMetrics();
   if (!metrics) return null;
@@ -578,6 +646,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     toolMs: metrics.toolMs,
     generationMs,
     tokenCoverage: metrics.specialistTokensRecorded ? "full_run" : "orchestrator_only",
+    ...(metrics.preSpecialist != null ? { preSpecialist: metrics.preSpecialist } : {}),
     ...(generationMs > 0
       ? { providerOutputTps: metrics.providerOutputTokens / (generationMs / 1000) }
       : {}),

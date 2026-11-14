@@ -9,6 +9,7 @@ import {
 type AnalyticsState = {
   readonly sink: AnalyticsSink;
   readonly enabled: boolean;
+  readonly revision?: string;
 };
 
 const disabledState: AnalyticsState = {
@@ -21,6 +22,7 @@ let state: AnalyticsState = disabledState;
 export async function initAnalytics(opts: {
   readonly projectToken: string;
   readonly host: string;
+  readonly revision?: string;
 }): Promise<void> {
   const projectToken = opts.projectToken.trim();
   if (!projectToken) {
@@ -31,7 +33,11 @@ export async function initAnalytics(opts: {
   try {
     const { createPostHogSink } = await import("./posthogSink.ts");
     const nextSink = createPostHogSink({ projectToken, host: opts.host.trim() });
-    state = { sink: nextSink, enabled: true };
+    state = {
+      sink: nextSink,
+      enabled: true,
+      ...(opts.revision !== undefined ? { revision: opts.revision } : {}),
+    };
   } catch (error) {
     state = disabledState;
     throw error;
@@ -47,12 +53,14 @@ export function isAnalyticsEnabled(): boolean {
 }
 
 export function captureEvent(input: CaptureEventInput): void {
+  const properties =
+    state.revision !== undefined
+      ? { ...input.properties, app_revision: state.revision }
+      : input.properties;
   state.sink.captureEvent({
     ...input,
     distinctId: sanitizeTelemetryString(input.distinctId),
-    ...(input.properties !== undefined
-      ? { properties: sanitizeTelemetryRecord(input.properties) ?? {} }
-      : {}),
+    ...(properties !== undefined ? { properties: sanitizeTelemetryRecord(properties) ?? {} } : {}),
   });
 }
 

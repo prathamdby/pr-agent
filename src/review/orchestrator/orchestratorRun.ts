@@ -40,9 +40,13 @@ import {
   logReviewRunCompleted,
   recordAgentTurnMetrics,
   recordClassifiedFailure,
+  recordFirstSpecialistReport,
+  recordSpecialistDispatch,
+  recordSpecialistHandover,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../run/reviewRunMetrics.ts";
+import { measureSpecialistHandover } from "./specialistHandover.ts";
 import { buildReviewRunSetup, ledgerForFindingSource } from "../run/reviewRunSetup.ts";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.ts";
 import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.ts";
@@ -1198,6 +1202,12 @@ export async function runOrchestratedPrReview(
 
   let outcomes: SpecialistOutcome[] = [];
   let recoveryRoundsRun = 0;
+  const dispatched: {
+    handover: {
+      readonly paths: ReadonlySet<string>;
+      readonly riskAreaFiles: ReadonlySet<string>;
+    } | null;
+  } = { handover: null };
 
   const stepFacts = (): ReviewStepFacts => ({
     hasSession: session != null,
@@ -1266,6 +1276,16 @@ export async function runOrchestratedPrReview(
           });
         }
         await markReconDoneAndTick();
+        const handoverPaths = new Set(setup.evidenceLedger.openedPaths());
+        dispatched.handover = {
+          paths: handoverPaths,
+          riskAreaFiles: new Set(brief.riskAreas.flatMap((area) => area.files)),
+        };
+        recordSpecialistDispatch({
+          source: cachedBrief ? "cached" : "ran",
+          ...(session != null ? { orchestrator: session.primary } : {}),
+          handoverPathCount: handoverPaths.size,
+        });
         const threadsAtDispatch = openReviewThreads(
           findingInventory,
           acceptedOpenThreads(publishThread.getLedger()),
@@ -1340,6 +1360,7 @@ export async function runOrchestratedPrReview(
           pending,
           shouldContinue: () => state.lifecycle.kind === "running",
           onOutcome: async (outcome) => {
+            if (outcome.kind !== "error") recordFirstSpecialistReport();
             try {
               if (await stopFromGateResult(await params.gate.check())) return;
 
@@ -1618,6 +1639,18 @@ export async function runOrchestratedPrReview(
   const postedSeverities = ledger.accepted.flatMap((placement) =>
     placement.kind === "summary_only" ? [] : [placement.placement.finding.severity],
   );
+  if (dispatched.handover != null) {
+    recordSpecialistHandover(
+      measureSpecialistHandover({
+        handoverPaths: dispatched.handover.paths,
+        riskAreaFiles: dispatched.handover.riskAreaFiles,
+        specialistOpenedPaths: SPECIALIST_IDS.map((specialist) =>
+          setup.specialistLedgers[specialist].openedPaths(),
+        ),
+        accepted: ledger.accepted,
+      }),
+    );
+  }
   setReviewRunMetricFields({
     published: summaryState.published,
     publishAttempts,

@@ -1239,6 +1239,9 @@ function reviewProfileFields(input: {
           specialistReport: input.snapshot.specialistOutcomes?.report ?? 0,
           specialistEmpty: input.snapshot.specialistOutcomes?.empty ?? 0,
           specialistError: input.snapshot.specialistOutcomes?.error ?? 0,
+          ...(input.snapshot.preSpecialist !== undefined
+            ? { preSpecialist: input.snapshot.preSpecialist }
+            : {}),
         }
       : {}),
   };

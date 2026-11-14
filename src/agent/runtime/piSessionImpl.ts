@@ -339,6 +339,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           sessionMessages.push(assistant);
         }
         if (assistant) {
+          recordReviewMetric({ kind: "model_generation" });
           if (isProviderRefusal(assistant)) refused = true;
           if (assistant.stopReason === "error" && assistant.errorMessage?.trim()) {
             terminalProviderError = assistant.errorMessage;

@@ -43,6 +43,22 @@ RUN --mount=type=bind,source=.,target=/build-context,ro \
     chown node:node /app/models.json; \
   fi
 
+# Record the source commit as /app/REVISION for telemetry. A context without
+# .git metadata (tarball build, linked worktree) leaves the file absent.
+RUN --mount=type=bind,source=.,target=/build-context,ro \
+  git_dir=/build-context/.git; \
+  head=$(cat "$git_dir/HEAD" 2>/dev/null || true); \
+  case "$head" in \
+    "ref: "*) ref=${head#ref: }; \
+      sha=$(cat "$git_dir/$ref" 2>/dev/null \
+        || awk -v ref="$ref" '$2 == ref { print $1 }' "$git_dir/packed-refs" 2>/dev/null \
+        || true) ;; \
+    *) sha=$head ;; \
+  esac; \
+  if printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}'; then \
+    printf '%s\n' "$sha" > /app/REVISION; \
+  fi
+
 USER node
 
 EXPOSE 7224

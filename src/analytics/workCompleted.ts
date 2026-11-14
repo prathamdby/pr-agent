@@ -1,5 +1,8 @@
 import { posthogSafePhase, type ClassifiedFailure } from "../errors/classifiedFailure.ts";
-import type { ReviewRunMetricsSnapshot } from "../review/run/reviewRunMetrics.ts";
+import type {
+  PreSpecialistTelemetry,
+  ReviewRunMetricsSnapshot,
+} from "../review/run/reviewRunMetrics.ts";
 import { MAX_LOG_MESSAGE_LEN } from "../settings/index.ts";
 import { captureEvent } from "./index.ts";
 
@@ -84,6 +87,7 @@ export type ReviewProfileFields = {
   readonly specialistReport?: number;
   readonly specialistEmpty?: number;
   readonly specialistError?: number;
+  readonly preSpecialist?: PreSpecialistTelemetry;
 };
 
 export type WorkCompletion =
@@ -267,12 +271,43 @@ function completionProperties(
         ...(completion.specialistError != null
           ? { specialist_error: completion.specialistError }
           : {}),
+        ...(completion.preSpecialist != null
+          ? preSpecialistProperties(completion.preSpecialist)
+          : {}),
       };
     default: {
       const exhaustive: never = completion;
       return exhaustive;
     }
   }
+}
+
+function preSpecialistProperties(
+  stage: PreSpecialistTelemetry,
+): Record<string, string | number | boolean> {
+  return {
+    pre_specialist_source: stage.source,
+    pre_specialist_ms: stage.dispatchMs,
+    pre_specialist_generations: stage.generationCount,
+    pre_specialist_model_ms: stage.generationMs,
+    handover_path_count: stage.handoverPathCount,
+    ...(stage.orchestratorProvider != null
+      ? { orchestrator_provider: stage.orchestratorProvider }
+      : {}),
+    ...(stage.orchestratorModel != null ? { orchestrator_model: stage.orchestratorModel } : {}),
+    ...(stage.firstSpecialistReportMs != null
+      ? { first_specialist_report_ms: stage.firstSpecialistReportMs }
+      : {}),
+    ...(stage.handover != null
+      ? {
+          specialist_read_count: stage.handover.specialistReadCount,
+          specialist_reread_count: stage.handover.specialistRereadCount,
+          handover_reread_path_count: stage.handover.handoverRereadPathCount,
+          accepted_finding_count: stage.handover.acceptedFindingCount,
+          accepted_finding_in_risk_area_count: stage.handover.acceptedFindingInRiskAreaCount,
+        }
+      : {}),
+  };
 }
 
 function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | number | boolean> {

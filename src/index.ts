@@ -2,6 +2,7 @@ import { Data, Effect } from "effect";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { LOG_MAX_WIDE_EVENTS, loadConfig } from "./settings/index.ts";
 import { initAnalytics } from "./analytics/index.ts";
+import { readAppRevision } from "./analytics/appRevision.ts";
 import { initEvlog, logInfo } from "./evlog.ts";
 import { sanitizeErrorForTelemetry } from "./errors/appError.ts";
 
@@ -22,13 +23,19 @@ const boot = Effect.fn("process.boot")(function* () {
       redact: cfg.logging.redact,
     });
   });
+  const revision = readAppRevision();
   yield* Effect.promise(() =>
-    initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host }),
+    initAnalytics({
+      projectToken: cfg.posthog.projectToken,
+      host: cfg.posthog.host,
+      ...(revision !== undefined ? { revision } : {}),
+    }),
   );
   logInfo("boot", {
     role: cfg.runtime.role,
     provider: cfg.models.provider,
     model: cfg.models.model,
+    ...(revision !== undefined ? { revision } : {}),
   });
   if (cfg.runtime.role === "worker") {
     const { startAgentWorker } = yield* Effect.promise(() => import("./worker.ts"));
