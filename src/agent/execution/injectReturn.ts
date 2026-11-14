@@ -88,6 +88,29 @@ function canStartStatement(code: string, index: number): boolean {
   return word !== "else" && word !== "catch" && word !== "finally";
 }
 
+const EXPRESSION_CONTINUATION_CHARS = new Set([
+  "(",
+  "[",
+  "`",
+  "?",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "=",
+  "<",
+  ">",
+]);
+
+function continuesExpression(code: string, index: number): boolean {
+  const c = code[index];
+  if (c != null && EXPRESSION_CONTINUATION_CHARS.has(c)) return true;
+  if (c === "+" || c === "-") return code[index + 1] !== c;
+  return false;
+}
+
 function lastTopLevelStatementSpan(code: string): StatementSpan | null {
   let depth = 0;
   let currentStart: number | null = null;
@@ -97,6 +120,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
   let inLineComment = false;
   let inBlockComment = false;
   let lastCanEnd = false;
+  let lastEndsExpression = false;
   let lastWord = "";
   let word = "";
   const markToken = (start: number, end: number) => {
@@ -127,6 +151,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
       if (c === inStr) {
         inStr = null;
         lastCanEnd = true;
+        lastEndsExpression = true;
         lastWord = "";
         word = "";
       }
@@ -152,6 +177,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
       markToken(i, i + 1);
       depth += 1;
       lastCanEnd = false;
+      lastEndsExpression = false;
       lastWord = "";
       word = "";
       continue;
@@ -160,6 +186,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
       markToken(i, i + 1);
       depth -= 1;
       lastCanEnd = true;
+      lastEndsExpression = c !== "}";
       lastWord = "";
       word = "";
       continue;
@@ -170,6 +197,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
         currentStart = null;
       }
       lastCanEnd = false;
+      lastEndsExpression = false;
       lastWord = "";
       word = "";
       continue;
@@ -183,12 +211,17 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
         while (j < code.length && (code[j] === " " || code[j] === "\t")) {
           j += 1;
         }
-        if (j < code.length && canStartStatement(code, j)) {
+        if (
+          j < code.length &&
+          canStartStatement(code, j) &&
+          !(lastEndsExpression && continuesExpression(code, j))
+        ) {
           if (currentStart !== null) {
             lastSpan = { start: currentStart, end: i };
             currentStart = null;
           }
           lastCanEnd = false;
+          lastEndsExpression = false;
           lastWord = "";
           word = "";
         }
@@ -204,6 +237,7 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
       word += c;
       lastWord = word;
       lastCanEnd = !CONTINUATION_WORDS.has(lastWord);
+      lastEndsExpression = lastCanEnd;
       continue;
     }
     word = "";
@@ -211,17 +245,20 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
     if (c === "+" && next === "+") {
       markToken(i, i + 2);
       lastCanEnd = true;
+      lastEndsExpression = true;
       i += 1;
       continue;
     }
     if (c === "-" && next === "-") {
       markToken(i, i + 2);
       lastCanEnd = true;
+      lastEndsExpression = true;
       i += 1;
       continue;
     }
     markToken(i, i + 1);
     lastCanEnd = !CANNOT_END_CHARS.has(c);
+    lastEndsExpression = false;
   }
   if (currentStart !== null) {
     return { start: currentStart, end: lastTokenEnd };
