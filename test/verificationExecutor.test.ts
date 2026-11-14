@@ -72,6 +72,10 @@ vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => ({
   publishOnce: vi.fn(async (params: { mutate: () => Promise<unknown> }) => params.mutate()),
 }));
 
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
+  threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
+}));
+
 vi.mock("../src/agentWork/verificationThreadLedger.ts", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agentWork/verificationThreadLedger.ts")>();
@@ -323,6 +327,13 @@ describe("verification work definition", () => {
     { scenario: "nonblocking finding", standing: "CHANGES_REQUESTED", event: "APPROVE" },
     { scenario: "narrowed inventory", standing: "CHANGES_REQUESTED", event: undefined },
     { scenario: "review starts during refresh", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "latest approval", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "latest changes requested", standing: "APPROVED", event: "APPROVE" },
+    { scenario: "self review", standing: "CHANGES_REQUESTED", event: "COMMENT" },
+    { scenario: "truncated objections", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "capped objections", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "truncated compare", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "degraded publisher", standing: "APPROVED", event: undefined },
   ] as const)(
     "refreshes the standing verdict safely: $scenario",
     async ({ scenario, standing, event }) => {
@@ -372,6 +383,22 @@ describe("verification work definition", () => {
           htmlUrl: "",
           state: standing,
         },
+        ...(scenario === "latest approval" || scenario === "latest changes requested"
+          ? [
+              {
+                id: 20_003,
+                userId: 999,
+                authorLogin: "pr-agent[bot]",
+                body: "",
+                commitId: "old-head",
+                htmlUrl: "",
+                state:
+                  scenario === "latest approval"
+                    ? ("APPROVED" as const)
+                    : ("CHANGES_REQUESTED" as const),
+              },
+            ]
+          : []),
         {
           id: 20_001,
           userId: 7,
@@ -394,20 +421,53 @@ describe("verification work definition", () => {
       if (scenario === "already resolved shortcut") {
         configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
       }
+      if (scenario === "truncated objections") {
+        await addUserObjections(1, [{ id: 50, createdAt: "2026-01-01T14:32:47Z" }]);
+        controls.setReviewCommentsTruncated(true);
+      }
+      if (scenario === "capped objections") {
+        await addUserObjections(
+          1,
+          Array.from({ length: 9 }, (_, index) => ({
+            id: 50 + index,
+            createdAt: `2026-01-01T14:${String(index).padStart(2, "0")}:00Z`,
+          })),
+        );
+      }
+      if (scenario === "truncated compare") {
+        mockDurableExecution(
+          item({ payload: { repositorySizeKb: 100, pushBeforeSha: "b".repeat(40) } }),
+        );
+        vi.spyOn(surface, "listCommitCompareFiles").mockResolvedValue({
+          files: [],
+          truncated: true,
+        });
+      }
       mocks.publishVerification.mockImplementationOnce(async () => {
         if (
           scenario !== "skipped blocker" &&
           scenario !== "denied resolution" &&
           scenario !== "reopened blocker" &&
-          scenario !== "nonblocking finding"
+          scenario !== "nonblocking finding" &&
+          scenario !== "degraded publisher"
         ) {
           await surface.resolveInlineReviewThread("node");
+          if (scenario === "narrowed inventory") {
+            for (let id = 2; id <= 11; id++) {
+              await surface.resolveInlineReviewThread(`node-${id}`);
+            }
+          }
         }
         if (scenario === "incomplete inventory" || scenario === "degraded resolution") {
           controls.setThreadResolutionStatus("partial");
         }
         return {
-          degradation: scenario === "degraded resolution" ? ["thread_resolution_degraded"] : [],
+          degradation:
+            scenario === "degraded resolution"
+              ? ["thread_resolution_degraded"]
+              : scenario === "degraded publisher"
+                ? ["verdict_mapping_incomplete"]
+                : [],
         };
       });
       mocks.clearVerificationFailureSignal.mockImplementationOnce(async () => {
@@ -440,6 +500,12 @@ describe("verification work definition", () => {
           new Error("GitHub unavailable"),
         );
       }
+      const publish = vi.spyOn(surface, "publishThreadBatch");
+      if (scenario === "self review") {
+        publish.mockRejectedValueOnce(
+          Object.assign(new Error("Can not approve your own pull request"), { status: 422 }),
+        );
+      }
 
       await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
 
@@ -455,8 +521,12 @@ describe("verification work definition", () => {
             ],
       );
       expect(controls.events.filter((entry) => entry.kind === "dismissPullRequestReview")).toEqual(
-        [],
+        scenario === "self review" ? [expect.objectContaining({ reviewId: 20_000 })] : [],
       );
+      if (scenario === "self review") {
+        expect(publish).toHaveBeenCalledTimes(2);
+        expect(publish.mock.calls.map(([review]) => review.event)).toEqual(["APPROVE", "COMMENT"]);
+      }
       if (scenario === "already resolved shortcut")
         expect(mocks.runVerification).not.toHaveBeenCalled();
     },

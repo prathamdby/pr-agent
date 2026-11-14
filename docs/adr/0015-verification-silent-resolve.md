@@ -30,7 +30,7 @@ The useful signal from verification is asymmetric:
 
 ## Consequences
 
-**Amendment ([ADR 0062](0062-github-review-verdict-event.md)):** after thread actions, verification may replace a standing app verdict when fresh finding state requires `APPROVE` or `REQUEST_CHANGES`; unchanged verdicts stay silent.
+**Amendment ([ADR 0062](0062-github-review-verdict-event.md)):** after thread actions, verification may replace a standing app verdict when fresh finding state requires `APPROVE` or `REQUEST_CHANGES`; unchanged verdicts and every degraded verification run stay silent.
 
 - Fewer GitHub write calls per verification run (one GraphQL resolve per fixed thread instead of reply + resolve).
 - Thread timelines stay quieter when pushes land complete fixes; incomplete fixes still get a still-open reply.

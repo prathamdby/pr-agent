@@ -243,7 +243,7 @@ export function createVerificationWorkExecution({
         return undefined;
       };
 
-      const refreshReviewVerdict = () =>
+      const refreshReviewVerdict = (degradation: readonly VerificationDegradationReason[]) =>
         refreshReviewVerdictAfterVerification({
           cfg,
           pool,
@@ -253,6 +253,7 @@ export function createVerificationWorkExecution({
           headSha,
           leaseEpoch: env.leaseEpoch,
           canPublish: async () => (await checkCompletionGate()) == null,
+          degradation,
         });
 
       if (orderedThreads.length === 0) {
@@ -274,7 +275,10 @@ export function createVerificationWorkExecution({
           boss,
           installationId: item.installationId,
         });
-        await refreshReviewVerdict();
+        await refreshReviewVerdict([
+          ...(resolutionDegraded ? ["thread_resolution_degraded" as const] : []),
+          ...(reviewCommentsTruncated ? ["objection_detection_incomplete" as const] : []),
+        ]);
         return { kind: "completed" };
       }
 
@@ -424,7 +428,6 @@ export function createVerificationWorkExecution({
         boss,
         installationId: item.installationId,
       });
-      await refreshReviewVerdict();
 
       const degradation = new Set<VerificationDegradationReason>(publish.degradation);
       if (resolutionDegraded) degradation.add("thread_resolution_degraded");
@@ -433,6 +436,7 @@ export function createVerificationWorkExecution({
       if (reviewCommentsTruncated) degradation.add("objection_detection_incomplete");
       if (capped.deferred > 0) degradation.add("objection_answers_capped");
       const reasons = [...degradation];
+      await refreshReviewVerdict(reasons);
       const objectionFields = objectionCompletionFields({
         presented: objectionCount(inventory),
         answered: publish.objectionsAnswered ?? 0,

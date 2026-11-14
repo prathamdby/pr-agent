@@ -110,7 +110,11 @@ import { hasDatabase, integrationPool } from "./db.ts";
 import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
 import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.ts";
 import { publishVerification } from "../../src/agent/verification/publishVerification.ts";
-import { publishReviewVerdictEvent } from "../../src/review/publish/publishCloseOutcomeReview.ts";
+import {
+  publishReviewVerdictEvent,
+  tryPublishCloseOutcomeReview,
+} from "../../src/review/publish/publishCloseOutcomeReview.ts";
+import { refreshReviewVerdictAfterVerification } from "../../src/agentWork/verificationReviewVerdict.ts";
 import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.ts";
 import { fenceForEpoch, isUnfencedSurface } from "../../src/agentWork/writeFence.ts";
 import {
@@ -741,6 +745,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       workItemId,
       pool,
       leaseEpoch: lease.leaseEpoch,
+      operationKey: `verification:verdict_review:${workItemId}:h:APPROVE`,
     };
     await expect(publishReviewVerdictEvent(params)).rejects.toMatchObject({
       code: "operation_intent.recovery_failed",
@@ -748,18 +753,124 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     await expect(publishReviewVerdictEvent(params)).resolves.toBeUndefined();
     expect(fake.controls.threadBatches).toHaveLength(1);
     expect(fake.controls.threadBatches[0]).toMatchObject({ event: "APPROVE", commitId: "h" });
-    const intent = await intentRepository.getOperationIntent(
-      pool,
-      workItemId,
-      `review:verdict_review:${workItemId}`,
-    );
+    const intent = await intentRepository.getOperationIntent(pool, workItemId, params.operationKey);
     expect(intent).toMatchObject({ status: "reconciled" });
+    await publishReviewVerdictEvent({
+      ...params,
+      event: "REQUEST_CHANGES",
+      operationKey: `verification:verdict_review:${workItemId}:h:REQUEST_CHANGES`,
+    });
+    await publishReviewVerdictEvent({
+      ...params,
+      event: "REQUEST_CHANGES",
+      operationKey: `verification:verdict_review:${workItemId}:h:REQUEST_CHANGES`,
+    });
+    expect(fake.controls.threadBatches.map((review) => review.event)).toEqual([
+      "APPROVE",
+      "REQUEST_CHANGES",
+    ]);
+    expect(new Set(fake.controls.threadBatches.map((review) => review.body)).size).toBe(2);
     console.info(
       "verification-verdict-recovery-evidence",
       JSON.stringify({
         reviews: fake.controls.threadBatches.length,
         intentStatus: intent?.status,
         headSha: "h",
+      }),
+    );
+  });
+
+  it("orders a starting full review after verification and skips contended verdict timeouts", async () => {
+    const repo = `verdict-order-${randomUUID()}`;
+    const resourceKey = prResourceKey(OWNER, repo, 1);
+    const workItemId = await insertRunningWorkItem(resourceKey);
+    await pool.query("UPDATE agent_work_items SET type = 'verification' WHERE id = $1", [
+      workItemId,
+    ]);
+    const fake = createFakePrSurface({ owner: OWNER, repo, prNumber: 1 }, { headSha: "h" });
+    await fake.surface.publishThreadBatch({
+      body: "prior",
+      event: "REQUEST_CHANGES",
+      commitId: "h",
+    });
+    let enterPublish = () => {};
+    let releasePublish = () => {};
+    const entered = new Promise<void>((resolve) => {
+      enterPublish = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releasePublish = resolve;
+    });
+    const publish = fake.surface.publishThreadBatch.bind(fake.surface);
+    vi.spyOn(fake.surface, "publishThreadBatch").mockImplementationOnce(async (review) => {
+      enterPublish();
+      await released;
+      return publish(review);
+    });
+    const refreshParams = {
+      cfg: makeTestConfig(),
+      pool,
+      prSurface: fake.surface,
+      workItemId,
+      resourceKey,
+      headSha: "h",
+      leaseEpoch: null,
+      canPublish: async () => true,
+      degradation: [],
+    };
+    const fullParams = {
+      pool,
+      prSurface: fake.surface,
+      owner: OWNER,
+      repo,
+      prNumber: 1,
+      headSha: "h",
+      outcome: {
+        kind: "published" as const,
+        conclusion: "failure" as const,
+        blockingCount: 1,
+        summary: "blocker",
+      },
+    };
+    const verification = refreshReviewVerdictAfterVerification(refreshParams);
+    await entered;
+    await insertRunningWorkItem(resourceKey);
+    const fullReview = tryPublishCloseOutcomeReview(fullParams);
+    releasePublish();
+    await Promise.all([verification, fullReview]);
+    expect(fake.controls.threadBatches.map((review) => review.event)).toEqual([
+      "REQUEST_CHANGES",
+      "APPROVE",
+      "REQUEST_CHANGES",
+    ]);
+    const lockClient = await pool.connect();
+    const lockKey = `thread-mutation:${resourceKey}`;
+    await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+    const warn = vi.spyOn(evlog, "logWarn");
+    const info = vi.spyOn(evlog, "logInfo");
+    try {
+      await Promise.all([
+        refreshReviewVerdictAfterVerification(refreshParams),
+        tryPublishCloseOutcomeReview(fullParams),
+      ]);
+      expect(fake.controls.threadBatches).toHaveLength(3);
+      expect(warn).toHaveBeenCalledWith(
+        "review_verdict_review_failed",
+        expect.objectContaining({ reason: "agent_work.thread_mutation_lock_timeout" }),
+      );
+      expect(info).toHaveBeenCalledWith(
+        "verification_review_verdict_skipped",
+        expect.objectContaining({ reason: "agent_work.thread_mutation_lock_timeout" }),
+      );
+    } finally {
+      await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+      lockClient.release();
+    }
+    console.info(
+      "verification-verdict-order-evidence",
+      JSON.stringify({
+        events: fake.controls.threadBatches.map((review) => review.event),
+        contendedTimeoutsSkipped: 2,
       }),
     );
   });

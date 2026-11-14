@@ -1,4 +1,7 @@
 import type { Pool, PoolClient } from "pg";
+import { isAppError } from "../../errors/appError.ts";
+import { prResourceKey } from "../../agentWork/types.ts";
+import { threadMutationLock } from "../findingIdentity/threadMutationLock.ts";
 import {
   operationIntentMarker,
   publishOnce,
@@ -87,6 +90,7 @@ export async function publishReviewVerdictEvent(params: {
   readonly workItemId?: string;
   readonly pool?: Pool | PoolClient;
   readonly leaseEpoch?: number | null;
+  readonly operationKey?: string;
 }): Promise<void> {
   const { event } = params;
   if (params.pool == null || params.workItemId == null) {
@@ -99,7 +103,7 @@ export async function publishReviewVerdictEvent(params: {
     if (submitted === "COMMENT") await dismissStandingVerdicts(params.prSurface);
     return;
   }
-  const operationKey = reviewVerdictReviewOperationKey(params.workItemId);
+  const operationKey = params.operationKey ?? reviewVerdictReviewOperationKey(params.workItemId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const body = `${TERMINAL_REVIEW_BODY}\n${operationMarker}`;
   const published = await publishOnce({
@@ -150,20 +154,25 @@ export async function publishReviewVerdictEvent(params: {
 }
 
 export async function tryPublishCloseOutcomeReview(
-  params: Parameters<typeof publishCloseOutcomeReview>[0] & {
+  params: Omit<Parameters<typeof publishCloseOutcomeReview>[0], "pool"> & {
+    readonly pool?: Pool;
     readonly owner: string;
     readonly repo: string;
     readonly prNumber: number;
   },
 ): Promise<void> {
   try {
-    await publishCloseOutcomeReview(params);
+    await threadMutationLock(
+      params.pool,
+      prResourceKey(params.owner, params.repo, params.prNumber),
+    )(() => publishCloseOutcomeReview(params));
   } catch (error) {
     logWarn("review_verdict_review_failed", {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
       message: errorMessage(error),
+      ...(isAppError(error) ? { reason: error.code } : {}),
     });
   }
 }

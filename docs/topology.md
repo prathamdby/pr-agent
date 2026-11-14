@@ -109,6 +109,12 @@ together and preserve selections/intents on rollback
 
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
 
+Non-degraded verification refreshes a changed standing app review from fresh
+finding state. Its inventory read and publication share the resource's existing
+thread-mutation session lock with full-review terminal publication, so a starting
+full review cannot publish its verdict first and then be overwritten.
+Bounded lock timeouts skip the best-effort terminal review, not the run.
+
 CI projection intake retains accepted delivery/event pairs in the job's
 `correlations` array, including when debounce absorbs a delivery. That metadata
 commits in the intake transaction; a missing target or failed attribution write

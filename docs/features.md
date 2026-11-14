@@ -118,7 +118,10 @@ Notes:
   A fresh complete inventory with no blocking findings replaces `CHANGES_REQUESTED`
   with `APPROVE`; a reopened blocker replaces `APPROVED` with `REQUEST_CHANGES`.
   Matching verdicts, no standing app verdict, and incomplete inventory without
-  a known blocker publish nothing. Active full reviews take precedence.
+  a known blocker publish nothing. Any verification degradation also stays silent
+  and logs its reasons. Active full reviews take precedence; terminal reviews
+  share the resource's thread-mutation lock, with best-effort timeout skips.
+  Verification retry markers bind the work item, head SHA, and event.
   Checks and commit statuses are unchanged. App approval may not satisfy
   required-review branch rules. See [ADR 0062](adr/0062-github-review-verdict-event.md).
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` is available in every mode on open PRs.
