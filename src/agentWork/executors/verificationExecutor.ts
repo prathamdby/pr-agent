@@ -29,6 +29,7 @@ import { throwIfExecutionAborted } from "../publishOnce.ts";
 import { listTriageEligibleInlineReviews } from "../publishRecordRepository.ts";
 import { type DurableExecutionResult } from "../durableJob.ts";
 import { escalatedVerificationInventory } from "../retryPolicy.ts";
+import { refreshReviewVerdictAfterVerification } from "../verificationReviewVerdict.ts";
 import {
   loadVerificationThreadLedger,
   type VerificationThreadLedger,
@@ -242,6 +243,19 @@ export function createVerificationWorkExecution({
         return undefined;
       };
 
+      const refreshReviewVerdict = (degradation: readonly VerificationDegradationReason[]) =>
+        refreshReviewVerdictAfterVerification({
+          cfg,
+          pool,
+          prSurface,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          headSha,
+          leaseEpoch: env.leaseEpoch,
+          canPublish: async () => (await checkCompletionGate()) == null,
+          degradation,
+        });
+
       if (orderedThreads.length === 0) {
         const terminal = await checkCompletionGate();
         if (terminal) return terminal;
@@ -261,6 +275,10 @@ export function createVerificationWorkExecution({
           boss,
           installationId: item.installationId,
         });
+        await refreshReviewVerdict([
+          ...(resolutionDegraded ? ["thread_resolution_degraded" as const] : []),
+          ...(reviewCommentsTruncated ? ["objection_detection_incomplete" as const] : []),
+        ]);
         return { kind: "completed" };
       }
 
@@ -418,6 +436,7 @@ export function createVerificationWorkExecution({
       if (reviewCommentsTruncated) degradation.add("objection_detection_incomplete");
       if (capped.deferred > 0) degradation.add("objection_answers_capped");
       const reasons = [...degradation];
+      await refreshReviewVerdict(reasons);
       const objectionFields = objectionCompletionFields({
         presented: objectionCount(inventory),
         answered: publish.objectionsAnswered ?? 0,

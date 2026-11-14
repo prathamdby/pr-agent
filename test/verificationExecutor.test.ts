@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   loadRepoPolicy: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
+  getActiveReviewWorkItem: vi.fn(),
 }));
 
 vi.mock("../src/github/appAuth.ts", () => ({
@@ -63,6 +64,16 @@ vi.mock("../src/agentWork/publishRecordRepository.ts", async (importOriginal) =>
 vi.mock("../src/agentWork/workItemStateRepository.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.ts")>()),
   shouldSkipWork: mocks.shouldSkipWork,
+  getActiveReviewWorkItem: mocks.getActiveReviewWorkItem,
+}));
+
+vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>()),
+  publishOnce: vi.fn(async (params: { mutate: () => Promise<unknown> }) => params.mutate()),
+}));
+
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
+  threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
 }));
 
 vi.mock("../src/agentWork/verificationThreadLedger.ts", async (importOriginal) => {
@@ -284,7 +295,7 @@ describe("verification work definition", () => {
       submitted: true,
       payload: { verdicts: [] },
     });
-    mocks.publishVerification.mockResolvedValue({ degradation: [] });
+    mocks.publishVerification.mockReset().mockResolvedValue({ degradation: [] });
     mocks.publishVerificationFailure.mockResolvedValue({
       headSha: "a".repeat(40),
       commentId: 1,
@@ -294,7 +305,232 @@ describe("verification work definition", () => {
     mocks.loadRepoPolicy.mockResolvedValue({ kind: "absent" });
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
+    mocks.getActiveReviewWorkItem.mockReset().mockResolvedValue(null);
   });
+
+  it.each([
+    { scenario: "last blocker fixed", standing: "CHANGES_REQUESTED", event: "APPROVE" },
+    { scenario: "already resolved shortcut", standing: "CHANGES_REQUESTED", event: "APPROVE" },
+    { scenario: "skipped blocker", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "denied resolution", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "incomplete inventory", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "degraded resolution", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "stale after clear", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "cancelled after clear", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "stale during refresh", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "cancelled during refresh", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "reopened blocker", standing: "APPROVED", event: "REQUEST_CHANGES" },
+    { scenario: "matching approval", standing: "APPROVED", event: undefined },
+    { scenario: "no standing verdict", standing: "COMMENTED", event: undefined },
+    { scenario: "active full review", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "publisher failure", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "nonblocking finding", standing: "CHANGES_REQUESTED", event: "APPROVE" },
+    { scenario: "narrowed inventory", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "review starts during refresh", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "latest approval", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "latest changes requested", standing: "APPROVED", event: "APPROVE" },
+    { scenario: "self review", standing: "CHANGES_REQUESTED", event: "COMMENT" },
+    { scenario: "truncated objections", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "capped objections", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "truncated compare", standing: "CHANGES_REQUESTED", event: undefined },
+    { scenario: "degraded publisher", standing: "APPROVED", event: undefined },
+  ] as const)(
+    "refreshes the standing verdict safely: $scenario",
+    async ({ scenario, standing, event }) => {
+      const surface = fakeDurablePrSurface();
+      const controls = durablePrSurfaceControls();
+      seedBotFindingThreads([
+        findingThread(1, {
+          severity: scenario === "nonblocking finding" ? "P3" : "P1",
+          titleSnippet: scenario === "nonblocking finding" ? "P3 · Minor bug" : "P1 · Bug",
+        }),
+      ]);
+      if (scenario === "narrowed inventory") {
+        seedBotFindingThreads(Array.from({ length: 11 }, (_, index) => findingThread(index + 1)));
+        configureVerificationThreads(
+          Array.from({ length: 11 }, (_, index) => [
+            index + 1,
+            { threadNodeId: index === 0 ? "node" : `node-${index + 1}`, isResolved: false },
+          ]),
+        );
+        configureExecution(async (spec) =>
+          spec.execute(
+            item(),
+            createDurableExecutionContext({
+              pool,
+              item: item(),
+              prSurface: surface,
+              headSha: "a".repeat(40),
+              leaseEpoch: 1,
+              job: makeDurableJobMetadata(),
+              beginAttempt: async () => mockWorkClaim(),
+              signal: new AbortController().signal,
+              getClaim: () => undefined,
+              getEscalation: () => ({ attempt: 2, kinds: ["tool_rounds"] }),
+            }),
+          ),
+        );
+      }
+      const existingReviews = await surface.listPullRequestReviews();
+      controls.setPullRequestReviews([
+        ...existingReviews,
+        {
+          id: 20_000,
+          userId: 999,
+          authorLogin: "pr-agent[bot]",
+          body: "",
+          commitId: "old-head",
+          htmlUrl: "",
+          state: standing,
+        },
+        ...(scenario === "latest approval" || scenario === "latest changes requested"
+          ? [
+              {
+                id: 20_003,
+                userId: 999,
+                authorLogin: "pr-agent[bot]",
+                body: "",
+                commitId: "old-head",
+                htmlUrl: "",
+                state:
+                  scenario === "latest approval"
+                    ? ("APPROVED" as const)
+                    : ("CHANGES_REQUESTED" as const),
+              },
+            ]
+          : []),
+        {
+          id: 20_001,
+          userId: 7,
+          authorLogin: "alice",
+          body: "",
+          commitId: "old-head",
+          htmlUrl: "",
+          state: "CHANGES_REQUESTED",
+        },
+        {
+          id: 20_002,
+          userId: 999,
+          authorLogin: "pr-agent[bot]",
+          body: "",
+          commitId: "old-head",
+          htmlUrl: "",
+          state: "DISMISSED",
+        },
+      ]);
+      if (scenario === "already resolved shortcut") {
+        configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
+      }
+      if (scenario === "truncated objections") {
+        await addUserObjections(1, [{ id: 50, createdAt: "2026-01-01T14:32:47Z" }]);
+        controls.setReviewCommentsTruncated(true);
+      }
+      if (scenario === "capped objections") {
+        await addUserObjections(
+          1,
+          Array.from({ length: 9 }, (_, index) => ({
+            id: 50 + index,
+            createdAt: `2026-01-01T14:${String(index).padStart(2, "0")}:00Z`,
+          })),
+        );
+      }
+      if (scenario === "truncated compare") {
+        mockDurableExecution(
+          item({ payload: { repositorySizeKb: 100, pushBeforeSha: "b".repeat(40) } }),
+        );
+        vi.spyOn(surface, "listCommitCompareFiles").mockResolvedValue({
+          files: [],
+          truncated: true,
+        });
+      }
+      mocks.publishVerification.mockImplementationOnce(async () => {
+        if (
+          scenario !== "skipped blocker" &&
+          scenario !== "denied resolution" &&
+          scenario !== "reopened blocker" &&
+          scenario !== "nonblocking finding" &&
+          scenario !== "degraded publisher"
+        ) {
+          await surface.resolveInlineReviewThread("node");
+          if (scenario === "narrowed inventory") {
+            for (let id = 2; id <= 11; id++) {
+              await surface.resolveInlineReviewThread(`node-${id}`);
+            }
+          }
+        }
+        if (scenario === "incomplete inventory" || scenario === "degraded resolution") {
+          controls.setThreadResolutionStatus("partial");
+        }
+        return {
+          degradation:
+            scenario === "degraded resolution"
+              ? ["thread_resolution_degraded"]
+              : scenario === "degraded publisher"
+                ? ["verdict_mapping_incomplete"]
+                : [],
+        };
+      });
+      mocks.clearVerificationFailureSignal.mockImplementationOnce(async () => {
+        if (scenario === "stale after clear") controls.setHeadSha("f".repeat(40));
+        if (scenario === "cancelled after clear") mocks.shouldSkipWork.mockResolvedValue(true);
+      });
+      if (scenario === "stale during refresh" || scenario === "cancelled during refresh") {
+        const listThreads = surface.listInlineReviewThreads.bind(surface);
+        vi.spyOn(surface, "listInlineReviewThreads").mockImplementation(async () => {
+          const result = await listThreads();
+          if (
+            controls.events.filter((entry) => entry.kind === "listInlineReviewThreads").length > 1
+          ) {
+            if (scenario === "stale during refresh") controls.setHeadSha("f".repeat(40));
+            else mocks.shouldSkipWork.mockResolvedValue(true);
+          }
+          return result;
+        });
+      }
+      if (scenario === "active full review") {
+        mocks.getActiveReviewWorkItem.mockResolvedValue({ id: "review-running" });
+      }
+      if (scenario === "review starts during refresh") {
+        mocks.getActiveReviewWorkItem
+          .mockResolvedValueOnce(null)
+          .mockResolvedValue({ id: "review-queued" });
+      }
+      if (scenario === "publisher failure") {
+        vi.spyOn(surface, "publishThreadBatch").mockRejectedValueOnce(
+          new Error("GitHub unavailable"),
+        );
+      }
+      const publish = vi.spyOn(surface, "publishThreadBatch");
+      if (scenario === "self review") {
+        publish.mockRejectedValueOnce(
+          Object.assign(new Error("Can not approve your own pull request"), { status: 422 }),
+        );
+      }
+
+      await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
+
+      expect(controls.threadBatches).toEqual(
+        event == null
+          ? []
+          : [
+              expect.objectContaining({
+                event,
+                commitId: "a".repeat(40),
+                body: expect.stringContaining("pr-agent:operation-intent"),
+              }),
+            ],
+      );
+      expect(controls.events.filter((entry) => entry.kind === "dismissPullRequestReview")).toEqual(
+        scenario === "self review" ? [expect.objectContaining({ reviewId: 20_000 })] : [],
+      );
+      if (scenario === "self review") {
+        expect(publish).toHaveBeenCalledTimes(2);
+        expect(publish.mock.calls.map(([review]) => review.event)).toEqual(["APPROVE", "COMMENT"]);
+      }
+      if (scenario === "already resolved shortcut")
+        expect(mocks.runVerification).not.toHaveBeenCalled();
+    },
+  );
 
   it("short-circuits quietly when there are no open findings", async () => {
     seedBotFindingThreads([]);

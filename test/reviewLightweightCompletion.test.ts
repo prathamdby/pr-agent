@@ -1,3 +1,6 @@
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
+  threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
+}));
 const publicationWrites = vi.hoisted(() => ({
   write: vi
     .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()

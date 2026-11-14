@@ -1,3 +1,6 @@
+vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
+  threadMutationLock: () => (apply: () => Promise<unknown>) => apply(),
+}));
 vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
   const { createFakePublishRecords } = await import("../src/agentWork/fakePublishStore.ts");

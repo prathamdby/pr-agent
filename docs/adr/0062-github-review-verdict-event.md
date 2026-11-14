@@ -44,11 +44,35 @@ reviews. The check run stays the merge gate.
    createReview or dismiss errors log and do not fail the summary or the
    check.
 
+5. **Verification replaces only a changed standing verdict.** After thread
+   actions settle, including the already-resolved shortcut, reload the fresh
+   finding inventory and use the full review's finding lifecycle threshold.
+   Zero blocking findings changes this app's standing `CHANGES_REQUESTED` to
+   `APPROVE`; an open blocker changes its standing `APPROVED` to
+   `REQUEST_CHANGES`. Human-resolved threads count as resolved. Incomplete
+   inventory without a known blocker, a matching verdict, or no standing app
+   verdict publishes nothing. A queued or running full review takes precedence.
+   Only approval requires a complete inventory; a known blocker in an
+   incomplete fresh inventory may still request changes on a non-degraded run.
+   Any verification degradation skips every verdict transition and logs its reasons.
+   Recheck live head, cancellation, and lease ownership before publication.
+   Serialize the fresh inventory read and verdict publication with full-review
+   terminal publication under the resource's thread-mutation session lock.
+   A bounded lock timeout skips the review without failing either run.
+   Verification operation keys and markers bind the work item, head SHA, and
+   event, so a changed decision cannot reuse the opposite verdict's receipt.
+   Full-review operation keys remain unchanged.
+   Errors log without failing verification. This does not refresh the check
+   run, commit status, summary, or coverage, and does not open new findings.
+
 ## Consequences
 
 - One extra GitHub review (and notification) per published summary.
 - Files changed shows this run's event. The check remains the reliable gate.
 - Protected-branch dismiss 403 is best-effort.
+- Verification adds a GitHub review only when the standing verdict changes.
+  App approvals still depend on repository branch rules; verification does not
+  make an App approval count as a required human review.
 
 ## Reversal
 

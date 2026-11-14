@@ -212,6 +212,12 @@ before bounded backoff. The holder keeps its client until GitHub settles.
 Acquisition failures prove nonacceptance, but
 delegated mutation and post-write errors retain existing acceptance rules.
 CI projection and direct edits do not share this lock.
+
+Terminal GitHub reviews share the existing resource thread-mutation lock.
+Verification holds it from fresh finding inventory through verdict publication;
+full-review terminal publication takes it after summary and own-verdict locks
+have released. Do not nest those locks on separate pool connections.
+Bounded terminal-review lock timeouts are best-effort skips.
 See [ADR 0020](adr/0020-orchestrated-review.md).
 
 `src/agentWork/reviewVerdict.ts::reviewVerdict` returns `{pending, close, repairIfOpen}`.
