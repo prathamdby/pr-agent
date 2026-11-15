@@ -118,8 +118,11 @@ Notes:
   A fresh complete inventory with no blocking findings replaces `CHANGES_REQUESTED`
   with `APPROVE`; a reopened blocker replaces `APPROVED` with `REQUEST_CHANGES`.
   Matching verdicts, no standing app verdict, and incomplete inventory without
-  a known blocker publish nothing. Any verification degradation also stays silent
-  and logs its reasons. Active full reviews take precedence; terminal reviews
+  a known blocker publish nothing. An incomplete thread read records
+  `thread_resolution_degraded` and does not approve; a known blocker in that
+  inventory may still request changes. Compare truncation, a narrowed
+  inventory, objection caps, and other publish degradations stay silent and
+  log their reasons. Active full reviews take precedence; terminal reviews
   share the resource's thread-mutation lock, with best-effort timeout skips.
   Verification retry markers bind the work item, head SHA, and event.
   Checks and commit statuses are unchanged. App approval may not satisfy

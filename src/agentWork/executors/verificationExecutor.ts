@@ -275,10 +275,9 @@ export function createVerificationWorkExecution({
           boss,
           installationId: item.installationId,
         });
-        await refreshReviewVerdict([
-          ...(resolutionDegraded ? ["thread_resolution_degraded" as const] : []),
-          ...(reviewCommentsTruncated ? ["objection_detection_incomplete" as const] : []),
-        ]);
+        await refreshReviewVerdict(
+          reviewCommentsTruncated ? ["objection_detection_incomplete"] : [],
+        );
         return { kind: "completed" };
       }
 
@@ -436,7 +435,10 @@ export function createVerificationWorkExecution({
       if (reviewCommentsTruncated) degradation.add("objection_detection_incomplete");
       if (capped.deferred > 0) degradation.add("objection_answers_capped");
       const reasons = [...degradation];
-      await refreshReviewVerdict(reasons);
+      const verdictReasons = resolutionDegraded
+        ? reasons.filter((reason) => reason !== "thread_resolution_degraded")
+        : reasons;
+      await refreshReviewVerdict(verdictReasons);
       const objectionFields = objectionCompletionFields({
         presented: objectionCount(inventory),
         answered: publish.objectionsAnswered ?? 0,
