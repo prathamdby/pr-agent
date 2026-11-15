@@ -336,6 +336,12 @@ describe("verification work definition", () => {
     { scenario: "degraded publisher", standing: "APPROVED", event: undefined },
     { scenario: "partial inventory blocker", standing: "APPROVED", event: "REQUEST_CHANGES" },
     { scenario: "partial inventory clear", standing: "CHANGES_REQUESTED", event: undefined },
+    {
+      scenario: "partial inventory truncated",
+      standing: "APPROVED",
+      event: undefined,
+    },
+    { scenario: "partial inventory no standing", standing: "COMMENTED", event: undefined },
   ] as const)(
     "refreshes the standing verdict safely: $scenario",
     async ({ scenario, standing, event }) => {
@@ -445,8 +451,16 @@ describe("verification work definition", () => {
           truncated: true,
         });
       }
-      if (scenario === "partial inventory blocker" || scenario === "partial inventory clear") {
+      if (
+        scenario === "partial inventory blocker" ||
+        scenario === "partial inventory clear" ||
+        scenario === "partial inventory truncated" ||
+        scenario === "partial inventory no standing"
+      ) {
         controls.setThreadResolutionStatus("partial");
+      }
+      if (scenario === "partial inventory truncated") {
+        controls.setReviewCommentsTruncated(true);
       }
       if (scenario === "partial inventory clear") {
         configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
@@ -458,7 +472,9 @@ describe("verification work definition", () => {
           scenario !== "reopened blocker" &&
           scenario !== "nonblocking finding" &&
           scenario !== "degraded publisher" &&
-          scenario !== "partial inventory blocker"
+          scenario !== "partial inventory blocker" &&
+          scenario !== "partial inventory truncated" &&
+          scenario !== "partial inventory no standing"
         ) {
           await surface.resolveInlineReviewThread("node");
           if (scenario === "narrowed inventory") {
@@ -518,9 +534,14 @@ describe("verification work definition", () => {
 
       const result = await runExecution();
       expect(result).toMatchObject({ kind: "completed" });
-      if (scenario === "partial inventory blocker") {
+      if (scenario === "partial inventory blocker" || scenario === "partial inventory truncated") {
         expect(result).toMatchObject({
           degradation: expect.arrayContaining(["thread_resolution_degraded"]),
+        });
+      }
+      if (scenario === "partial inventory truncated") {
+        expect(result).toMatchObject({
+          degradation: expect.arrayContaining(["objection_detection_incomplete"]),
         });
       }
 
