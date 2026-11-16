@@ -28,6 +28,13 @@ export function verificationReviewEvent(
   return undefined;
 }
 
+const DEGRADED_APPROVE_REASONS = new Set<VerificationDegradationReason>([
+  "compare_files_truncated",
+  "inventory_narrowed",
+  "objection_answers_capped",
+  "objection_detection_incomplete",
+]);
+
 function everyOwnedReviewThreadResolved(inventory: FindingInventory): boolean {
   for (const finding of inventory.findings.values()) {
     if (finding.source === "thread" && finding.state === "open") return false;
@@ -84,10 +91,14 @@ export async function refreshReviewVerdictAfterVerification(params: {
         check,
         standing === "APPROVED" || standing === "CHANGES_REQUESTED" ? standing : undefined,
       );
-      if (
-        params.degradation.length > 0 &&
-        (event !== "APPROVE" || !everyOwnedReviewThreadResolved(inventory))
-      ) {
+      const degradedApprove =
+        event === "APPROVE" &&
+        everyOwnedReviewThreadResolved(inventory) &&
+        params.degradation.every((reason) => DEGRADED_APPROVE_REASONS.has(reason));
+      const degradedRequestChanges =
+        event === "REQUEST_CHANGES" &&
+        params.degradation.every((reason) => reason === "thread_resolution_degraded");
+      if (params.degradation.length > 0 && !degradedApprove && !degradedRequestChanges) {
         logInfo("verification_review_verdict_skipped", {
           workItemId,
           resourceKey,

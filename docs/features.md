@@ -121,10 +121,10 @@ Notes:
   a known blocker publish nothing. An incomplete thread read records
   `thread_resolution_degraded` and does not approve; a known blocker in that
   inventory may still request changes. Compare truncation, a narrowed
-  inventory, objection caps, and other publish degradations still approve
-  when that inventory is complete and every owned review thread is resolved.
-  They stay silent for every other transition and log their reasons. Active
-  full reviews take precedence; terminal reviews share the resource's
+  inventory, and objection caps still approve when that inventory is complete
+  and every owned review thread is resolved. Any other degradation reason
+  stays silent and logs its reasons. The verdict sees the full reason list.
+  Active full reviews take precedence; terminal reviews share the resource's
   thread-mutation lock, with best-effort timeout skips.
   Verification retry markers bind the work item, head SHA, and event.
   Checks and commit statuses are unchanged. App approval may not satisfy
