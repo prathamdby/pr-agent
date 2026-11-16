@@ -3,7 +3,10 @@ import { isAppError } from "../errors/appError.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import { logInfo, logWarn } from "../evlog.ts";
 import type { PrSurface } from "../github/prSurface.ts";
-import { loadFindingInventory } from "../review/findingIdentity/findingInventory.ts";
+import {
+  loadFindingInventory,
+  type FindingInventory,
+} from "../review/findingIdentity/findingInventory.ts";
 import {
   buildFindingView,
   findingCheck,
@@ -25,6 +28,23 @@ export function verificationReviewEvent(
   return undefined;
 }
 
+const DEGRADED_APPROVE_REASONS = new Set<VerificationDegradationReason>([
+  "compare_files_truncated",
+  "inventory_narrowed",
+  "objection_answers_capped",
+  "objection_detection_incomplete",
+]);
+
+function everyOwnedReviewThreadResolved(inventory: FindingInventory): boolean {
+  for (const finding of inventory.findings.values()) {
+    if (finding.source === "thread" && finding.state === "open") return false;
+  }
+  for (const copy of inventory.sameIdCopies) {
+    if (copy.source === "thread" && copy.state === "open") return false;
+  }
+  return true;
+}
+
 export async function refreshReviewVerdictAfterVerification(params: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -40,15 +60,6 @@ export async function refreshReviewVerdictAfterVerification(params: {
   const skip = (reason: string) =>
     logInfo("verification_review_verdict_skipped", { workItemId, resourceKey, reason });
   try {
-    if (params.degradation.length > 0) {
-      logInfo("verification_review_verdict_skipped", {
-        workItemId,
-        resourceKey,
-        reason: "verification_degraded",
-        degradation: params.degradation,
-      });
-      return;
-    }
     await threadMutationLock(
       pool,
       resourceKey,
@@ -80,6 +91,22 @@ export async function refreshReviewVerdictAfterVerification(params: {
         check,
         standing === "APPROVED" || standing === "CHANGES_REQUESTED" ? standing : undefined,
       );
+      const degradedApprove =
+        event === "APPROVE" &&
+        everyOwnedReviewThreadResolved(inventory) &&
+        params.degradation.every((reason) => DEGRADED_APPROVE_REASONS.has(reason));
+      const degradedRequestChanges =
+        event === "REQUEST_CHANGES" &&
+        params.degradation.every((reason) => reason === "thread_resolution_degraded");
+      if (params.degradation.length > 0 && !degradedApprove && !degradedRequestChanges) {
+        logInfo("verification_review_verdict_skipped", {
+          workItemId,
+          resourceKey,
+          reason: "verification_degraded",
+          degradation: params.degradation,
+        });
+        return;
+      }
       if (event == null) return;
       if (!(await params.canPublish())) return;
       if (await getActiveReviewWorkItem(pool, resourceKey)) {

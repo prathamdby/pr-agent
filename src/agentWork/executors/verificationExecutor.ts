@@ -435,10 +435,7 @@ export function createVerificationWorkExecution({
       if (reviewCommentsTruncated) degradation.add("objection_detection_incomplete");
       if (capped.deferred > 0) degradation.add("objection_answers_capped");
       const reasons = [...degradation];
-      const verdictReasons = resolutionDegraded
-        ? reasons.filter((reason) => reason !== "thread_resolution_degraded")
-        : reasons;
-      await refreshReviewVerdict(verdictReasons);
+      await refreshReviewVerdict(reasons);
       const objectionFields = objectionCompletionFields({
         presented: objectionCount(inventory),
         answered: publish.objectionsAnswered ?? 0,
