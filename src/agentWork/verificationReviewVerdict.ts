@@ -40,15 +40,6 @@ export async function refreshReviewVerdictAfterVerification(params: {
   const skip = (reason: string) =>
     logInfo("verification_review_verdict_skipped", { workItemId, resourceKey, reason });
   try {
-    if (params.degradation.length > 0) {
-      logInfo("verification_review_verdict_skipped", {
-        workItemId,
-        resourceKey,
-        reason: "verification_degraded",
-        degradation: params.degradation,
-      });
-      return;
-    }
     await threadMutationLock(
       pool,
       resourceKey,
@@ -80,6 +71,15 @@ export async function refreshReviewVerdictAfterVerification(params: {
         check,
         standing === "APPROVED" || standing === "CHANGES_REQUESTED" ? standing : undefined,
       );
+      if (params.degradation.length > 0 && event !== "APPROVE") {
+        logInfo("verification_review_verdict_skipped", {
+          workItemId,
+          resourceKey,
+          reason: "verification_degraded",
+          degradation: params.degradation,
+        });
+        return;
+      }
       if (event == null) return;
       if (!(await params.canPublish())) return;
       if (await getActiveReviewWorkItem(pool, resourceKey)) {
