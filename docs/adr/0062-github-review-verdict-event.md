@@ -57,7 +57,7 @@ reviews. The check run stays the merge gate.
    records `thread_resolution_degraded` and does not by itself suppress the
    request-changes transition. Compare truncation, a narrowed inventory,
    objection truncation, and an objection cap still approve when that fresh
-   inventory is complete and has zero blockers. Those degradations skip every
+   inventory is complete and every owned review thread is resolved. Those degradations skip every
    other verdict transition and log their reasons.
    Recheck live head, cancellation, and lease ownership before publication.
    Serialize the fresh inventory read and verdict publication with full-review

@@ -3,7 +3,10 @@ import { isAppError } from "../errors/appError.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 import { logInfo, logWarn } from "../evlog.ts";
 import type { PrSurface } from "../github/prSurface.ts";
-import { loadFindingInventory } from "../review/findingIdentity/findingInventory.ts";
+import {
+  loadFindingInventory,
+  type FindingInventory,
+} from "../review/findingIdentity/findingInventory.ts";
 import {
   buildFindingView,
   findingCheck,
@@ -23,6 +26,16 @@ export function verificationReviewEvent(
   if (check.conclusion === "success" && standing === "CHANGES_REQUESTED") return "APPROVE";
   if (check.conclusion === "failure" && standing === "APPROVED") return "REQUEST_CHANGES";
   return undefined;
+}
+
+function everyOwnedReviewThreadResolved(inventory: FindingInventory): boolean {
+  for (const finding of inventory.findings.values()) {
+    if (finding.source === "thread" && finding.state === "open") return false;
+  }
+  for (const copy of inventory.sameIdCopies) {
+    if (copy.source === "thread" && copy.state === "open") return false;
+  }
+  return true;
 }
 
 export async function refreshReviewVerdictAfterVerification(params: {
@@ -71,7 +84,10 @@ export async function refreshReviewVerdictAfterVerification(params: {
         check,
         standing === "APPROVED" || standing === "CHANGES_REQUESTED" ? standing : undefined,
       );
-      if (params.degradation.length > 0 && event !== "APPROVE") {
+      if (
+        params.degradation.length > 0 &&
+        (event !== "APPROVE" || !everyOwnedReviewThreadResolved(inventory))
+      ) {
         logInfo("verification_review_verdict_skipped", {
           workItemId,
           resourceKey,

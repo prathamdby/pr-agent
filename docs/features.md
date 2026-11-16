@@ -122,10 +122,10 @@ Notes:
   `thread_resolution_degraded` and does not approve; a known blocker in that
   inventory may still request changes. Compare truncation, a narrowed
   inventory, objection caps, and other publish degradations still approve
-  when that inventory is complete and has no blockers. They stay silent for
-  every other transition and log their reasons. Active full reviews take
-  precedence; terminal reviews share the resource's thread-mutation lock,
-  with best-effort timeout skips.
+  when that inventory is complete and every owned review thread is resolved.
+  They stay silent for every other transition and log their reasons. Active
+  full reviews take precedence; terminal reviews share the resource's
+  thread-mutation lock, with best-effort timeout skips.
   Verification retry markers bind the work item, head SHA, and event.
   Checks and commit statuses are unchanged. App approval may not satisfy
   required-review branch rules. See [ADR 0062](adr/0062-github-review-verdict-event.md).
