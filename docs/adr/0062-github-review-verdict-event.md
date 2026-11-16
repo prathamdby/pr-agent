@@ -53,8 +53,10 @@ reviews. The check run stays the merge gate.
    inventory without a known blocker, a matching verdict, or no standing app
    verdict publishes nothing. A queued or running full review takes precedence.
    Only approval requires a complete inventory; a known blocker in an
-   incomplete fresh inventory may still request changes on a non-degraded run.
-   Any verification degradation skips every verdict transition and logs its reasons.
+   incomplete fresh inventory may still request changes. That incomplete read
+   records `thread_resolution_degraded` and does not by itself suppress the
+   request-changes transition. Any other verification degradation skips every
+   verdict transition and logs its reasons.
    Recheck live head, cancellation, and lease ownership before publication.
    Serialize the fresh inventory read and verdict publication with full-review
    terminal publication under the resource's thread-mutation session lock.
