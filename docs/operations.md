@@ -266,6 +266,8 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `npm run check:site-design`                                   | Landing site design-system check against `scripts/baselines/site-design-baseline.json`                                               |
 | `npm run site:generate-og`                                    | Generate landing OG assets                                                                                                           |
 
+`npm run test:integration` opens two worker databases beside the one named in `DATABASE_URL`. The login needs `CREATEDB`. The CI service user and the Compose user are Postgres superusers, so they already have it.
+
 `npm run typecheck` runs `tsrs --noEmit -p tsconfig.json`. `npm run build` runs `tsrs -p tsconfig.build.json`. [`.oxlintrc.json`](../.oxlintrc.json) sets `options.typeAware` to false, so lint does not load `oxlint-tsgolint`. Registry install policy lives only in [`.npmrc`](../.npmrc): `min-release-age=7`, `min-release-age-exclude[]=@tanstack/redact`, `legacy-peer-deps=true`, `ignore-scripts=true`, and `engine-strict=true`. The exclusion is that one package name. npm exclusions match package names or globs, not exact versions. Every other package still waits seven days.
 
 Both lint scripts pass `--deny-warnings`. `npm run check:guards` locks suppression markers with `lint-suppressions(src)` (4) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
