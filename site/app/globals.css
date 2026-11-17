@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Geist";
-  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-family: "Allo";
+  src: url("/fonts/Allo-Variable.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -154,7 +154,7 @@
 }
 
 @theme {
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Allo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /*
@@ -375,7 +375,6 @@
     background: var(--color-bg);
     color: var(--color-text);
     color-scheme: light;
-    font-feature-settings: "ss08";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-underline-position: from-font;
@@ -1295,13 +1294,13 @@
   */
   .wordmark-clip {
     /*
-      Geist 500 at line-height 1: cap tops sit 0.145em below the line box and caps are 0.71em
-      tall (measured with canvas TextMetrics). The clip starts just above the caps and shows
+      Allo 500 at line-height 1: cap tops sit 0.135em below the line box and caps are 0.73em
+      tall (canvas TextMetrics at 100px). The clip starts just above the caps and shows
       most of them, cut a little above the baseline.
     */
     --wordmark-size: clamp(4.5rem, 17.5vw, 14rem);
-    --wordmark-cap-top: 0.145em;
-    --wordmark-cap-height: 0.71em;
+    --wordmark-cap-top: 0.135em;
+    --wordmark-cap-height: 0.73em;
     height: calc(var(--wordmark-size) * 0.6);
     overflow: hidden;
     pointer-events: none;

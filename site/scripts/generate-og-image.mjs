@@ -40,7 +40,7 @@ const color = {
   dangerSoft: "#ffe9e6",
 };
 
-const sans = "Geist";
+const sans = "Allo Variable";
 const mono = "Geist Mono";
 
 const ASCENT = 1.005;
