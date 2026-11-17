@@ -11,6 +11,7 @@ import brotli
 import fontTools
 from fontTools.subset import Options, Subsetter, load_font, save_font
 from fontTools.ttLib import TTFont
+from fontTools.varLib.instancer import instantiateVariableFont
 
 FONTTOOLS_VERSION = "4.68.0"
 BROTLI_VERSION = "1.2.1"
@@ -31,10 +32,17 @@ class Face:
     source_name: str
     output_name: str
     layout_features: tuple[str, ...]
+    pin: tuple[tuple[str, float], ...] = ()
 
 
 FACES = (
-    Face("Geist", "Geist-Variable.ttf", "Geist-Variable.woff2", ("ccmp", "liga", "kern", "tnum", "ss08")),
+    Face(
+        "Allo",
+        "Allo-Variable.ttf",
+        "Allo-Variable.woff2",
+        ("ccmp", "liga", "kern", "tnum", "calt"),
+        (("ROND", 50.0),),
+    ),
     Face("Geist Mono", "GeistMono-Variable.ttf", "GeistMono-Variable.woff2", ("ccmp",)),
 )
 
@@ -142,6 +150,8 @@ def subset_face(face: Face, site: Path, scanned: set[int]) -> SubsetResult:
         flavor="woff2",
     )
     font = load_font(source, options, dontLoadGlyphNames=False, lazy=options.lazy)
+    if face.pin:
+        instantiateVariableFont(font, dict(face.pin), inplace=True)
     unicodes = keep_unicodes(unicode_cmap(font, face.family), scanned, face.family)
     subsetter = Subsetter(options=options)
     subsetter.populate(unicodes=unicodes)

@@ -47,7 +47,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - A button with an icon on one side takes less padding on that side: `.btn-trailing` is `padding-inline: 1rem 0.75rem`, `.btn-leading` is `0.75rem 1rem`.
 - Depth is layered `box-shadow`, not borders. The first layer of every shadow token is a hairline standing in for a border.
 - Raster images carry a 1px, 8% outline so a light image still has an edge: `img { outline: 1px solid rgb(0 0 0 / 0.08); outline-offset: -1px; }`. The logo, which already has an edge, opts out with `outline-none`.
-- Icon stroke matches text weight: Hugeicons stroke-rounded at `strokeWidth={1.5}` beside Geist at 400–500.
+- Icon stroke matches text weight: Hugeicons stroke-rounded at `strokeWidth={1.5}` beside Allo at 400–500.
 
 ### Animation
 
@@ -67,9 +67,9 @@ These rules are followed without exception. They are grouped the way the site ap
 
 ### Typography
 
-- Only `woff2`, self-hosted: `/fonts/Geist-Variable.woff2` and `/fonts/GeistMono-Variable.woff2`.
+- Only `woff2`, self-hosted: `/fonts/Allo-Variable.woff2` and `/fonts/GeistMono-Variable.woff2`.
 - `font-variant-numeric: tabular-nums` on counters, prices, and tables: the `.tabular` utility on step numbers, `$0`, `#284`, tab counts, and the copyright line.
-- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`. `ch` is the width of a zero, wider than Geist’s average letter, so check real lines: FAQ answers at `max-w-[52ch]` run about 70 characters.
+- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`. `ch` is the width of a zero, wider than Allo’s average letter, so check real lines: FAQ answers at `max-w-[52ch]` run about 70 characters.
 - `text-wrap: balance` on `h1`, `h2`, `h3`; `text-wrap: pretty` on `p`. Both set in `@layer base`.
 - `overflow-wrap: break-word` on paragraphs; `white-space: nowrap` on labels that must not break (`.btn`, `GhPill`, `.wordmark-sky`).
 - Font smoothing on the root: `-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`.
@@ -130,14 +130,14 @@ These rules are followed without exception. They are grouped the way the site ap
 
 ### Fonts
 
-| Token         | Value                                                                              | Purpose                               |
-| ------------- | ---------------------------------------------------------------------------------- | ------------------------------------- |
-| `--font-sans` | `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | Everything except code                |
-| `--font-mono` | `"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`           | `code`, `pre`, `kbd`, commands, paths |
+| Token         | Value                                                                             | Purpose                               |
+| ------------- | --------------------------------------------------------------------------------- | ------------------------------------- |
+| `--font-sans` | `"Allo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` | Everything except code                |
+| `--font-mono` | `"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`          | `code`, `pre`, `kbd`, commands, paths |
 
-Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/` with the licence in `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand. The woff2 files are produced by `python3 site/scripts/subset-site-fonts.py` from the TTF masters. The script requires fontTools 4.68.0 and brotli 1.2.1 (`python3 -m pip install fonttools==4.68.0 brotli==1.2.1`). They keep Latin-1, Latin Extended-A, and the painted extras. Rerun the script when painted text gains a missing character or when a new weight or OpenType feature is used.
+Both faces are variable (`font-weight: 100 900`), `font-display: swap`, self-hosted under `site/public/fonts/`. Allo’s licence is `site/public/fonts/licenses/allo-OFL.txt`. Geist Mono’s licence is `site/public/fonts/licenses/geist-OFL.txt`. `site/app/__root.tsx` preloads the sans file only (`rel="preload" as="font" type="font/woff2" crossOrigin="anonymous"`). Mono loads on demand. The woff2 files are produced by `python3 site/scripts/subset-site-fonts.py` from the TTF masters in `site/assets/fonts/`. The script requires fontTools 4.68.0 and brotli 1.2.1 (`python3 -m pip install fonttools==4.68.0 brotli==1.2.1`). They keep Latin-1, Latin Extended-A, and the painted extras. Rerun the script when painted text gains a missing character or when a new weight or OpenType feature is used.
 
-Geist runs with `font-feature-settings: "ss08"` on `html` (the alternate forms the type spec asks for) and the default `ss03` off; `code`, `pre`, and `kbd` reset to `normal`. The subset script keeps `ss08`, so a font rebuild must not drop it.
+Allo’s roundness stays at its default, 50. The subset script pins `ROND` there before subsetting, because the pages never move that axis, and optical size still follows the font size. It passes `ccmp`, `liga`, `kern`, `tnum`, and `calt`. `code`, `pre`, and `kbd` set `font-feature-settings: normal`.
 
 Weights are tokens (see [Type scale](#type-scale)): 400 for body copy and ghost nav items, 480 for display headings, 520 for card titles and eyebrows, 530 for row headings, 560 for step pills, 500 for buttons and labels, 600 for the brand name in the header and footer and for the bot name inside mocks. Nothing heavier.
 
@@ -307,7 +307,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` uses `background: var(--color-accent-solid)` and `color: var(--color-on-accent)`, the same pair as `.btn-primary`.
 - `bg-surface/85` with `backdrop-blur-md` is the translucent header once it sticks; at the top of the page it is transparent over the hero sky. The two other translucent layers are the menu scrim (`--color-scrim` with `backdrop-filter: blur(2px)`) and the theme toggle track (`--toggle-track` of `surface`).
-- The social card in `site/scripts/generate-og-image.mjs` is light-only art and draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
+- The social card in `site/scripts/generate-og-image.mjs` is light-only art and draws the hero heading over the sky and a simplified review comment window as SVG with these values copied by hand, and sets Allo Variable from `site/assets/fonts/` because librsvg cannot read the page's woff2 and matches the variable font's name-table family. Text stays at 20px or larger so the card reads at feed size, and nothing important sits in the bottom-left corner, where X overlays the link domain. Regenerate it with `npm run site:generate-og` when a token or the hero copy changes.
 
 ## Themes
 
@@ -627,8 +627,8 @@ The wordmark is the page’s closing note:
 ```css
 .wordmark-clip {
   --wordmark-size: clamp(4.5rem, 17.5vw, 14rem);
-  --wordmark-cap-top: 0.145em;
-  --wordmark-cap-height: 0.71em;
+  --wordmark-cap-top: 0.135em;
+  --wordmark-cap-height: 0.73em;
   height: calc(var(--wordmark-size) * 0.6);
   overflow: hidden;
   pointer-events: none;
@@ -646,7 +646,7 @@ The wordmark is the page’s closing note:
 }
 ```
 
-The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap tops sit 0.145em below the line box and caps are 0.71em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is cloud on the deep end of the sky fold: two white (`on-accent`) radial puffs over a `to bottom in oklab` gradient from `on-accent` at 20% through `wash-soft` at 55% to `wash-strong` at 85%, all clipped to the glyphs with `background-clip: text`. The word is shifted `-0.04em` sideways because the trailing `-0.05em` letter-spacing and the final “t” push its ink right of the box centre. It is `aria-hidden`; the product name is already in the footer above it.
+The metrics are measured, not guessed: with Allo 500 at `line-height: 1`, cap tops sit 0.135em below the line box and caps are 0.73em tall (canvas `TextMetrics`). The clip is 0.6em tall and the word is lifted 0.125em, so the box starts just above the caps and shows most of them, cut a little above the baseline, so the word reads as rising from the fold. The fill is cloud on the deep end of the sky fold: two white (`on-accent`) radial puffs over a `to bottom in oklab` gradient from `on-accent` at 20% through `wash-soft` at 55% to `wash-strong` at 85%, all clipped to the glyphs with `background-clip: text`. The word is shifted `-0.04em` sideways because the trailing `-0.05em` letter-spacing and the final “t” push its ink right of the box centre. It is `aria-hidden`; the product name is already in the footer above it.
 
 ### Hero and CTA banner
 
@@ -729,7 +729,7 @@ Every UI icon comes from `site/components/icons.tsx`, which wraps `@hugeicons/re
 />
 ```
 
-The 1.5 stroke matches Geist at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `Sun`, `Moon`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Eye`, `Document`, `Question`, `Refresh`, `Wrench`, `Feather`, `Wallet`, `Shield`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
+The 1.5 stroke matches Allo at 400–500, so an icon beside a label reads as the same ink. Every icon is decorative and hidden from assistive tech; the text beside it carries the meaning. Exported names: `ChevronRight`, `ArrowUpRight`, `Plus`, `Minus`, `Check`, `Copy`, `Menu`, `X`, `Sun`, `Moon`, `GitHubMark`, `XMark` (the X logo; `X` is the close icon), `LinkedInMark`, `Terminal`, `Server`, `PullRequest`, `Scan`, `Comment`, `Gauge`, `Eye`, `Document`, `Question`, `Refresh`, `Wrench`, `Feather`, `Wallet`, `Shield`, `CheckCircle`, `XCircle`, `Info`. Add a new one by importing the glyph and calling `fromGlyph`; never paste a hand-drawn UI icon. Usual sizes: `size-5` in tiles, `size-4` in buttons, `size-3.5` in chips and small labels.
 
 The only hand-drawn SVGs on the page are illustration, not icons: the dashed rails in the commands bento.
 
@@ -890,7 +890,7 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                                                 |
 | `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                                               |
 | `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                                                     |
-| `site/scripts/subset-site-fonts.py`   | Subset Geist and Geist Mono `woff2` from the TTF masters                                                              |
-| `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                                                 |
-| `site/public/fonts/`                  | Subset Geist and Geist Mono `woff2` plus licence                                                                      |
+| `site/scripts/subset-site-fonts.py`   | Subset Allo and Geist Mono `woff2` from the TTF masters                                                               |
+| `site/assets/fonts/`                  | Allo and Geist Mono variable `ttf` for the social card, plus licences                                                 |
+| `site/public/fonts/`                  | Subset Allo and Geist Mono `woff2` plus licences                                                                      |
 | `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                                           |
