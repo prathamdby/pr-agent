@@ -1,33 +1,39 @@
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
-export function renderProgressRevisionComment(revision: number, workItemId?: string): string {
-  return workItemId == null
-    ? `<!-- pr-agent:progress-revision ${revision} -->`
-    : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`;
+export function renderProgressRevisionComment(revision: number, workItemId?: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    workItemId == null
+      ? `<!-- pr-agent:progress-revision ${revision} -->`
+      : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`,
+  );
 }
 
-export function withProgressRevisionComment(
-  body: string,
-  revision: number,
-  workItemId?: string,
-): string {
+export function withProgressRevisionComment(body: string, revision: number, workItemId?: string) {
   const withoutRevision = body.replace(PROGRESS_REVISION_RE, "").trimEnd();
-  return `${withoutRevision}\n${renderProgressRevisionComment(revision, workItemId)}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${withoutRevision}\n${renderProgressRevisionComment(revision, workItemId)}`,
+  );
 }
 
-export function parseProgressRevisionState(
-  body: string,
-): { readonly revision: number; readonly workItemId?: string } | null {
+export function parseProgressRevisionState(body: string) {
   const match = PROGRESS_REVISION_RE.exec(body);
-  if (!match?.[2]) return null;
+  if (!match?.[2])
+    return ((pinnedReturn: { readonly revision: number; readonly workItemId?: string } | null) =>
+      pinnedReturn)(null);
   const revision = Number(match[2]);
-  if (!Number.isSafeInteger(revision)) return null;
-  if (match[1] == null) return { revision };
+  if (!Number.isSafeInteger(revision))
+    return ((pinnedReturn: { readonly revision: number; readonly workItemId?: string } | null) =>
+      pinnedReturn)(null);
+  if (match[1] == null)
+    return ((pinnedReturn: { readonly revision: number; readonly workItemId?: string } | null) =>
+      pinnedReturn)({ revision });
   try {
-    return { revision, workItemId: decodeURIComponent(match[1]) };
+    return ((pinnedReturn: { readonly revision: number; readonly workItemId?: string } | null) =>
+      pinnedReturn)({ revision, workItemId: decodeURIComponent(match[1]) });
   } catch {
-    return null;
+    return ((pinnedReturn: { readonly revision: number; readonly workItemId?: string } | null) =>
+      pinnedReturn)(null);
   }
 }
 
@@ -40,12 +46,12 @@ export type ParsedReviewMeta = {
   readonly stale: boolean;
 };
 
-export function parseReviewMetaFromCommentBody(body: string): ParsedReviewMeta | null {
+export function parseReviewMetaFromCommentBody(body: string) {
   const match = body.match(REVIEW_META_RE);
-  if (match == null) return null;
-  return {
+  if (match == null) return ((pinnedReturn: ParsedReviewMeta | null) => pinnedReturn)(null);
+  return ((pinnedReturn: ParsedReviewMeta | null) => pinnedReturn)({
     headSha: match[1] ?? "",
     lens: match[2] ?? "",
     stale: match[3] === "true",
-  };
+  });
 }

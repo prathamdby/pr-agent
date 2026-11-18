@@ -90,7 +90,7 @@ async function dispatchAutomatedKind(
   resourceKey: string,
   correlation: JobCorrelation,
   descriptor: AutomatedKindDispatchDescriptor,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const { workItemId, lifecycleChanges } = await replaceAutoWorkItem({
     client: tx.client,
     target: descriptor.target,
@@ -101,7 +101,7 @@ async function dispatchAutomatedKind(
     await descriptor.enqueueAck(workItemId);
   }
   await descriptor.enqueue(workItemId);
-  return [
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)([
     {
       name: "agent_work_enqueued",
       fields: {
@@ -112,7 +112,7 @@ async function dispatchAutomatedKind(
         ...correlation,
       },
     },
-  ];
+  ]);
 }
 
 type PlannedAutomatedIntakeResult = {
@@ -131,14 +131,13 @@ type ActiveSlashReview = {
 
 const WORK_ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function followUpReplacementId(value: string | null): string | null {
-  return value != null && WORK_ITEM_ID.test(value) ? value : null;
+function followUpReplacementId(value: string | null) {
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    value != null && WORK_ITEM_ID.test(value) ? value : null,
+  );
 }
 
-async function lockActiveSlashReviews(
-  client: PoolClient,
-  resourceKey: string,
-): Promise<readonly ActiveSlashReview[]> {
+async function lockActiveSlashReviews(client: PoolClient, resourceKey: string) {
   const result = await client.query<{
     id: string;
     status: "queued" | "running";
@@ -157,12 +156,15 @@ async function lockActiveSlashReviews(
       FOR UPDATE`,
     [resourceKey],
   );
-  return result.rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    hasFollowUp: row.has_follow_up,
-    followUpReplacementId: followUpReplacementId(row.follow_up_replacement_id),
-  }));
+  return ((pinnedReturn: readonly ActiveSlashReview[] | Promise<readonly ActiveSlashReview[]>) =>
+    pinnedReturn)(
+    result.rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      hasFollowUp: row.has_follow_up,
+      followUpReplacementId: followUpReplacementId(row.follow_up_replacement_id),
+    })),
+  );
 }
 
 async function publishAutoReviewReplacement(
@@ -176,7 +178,7 @@ async function publishAutoReviewReplacement(
     readonly supersededIds: readonly string[];
     readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
   },
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
   tx.deferWorkLifecycle(ref, replaced.lifecycleChanges, "auto_replacement", correlation);
@@ -217,7 +219,9 @@ async function publishAutoReviewReplacement(
       ...correlation,
     },
   });
-  return events;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
 }
 
 async function insertEveryPushReview(
@@ -227,7 +231,7 @@ async function insertEveryPushReview(
   resourceKey: string,
   correlation: JobCorrelation,
   eventId: string,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
   const replaced = await replaceAutoWorkItem({
@@ -241,24 +245,28 @@ async function insertEveryPushReview(
         ackTargets,
       }),
   });
-  return publishAutoReviewReplacement(boss, tx, ref, resourceKey, correlation, replaced);
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    publishAutoReviewReplacement(boss, tx, ref, resourceKey, correlation, replaced),
+  );
 }
 
 async function everyPushReviewAdmitted(
   client: PoolClient,
   resourceKey: string,
   review: Features["review"],
-): Promise<boolean> {
-  if (review !== "approval") return true;
-  if ((await loadAwaitingApproval(client, resourceKey)) != null) return false;
-  return reviewPushAdmitted(client, resourceKey);
+) {
+  if (review !== "approval")
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
+  if ((await loadAwaitingApproval(client, resourceKey)) != null)
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    reviewPushAdmitted(client, resourceKey),
+  );
 }
 
-async function followUpIdsWithLiveReviewJob(
-  client: PoolClient,
-  followUpIds: readonly string[],
-): Promise<string[]> {
-  if (followUpIds.length === 0) return [];
+async function followUpIdsWithLiveReviewJob(client: PoolClient, followUpIds: readonly string[]) {
+  if (followUpIds.length === 0)
+    return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)([]);
   const result = await client.query<{ id: string }>(
     `SELECT ids.id
        FROM unnest($1::uuid[]) AS ids(id)
@@ -274,7 +282,9 @@ async function followUpIdsWithLiveReviewJob(
       )`,
     [followUpIds, REVIEW_QUEUE],
   );
-  return result.rows.map((row) => row.id);
+  return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)(
+    result.rows.map((row) => row.id),
+  );
 }
 
 async function applyEveryPushReviewSupersede(
@@ -284,11 +294,13 @@ async function applyEveryPushReviewSupersede(
   resourceKey: string,
   correlation: JobCorrelation,
   eventId: string,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const slashRows = await lockActiveSlashReviews(client, resourceKey);
   if (slashRows.length === 0) {
-    return insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId);
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId),
+    );
   }
   const followUpIds = [
     ...new Set(
@@ -325,7 +337,9 @@ async function applyEveryPushReviewSupersede(
     .filter((row) => row.status === "running" && !row.hasFollowUp)
     .map((row) => row.id);
   if (runningIds.length === 0) {
-    if (followUpIds.length === 0) return events;
+    if (followUpIds.length === 0)
+      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+        pinnedReturn)(events);
     if (preservedFollowUpIds.length > 0) {
       const queuedFollowUp = await client.query(
         `SELECT id FROM agent_work_items
@@ -333,12 +347,16 @@ async function applyEveryPushReviewSupersede(
             AND status = 'queued'`,
         [preservedFollowUpIds],
       );
-      if ((queuedFollowUp.rowCount ?? 0) > 0) return events;
+      if ((queuedFollowUp.rowCount ?? 0) > 0)
+        return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+          pinnedReturn)(events);
     }
-    return [
-      ...events,
-      ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),
-    ];
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      [
+        ...events,
+        ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),
+      ],
+    );
   }
   const stamped = await client.query(
     `UPDATE agent_work_items
@@ -348,17 +366,26 @@ async function applyEveryPushReviewSupersede(
         AND NOT (payload ? 'pushFollowUp')`,
     [runningIds, JSON.stringify({ pushFollowUp: { webhookEventId: eventId } })],
   );
-  if ((stamped.rowCount ?? 0) > 0) return events;
-  if ((await lockActiveSlashReviews(client, resourceKey)).length > 0) return events;
+  if ((stamped.rowCount ?? 0) > 0)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
+  if ((await lockActiveSlashReviews(client, resourceKey)).length > 0)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
   const finished = await client.query<{ status: string }>(
     `SELECT status FROM agent_work_items WHERE id = ANY($1::uuid[])`,
     [runningIds],
   );
-  if (!finished.rows.some((row) => row.status === "completed")) return events;
-  return [
+  if (!finished.rows.some((row) => row.status === "completed"))
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)([
     ...events,
     ...(await insertEveryPushReview(boss, tx, ref, resourceKey, correlation, eventId)),
-  ];
+  ]);
 }
 
 async function applyPlannedAutomatedPullRequestIntake(
@@ -370,7 +397,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   reviewCadence: Features["reviewCadence"],
   reviewMode: Features["review"],
   pushBeforeSha?: string,
-): Promise<PlannedAutomatedIntakeResult> {
+) {
   const client = tx.client;
   const events: DeferredIntakeEvent[] = [];
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
@@ -388,7 +415,9 @@ async function applyPlannedAutomatedPullRequestIntake(
       ? `ignored_review_pr_${reviewRefused}`
       : automatedIntakeDecision(plan);
   const event = await tx.insert(decision);
-  if (event.duplicate) return { duplicate: true, correlation: {}, events };
+  if (event.duplicate)
+    return ((pinnedReturn: PlannedAutomatedIntakeResult | Promise<PlannedAutomatedIntakeResult>) =>
+      pinnedReturn)({ duplicate: true, correlation: {}, events });
   const correlation = jobCorrelation(event.id, headers);
   if (reviewRefused != null)
     events.push({
@@ -512,7 +541,8 @@ async function applyPlannedAutomatedPullRequestIntake(
     );
   }
 
-  return { duplicate: false, reviewRefused, correlation, events };
+  return ((pinnedReturn: PlannedAutomatedIntakeResult | Promise<PlannedAutomatedIntakeResult>) =>
+    pinnedReturn)({ duplicate: false, reviewRefused, correlation, events });
 }
 
 async function applyReviewCloseCancelIntake(
@@ -521,7 +551,7 @@ async function applyReviewCloseCancelIntake(
   headers: WebhookHeaders,
   ref: PrRef,
   observation: ReviewLifecycleObservation,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const events: DeferredIntakeEvent[] = [];
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
@@ -531,15 +561,20 @@ async function applyReviewCloseCancelIntake(
   const event = await tx.insert(
     accepts ? REVIEW_CANCELLED_PR_CLOSED : "ignored_stale_pr_lifecycle",
   );
-  if (event.duplicate) return events;
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
   const correlation = jobCorrelation(event.id, headers);
   if (!accepts)
-    return [
-      {
-        name: "ignored_stale_pr_lifecycle",
-        fields: { resourceKey, state: observation.state, ...correlation },
-      },
-    ];
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      [
+        {
+          name: "ignored_stale_pr_lifecycle",
+          fields: { resourceKey, state: observation.state, ...correlation },
+        },
+      ],
+    );
   const applied = await recordReviewLifecycleObservation(
     client,
     resourceKey,
@@ -629,7 +664,9 @@ async function applyReviewCloseCancelIntake(
       ...jobCorrelation(event.id, headers),
     },
   });
-  return events;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
 }
 
 export type AutomatedPullRequestIntakeOpts = {
@@ -644,7 +681,7 @@ async function enqueueHeadCiProjection(
   client: PoolClient,
   ref: PrRef,
   correlation: JobCorrelation,
-): Promise<DeferredIntakeEvent> {
+) {
   const result = await requestHeadCiProjection(
     boss,
     {
@@ -656,7 +693,7 @@ async function enqueueHeadCiProjection(
     },
     { kind: "intake", client },
   );
-  return {
+  return ((pinnedReturn: DeferredIntakeEvent | Promise<DeferredIntakeEvent>) => pinnedReturn)({
     name: "ci_projection_enqueued",
     fields: {
       owner: ref.owner,
@@ -664,7 +701,7 @@ async function enqueueHeadCiProjection(
       headSha: ref.headSha,
       result,
     },
-  };
+  });
 }
 
 async function applyAutomatedPullRequestIntake(
@@ -672,13 +709,15 @@ async function applyAutomatedPullRequestIntake(
   tx: DeliveryTx,
   command: Extract<IntakeCommand, { kind: "pull_request" }>,
   cfg: Pick<Config, "features">,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const { headers, ref, action, opts } = command;
   const client = tx.client;
   if (action === "closed") {
     if (!opts?.lifecycle)
       throw new Error("Close and reopen require a validated lifecycle observation");
-    return applyReviewCloseCancelIntake(boss, tx, headers, ref, opts.lifecycle);
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      applyReviewCloseCancelIntake(boss, tx, headers, ref, opts.lifecycle),
+    );
   }
   let reopenAccepted: boolean | undefined;
   if (action === "reopened") {
@@ -707,11 +746,15 @@ async function applyAutomatedPullRequestIntake(
       cfg.features.review,
       opts?.pushBeforeSha,
     );
-    if (planned.duplicate) return planned.events;
+    if (planned.duplicate)
+      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+        pinnedReturn)(planned.events);
     const row = await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha);
     if (shouldSeedHeadCiFromPullRequest(action, ref.headSha, row))
       planned.events.push(await enqueueHeadCiProjection(boss, client, ref, planned.correlation));
-    return planned.events;
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      planned.events,
+    );
   }
   const seedCandidate = isHeadCiSeedPullRequest(action, ref.headSha);
   const row = seedCandidate
@@ -728,7 +771,10 @@ async function applyAutomatedPullRequestIntake(
         ? lifecycleDecision
         : `ignored_pull_request_${action}`,
   );
-  if (event.duplicate) return [];
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      [],
+    );
   const correlation = jobCorrelation(event.id, headers);
   const events: DeferredIntakeEvent[] = [];
   if (reopenAccepted != null && opts?.lifecycle != null) {
@@ -744,7 +790,9 @@ async function applyAutomatedPullRequestIntake(
     });
   }
   if (seed) events.push(await enqueueHeadCiProjection(boss, client, ref, correlation));
-  return events;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
 }
 
 export type ReviewApprovalSignal =
@@ -762,7 +810,7 @@ async function applyReviewApprovedIntake(
   boss: PgBoss,
   tx: DeliveryTx,
   signal: ReviewApprovalSignal,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const targets =
     signal.kind === "pull_request_review"
@@ -804,7 +852,10 @@ async function applyReviewApprovedIntake(
   }
   const decision = approvalSignalDecision(admitted.length, workflowRefused.length);
   const event = await tx.insert(decision);
-  if (event.duplicate) return [];
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      [],
+    );
   const correlation = jobCorrelation(event.id, tx.headers);
   const events: DeferredIntakeEvent[] = [];
   for (const resourceKey of workflowRefused) {
@@ -857,7 +908,9 @@ async function applyReviewApprovedIntake(
     );
   }
   events.push({ name: decision, fields: { signal: signal.kind, ...correlation } });
-  return events;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
 }
 
 async function applyCompletedRunCiIntake(
@@ -871,12 +924,14 @@ async function applyCompletedRunCiIntake(
     readonly headSha: string;
     readonly prNumbers: readonly number[];
   },
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const deferred: DeferredIntakeEvent[] = [];
   const event = await tx.insert("ci_projection_enqueued");
   if (event.duplicate) {
-    return deferred;
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      deferred,
+    );
   }
   const result = await requestHeadCiProjection(
     boss,
@@ -899,7 +954,9 @@ async function applyCompletedRunCiIntake(
       result,
     },
   });
-  return deferred;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    deferred,
+  );
 }
 
 export type CiStateFactInput = {
@@ -915,11 +972,14 @@ async function applyCiStateIntake(
   tx: DeliveryTx,
   headers: WebhookHeaders,
   data: CiStateFactInput,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const deferred: DeferredIntakeEvent[] = [];
   const event = await tx.insert("ci_state_applied");
-  if (event.duplicate) return deferred;
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      deferred,
+    );
   const applied = await applyPrHeadCiFact(client, {
     owner: data.owner,
     repo: data.repo,
@@ -937,7 +997,10 @@ async function applyCiStateIntake(
       version: applied.version,
     },
   });
-  if (!applied.accepted) return deferred;
+  if (!applied.accepted)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      deferred,
+    );
   if (applied.previousRollup !== applied.rollup)
     tx.afterCommit.push(() =>
       captureCiStateChanged({
@@ -970,7 +1033,9 @@ async function applyCiStateIntake(
       result,
     },
   });
-  return deferred;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    deferred,
+  );
 }
 
 type EventRecord =
@@ -985,17 +1050,17 @@ type EventRecord =
       readonly dedupeKey: string;
     };
 
-function webhookEventKeys(headers: WebhookHeaders): {
-  readonly dedupeKey: string;
-  readonly bodyDedupeKey: string;
-  readonly bodySha256: string;
-} {
+function webhookEventKeys(headers: WebhookHeaders) {
   const bodySha256 = crypto.createHash("sha256").update(headers.rawBody).digest("hex");
-  return {
+  return ((pinnedReturn: {
+    readonly dedupeKey: string;
+    readonly bodyDedupeKey: string;
+    readonly bodySha256: string;
+  }) => pinnedReturn)({
     dedupeKey: headers.delivery ? `delivery:${headers.delivery}` : `body:${bodySha256}`,
     bodyDedupeKey: `body:${bodySha256}`,
     bodySha256,
-  };
+  });
 }
 
 async function recordDuplicateWebhookEvent(
@@ -1005,7 +1070,7 @@ async function recordDuplicateWebhookEvent(
   bodySha256: string,
   dedupeKey: string,
   reason: "delivery_key" | "body_key" | "body_replay",
-): Promise<void> {
+) {
   await client.query(
     `INSERT INTO webhook_delivery_duplicates
        (id, delivery_id, event_name, body_sha256, dedupe_key, dedupe_reason)
@@ -1014,11 +1079,7 @@ async function recordDuplicateWebhookEvent(
   );
 }
 
-async function insertWebhookEvent(
-  client: PoolClient,
-  headers: WebhookHeaders,
-  decision: string,
-): Promise<EventRecord> {
+async function insertWebhookEvent(client: PoolClient, headers: WebhookHeaders, decision: string) {
   const id = crypto.randomUUID();
   const keys = webhookEventKeys(headers);
   const result = await client.query<{ id: string }>(
@@ -1038,10 +1099,10 @@ async function insertWebhookEvent(
       keys.dedupeKey,
       headers.delivery ? "delivery_key" : "body_key",
     );
-    return {
+    return ((pinnedReturn: EventRecord | Promise<EventRecord>) => pinnedReturn)({
       duplicate: true,
       dedupeKey: keys.dedupeKey,
-    };
+    });
   }
 
   const replay = await client.query<{ body_sha256: string }>(
@@ -1061,17 +1122,17 @@ async function insertWebhookEvent(
       keys.bodyDedupeKey,
       "body_replay",
     );
-    return {
+    return ((pinnedReturn: EventRecord | Promise<EventRecord>) => pinnedReturn)({
       duplicate: true,
       dedupeKey: keys.bodyDedupeKey,
-    };
+    });
   }
 
-  return {
+  return ((pinnedReturn: EventRecord | Promise<EventRecord>) => pinnedReturn)({
     id: inserted,
     duplicate: false,
     dedupeKey: keys.dedupeKey,
-  };
+  });
 }
 
 type AutomatedPrIntakeKind =
@@ -1114,14 +1175,20 @@ function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
   return "automated_work_enqueued";
 }
 
-function admissionForApprovalOpen(authorTrust: ReviewAuthorTrust): ReviewAdmission {
+function admissionForApprovalOpen(authorTrust: ReviewAuthorTrust) {
   switch (authorTrust) {
     case "trusted":
-      return { kind: "review" };
+      return ((pinnedReturn: ReviewAdmission) => pinnedReturn)({ kind: "review" });
     case "awaiting_maintainer_approval":
-      return { kind: "await", workflowStartAdmits: false };
+      return ((pinnedReturn: ReviewAdmission) => pinnedReturn)({
+        kind: "await",
+        workflowStartAdmits: false,
+      });
     case "awaiting_approval":
-      return { kind: "await", workflowStartAdmits: true };
+      return ((pinnedReturn: ReviewAdmission) => pinnedReturn)({
+        kind: "await",
+        workflowStartAdmits: true,
+      });
     default:
       authorTrust satisfies never;
       throw new Error("Unknown review author trust");
@@ -1132,7 +1199,7 @@ function planAutomatedPullRequestIntake(
   action: string,
   features: Pick<Features, "review" | "reviewCadence" | "describe" | "verification">,
   authorTrust: ReviewAuthorTrust = "awaiting_approval",
-): AutomatedPrIntakePlan {
+) {
   const kinds: AutomatedPrIntakeKind[] = [];
   let review: ReviewAdmission | undefined;
   switch (action) {
@@ -1147,7 +1214,9 @@ function planAutomatedPullRequestIntake(
       if (features.verification === "auto") kinds.push("verification");
       break;
   }
-  return review == null ? { kinds } : { kinds, review };
+  return ((pinnedReturn: AutomatedPrIntakePlan) => pinnedReturn)(
+    review == null ? { kinds } : { kinds, review },
+  );
 }
 
 async function applyOpenedReviewAdmission(
@@ -1158,12 +1227,13 @@ async function applyOpenedReviewAdmission(
   correlation: JobCorrelation,
   eventId: string,
   admission: ReviewAdmission,
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   switch (admission.kind) {
     case "await": {
       if (!(await insertAwaitingApproval(client, ref, eventId, admission.workflowStartAdmits))) {
-        return [];
+        return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+          pinnedReturn)([]);
       }
       await enqueueAck(boss, client, {
         kind: "ack",
@@ -1176,7 +1246,8 @@ async function applyOpenedReviewAdmission(
         ...(admission.workflowStartAdmits ? {} : { awaitingApprovalMaintainerOnly: true }),
         ...correlation,
       });
-      return [
+      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+        pinnedReturn)([
         {
           name: "review_awaiting_approval",
           fields: {
@@ -1185,35 +1256,38 @@ async function applyOpenedReviewAdmission(
             ...correlation,
           },
         },
-      ];
+      ]);
     }
     case "review": {
       const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-      return dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
-        target: { kind: "review", resourceKey },
-        createWorkItem: () =>
-          createReviewWorkItem(client, {
-            webhookEventId: eventId,
-            ref,
-            source: "auto",
-            ackTargets,
-          }),
-        enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
-        eventType: "review",
-        enqueueAck: async (workItemId) => {
-          await enqueueAck(boss, client, {
-            kind: "ack",
-            workItemId,
-            installationId: ref.installationId,
-            owner: ref.owner,
-            repo: ref.repo,
-            prNumber: ref.prNumber,
-            targets: ackTargets,
-            progress: { lens: "review", headSha: ref.headSha, source: "auto" },
-            ...correlation,
-          });
-        },
-      });
+      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+        pinnedReturn)(
+        dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
+          target: { kind: "review", resourceKey },
+          createWorkItem: () =>
+            createReviewWorkItem(client, {
+              webhookEventId: eventId,
+              ref,
+              source: "auto",
+              ackTargets,
+            }),
+          enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
+          eventType: "review",
+          enqueueAck: async (workItemId) => {
+            await enqueueAck(boss, client, {
+              kind: "ack",
+              workItemId,
+              installationId: ref.installationId,
+              owner: ref.owner,
+              repo: ref.repo,
+              prNumber: ref.prNumber,
+              targets: ackTargets,
+              progress: { lens: "review", headSha: ref.headSha, source: "auto" },
+              ...correlation,
+            });
+          },
+        }),
+      );
     }
     default:
       admission satisfies never;
@@ -1272,7 +1346,7 @@ export class DeliveryTx {
     })[],
     reason: "auto_replacement" | "review_force" | "slash_cancel" | "pr_closed" | "pr_merged",
     correlation: JobCorrelation,
-  ): void {
+  ) {
     for (const change of changes) {
       if (change.lifecycleStatus !== "cancel_requested") {
         const outcome = change.lifecycleStatus;
@@ -1313,22 +1387,22 @@ export class DeliveryTx {
       });
     }
   }
-  async insert(decision: string): Promise<EventRecord> {
+  async insert(decision: string) {
     const event = await insertWebhookEvent(this.client, this.headers, decision);
     if (event.duplicate)
       this.events.push({
         name: "deduped_delivery",
         fields: { dedupeKey: event.dedupeKey, event: this.headers.event },
       });
-    return event;
+    return ((pinnedReturn: EventRecord | Promise<EventRecord>) => pinnedReturn)(event);
   }
   async withReviewIntake<T>(
     resourceKey: string,
     apply: (lifecycle: Awaited<ReturnType<typeof loadReviewLifecycle>>) => Promise<T>,
-  ): Promise<T> {
+  ) {
     await acquireAutoWorkIntakeLock(this.client, { kind: "review", resourceKey });
     const lifecycle = await loadReviewLifecycle(this.client, resourceKey);
-    return apply(lifecycle);
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(apply(lifecycle));
   }
 }
 
@@ -1338,7 +1412,7 @@ export async function runDelivery(
   cfg: Pick<Config, "features"> & { readonly ask?: Partial<AskQuotaConfig> },
   command: IntakeCommand,
   log: RequestLogger,
-): Promise<void> {
+) {
   const completed = await inTransaction(pool, async (client) => {
     const tx = new DeliveryTx(
       client,

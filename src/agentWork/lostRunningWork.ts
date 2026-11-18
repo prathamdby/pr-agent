@@ -50,7 +50,7 @@ import {
 export async function listTerminalReviewsWithOpenOwnChecks(
   pool: Pool,
   limit = STALE_QUEUED_WORK_BATCH_SIZE,
-): Promise<readonly LostRunningWorkItem[]> {
+) {
   const result = await pool.query<{
     id: string;
     resource_key: string;
@@ -119,19 +119,23 @@ export async function listTerminalReviewsWithOpenOwnChecks(
       LIMIT $1::int`,
     [limit],
   );
-  return result.rows.map((row) => ({
-    workItemId: row.id,
-    resourceKey: row.resource_key,
-    workType: row.work_type,
-    ageSeconds: null,
-  }));
+  return ((
+    pinnedReturn: readonly LostRunningWorkItem[] | Promise<readonly LostRunningWorkItem[]>,
+  ) => pinnedReturn)(
+    result.rows.map((row) => ({
+      workItemId: row.id,
+      resourceKey: row.resource_key,
+      workType: row.work_type,
+      ageSeconds: null,
+    })),
+  );
 }
 
 async function closeOpenOwnVerdict(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly workItemId: string;
-}): Promise<void> {
+}) {
   const core = await getWorkItemCore(params.pool, params.workItemId);
   if (core == null || asTerminalOwnCheckStatus(core.status) == null) return;
   if (core.type !== "review" || core.reviewLens == null || !isAnyReviewLens(core.reviewLens)) {
@@ -223,7 +227,7 @@ async function closeOpenOwnVerdict(params: {
   }).repairIfOpen();
 }
 
-async function finishCancelRequestedRunningWork(pool: Pool): Promise<void> {
+async function finishCancelRequestedRunningWork(pool: Pool) {
   const rows = await pool.query<{ id: string; linked: boolean }>(
     `SELECT w.id::text AS id, (w.superseded_by IS NOT NULL) AS linked
        FROM agent_work_items w
@@ -252,7 +256,7 @@ export async function reconcileLostRunningWork(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly items: readonly LostRunningWorkItem[];
-}): Promise<void> {
+}) {
   await finishCancelRequestedRunningWork(params.pool);
   const seen = new Set<string>();
   for (const item of params.items) {
@@ -319,7 +323,7 @@ export async function reconcileLostRunningWork(params: {
   }
 }
 
-async function finishCancelRequestedQueuedWork(pool: Pool): Promise<void> {
+async function finishCancelRequestedQueuedWork(pool: Pool) {
   const rows = await pool.query<{ id: string; linked: boolean; type: WorkType }>(
     `SELECT w.id::text AS id, (w.superseded_by IS NOT NULL) AS linked, w.type
        FROM agent_work_items w
@@ -350,7 +354,7 @@ export async function reconcileStaleQueuedWork(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly items: readonly StaleQueuedWorkItem[];
-}): Promise<void> {
+}) {
   await finishCancelRequestedQueuedWork(params.pool);
   for (const item of params.items) {
     try {

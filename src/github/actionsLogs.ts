@@ -24,12 +24,12 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
-export function isMissingActionsPermissionError(error: unknown): boolean {
-  return isConfirmedCapabilityDenial(error);
+export function isMissingActionsPermissionError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(isConfirmedCapabilityDenial(error));
 }
 
-export function isGithubNotFoundError(error: unknown): boolean {
-  return classifyGithubError(error) === "not_found";
+export function isGithubNotFoundError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(classifyGithubError(error) === "not_found");
 }
 
 export async function listFailingActionsJobsForHead(
@@ -38,7 +38,7 @@ export async function listFailingActionsJobsForHead(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<ListFailingActionsJobsResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
     const runPage = { page: 0, truncated: false };
@@ -77,13 +77,18 @@ export async function listFailingActionsJobsForHead(
         if (jobs.length >= REVIEW_CI_SUMMARY_LOG_MAX_JOBS) break;
       }
     }
-    return { ok: true, jobs };
+    return ((pinnedReturn: ListFailingActionsJobsResult | Promise<ListFailingActionsJobsResult>) =>
+      pinnedReturn)({ ok: true, jobs });
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
-      return { ok: false, reason: "actions_permission" };
+      return ((
+        pinnedReturn: ListFailingActionsJobsResult | Promise<ListFailingActionsJobsResult>,
+      ) => pinnedReturn)({ ok: false, reason: "actions_permission" });
     }
     if (isGithubNotFoundError(error)) {
-      return { ok: true, jobs: [] };
+      return ((
+        pinnedReturn: ListFailingActionsJobsResult | Promise<ListFailingActionsJobsResult>,
+      ) => pinnedReturn)({ ok: true, jobs: [] });
     }
     throw error;
   }
@@ -95,7 +100,7 @@ export async function downloadActionsJobLogs(
   repo: string,
   jobId: number,
   expiresAtTs?: number,
-): Promise<DownloadActionsJobLogsResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
     const response = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
@@ -111,15 +116,22 @@ export async function downloadActionsJobLogs(
       text = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
     }
     if (text == null || text.trim().length === 0) {
-      return { ok: false, reason: "empty" };
+      return ((
+        pinnedReturn: DownloadActionsJobLogsResult | Promise<DownloadActionsJobLogsResult>,
+      ) => pinnedReturn)({ ok: false, reason: "empty" });
     }
-    return { ok: true, text };
+    return ((pinnedReturn: DownloadActionsJobLogsResult | Promise<DownloadActionsJobLogsResult>) =>
+      pinnedReturn)({ ok: true, text });
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
-      return { ok: false, reason: "actions_permission" };
+      return ((
+        pinnedReturn: DownloadActionsJobLogsResult | Promise<DownloadActionsJobLogsResult>,
+      ) => pinnedReturn)({ ok: false, reason: "actions_permission" });
     }
     if (isGithubNotFoundError(error)) {
-      return { ok: false, reason: "empty" };
+      return ((
+        pinnedReturn: DownloadActionsJobLogsResult | Promise<DownloadActionsJobLogsResult>,
+      ) => pinnedReturn)({ ok: false, reason: "empty" });
     }
     throw error;
   }

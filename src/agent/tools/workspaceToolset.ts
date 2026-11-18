@@ -93,29 +93,31 @@ type ReviewThreadFieldEntry = {
 function reviewThreadGap(
   window: { readonly start: number; readonly end: number },
   thread: OpenReviewThread,
-): number {
-  if (thread.startLine == null || thread.endLine == null) return Number.MAX_SAFE_INTEGER;
+) {
+  if (thread.startLine == null || thread.endLine == null)
+    return ((pinnedReturn: number) => pinnedReturn)(Number.MAX_SAFE_INTEGER);
   const start = Math.min(thread.startLine, thread.endLine);
   const end = Math.max(thread.startLine, thread.endLine);
-  if (window.end < start) return start - window.end;
-  if (end < window.start) return window.start - end;
-  return 0;
+  if (window.end < start) return ((pinnedReturn: number) => pinnedReturn)(start - window.end);
+  if (end < window.start) return ((pinnedReturn: number) => pinnedReturn)(window.start - end);
+  return ((pinnedReturn: number) => pinnedReturn)(0);
 }
 
-function resultSpan(result: object | undefined): { startLine?: number; endLine?: number } {
-  if (result == null || !("startLine" in result) || !("endLine" in result)) return {};
+function resultSpan(result: object | undefined) {
+  if (result == null || !("startLine" in result) || !("endLine" in result))
+    return ((pinnedReturn: { startLine?: number; endLine?: number }) => pinnedReturn)({});
   const startLine = result.startLine;
   const endLine = result.endLine;
-  return {
+  return ((pinnedReturn: { startLine?: number; endLine?: number }) => pinnedReturn)({
     ...(typeof startLine === "number" ? { startLine } : {}),
     ...(typeof endLine === "number" ? { endLine } : {}),
-  };
+  });
 }
 
 function annotationWindow(
   requested: { readonly startLine?: number; readonly maxLines?: number },
   result?: object,
-): { start: number; end: number } {
+) {
   const span = resultSpan(result);
   if (requested.startLine != null || requested.maxLines != null) {
     const start = requested.startLine ?? 1;
@@ -125,48 +127,63 @@ function annotationWindow(
         : span.endLine != null && span.endLine > 0
           ? span.endLine
           : start;
-    return { start, end: Math.max(start, end) };
+    return ((pinnedReturn: { start: number; end: number }) => pinnedReturn)({
+      start,
+      end: Math.max(start, end),
+    });
   }
   if (span.startLine != null && span.startLine > 0 && span.endLine != null && span.endLine > 0) {
-    return { start: span.startLine, end: span.endLine };
+    return ((pinnedReturn: { start: number; end: number }) => pinnedReturn)({
+      start: span.startLine,
+      end: span.endLine,
+    });
   }
-  return { start: 1, end: Number.MAX_SAFE_INTEGER };
+  return ((pinnedReturn: { start: number; end: number }) => pinnedReturn)({
+    start: 1,
+    end: Number.MAX_SAFE_INTEGER,
+  });
 }
 
-function diffAnnotationWindow(diff: string): { start: number; end: number } {
+function diffAnnotationWindow(diff: string) {
   const ranges = parseCommentableRightLineRanges(diff);
-  if (ranges.length === 0) return { start: 1, end: Number.MAX_SAFE_INTEGER };
-  return {
+  if (ranges.length === 0)
+    return ((pinnedReturn: { start: number; end: number }) => pinnedReturn)({
+      start: 1,
+      end: Number.MAX_SAFE_INTEGER,
+    });
+  return ((pinnedReturn: { start: number; end: number }) => pinnedReturn)({
     start: Math.min(...ranges.map((range) => range[0])),
     end: Math.max(...ranges.map((range) => range[1])),
-  };
+  });
 }
 
-function boundedThreadTitle(title: string): string {
+function boundedThreadTitle(title: string) {
   const text = neutralizeForgedTrustHeaders(
     neutralizeEvidenceDelimiters(neutralizeMarkerEcho(title)),
   )
     .replace(/\s+/g, " ")
     .trim();
-  if (text.length <= REVIEW_THREAD_TITLE_CAP) return text;
-  return `${text.slice(0, REVIEW_THREAD_TITLE_CAP - 1)}…`;
+  if (text.length <= REVIEW_THREAD_TITLE_CAP) return ((pinnedReturn: string) => pinnedReturn)(text);
+  return ((pinnedReturn: string) => pinnedReturn)(`${text.slice(0, REVIEW_THREAD_TITLE_CAP - 1)}…`);
 }
 
-function withoutDetail(entry: ReviewThreadFieldEntry): ReviewThreadFieldEntry {
+function withoutDetail(entry: ReviewThreadFieldEntry) {
   const { detail: _detail, ...rest } = entry;
-  return rest;
+  return ((pinnedReturn: ReviewThreadFieldEntry) => pinnedReturn)(rest);
 }
 
-function withoutText(entry: ReviewThreadFieldEntry): ReviewThreadFieldEntry {
+function withoutText(entry: ReviewThreadFieldEntry) {
   const { detail: _detail, title: _title, ...rest } = entry;
-  return rest;
+  return ((pinnedReturn: ReviewThreadFieldEntry) => pinnedReturn)(rest);
 }
 
-function reviewThreadFieldBytes(entries: readonly ReviewThreadFieldEntry[]): number {
-  return Buffer.byteLength(JSON.stringify(entries), "utf8");
+function reviewThreadFieldBytes(entries: readonly ReviewThreadFieldEntry[]) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    Buffer.byteLength(JSON.stringify(entries), "utf8"),
+  );
 }
 
-function fitReviewThreadField(entries: ReviewThreadFieldEntry[]): ReviewThreadFieldEntry[] {
+function fitReviewThreadField(entries: ReviewThreadFieldEntry[]) {
   const fitted = [...entries];
   const over = () => reviewThreadFieldBytes(fitted) > REVIEW_THREAD_FIELD_MAX_BYTES;
   for (let index = fitted.length - 1; index >= 0 && over(); index -= 1) {
@@ -176,7 +193,7 @@ function fitReviewThreadField(entries: ReviewThreadFieldEntry[]): ReviewThreadFi
   while (fitted.length > 1 && over()) fitted.pop();
   const last = fitted[0];
   if (last != null && over()) fitted[0] = withoutText(last);
-  return fitted;
+  return ((pinnedReturn: ReviewThreadFieldEntry[]) => pinnedReturn)(fitted);
 }
 
 function reviewThreadField(
@@ -184,9 +201,12 @@ function reviewThreadField(
   path: string,
   window: { readonly start: number; readonly end: number },
   seen: Set<string>,
-): readonly ReviewThreadFieldEntry[] | undefined {
+) {
   const matches = threads.filter((thread) => thread.path === path || thread.previousPath === path);
-  if (matches.length === 0) return undefined;
+  if (matches.length === 0)
+    return ((pinnedReturn: readonly ReviewThreadFieldEntry[] | undefined) => pinnedReturn)(
+      undefined,
+    );
   const ranked = matches.toSorted(
     (left, right) =>
       reviewThreadGap(window, left) - reviewThreadGap(window, right) ||
@@ -194,14 +214,14 @@ function reviewThreadField(
       left.findingId.localeCompare(right.findingId),
   );
   const includeDetail = !seen.has(path);
-  const entries = ranked.slice(0, REVIEW_THREAD_LIMIT).map((thread): ReviewThreadFieldEntry => {
+  const entries = ranked.slice(0, REVIEW_THREAD_LIMIT).map((thread) => {
     const detail =
       thread.detail == null
         ? undefined
         : neutralizeForgedTrustHeaders(
             neutralizeEvidenceDelimiters(neutralizeMarkerEcho(thread.detail)),
           ).trim();
-    return {
+    return ((pinnedReturn: ReviewThreadFieldEntry) => pinnedReturn)({
       findingId: thread.findingId,
       severity: thread.severity,
       lens: thread.lens,
@@ -213,12 +233,15 @@ function reviewThreadField(
             ...(detail != null && detail.length > 0 ? { detail } : {}),
           }
         : {}),
-    };
+    });
   });
   const fitted = fitReviewThreadField(entries);
-  if (fitted.length === 0) return undefined;
+  if (fitted.length === 0)
+    return ((pinnedReturn: readonly ReviewThreadFieldEntry[] | undefined) => pinnedReturn)(
+      undefined,
+    );
   if (includeDetail) seen.add(path);
-  return fitted;
+  return ((pinnedReturn: readonly ReviewThreadFieldEntry[] | undefined) => pinnedReturn)(fitted);
 }
 
 const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
@@ -238,7 +261,7 @@ export function createGovernedReviewEvidenceReader(
   const policy = createPathPolicy(workspace.agentCwd, { kind: "investigation", gate });
   let remainingReads = MAX_TOOL_ROUNDS;
   let remainingBytes = LOCAL_WORKSPACE_READ_RESPONSE_BYTES * MAX_TOOL_ROUNDS;
-  return async (descriptor: EvidenceDescriptor): Promise<DeliveredFileRead | null> => {
+  return async (descriptor: EvidenceDescriptor) => {
     if (
       remainingReads <= 0 ||
       remainingBytes <= 0 ||
@@ -246,7 +269,8 @@ export function createGovernedReviewEvidenceReader(
       !policy.allows(descriptor.path) ||
       !workspace.isPathInCheckout(descriptor.path)
     )
-      return null;
+      return ((pinnedReturn: (DeliveredFileRead | null) | Promise<DeliveredFileRead | null>) =>
+        pinnedReturn)(null);
     remainingReads -= 1;
     try {
       await assertContainedWorkspacePath(workspace.agentCwd, descriptor.path);
@@ -258,9 +282,12 @@ export function createGovernedReviewEvidenceReader(
           maxLines: descriptor.endLine - descriptor.startLine + 1,
         },
       });
-      if (result.refused || result.truncated) return null;
+      if (result.refused || result.truncated)
+        return ((pinnedReturn: (DeliveredFileRead | null) | Promise<DeliveredFileRead | null>) =>
+          pinnedReturn)(null);
       remainingBytes -= Buffer.byteLength(result.content, "utf8");
-      return {
+      return ((pinnedReturn: (DeliveredFileRead | null) | Promise<DeliveredFileRead | null>) =>
+        pinnedReturn)({
         path: descriptor.path,
         headSha,
         tool: "readWorkspaceFile",
@@ -268,14 +295,15 @@ export function createGovernedReviewEvidenceReader(
         startLine: result.startLine,
         endLine: result.endLine,
         clampedLines: result.clampedLines,
-      };
+      });
     } catch (error) {
       if (
         error instanceof AppError &&
         (error.code === "pr_workspace.symlink_escape" ||
           error.code === "pr_workspace.path_traversal")
       )
-        return null;
+        return ((pinnedReturn: (DeliveredFileRead | null) | Promise<DeliveredFileRead | null>) =>
+          pinnedReturn)(null);
       throw error;
     }
   };
@@ -285,14 +313,14 @@ function primePathGate(
   workspace: PinnedRepositoryReader,
   pathGate: AskPathGate,
   extraAllowedPaths?: readonly string[],
-): void {
+) {
   pathGate.addPaths(workspace.changedFiles.map((file) => file.path));
   if (extraAllowedPaths?.length) {
     pathGate.addPaths(extraAllowedPaths);
   }
 }
 
-function coverageWarning(coverage: CheckoutCoverage): string | undefined {
+function coverageWarning(coverage: CheckoutCoverage) {
   const parts: string[] = [];
   if (coverage.mode === "sparse") {
     parts.push("sparse checkout — search and reads only see paths on disk");
@@ -306,7 +334,9 @@ function coverageWarning(coverage: CheckoutCoverage): string | undefined {
   if (coverage.warning) {
     parts.push(coverage.warning);
   }
-  return parts.length > 0 ? parts.join("; ") : undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    parts.length > 0 ? parts.join("; ") : undefined,
+  );
 }
 
 function changedFileForPath(workspace: PinnedRepositoryReader, path: string) {
@@ -321,7 +351,7 @@ function recordDiffEvidence(
     readonly tool: string;
     readonly diff: string;
   },
-): void {
+) {
   const contentHash = hashNormalizedLineText(params.diff);
   for (const [startLine, endLine] of parseCommentableRightLineRanges(params.diff)) {
     ledger.record({
@@ -335,14 +365,11 @@ function recordDiffEvidence(
   }
 }
 
-function basenameOf(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
+function basenameOf(path: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(path.slice(path.lastIndexOf("/") + 1));
 }
 
-function sameDirEntries(
-  normalized: string,
-  checkoutPaths: readonly string[],
-): { readonly filename: string; readonly entries: string[] } {
+function sameDirEntries(normalized: string, checkoutPaths: readonly string[]) {
   const slash = normalized.lastIndexOf("/");
   const dir = slash === -1 ? "" : normalized.slice(0, slash + 1);
   const filename = slash === -1 ? normalized : normalized.slice(slash + 1);
@@ -351,32 +378,34 @@ function sameDirEntries(
     const rest = entry.slice(dir.length);
     return rest.length > 0 && !rest.includes("/");
   });
-  return { filename, entries };
+  return ((pinnedReturn: { readonly filename: string; readonly entries: string[] }) =>
+    pinnedReturn)({ filename, entries });
 }
 
-function canonicalizeFilename(name: string): string {
-  return name
-    .normalize("NFC")
-    .replace(/[\u202f\u00a0]/g, " ")
-    .replace(/[\u2019\u2018]/g, "'");
+function canonicalizeFilename(name: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    name
+      .normalize("NFC")
+      .replace(/[\u202f\u00a0]/g, " ")
+      .replace(/[\u2019\u2018]/g, "'"),
+  );
 }
 
-function findUnicodeEquivalentPath(
-  normalized: string,
-  checkoutPaths: readonly string[],
-): string | undefined {
+function findUnicodeEquivalentPath(normalized: string, checkoutPaths: readonly string[]) {
   const { filename, entries } = sameDirEntries(normalized, checkoutPaths);
-  if (filename.length === 0) return undefined;
+  if (filename.length === 0) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const target = canonicalizeFilename(filename);
   const matches = entries.filter(
     (entry) => entry !== normalized && canonicalizeFilename(basenameOf(entry)) === target,
   );
-  return matches.length === 1 ? matches[0] : undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    matches.length === 1 ? matches[0] : undefined,
+  );
 }
 
-function bigramDiceSimilarity(a: string, b: string): number {
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return 0;
+function bigramDiceSimilarity(a: string, b: string) {
+  if (a === b) return ((pinnedReturn: number) => pinnedReturn)(1);
+  if (a.length < 2 || b.length < 2) return ((pinnedReturn: number) => pinnedReturn)(0);
   const bigrams = new Map<string, number>();
   for (let i = 0; i < a.length - 1; i += 1) {
     const bigram = a.slice(i, i + 2);
@@ -391,17 +420,17 @@ function bigramDiceSimilarity(a: string, b: string): number {
       bigrams.set(bigram, count - 1);
     }
   }
-  return (2 * common) / (a.length - 1 + (b.length - 1));
+  return ((pinnedReturn: number) => pinnedReturn)((2 * common) / (a.length - 1 + (b.length - 1)));
 }
 
 function suggestSimilarPaths(
   normalized: string,
   checkoutPaths: readonly string[],
   policy: PathPolicy,
-): string[] {
+) {
   const { filename, entries } = sameDirEntries(normalized, checkoutPaths);
   const target = filename.toLowerCase();
-  if (target.length === 0) return [];
+  if (target.length === 0) return ((pinnedReturn: string[]) => pinnedReturn)([]);
   const scored: Array<{ path: string; score: number }> = [];
   for (const entry of entries) {
     if (entry === normalized) continue;
@@ -411,7 +440,9 @@ function suggestSimilarPaths(
     }
   }
   scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path);
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path),
+  );
 }
 
 async function searchRankedTerms(
@@ -505,12 +536,7 @@ function buildInvestigationTools(
     readonly spillScope?: TextSpillScope;
     readonly reviewThreads?: ReviewThreadSource;
   },
-): {
-  piTools: PiTool[];
-  executors: Record<string, AgentRunnerToolExecutor>;
-  disposeSpillFiles: () => Promise<readonly string[]>;
-  checkoutCoverage: () => CheckoutCoverage;
-} {
+) {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
   const evidenceLedger = opts?.evidenceLedger;
@@ -521,9 +547,11 @@ function buildInvestigationTools(
   const recordSearchTruncated = () => {
     searchTruncated = true;
   };
-  const checkoutCoverage = (): CheckoutCoverage => {
+  const checkoutCoverage = () => {
     const coverage = workspace.getCoverage();
-    return searchTruncated ? { ...coverage, searchTruncated: true } : coverage;
+    return ((pinnedReturn: CheckoutCoverage) => pinnedReturn)(
+      searchTruncated ? { ...coverage, searchTruncated: true } : coverage,
+    );
   };
   const spillPaths: string[] = [];
   const withReviewThreads = <T extends Record<string, unknown>>(
@@ -934,7 +962,12 @@ function buildInvestigationTools(
     getWorkspaceBlame,
     resolveSymbol,
   };
-  return {
+  return ((pinnedReturn: {
+    piTools: PiTool[];
+    executors: Record<string, AgentRunnerToolExecutor>;
+    disposeSpillFiles: () => Promise<readonly string[]>;
+    checkoutCoverage: () => CheckoutCoverage;
+  }) => pinnedReturn)({
     ...defineToolset(tools),
     checkoutCoverage,
     disposeSpillFiles: async () => {
@@ -944,12 +977,14 @@ function buildInvestigationTools(
       );
       return paths.filter((_, index) => outcomes[index]?.status === "rejected");
     },
-  };
+  });
 }
 
 const workspaceExecutionModes = new Map<string, "sequential">();
-export function workspaceToolExecutionMode(name: string): "sequential" | undefined {
-  return workspaceExecutionModes.get(name);
+export function workspaceToolExecutionMode(name: string) {
+  return ((pinnedReturn: "sequential" | undefined) => pinnedReturn)(
+    workspaceExecutionModes.get(name),
+  );
 }
 
 export function defineToolset(tools: Record<string, LocalTool>, mode?: "sequential") {

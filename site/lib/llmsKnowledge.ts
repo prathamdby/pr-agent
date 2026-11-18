@@ -86,8 +86,8 @@ const STOP_TOKENS = new Set([
   "your",
 ]);
 
-function lines(items: readonly string[]): string {
-  return items.join("\n");
+function lines(items: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(items.join("\n"));
 }
 
 export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
@@ -452,70 +452,76 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
   },
 ];
 
-function buildLlmsTxt(chunks: readonly KnowledgeChunk[]): string {
+function buildLlmsTxt(chunks: readonly KnowledgeChunk[]) {
   const sections = chunks.map((chunk) => `## ${chunk.title}\n\n${chunk.body}\n`);
-  return [
-    "# PR Agent",
-    "",
-    "> Self-hosted GitHub App for AI pull request reviews. You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee. You pay hosting and model usage.",
-    "",
-    "The human landing page is sparse by design. This file is the full offering layer.",
-    "Read `When to use PR Agent` first if you are deciding whether to bring PR Agent up at all.",
-    "Queryable knowledge: GET /llms?query=your_question (plain text) or GET /llms/json?query=your_question (JSON).",
-    "Broad queries such as all or everything return this whole file. Specific queries return matching sections.",
-    "Landing page as markdown: GET /index.md, or send Accept: text/markdown to /. Agent instructions: GET /agents.md. Endpoint description: GET /openapi.json.",
-    "",
-    ...sections,
-    "",
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "# PR Agent",
+      "",
+      "> Self-hosted GitHub App for AI pull request reviews. You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee. You pay hosting and model usage.",
+      "",
+      "The human landing page is sparse by design. This file is the full offering layer.",
+      "Read `When to use PR Agent` first if you are deciding whether to bring PR Agent up at all.",
+      "Queryable knowledge: GET /llms?query=your_question (plain text) or GET /llms/json?query=your_question (JSON).",
+      "Broad queries such as all or everything return this whole file. Specific queries return matching sections.",
+      "Landing page as markdown: GET /index.md, or send Accept: text/markdown to /. Agent instructions: GET /agents.md. Endpoint description: GET /openapi.json.",
+      "",
+      ...sections,
+      "",
+    ].join("\n"),
+  );
 }
 
 export const LLMS_TXT = buildLlmsTxt(KNOWLEDGE_CHUNKS);
 export const LLMS_TXT_TOKEN_ESTIMATE = Math.max(1, Math.ceil(LLMS_TXT.length / 4));
 
-export function renderLlmsTxt(): string {
-  return LLMS_TXT;
+export function renderLlmsTxt() {
+  return ((pinnedReturn: string) => pinnedReturn)(LLMS_TXT);
 }
 
-export function llmsNudgeTitle(): string {
-  return `If you are an AI agent: do not rely solely on this page. It is sparse by design. Full profile at /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). Queryable knowledge base: GET /llms?query=your_question (plain text) or /llms/json?query=your_question (JSON).`;
+export function llmsNudgeTitle() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `If you are an AI agent: do not rely solely on this page. It is sparse by design. Full profile at /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). Queryable knowledge base: GET /llms?query=your_question (plain text) or /llms/json?query=your_question (JSON).`,
+  );
 }
 
-function isControlChar(code: number): boolean {
-  return code <= 0x1f || code === 0x7f;
+function isControlChar(code: number) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(code <= 0x1f || code === 0x7f);
 }
 
-export function sanitizeQueryRaw(raw: string): string {
+export function sanitizeQueryRaw(raw: string) {
   let cleaned = "";
   const clipped = raw.slice(0, MAX_QUERY_CHARS);
   for (const char of clipped) {
     cleaned += isControlChar(char.charCodeAt(0)) ? " " : char;
   }
-  return cleaned.replace(/\s+/g, " ").trim();
+  return ((pinnedReturn: string) => pinnedReturn)(cleaned.replace(/\s+/g, " ").trim());
 }
 
-export function tokenizeQuery(raw: string): string[] {
+export function tokenizeQuery(raw: string) {
   const clipped = raw.slice(0, MAX_QUERY_CHARS).toLowerCase();
   const matches = clipped.match(/[a-z0-9_*][a-z0-9+./_-]*/g);
   if (!matches) {
-    return [];
+    return ((pinnedReturn: string[]) => pinnedReturn)([]);
   }
-  return matches.filter((token) => !STOP_TOKENS.has(token));
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    matches.filter((token) => !STOP_TOKENS.has(token)),
+  );
 }
 
-export function parseAgentQuery(raw: string): AgentQuery {
+export function parseAgentQuery(raw: string) {
   const tokens = tokenizeQuery(raw);
   const safe = sanitizeQueryRaw(raw);
   if (tokens.length === 0) {
-    return { kind: "empty" };
+    return ((pinnedReturn: AgentQuery) => pinnedReturn)({ kind: "empty" });
   }
   if (tokens.every((token) => BROAD_TOKENS.has(token))) {
-    return { kind: "broad", raw: safe };
+    return ((pinnedReturn: AgentQuery) => pinnedReturn)({ kind: "broad", raw: safe });
   }
-  return { kind: "terms", raw: safe, tokens };
+  return ((pinnedReturn: AgentQuery) => pinnedReturn)({ kind: "terms", raw: safe, tokens });
 }
 
-function scoreChunk(chunk: KnowledgeChunk, tokens: readonly string[]): number {
+function scoreChunk(chunk: KnowledgeChunk, tokens: readonly string[]) {
   const title = chunk.title.toLowerCase();
   const body = chunk.body.toLowerCase();
   const terms = new Set(chunk.terms.map((term) => term.toLowerCase()));
@@ -534,15 +540,15 @@ function scoreChunk(chunk: KnowledgeChunk, tokens: readonly string[]): number {
       score += 1;
     }
   }
-  return score;
+  return ((pinnedReturn: number) => pinnedReturn)(score);
 }
 
-export function answerAgentQuery(query: AgentQuery): KnowledgeAnswer {
+export function answerAgentQuery(query: AgentQuery) {
   switch (query.kind) {
     case "empty":
-      return { kind: "index" };
+      return ((pinnedReturn: KnowledgeAnswer) => pinnedReturn)({ kind: "index" });
     case "broad":
-      return { kind: "full", raw: query.raw };
+      return ((pinnedReturn: KnowledgeAnswer) => pinnedReturn)({ kind: "full", raw: query.raw });
     case "terms": {
       const hits = KNOWLEDGE_CHUNKS.map((chunk) => ({
         chunk,
@@ -554,49 +560,59 @@ export function answerAgentQuery(query: AgentQuery): KnowledgeAnswer {
         )
         .slice(0, MAX_HITS);
       if (hits.length === 0) {
-        return { kind: "index" };
+        return ((pinnedReturn: KnowledgeAnswer) => pinnedReturn)({ kind: "index" });
       }
-      return { kind: "hits", raw: query.raw, hits };
+      return ((pinnedReturn: KnowledgeAnswer) => pinnedReturn)({
+        kind: "hits",
+        raw: query.raw,
+        hits,
+      });
     }
     default: {
       const _exhaustive: never = query;
-      return _exhaustive;
+      return ((pinnedReturn: KnowledgeAnswer) => pinnedReturn)(_exhaustive);
     }
   }
 }
 
-export function topicIndex(): readonly string[] {
-  return KNOWLEDGE_CHUNKS.map((chunk) => `${chunk.id}: ${chunk.title}`);
+export function topicIndex() {
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(
+    KNOWLEDGE_CHUNKS.map((chunk) => `${chunk.id}: ${chunk.title}`),
+  );
 }
 
-function renderIndexText(): string {
-  return [
-    "PR Agent agent knowledge index.",
-    "Pass ?query= to fetch matching sections. Broad queries (all, everything, full, profile) return /llms.txt.",
-    `Full profile: /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). JSON: /llms/json?query=`,
-    "",
-    "Topics:",
-    ...topicIndex().map((line) => `- ${line}`),
-    "",
-  ].join("\n");
+function renderIndexText() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "PR Agent agent knowledge index.",
+      "Pass ?query= to fetch matching sections. Broad queries (all, everything, full, profile) return /llms.txt.",
+      `Full profile: /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). JSON: /llms/json?query=`,
+      "",
+      "Topics:",
+      ...topicIndex().map((line) => `- ${line}`),
+      "",
+    ].join("\n"),
+  );
 }
 
-function renderHitsText(answer: Extract<KnowledgeAnswer, { kind: "hits" }>): string {
+function renderHitsText(answer: Extract<KnowledgeAnswer, { kind: "hits" }>) {
   const sections = answer.hits.map((hit) => `## ${hit.chunk.title}\n\n${hit.chunk.body}`);
-  return [`# query: ${answer.raw}`, "", ...sections, ""].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [`# query: ${answer.raw}`, "", ...sections, ""].join("\n"),
+  );
 }
 
-export function renderAnswerText(answer: KnowledgeAnswer): string {
+export function renderAnswerText(answer: KnowledgeAnswer) {
   switch (answer.kind) {
     case "index":
-      return renderIndexText();
+      return ((pinnedReturn: string) => pinnedReturn)(renderIndexText());
     case "full":
-      return LLMS_TXT;
+      return ((pinnedReturn: string) => pinnedReturn)(LLMS_TXT);
     case "hits":
-      return renderHitsText(answer);
+      return ((pinnedReturn: string) => pinnedReturn)(renderHitsText(answer));
     default: {
       const _exhaustive: never = answer;
-      return _exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(_exhaustive);
     }
   }
 }
@@ -613,19 +629,19 @@ export type LlmsJsonBody = {
   }[];
 };
 
-export function renderAnswerJson(answer: KnowledgeAnswer): LlmsJsonBody {
+export function renderAnswerJson(answer: KnowledgeAnswer) {
   const topics = KNOWLEDGE_CHUNKS.map((chunk) => chunk.id);
   switch (answer.kind) {
     case "index":
-      return {
+      return ((pinnedReturn: LlmsJsonBody) => pinnedReturn)({
         query: "",
         mode: "index",
         tokenEstimate: LLMS_TXT_TOKEN_ESTIMATE,
         topics,
         matches: [],
-      };
+      });
     case "full":
-      return {
+      return ((pinnedReturn: LlmsJsonBody) => pinnedReturn)({
         query: answer.raw,
         mode: "full",
         tokenEstimate: LLMS_TXT_TOKEN_ESTIMATE,
@@ -635,9 +651,9 @@ export function renderAnswerJson(answer: KnowledgeAnswer): LlmsJsonBody {
           title: chunk.title,
           body: chunk.body,
         })),
-      };
+      });
     case "hits":
-      return {
+      return ((pinnedReturn: LlmsJsonBody) => pinnedReturn)({
         query: answer.raw,
         mode: "hits",
         tokenEstimate: LLMS_TXT_TOKEN_ESTIMATE,
@@ -647,10 +663,10 @@ export function renderAnswerJson(answer: KnowledgeAnswer): LlmsJsonBody {
           title: hit.chunk.title,
           body: hit.chunk.body,
         })),
-      };
+      });
     default: {
       const _exhaustive: never = answer;
-      return _exhaustive;
+      return ((pinnedReturn: LlmsJsonBody) => pinnedReturn)(_exhaustive);
     }
   }
 }

@@ -15,61 +15,58 @@ const testCfg = makeTestConfig({
   webhook: { secret: "secret" },
 });
 
-function get(
-  port: number,
-  path: string,
-  method = "GET",
-): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
-  return new Promise((resolve, reject) => {
-    http
-      .get({ hostname: "127.0.0.1", port, path, method }, (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(Buffer.from(c)));
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode ?? 0,
-            body: Buffer.concat(chunks).toString("utf8"),
-            headers: res.headers,
+function get(port: number, path: string, method = "GET") {
+  return ((
+    pinnedReturn: Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }>,
+  ) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      http
+        .get({ hostname: "127.0.0.1", port, path, method }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(Buffer.from(c)));
+          res.on("end", () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              body: Buffer.concat(chunks).toString("utf8"),
+              headers: res.headers,
+            });
           });
-        });
-      })
-      .on("error", reject);
-  });
+        })
+        .on("error", reject);
+    }),
+  );
 }
 
-function postSigned(
-  port: number,
-  path: string,
-  body: Buffer,
-  headers: Record<string, string>,
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path,
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "content-length": body.length,
-          ...headers,
+function postSigned(port: number, path: string, body: Buffer, headers: Record<string, string>) {
+  return ((pinnedReturn: Promise<{ status: number; body: string }>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path,
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "content-length": body.length,
+            ...headers,
+          },
         },
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(Buffer.from(c)));
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode ?? 0,
-            body: Buffer.concat(chunks).toString("utf8"),
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(Buffer.from(c)));
+          res.on("end", () => {
+            resolve({
+              status: res.statusCode ?? 0,
+              body: Buffer.concat(chunks).toString("utf8"),
+            });
           });
-        });
-      },
-    );
-    req.on("error", reject);
-    req.end(body);
-  });
+        },
+      );
+      req.on("error", reject);
+      req.end(body);
+    }),
+  );
 }
 
 function postChunked(
@@ -77,113 +74,114 @@ function postChunked(
   path: string,
   chunks: readonly Buffer[],
   headers: Record<string, string>,
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const responseChunks: Buffer[] = [];
-    const resolveResponse = () => {
-      if (settled) return;
-      settled = true;
-      const text = Buffer.concat(responseChunks).toString("utf8");
-      const sep = text.indexOf("\r\n\r\n");
-      if (sep < 0) {
-        reject(new Error("chunked response ended before headers"));
-        return;
-      }
-      const head = text.slice(0, sep);
-      const body = text.slice(sep + 4);
-      const statusLine = head.split("\r\n")[0] ?? "";
-      const status = Number(statusLine.split(" ")[1] ?? 0);
-      resolve({ status, body });
-    };
-    const rejectIfNoResponse = (error: Error) => {
-      if (settled) return;
-      if (responseChunks.length > 0) {
-        resolveResponse();
-        return;
-      }
-      settled = true;
-      reject(error);
-    };
-    const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
-      const headerLines = Object.entries({
-        "Content-Type": "application/json",
-        "Transfer-Encoding": "chunked",
-        ...headers,
-      }).map(([name, value]) => `${name}: ${value}`);
-      const reqHead = [
-        `POST ${path} HTTP/1.1`,
-        `Host: 127.0.0.1:${port}`,
-        ...headerLines,
-        "Connection: close",
-        "",
-        "",
-      ].join("\r\n");
-      const chunkFrames = chunks.flatMap((chunk) => [
-        Buffer.from(`${chunk.length.toString(16)}\r\n`),
-        chunk,
-        Buffer.from("\r\n"),
-      ]);
-      sock.end(Buffer.concat([Buffer.from(reqHead), ...chunkFrames, Buffer.from("0\r\n\r\n")]));
-    });
-    sock.on("data", (c) => responseChunks.push(Buffer.from(c)));
-    sock.on("end", resolveResponse);
-    sock.on("close", () => {
-      if (settled) return;
-      if (responseChunks.length > 0) {
-        resolveResponse();
-        return;
-      }
-      settled = true;
-      reject(new Error("chunked socket closed before response"));
-    });
-    sock.on("error", rejectIfNoResponse);
-  });
+) {
+  return ((pinnedReturn: Promise<{ status: number; body: string }>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      let settled = false;
+      const responseChunks: Buffer[] = [];
+      const resolveResponse = () => {
+        if (settled) return;
+        settled = true;
+        const text = Buffer.concat(responseChunks).toString("utf8");
+        const sep = text.indexOf("\r\n\r\n");
+        if (sep < 0) {
+          reject(new Error("chunked response ended before headers"));
+          return;
+        }
+        const head = text.slice(0, sep);
+        const body = text.slice(sep + 4);
+        const statusLine = head.split("\r\n")[0] ?? "";
+        const status = Number(statusLine.split(" ")[1] ?? 0);
+        resolve({ status, body });
+      };
+      const rejectIfNoResponse = (error: Error) => {
+        if (settled) return;
+        if (responseChunks.length > 0) {
+          resolveResponse();
+          return;
+        }
+        settled = true;
+        reject(error);
+      };
+      const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+        const headerLines = Object.entries({
+          "Content-Type": "application/json",
+          "Transfer-Encoding": "chunked",
+          ...headers,
+        }).map(([name, value]) => `${name}: ${value}`);
+        const reqHead = [
+          `POST ${path} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          ...headerLines,
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n");
+        const chunkFrames = chunks.flatMap((chunk) => [
+          Buffer.from(`${chunk.length.toString(16)}\r\n`),
+          chunk,
+          Buffer.from("\r\n"),
+        ]);
+        sock.end(Buffer.concat([Buffer.from(reqHead), ...chunkFrames, Buffer.from("0\r\n\r\n")]));
+      });
+      sock.on("data", (c) => responseChunks.push(Buffer.from(c)));
+      sock.on("end", resolveResponse);
+      sock.on("close", () => {
+        if (settled) return;
+        if (responseChunks.length > 0) {
+          resolveResponse();
+          return;
+        }
+        settled = true;
+        reject(new Error("chunked socket closed before response"));
+      });
+      sock.on("error", rejectIfNoResponse);
+    }),
+  );
 }
 
-function postRaw(
-  port: number,
-  path: string,
-  body: Buffer,
-  headers: string[],
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
-      const headerLines = [];
-      for (let i = 0; i < headers.length; i += 2) {
-        headerLines.push(`${headers[i]}: ${headers[i + 1]}`);
-      }
-      const req = [
-        `POST ${path} HTTP/1.1`,
-        `Host: 127.0.0.1:${port}`,
-        `Content-Type: application/json`,
-        `Content-Length: ${body.length}`,
-        ...headerLines,
-        "Connection: close",
-        "",
-        "",
-      ].join("\r\n");
-      sock.write(req);
-      sock.write(body);
-    });
+function postRaw(port: number, path: string, body: Buffer, headers: string[]) {
+  return ((pinnedReturn: Promise<{ status: number; body: string }>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+        const headerLines = [];
+        for (let i = 0; i < headers.length; i += 2) {
+          headerLines.push(`${headers[i]}: ${headers[i + 1]}`);
+        }
+        const req = [
+          `POST ${path} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          `Content-Type: application/json`,
+          `Content-Length: ${body.length}`,
+          ...headerLines,
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n");
+        sock.write(req);
+        sock.write(body);
+      });
 
-    const chunks: Buffer[] = [];
-    sock.on("data", (c) => chunks.push(Buffer.from(c)));
-    sock.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8");
-      const sep = text.indexOf("\r\n\r\n");
-      const head = text.slice(0, sep);
-      const respBody = text.slice(sep + 4);
-      const statusLine = head.split("\r\n")[0] ?? "";
-      const status = Number(statusLine.split(" ")[1] ?? 0);
-      resolve({ status, body: respBody });
-    });
-    sock.on("error", reject);
-  });
+      const chunks: Buffer[] = [];
+      sock.on("data", (c) => chunks.push(Buffer.from(c)));
+      sock.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        const sep = text.indexOf("\r\n\r\n");
+        const head = text.slice(0, sep);
+        const respBody = text.slice(sep + 4);
+        const statusLine = head.split("\r\n")[0] ?? "";
+        const status = Number(statusLine.split(" ")[1] ?? 0);
+        resolve({ status, body: respBody });
+      });
+      sock.on("error", reject);
+    }),
+  );
 }
 
-function signBody(secret: string, body: Buffer): string {
-  return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
+function signBody(secret: string, body: Buffer) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`,
+  );
 }
 
 type Handle = { server: http.Server; fiber: Fiber.Fiber<void, unknown> };
@@ -196,34 +194,36 @@ function startEffectServer({
   readonly pingResult?: boolean;
   readonly cfg?: Config;
   readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void, Error>;
-} = {}): Promise<Handle> {
-  return new Promise((resolve, reject) => {
-    let captured: http.Server | undefined;
-    const schedulerLayer = Layer.succeed(
-      AgentWorkScheduler,
-      AgentWorkScheduler.of({
-        submit: (command) =>
-          recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
-        ping: () => Effect.succeed(pingResult),
-      }),
-    );
-    const layer = buildEffectWebhookLayer(
-      cfg,
-      () => {
-        captured = http.createServer();
-        captured.once("listening", () => {
-          if (captured) resolve({ server: captured, fiber });
-        });
-        captured.once("error", reject);
-        return captured;
-      },
-      schedulerLayer,
-    );
-    const fiber = Effect.runFork(Layer.launch(layer));
-  });
+} = {}) {
+  return ((pinnedReturn: Promise<Handle>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      let captured: http.Server | undefined;
+      const schedulerLayer = Layer.succeed(
+        AgentWorkScheduler,
+        AgentWorkScheduler.of({
+          submit: (command) =>
+            recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
+          ping: () => Effect.succeed(pingResult),
+        }),
+      );
+      const layer = buildEffectWebhookLayer(
+        cfg,
+        () => {
+          captured = http.createServer();
+          captured.once("listening", () => {
+            if (captured) resolve({ server: captured, fiber });
+          });
+          captured.once("error", reject);
+          return captured;
+        },
+        schedulerLayer,
+      );
+      const fiber = Effect.runFork(Layer.launch(layer));
+    }),
+  );
 }
 
-async function stopEffectServer(handle: Handle): Promise<void> {
+async function stopEffectServer(handle: Handle) {
   await Effect.runPromise(Fiber.interrupt(handle.fiber));
   if (handle.server.listening) {
     await new Promise<void>((resolve) => handle.server.close(() => resolve()));

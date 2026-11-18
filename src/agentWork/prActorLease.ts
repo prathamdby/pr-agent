@@ -26,7 +26,7 @@ export async function acquirePrActorLease(
     readonly holderId: string;
     readonly ttlSeconds: number;
   },
-): Promise<PrActorLeaseAcquisition> {
+) {
   const acquired = await queryOne<{ lease_epoch: string | number }>(
     db,
     `INSERT INTO pr_actor_leases AS l (resource_key, work_type, lease_epoch, work_item_id, holder_id,
@@ -44,7 +44,8 @@ export async function acquirePrActorLease(
     [params.resourceKey, params.workType, params.workItemId, params.holderId, params.ttlSeconds],
   );
   if (acquired) {
-    return { acquired: true, leaseEpoch: Number(acquired.lease_epoch) };
+    return ((pinnedReturn: PrActorLeaseAcquisition | Promise<PrActorLeaseAcquisition>) =>
+      pinnedReturn)({ acquired: true, leaseEpoch: Number(acquired.lease_epoch) });
   }
   const holder = await queryOne<{ work_item_id: string | null; lease_epoch: string | number }>(
     db,
@@ -53,11 +54,12 @@ export async function acquirePrActorLease(
       WHERE resource_key = $1 AND work_type = $2`,
     [params.resourceKey, params.workType],
   );
-  return {
+  return ((pinnedReturn: PrActorLeaseAcquisition | Promise<PrActorLeaseAcquisition>) =>
+    pinnedReturn)({
     acquired: false,
     heldByWorkItemId: holder?.work_item_id ?? null,
     leaseEpoch: Number(holder?.lease_epoch ?? 0),
-  };
+  });
 }
 
 export async function renewPrActorLease(
@@ -67,7 +69,7 @@ export async function renewPrActorLease(
     readonly ttlSeconds: number;
     readonly workItemId: string;
   },
-): Promise<boolean> {
+) {
   const result = await db.query(
     `UPDATE pr_actor_leases
         SET renewed_at = now(),
@@ -78,7 +80,7 @@ export async function renewPrActorLease(
         AND work_item_id = $5`,
     [params.resourceKey, params.workType, params.leaseEpoch, params.ttlSeconds, params.workItemId],
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
 export type PrActorLeaseHolder = {
@@ -89,7 +91,7 @@ export type PrActorLeaseHolder = {
 export async function releasePrActorLeaseHeldByWorkItems(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & { readonly holders: readonly PrActorLeaseHolder[] },
-): Promise<void> {
+) {
   if (params.holders.length === 0) return;
   await db.query(
     `UPDATE pr_actor_leases AS l
@@ -116,7 +118,7 @@ export async function releasePrActorLeaseHeldByWorkItems(
 export async function releasePrActorLease(
   db: Pool | PoolClient,
   params: PrActorLeaseKey & { readonly leaseEpoch: number },
-): Promise<void> {
+) {
   await db.query(
     `UPDATE pr_actor_leases
         SET work_item_id = NULL,
@@ -133,7 +135,7 @@ export async function isPrActorLeaseHeld(
   db: Pool | PoolClient,
   workItemId: string,
   leaseEpoch: number,
-): Promise<boolean> {
+) {
   const row = await queryOne<{ ok: number }>(
     db,
     `SELECT 1 AS ok
@@ -143,14 +145,14 @@ export async function isPrActorLeaseHeld(
         AND expires_at > now()`,
     [workItemId, leaseEpoch],
   );
-  return row != null;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(row != null);
 }
 
 export async function lockPrActorLeaseForUpdate(
   client: PoolClient,
   workItemId: string,
   leaseEpoch: number,
-): Promise<void> {
+) {
   const row = await queryOne<{ ok: number }>(
     client,
     `SELECT 1 AS ok
@@ -174,7 +176,7 @@ export async function assertPrActorLeaseHeld(
   db: Pool | PoolClient,
   workItemId: string,
   leaseEpoch: number,
-): Promise<void> {
+) {
   if (await isPrActorLeaseHeld(db, workItemId, leaseEpoch)) return;
   throw new AppError({
     domain: "agent_work",
@@ -200,7 +202,7 @@ export async function armLeaseWatchdogHop(
     readonly workItemId: string;
     readonly onSendFailure: "throw" | "warn-and-proceed";
   },
-): Promise<{ readonly liveHop: boolean }> {
+) {
   const deferSeconds = params.deferSeconds ?? PR_ACTOR_LEASE_DEFER_SECONDS;
   const sendOptions = {
     singletonKey: params.singletonKey,
@@ -211,10 +213,16 @@ export async function armLeaseWatchdogHop(
     group: { id: params.groupId },
   };
   const hopId = await boss.send(params.queue, params.data, sendOptions);
-  if (hopId != null) return { liveHop: true };
+  if (hopId != null)
+    return ((
+      pinnedReturn: { readonly liveHop: boolean } | Promise<{ readonly liveHop: boolean }>,
+    ) => pinnedReturn)({ liveHop: true });
   const hops = await boss.findJobs(params.queue, { key: params.singletonKey });
   let liveHop = hops.some(isPendingWatchdogHop);
-  if (liveHop) return { liveHop };
+  if (liveHop)
+    return ((
+      pinnedReturn: { readonly liveHop: boolean } | Promise<{ readonly liveHop: boolean }>,
+    ) => pinnedReturn)({ liveHop });
   const terminalIds = hops
     .filter(
       (job) => (job.state === "completed" || job.state === "failed") && job.singletonOn != null,
@@ -240,7 +248,10 @@ export async function armLeaseWatchdogHop(
       [params.queue, params.singletonKey, terminalIds, deferSeconds],
     );
     const rearmed = await boss.send(params.queue, params.data, sendOptions);
-    if (rearmed != null) return { liveHop: true };
+    if (rearmed != null)
+      return ((
+        pinnedReturn: { readonly liveHop: boolean } | Promise<{ readonly liveHop: boolean }>,
+      ) => pinnedReturn)({ liveHop: true });
     liveHop = (await boss.findJobs(params.queue, { key: params.singletonKey })).some(
       isPendingWatchdogHop,
     );
@@ -253,5 +264,6 @@ export async function armLeaseWatchdogHop(
       context: { workItemId: params.workItemId, queue: params.queue },
     });
   }
-  return { liveHop };
+  return ((pinnedReturn: { readonly liveHop: boolean } | Promise<{ readonly liveHop: boolean }>) =>
+    pinnedReturn)({ liveHop });
 }

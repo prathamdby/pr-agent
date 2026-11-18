@@ -141,8 +141,8 @@ import { requestHeadCiProjection, loadRenderableHeadCi } from "../src/agentWork/
 
 const pool = {} as Pool;
 
-function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
-  return {
+function autoReviewItem(overrides: { headSha?: string } = {}) {
+  return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
     id: "wi-1",
     webhookEventId: "ev-1",
     type: "review",
@@ -158,7 +158,7 @@ function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
     attemptCount: 1,
     payload: { mode: "review", source: "auto" },
     cancelRequestedAt: new Date(),
-  };
+  });
 }
 
 function fakeSurface() {

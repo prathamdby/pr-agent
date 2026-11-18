@@ -17,8 +17,8 @@ import {
 } from "./helpers/evidenceTestHelpers.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
-function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
-  return {
+function finding(overrides: Partial<ReviewFinding> = {}) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file: "src/a.ts",
     startLine: 1,
@@ -27,15 +27,15 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     detail: "Details.",
     fixPrompt: "Fix it.",
     ...overrides,
-  };
+  });
 }
 
-function placement(item: ReviewFinding): InlinePlacement {
-  return {
+function placement(item: ReviewFinding) {
+  return ((pinnedReturn: InlinePlacement) => pinnedReturn)({
     finding: item,
     inlineLine: item.startLine,
     inlinePosted: true,
-  };
+  });
 }
 
 describe("findingPipeline", () => {

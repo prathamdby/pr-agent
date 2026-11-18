@@ -9,8 +9,8 @@ import {
 } from "../src/review/orchestrator/orchestratorTypes.ts";
 import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 
-function finding(title: string): ReviewFinding {
-  return {
+function finding(title: string) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P3",
     file: "src/a.ts",
     startLine: 1,
@@ -18,7 +18,7 @@ function finding(title: string): ReviewFinding {
     title,
     detail: "detail",
     fixPrompt: "fix it.",
-  };
+  });
 }
 
 function placement(
@@ -26,7 +26,7 @@ function placement(
   source: AcceptedPlacement["source"],
   title: string,
   reason?: Extract<AcceptedPlacement, { kind: "summary_only" }>["reason"],
-): AcceptedPlacement {
+) {
   const base = {
     source,
     placement: {
@@ -37,13 +37,17 @@ function placement(
     findingId: legacyFindingId(`${source}:${title}`),
   } as const;
   if (kind === "summary_only") {
-    return { kind, ...base, reason: reason ?? "anchor" };
+    return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
+      kind,
+      ...base,
+      reason: reason ?? "anchor",
+    });
   }
-  return { kind, ...base, reviewId: 1 };
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({ kind, ...base, reviewId: 1 });
 }
 
-function ledger(accepted: readonly AcceptedPlacement[]): FindingLedger {
-  return createFindingLedger({ accepted });
+function ledger(accepted: readonly AcceptedPlacement[]) {
+  return ((pinnedReturn: FindingLedger) => pinnedReturn)(createFindingLedger({ accepted }));
 }
 
 describe("countAcceptedForSource", () => {

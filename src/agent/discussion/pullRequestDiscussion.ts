@@ -24,24 +24,24 @@ export type PullRequestDiscussion = {
   readonly conversation: ConversationLoad;
 };
 
-export function emptyPullRequestDiscussion(): PullRequestDiscussion {
-  return {
+export function emptyPullRequestDiscussion() {
+  return ((pinnedReturn: PullRequestDiscussion) => pinnedReturn)({
     reviewThreads: {
       byRootCommentId: new Map(),
       threads: [],
       status: "ok",
     },
     conversation: { loaded: true, comments: [], groups: [], truncated: false },
-  };
+  });
 }
 
 function rootCommentId(
   start: ThreadComment,
   byId: Map<number, ThreadComment>,
   memo: Map<number, number>,
-): number {
+) {
   const cached = memo.get(start.id);
-  if (cached != null) return cached;
+  if (cached != null) return ((pinnedReturn: number) => pinnedReturn)(cached);
   let current: ThreadComment = start;
   const chain: number[] = [];
   while (current.inReplyToId != null) {
@@ -55,24 +55,23 @@ function rootCommentId(
   memo.set(start.id, rootId);
   memo.set(rootId, rootId);
   for (const id of chain) memo.set(id, rootId);
-  return rootId;
+  return ((pinnedReturn: number) => pinnedReturn)(rootId);
 }
 
-export function commentsInThread(
-  all: readonly ThreadComment[],
-  anchorCommentId: number,
-): ThreadComment[] {
+export function commentsInThread(all: readonly ThreadComment[], anchorCommentId: number) {
   const byId = new Map(all.map((comment) => [comment.id, comment]));
   const anchor = byId.get(anchorCommentId);
-  if (!anchor) return [];
+  if (!anchor) return ((pinnedReturn: ThreadComment[]) => pinnedReturn)([]);
   const memo = new Map<number, number>();
   const rootId = rootCommentId(anchor, byId, memo);
-  return all
-    .filter((comment) => rootCommentId(comment, byId, memo) === rootId)
-    .toSorted((a, b) => a.id - b.id);
+  return ((pinnedReturn: ThreadComment[]) => pinnedReturn)(
+    all
+      .filter((comment) => rootCommentId(comment, byId, memo) === rootId)
+      .toSorted((a, b) => a.id - b.id),
+  );
 }
 
-export function commentThreadGroups(all: readonly ThreadComment[]): ThreadComment[][] {
+export function commentThreadGroups(all: readonly ThreadComment[]) {
   const byId = new Map(all.map((comment) => [comment.id, comment]));
   const memo = new Map<number, number>();
   const groups = new Map<number, ThreadComment[]>();
@@ -87,24 +86,26 @@ export function commentThreadGroups(all: readonly ThreadComment[]): ThreadCommen
       existing.push(comment);
     }
   }
-  return order.map((rootId) => (groups.get(rootId) ?? []).toSorted((a, b) => a.id - b.id));
+  return ((pinnedReturn: ThreadComment[][]) => pinnedReturn)(
+    order.map((rootId) => (groups.get(rootId) ?? []).toSorted((a, b) => a.id - b.id)),
+  );
 }
 
-export async function loadPullRequestDiscussion(
-  prSurface: PrSurface,
-): Promise<PullRequestDiscussion> {
+export async function loadPullRequestDiscussion(prSurface: PrSurface) {
   const reviewThreads = await prSurface.listInlineReviewThreads();
   try {
     const conversation = await prSurface.listConversationComments();
-    return {
-      reviewThreads,
-      conversation: {
-        loaded: true,
-        comments: conversation.comments,
-        groups: commentThreadGroups(conversation.comments),
-        truncated: conversation.truncated,
+    return ((pinnedReturn: PullRequestDiscussion | Promise<PullRequestDiscussion>) => pinnedReturn)(
+      {
+        reviewThreads,
+        conversation: {
+          loaded: true,
+          comments: conversation.comments,
+          groups: commentThreadGroups(conversation.comments),
+          truncated: conversation.truncated,
+        },
       },
-    };
+    );
   } catch (error) {
     logWarn("pull_request_discussion_conversation_failed", {
       owner: prSurface.owner,
@@ -112,6 +113,8 @@ export async function loadPullRequestDiscussion(
       pr: prSurface.prNumber,
       message: errorMessage(error),
     });
-    return { reviewThreads, conversation: { loaded: false } };
+    return ((pinnedReturn: PullRequestDiscussion | Promise<PullRequestDiscussion>) => pinnedReturn)(
+      { reviewThreads, conversation: { loaded: false } },
+    );
   }
 }

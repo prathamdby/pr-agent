@@ -23,10 +23,8 @@ export type VerificationRunSetup = {
   readonly submitState: SubmitVerificationState;
 };
 
-export function shouldContinueVerificationRun(
-  setup: Pick<VerificationRunSetup, "submitState">,
-): boolean {
-  return !setup.submitState.submitted;
+export function shouldContinueVerificationRun(setup: Pick<VerificationRunSetup, "submitState">) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(!setup.submitState.submitted);
 }
 
 export function buildVerificationRunSetup(params: {
@@ -40,7 +38,7 @@ export function buildVerificationRunSetup(params: {
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
-}): VerificationRunSetup {
+}) {
   const submitState = createSubmitVerificationState();
   const workspaceTools = hideWorkspaceToolsBehindCodeMode(
     buildWorkspaceTools({ profile: "verification", reader: params.workspace.reader }),
@@ -55,7 +53,7 @@ export function buildVerificationRunSetup(params: {
     submitState,
   });
 
-  return {
+  return ((pinnedReturn: VerificationRunSetup) => pinnedReturn)({
     systemPrompt: verificationSystemPrompt,
     userContent: buildVerificationUserContent({
       owner: params.owner,
@@ -70,5 +68,5 @@ export function buildVerificationRunSetup(params: {
     piTools: [...workspaceTools.piTools, submitTool.piTool],
     executors: { ...workspaceTools.executors, submitVerification: submitTool.executor },
     submitState,
-  };
+  });
 }

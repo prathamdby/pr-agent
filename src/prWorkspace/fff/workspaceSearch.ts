@@ -42,7 +42,7 @@ async function readMatchedLine(
   byteOffset: number,
   maxBytes: number,
   buffer: MatchReadBuffer,
-): Promise<{ readonly text: string } | { readonly truncated: true }> {
+) {
   const parts: Buffer[] = [];
   let length = 0;
   let position = Math.max(byteOffset - 1, 0);
@@ -59,7 +59,11 @@ async function readMatchedLine(
       buffer.length = bytesRead;
       if (bytesRead === 0) {
         if (checkBoundary) invalidSearchHit();
-        return { text: Buffer.concat(parts, length).toString("utf8") };
+        return ((
+          pinnedReturn:
+            | ({ readonly text: string } | { readonly truncated: true })
+            | Promise<{ readonly text: string } | { readonly truncated: true }>,
+        ) => pinnedReturn)({ text: Buffer.concat(parts, length).toString("utf8") });
       }
     }
     let start = position - buffer.offset;
@@ -71,10 +75,20 @@ async function readMatchedLine(
     const rest = buffer.bytes.subarray(start, buffer.length);
     const newline = rest.indexOf(10);
     const part = newline < 0 ? rest : rest.subarray(0, newline);
-    if (length + part.length > maxBytes) return { truncated: true };
+    if (length + part.length > maxBytes)
+      return ((
+        pinnedReturn:
+          | ({ readonly text: string } | { readonly truncated: true })
+          | Promise<{ readonly text: string } | { readonly truncated: true }>,
+      ) => pinnedReturn)({ truncated: true });
     parts.push(Buffer.from(part));
     length += part.length;
-    if (newline >= 0) return { text: Buffer.concat(parts, length).toString("utf8") };
+    if (newline >= 0)
+      return ((
+        pinnedReturn:
+          | ({ readonly text: string } | { readonly truncated: true })
+          | Promise<{ readonly text: string } | { readonly truncated: true }>,
+      ) => pinnedReturn)({ text: Buffer.concat(parts, length).toString("utf8") });
     position = buffer.offset + buffer.length;
   }
 }
@@ -110,13 +124,15 @@ const FFF_SKIPPED_EXTENSIONS = new Set(
   ).split(" "),
 );
 
-function fffSkipsExtension(path: string): boolean {
+function fffSkipsExtension(path: string) {
   const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
   const dot = name.lastIndexOf(".");
-  return dot > 0 && dot < name.length - 1 && FFF_SKIPPED_EXTENSIONS.has(name.slice(dot + 1));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    dot > 0 && dot < name.length - 1 && FFF_SKIPPED_EXTENSIONS.has(name.slice(dot + 1)),
+  );
 }
 
-export function rankPathsByQuery(query: string, paths: readonly string[]): string[] {
+export function rankPathsByQuery(query: string, paths: readonly string[]) {
   const needle = query.toLowerCase();
   const scored: { path: string; tier: number }[] = [];
   for (const path of paths) {
@@ -135,12 +151,12 @@ export function rankPathsByQuery(query: string, paths: readonly string[]): strin
   scored.sort(
     (a, b) => b.tier - a.tier || a.path.length - b.path.length || a.path.localeCompare(b.path),
   );
-  return scored.map((entry) => entry.path);
+  return ((pinnedReturn: string[]) => pinnedReturn)(scored.map((entry) => entry.path));
 }
 
-function matchBytes(match: WorkspaceSearchMatch): number {
-  return (
-    Buffer.byteLength(match.path) + String(match.line).length + Buffer.byteLength(match.text) + 3
+function matchBytes(match: WorkspaceSearchMatch) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    Buffer.byteLength(match.path) + String(match.line).length + Buffer.byteLength(match.text) + 3,
   );
 }
 
@@ -149,11 +165,7 @@ export function createFffWorkspaceSearch(params: {
   readonly checkoutPaths: ReadonlySet<string>;
   readonly sortedCheckoutPaths: readonly string[];
   readonly gitGrep: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
-}): {
-  readonly search: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
-  readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
-  readonly dispose: () => void;
-} {
+}) {
   const { root, checkoutPaths, sortedCheckoutPaths, gitGrep } = params;
   const key = randomUUID();
   let index: Promise<FffIndexState | null> | null = null;
@@ -170,7 +182,7 @@ export function createFffWorkspaceSearch(params: {
     b: { readonly path: string; readonly line: number },
   ) => order(a.path) - order(b.path) || a.line - b.line;
 
-  async function openIndex(): Promise<FffIndexState | null> {
+  async function openIndex() {
     try {
       const result = await openFffIndex({
         key,
@@ -184,12 +196,14 @@ export function createFffWorkspaceSearch(params: {
           reason: "too_many_files",
           totalFiles: result.totalFiles,
         });
-        return null;
+        return ((pinnedReturn: (FffIndexState | null) | Promise<FffIndexState | null>) =>
+          pinnedReturn)(null);
       }
       opened = true;
       if (disposed) {
         closeFffIndex(key);
-        return null;
+        return ((pinnedReturn: (FffIndexState | null) | Promise<FffIndexState | null>) =>
+          pinnedReturn)(null);
       }
       const searchable = new Set<string>();
       for (const file of result.files) {
@@ -201,18 +215,20 @@ export function createFffWorkspaceSearch(params: {
           searchable.add(file.path);
       }
       const indexed = result.files.map((file) => file.path);
-      return { indexed, indexedSet: new Set(indexed), searchable };
+      return ((pinnedReturn: (FffIndexState | null) | Promise<FffIndexState | null>) =>
+        pinnedReturn)({ indexed, indexedSet: new Set(indexed), searchable });
     } catch {
       index = null;
       logWarn("workspace_search_fff_fallback", { stage: "open", reason: "host_failure" });
-      return null;
+      return ((pinnedReturn: (FffIndexState | null) | Promise<FffIndexState | null>) =>
+        pinnedReturn)(null);
     }
   }
 
   async function readMatchedLines(
     candidates: readonly WorkspaceSearchCandidate[],
     request: GitGrepWorkspaceParams & { readonly maxOutputBytes: number },
-  ): Promise<GitGrepWorkspaceResult> {
+  ) {
     const matches: WorkspaceSearchMatch[] = [];
     const buffer: MatchReadBuffer = {
       bytes: Buffer.allocUnsafe(MATCH_READ_CHUNK_BYTES),
@@ -225,10 +241,14 @@ export function createFffWorkspaceSearch(params: {
     let fileSize = 0;
     try {
       for (const candidate of candidates) {
-        if (matches.length >= request.maxResults) return { matches, truncated: true };
+        if (matches.length >= request.maxResults)
+          return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+            pinnedReturn)({ matches, truncated: true });
         const remainingBytes =
           request.maxOutputBytes - outputBytes - matchBytes({ ...candidate, text: "" });
-        if (remainingBytes < 0) return { matches, truncated: true };
+        if (remainingBytes < 0)
+          return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+            pinnedReturn)({ matches, truncated: true });
         let text: string;
         if ("text" in candidate) {
           text = candidate.text;
@@ -249,29 +269,33 @@ export function createFffWorkspaceSearch(params: {
           }
           if (file == null || candidate.byteOffset >= fileSize) invalidSearchHit();
           const line = await readMatchedLine(file, candidate.byteOffset, remainingBytes, buffer);
-          if ("truncated" in line) return { matches, truncated: true };
+          if ("truncated" in line)
+            return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+              pinnedReturn)({ matches, truncated: true });
           text = line.text;
         }
         const match = { path: candidate.path, line: candidate.line, text };
         outputBytes += matchBytes(match);
-        if (outputBytes > request.maxOutputBytes) return { matches, truncated: true };
+        if (outputBytes > request.maxOutputBytes)
+          return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+            pinnedReturn)({ matches, truncated: true });
         matches.push(match);
       }
-      return { matches, truncated: false };
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)({ matches, truncated: false });
     } finally {
       await file?.close();
     }
   }
 
-  async function searchGit(
-    request: GitGrepWorkspaceParams & { readonly maxOutputBytes: number },
-  ): Promise<GitGrepWorkspaceResult> {
+  async function searchGit(request: GitGrepWorkspaceParams & { readonly maxOutputBytes: number }) {
     const result = await gitGrep(request);
     const bounded = await readMatchedLines(result.matches, request);
-    return { matches: bounded.matches, truncated: result.truncated || bounded.truncated };
+    return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+      pinnedReturn)({ matches: bounded.matches, truncated: result.truncated || bounded.truncated });
   }
 
-  async function search(input: GitGrepWorkspaceParams): Promise<GitGrepWorkspaceResult> {
+  async function search(input: GitGrepWorkspaceParams) {
     const request = {
       ...input,
       maxResults: Math.min(input.maxResults, LOCAL_WORKSPACE_SEARCH_MAX_MATCHES),
@@ -280,10 +304,14 @@ export function createFffWorkspaceSearch(params: {
         LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
       ),
     };
-    if (/[\n\0]/.test(request.query)) return searchGit(request);
+    if (/[\n\0]/.test(request.query))
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)(searchGit(request));
     index ??= openIndex();
     const state = await index;
-    if (state == null) return searchGit(request);
+    if (state == null)
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)(searchGit(request));
 
     const allowed = request.paths ?? sortedCheckoutPaths;
     const allowedSet = request.paths ? new Set(request.paths) : checkoutPaths;
@@ -308,7 +336,8 @@ export function createFffWorkspaceSearch(params: {
     } catch {
       index = null;
       logWarn("workspace_search_fff_fallback", { stage: "grep", reason: "host_failure" });
-      return searchGit(request);
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)(searchGit(request));
     }
 
     const gitResult =
@@ -319,22 +348,25 @@ export function createFffWorkspaceSearch(params: {
       fffResult.hits.some((hit) => !state.searchable.has(hit.path) || !allowedSet.has(hit.path))
     ) {
       logWarn("workspace_search_fff_fallback", { stage: "read", reason: "invalid_hit_path" });
-      return searchGit(request);
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)(searchGit(request));
     }
     const candidates = [...fffResult.hits, ...gitResult.matches].toSorted(compare).slice(0, limit);
     try {
       const result = await readMatchedLines(candidates, request);
-      return {
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)({
         matches: result.matches,
         truncated: fffResult.capped || gitResult.truncated || result.truncated,
-      };
+      });
     } catch {
       logWarn("workspace_search_fff_fallback", { stage: "read", reason: "invalid_hit" });
-      return searchGit(request);
+      return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+        pinnedReturn)(searchGit(request));
     }
   }
 
-  async function findFiles(request: WorkspaceFileSearchParams): Promise<WorkspaceFileSearchResult> {
+  async function findFiles(request: WorkspaceFileSearchParams) {
     const allowed = request.paths ?? sortedCheckoutPaths;
     const allowedSet = request.paths ? new Set(request.paths) : checkoutPaths;
     index ??= openIndex();
@@ -357,18 +389,23 @@ export function createFffWorkspaceSearch(params: {
       }
     }
     const paths = [...new Set([...ranked, ...rankPathsByQuery(request.query, remainder)])];
-    return {
+    return ((pinnedReturn: WorkspaceFileSearchResult | Promise<WorkspaceFileSearchResult>) =>
+      pinnedReturn)({
       paths: paths.slice(0, request.maxResults),
       truncated: paths.length > request.maxResults,
-    };
+    });
   }
 
-  return {
+  return ((pinnedReturn: {
+    readonly search: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
+    readonly findFiles: (params: WorkspaceFileSearchParams) => Promise<WorkspaceFileSearchResult>;
+    readonly dispose: () => void;
+  }) => pinnedReturn)({
     search,
     findFiles,
     dispose: () => {
       disposed = true;
       if (opened) closeFffIndex(key);
     },
-  };
+  });
 }

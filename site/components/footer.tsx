@@ -19,9 +19,11 @@ const PRODUCT_LINKS = [
   { href: "/#usage", label: "Installation" },
 ] as const;
 
-function shortTitle(title: string): string {
+function shortTitle(title: string) {
   const stripped = title.replace(new RegExp(`^${PRODUCT_NAME} `), "");
-  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    stripped.charAt(0).toUpperCase() + stripped.slice(1),
+  );
 }
 
 const AGENT_FILES = AGENT_RESOURCES.filter(

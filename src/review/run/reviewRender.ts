@@ -75,17 +75,19 @@ const HTML_COMMENT_DASH_RE = /--/g;
 const HTML_COMMENT_CLOSE_RE = />/g;
 const CONTROL_MARKER_OPEN_RE = /<!--(?=\s*pr-agent:)/g;
 
-function escapeCodeFenceBreakers(text: string): string {
-  return text.replace(CODE_FENCE_RE, "\\`\\`\\`");
+function escapeCodeFenceBreakers(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.replace(CODE_FENCE_RE, "\\`\\`\\`"));
 }
 
-function neutralizeControlMarkers(text: string): string {
-  return text.replace(CONTROL_MARKER_OPEN_RE, "&lt;!--");
+function neutralizeControlMarkers(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.replace(CONTROL_MARKER_OPEN_RE, "&lt;!--"));
 }
 
-function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
+function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number) {
   const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
-  return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`,
+  );
 }
 
 export function renderLightweightReviewCompletion(
@@ -95,7 +97,7 @@ export function renderLightweightReviewCompletion(
     readonly ciVersion?: number;
     readonly findingsSection?: string;
   },
-): string {
+) {
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const tableRows: Array<[string, string]> = [
     [renderTableStrong("Review"), escapeTableHtml("Skipped")],
@@ -133,29 +135,35 @@ export function renderLightweightReviewCompletion(
       model: footer.model,
     }),
   );
-  return rows.join("\n").trimEnd();
+  return ((pinnedReturn: string) => pinnedReturn)(rows.join("\n").trimEnd());
 }
 
 export function renderStaleReviewMetadataComment(params: {
   headSha: string;
   mode: AnyReviewLens;
   stale: boolean;
-}): string {
+}) {
   const headSha = normalizeGitHeadSha(params.headSha) ?? "invalid";
   const lens = escapeHtmlCommentAttr(params.mode);
   const staleValue = params.stale ? "true" : "false";
-  return `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`,
+  );
 }
 
-function escapeHtmlCommentAttr(value: string): string {
-  return value.replace(HTML_COMMENT_DASH_RE, "-&#45;").replace(HTML_COMMENT_CLOSE_RE, "&gt;");
+function escapeHtmlCommentAttr(value: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    value.replace(HTML_COMMENT_DASH_RE, "-&#45;").replace(HTML_COMMENT_CLOSE_RE, "&gt;"),
+  );
 }
 
-function formatLineRange(startLine: number, endLine: number): string {
-  return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
+function formatLineRange(startLine: number, endLine: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`,
+  );
 }
 
-function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }): string {
+function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }) {
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
 
@@ -164,27 +172,29 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   if (!opts.inlinePosted) {
     lines.push("[inline thread omitted — summary only]");
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-function renderSingleFindingAgentFixPrompt(finding: ReviewFinding, ctx: RenderContext): string {
-  return [
-    AGENT_FIX_PROMPT_PREAMBLE,
-    "",
-    `Repository: ${ctx.owner}/${ctx.repo}`,
-    `Pull request: #${ctx.prNumber}`,
-    `Head SHA: ${ctx.headSha}`,
-    "",
-    renderFindingFixBlock(finding, { inlinePosted: true }),
-  ].join("\n");
+function renderSingleFindingAgentFixPrompt(finding: ReviewFinding, ctx: RenderContext) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      AGENT_FIX_PROMPT_PREAMBLE,
+      "",
+      `Repository: ${ctx.owner}/${ctx.repo}`,
+      `Pull request: #${ctx.prNumber}`,
+      `Head SHA: ${ctx.headSha}`,
+      "",
+      renderFindingFixBlock(finding, { inlinePosted: true }),
+    ].join("\n"),
+  );
 }
 
 function renderSummaryOnlyFixAccordion(
   severity: ReviewFinding["severity"],
   title: string,
   fixPrompt: string,
-): string[] {
-  return [
+) {
+  return ((pinnedReturn: string[]) => pinnedReturn)([
     "<details>",
     `<summary>Prompt to fix — ${severity} · ${escapeTableHtml(title)}</summary>`,
     "",
@@ -193,7 +203,7 @@ function renderSummaryOnlyFixAccordion(
     "```",
     "",
     "</details>",
-  ];
+  ]);
 }
 
 type FindingTableFields = {
@@ -213,22 +223,26 @@ type SummaryRenderOptions = {
   omittedFindingCount?: number;
 };
 
-function truncatedTitle(title: string): string {
-  return title.length <= DURABLE_ROW_TITLE_MAX_CHARS
-    ? title
-    : `${title.slice(0, DURABLE_ROW_TITLE_MAX_CHARS - 1)}…`;
+function truncatedTitle(title: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    title.length <= DURABLE_ROW_TITLE_MAX_CHARS
+      ? title
+      : `${title.slice(0, DURABLE_ROW_TITLE_MAX_CHARS - 1)}…`,
+  );
 }
 
 function renderMinimalDurableRowCellHtml(
   placement: SummaryPlacement,
   row: FindingRowMarker,
   ctx: RenderContext,
-): string {
+) {
   const f = placement.finding;
-  return `${renderTableLink(
-    truncatedTitle(f.title),
-    blobLineUrl(ctx, f.file, f.startLine, f.endLine),
-  )}<br>${renderTableLocationMeta("Summary only", f.file, formatLineRange(f.startLine, f.endLine))}${renderFindingRowMarker(row)}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${renderTableLink(
+      truncatedTitle(f.title),
+      blobLineUrl(ctx, f.file, f.startLine, f.endLine),
+    )}<br>${renderTableLocationMeta("Summary only", f.file, formatLineRange(f.startLine, f.endLine))}${renderFindingRowMarker(row)}`,
+  );
 }
 
 function renderFindingTableCellHtml(
@@ -236,7 +250,7 @@ function renderFindingTableCellHtml(
   ctx: RenderContext,
   findingFields: FindingTableFields,
   compact: boolean,
-): string {
+) {
   const f = placement.finding;
   const link =
     placement.inlinePosted && placement.inlineCommentUrl
@@ -256,27 +270,30 @@ function renderFindingTableCellHtml(
     renderTableEm(placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : summaryFootnote),
   );
   const rowMarker = placement.findingRow ? renderFindingRowMarker(placement.findingRow) : "";
-  return `${parts.join("<br>")}${rowMarker}`;
+  return ((pinnedReturn: string) => pinnedReturn)(`${parts.join("<br>")}${rowMarker}`);
 }
 
-function renderSeverityLabel(finding: ReviewFinding): string {
-  if (finding.confidence == null) return finding.severity;
-  return `${finding.severity} · c${finding.confidence}`;
+function renderSeverityLabel(finding: ReviewFinding) {
+  if (finding.confidence == null) return ((pinnedReturn: string) => pinnedReturn)(finding.severity);
+  return ((pinnedReturn: string) => pinnedReturn)(`${finding.severity} · c${finding.confidence}`);
 }
 
-function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
-  if (finding.suggestedCode == null) return [];
-  if (finding.startLine !== finding.endLine) return [];
+function renderSuggestedCodeBlock(finding: ReviewFinding) {
+  if (finding.suggestedCode == null) return ((pinnedReturn: string[]) => pinnedReturn)([]);
+  if (finding.startLine !== finding.endLine) return ((pinnedReturn: string[]) => pinnedReturn)([]);
 
   const escapedCode = neutralizeControlMarkers(escapeCodeFenceBreakers(finding.suggestedCode));
-  if (escapedCode !== finding.suggestedCode) return [];
+  if (escapedCode !== finding.suggestedCode) return ((pinnedReturn: string[]) => pinnedReturn)([]);
 
-  return ["", "```suggestion", escapedCode, "```"];
+  return ((pinnedReturn: string[]) => pinnedReturn)(["", "```suggestion", escapedCode, "```"]);
 }
 
-function renderBoundPolicyFooter(boundPaths: readonly string[]): string[] {
-  if (boundPaths.length === 0) return [];
-  return ["", ...boundPaths.map((path) => `<sub>Bound · ${escapeTableHtml(path)}</sub>`)];
+function renderBoundPolicyFooter(boundPaths: readonly string[]) {
+  if (boundPaths.length === 0) return ((pinnedReturn: string[]) => pinnedReturn)([]);
+  return ((pinnedReturn: string[]) => pinnedReturn)([
+    "",
+    ...boundPaths.map((path) => `<sub>Bound · ${escapeTableHtml(path)}</sub>`),
+  ]);
 }
 
 export function renderInlineThreadBody(
@@ -289,7 +306,7 @@ export function renderInlineThreadBody(
     readonly relatedLinks?: readonly string[];
   },
   boundPaths: readonly string[] = [],
-): string {
+) {
   const relatedLinks = identity.relatedLinks ?? [];
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
@@ -312,16 +329,18 @@ export function renderInlineThreadBody(
       ? ["", `Possibly related: ${relatedLinks.map((url) => `[thread](${url})`).join(", ")}`]
       : []),
   ];
-  return [
-    neutralizeControlMarkers(lines.join("\n")),
-    "",
-    renderFindingMarker({
-      id: identity.id,
-      lens: identity.lens,
-      severity: finding.severity,
-      ...(identity.reopens != null ? { reopens: identity.reopens } : {}),
-    }),
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      neutralizeControlMarkers(lines.join("\n")),
+      "",
+      renderFindingMarker({
+        id: identity.id,
+        lens: identity.lens,
+        severity: finding.severity,
+        ...(identity.reopens != null ? { reopens: identity.reopens } : {}),
+      }),
+    ].join("\n"),
+  );
 }
 
 export function renderAgentFixPrompt(
@@ -329,7 +348,7 @@ export function renderAgentFixPrompt(
   ctx: RenderContext,
   placements: readonly InlinePlacement[],
   ciSummary?: CiSummary | null,
-): string {
+) {
   const placementByKey = new Map(
     placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
@@ -371,31 +390,35 @@ export function renderAgentFixPrompt(
       ),
     );
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-function assembleAgentFixAccordion(agentFixPrompt: string): string {
-  return [
-    "<details>",
-    `<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
-    "",
-    "```",
-    agentFixPrompt,
-    "```",
-    "",
-    "</details>",
-  ].join("\n");
+function assembleAgentFixAccordion(agentFixPrompt: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "<details>",
+      `<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
+      "",
+      "```",
+      agentFixPrompt,
+      "```",
+      "",
+      "</details>",
+    ].join("\n"),
+  );
 }
 
-export function renderReviewPointerLensMarker(mode: AnyReviewLens): string {
-  return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
+export function renderReviewPointerLensMarker(mode: AnyReviewLens) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`,
+  );
 }
 
 export function renderSpecialistReviewBody(params: {
   readonly specialist: FindingSource;
   readonly progressCommentUrl: string;
   readonly lensMarker?: string;
-}): string {
+}) {
   const note = renderGitHubAlert(
     REVIEW_OVERVIEW_ALERT,
     `Track this run on the [progress stub](${params.progressCommentUrl}) in the PR conversation.`,
@@ -405,7 +428,7 @@ export function renderSpecialistReviewBody(params: {
   if (params.lensMarker) {
     parts.push(params.lensMarker);
   }
-  return parts.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join("\n"));
 }
 
 export type ReviewActionLineCoverage = {
@@ -431,24 +454,28 @@ type ReviewSummaryRenderCtx = RenderContext & {
 
 type CarriedSummaryRow = readonly [FindingViewRow, InventoryFinding];
 
-function carriedSummaryRows(view: FindingView): CarriedSummaryRow[] {
-  return view.rows.flatMap((row): CarriedSummaryRow[] =>
-    row.observedThisRun || row.held == null ? [] : [[row, row.held]],
+function carriedSummaryRows(view: FindingView) {
+  return ((pinnedReturn: CarriedSummaryRow[]) => pinnedReturn)(
+    view.rows.flatMap((row) =>
+      ((pinnedReturn: CarriedSummaryRow[]) => pinnedReturn)(
+        row.observedThisRun || row.held == null ? [] : [[row, row.held]],
+      ),
+    ),
   );
 }
 
-function isDurableCarriedRow([, held]: CarriedSummaryRow): boolean {
-  return held.source === "summary";
+function isDurableCarriedRow([, held]: CarriedSummaryRow) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(held.source === "summary");
 }
 
-export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
+export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage) {
   const failed = coverage.failed.length > 0;
   const names = failed ? formatFailedSpecialistNames(coverage.failed) : "";
   const unjudged = coverage.unjudged ?? [];
   const unjudgedText =
     unjudged.length > 0 ? `not judged: ${formatFailedSpecialistNames(unjudged)}` : "";
   if (unjudgedText.length > 0 && !failed && coverage.unread !== true && coverage.kind !== "none") {
-    return unjudgedText;
+    return ((pinnedReturn: string) => pinnedReturn)(unjudgedText);
   }
   let base = "with full coverage";
   if (coverage.unread && failed && coverage.kind === "partial") {
@@ -460,7 +487,9 @@ export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): 
   } else if (coverage.kind !== "full" && failed) {
     base = `except ${names}`;
   }
-  return unjudgedText.length > 0 ? `${base}, ${unjudgedText}` : base;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    unjudgedText.length > 0 ? `${base}, ${unjudgedText}` : base,
+  );
 }
 
 export { formatReviewActionLineCiStatus };
@@ -473,7 +502,7 @@ export function renderReviewActionLine(input: {
   coverageStatusText: string;
   suppressReadyToMerge?: boolean;
   unjudged?: boolean;
-}): string {
+}) {
   const followUpSegment =
     input.openCount > 0 && input.followUpCount > 0
       ? ` ${formatFollowUpCountClause(input.followUpCount)}.`
@@ -484,52 +513,68 @@ export function renderReviewActionLine(input: {
       : input.suppressReadyToMerge && input.openCount === 0
         ? "No findings"
         : formatFindingCountClause(input.openCount, input.blockingCount);
-  return `${findingClause}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${findingClause}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`,
+  );
 }
 
-function formatFindingCountClause(openCount: number, blockingCount: number): string {
-  if (openCount === 0) return "No findings, ready to merge";
+function formatFindingCountClause(openCount: number, blockingCount: number) {
+  if (openCount === 0)
+    return ((pinnedReturn: string) => pinnedReturn)("No findings, ready to merge");
   if (blockingCount === 0) {
-    return openCount === 1
-      ? "1 open finding, none blocks merge"
-      : `${openCount} open findings, none block merge`;
+    return ((pinnedReturn: string) => pinnedReturn)(
+      openCount === 1
+        ? "1 open finding, none blocks merge"
+        : `${openCount} open findings, none block merge`,
+    );
   }
   if (blockingCount >= openCount) {
-    return openCount === 1 ? "1 finding blocks merge" : `${openCount} findings block merge`;
+    return ((pinnedReturn: string) => pinnedReturn)(
+      openCount === 1 ? "1 finding blocks merge" : `${openCount} findings block merge`,
+    );
   }
-  return `${blockingCount} of ${openCount} open findings block merge`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${blockingCount} of ${openCount} open findings block merge`,
+  );
 }
 
-function formatFollowUpCountClause(count: number): string {
-  return count === 1 ? "1 follow-up" : `${count} follow-ups`;
+function formatFollowUpCountClause(count: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    count === 1 ? "1 follow-up" : `${count} follow-ups`,
+  );
 }
 
-export function renderFollowUpsCell(items: readonly string[]): string {
-  return items.map((item, index) => `${index + 1}. ${escapeTablePlainCell(item)}`).join("<br>");
+export function renderFollowUpsCell(items: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    items.map((item, index) => `${index + 1}. ${escapeTablePlainCell(item)}`).join("<br>"),
+  );
 }
 
-function formatFailedSpecialistNames(failed: readonly string[]): string {
-  if (failed.length === 0) return "";
-  if (failed.length === 1) return failed[0] ?? "";
-  if (failed.length === 2) return `${failed[0]} and ${failed[1]}`;
-  return `${failed.slice(0, -1).join(", ")}, and ${failed[failed.length - 1]}`;
+function formatFailedSpecialistNames(failed: readonly string[]) {
+  if (failed.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
+  if (failed.length === 1) return ((pinnedReturn: string) => pinnedReturn)(failed[0] ?? "");
+  if (failed.length === 2)
+    return ((pinnedReturn: string) => pinnedReturn)(`${failed[0]} and ${failed[1]}`);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${failed.slice(0, -1).join(", ")}, and ${failed[failed.length - 1]}`,
+  );
 }
 
 function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,
   options: SummaryRenderOptions,
-): string {
+) {
   const carriedRows = carriedSummaryRows(ctx.findingView);
   let droppableRowsLeft = options.findingRowLimit ?? Number.POSITIVE_INFINITY;
   let durableRowsLeft = options.durableRowLimit ?? Number.POSITIVE_INFINITY;
-  const keepRow = (durable: boolean): boolean => {
+  const keepRow = (durable: boolean) => {
     if (durable) {
       durableRowsLeft -= 1;
-      return durableRowsLeft >= 0;
+      return ((pinnedReturn: boolean) => pinnedReturn)(durableRowsLeft >= 0);
     }
     droppableRowsLeft -= 1;
-    return droppableRowsLeft >= 0;
+    return ((pinnedReturn: boolean) => pinnedReturn)(droppableRowsLeft >= 0);
   };
   const visiblePlacements = ctx.placements.filter((placement) =>
     keepRow(placement.findingRow != null),
@@ -689,14 +734,14 @@ function buildReviewSummaryBody(
     }),
   );
 
-  return rows.join("\n").trimEnd();
+  return ((pinnedReturn: string) => pinnedReturn)(rows.join("\n").trimEnd());
 }
 
 export function fitReviewSummaryBody(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,
   maxBodyChars: number,
-): string {
+) {
   const sortedPlacements = [...ctx.placements].toSorted((a, b) =>
     compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
   );
@@ -713,7 +758,7 @@ export function fitReviewSummaryBody(
     includeAgentFixAccordion: true,
   });
   if (full.length <= maxBodyChars) {
-    return full;
+    return ((pinnedReturn: string) => pinnedReturn)(full);
   }
 
   const compact = buildReviewSummaryBody(payload, sortedCtx, {
@@ -723,7 +768,7 @@ export function fitReviewSummaryBody(
     compactionNote: true,
   });
   if (compact.length <= maxBodyChars) {
-    return compact;
+    return ((pinnedReturn: string) => pinnedReturn)(compact);
   }
 
   const trimmed = largestFittingBody(droppableCount - 1, maxBodyChars, (limit) =>
@@ -736,7 +781,7 @@ export function fitReviewSummaryBody(
       omittedFindingCount: droppableCount - limit,
     }),
   );
-  if (trimmed) return trimmed;
+  if (trimmed) return ((pinnedReturn: string) => pinnedReturn)(trimmed);
 
   const minimal = (findingRowLimit: number, durableRowLimit: number) =>
     buildReviewSummaryBody(payload, sortedCtx, {
@@ -749,16 +794,15 @@ export function fitReviewSummaryBody(
       durableRowLimit,
       omittedFindingCount: droppableCount - findingRowLimit + durableCount - durableRowLimit,
     });
-  return (
+  return ((pinnedReturn: string) => pinnedReturn)(
     largestFittingBody(droppableCount, maxBodyChars, (limit) => minimal(limit, durableCount)) ??
-    largestFittingBody(durableCount - 1, maxBodyChars, (limit) => minimal(0, limit)) ??
-    minimal(0, 0)
+      largestFittingBody(durableCount - 1, maxBodyChars, (limit) => minimal(0, limit)) ??
+      minimal(0, 0),
   );
 }
 
-export function renderReviewSummaryComment(
-  payload: ReviewPayload,
-  ctx: ReviewSummaryRenderCtx,
-): string {
-  return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);
+export function renderReviewSummaryComment(payload: ReviewPayload, ctx: ReviewSummaryRenderCtx) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS),
+  );
 }

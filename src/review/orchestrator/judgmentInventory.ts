@@ -29,8 +29,8 @@ type PromptInventoryEntry = {
   readonly detail?: string;
 };
 
-function promptEntry(finding: InventoryFinding, includeDetail: boolean): PromptInventoryEntry {
-  return {
+function promptEntry(finding: InventoryFinding, includeDetail: boolean) {
+  return ((pinnedReturn: PromptInventoryEntry) => pinnedReturn)({
     findingId: finding.id,
     status:
       finding.state === "open" ? "open" : finding.resolution === "fixed" ? "fixed" : "dismissed",
@@ -41,17 +41,19 @@ function promptEntry(finding: InventoryFinding, includeDetail: boolean): PromptI
     line: finding.line,
     title: neutralizeMarkerEcho(finding.title),
     ...(includeDetail && finding.detail != null ? { detail: finding.detail } : {}),
-  };
+  });
 }
 
-function isLive(entry: PromptInventoryEntry): boolean {
-  return entry.status === "open" || entry.status === "accepted_this_run";
+function isLive(entry: PromptInventoryEntry) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    entry.status === "open" || entry.status === "accepted_this_run",
+  );
 }
 
-function acceptedEntry(accepted: AcceptedPlacement): PromptInventoryEntry {
+function acceptedEntry(accepted: AcceptedPlacement) {
   const { finding } = accepted.placement;
   const detail = capFindingDetail(finding.detail);
-  return {
+  return ((pinnedReturn: PromptInventoryEntry) => pinnedReturn)({
     findingId: accepted.findingId,
     status: "accepted_this_run",
     severity: finding.severity,
@@ -60,14 +62,14 @@ function acceptedEntry(accepted: AcceptedPlacement): PromptInventoryEntry {
     line: finding.startLine,
     title: neutralizeMarkerEcho(finding.title),
     ...(detail != null ? { detail } : {}),
-  };
+  });
 }
 
 export function judgmentInventory(
   inventory: FindingInventory,
   reportFindings: readonly Pick<ReviewFinding, "file">[],
   acceptedThisRun: readonly AcceptedPlacement[] = [],
-): JudgmentInventory {
+) {
   const reportFiles = new Set(reportFindings.map((finding) => finding.file));
   const touchesReport = (entry: PromptInventoryEntry) =>
     reportFiles.has(entry.file) ||
@@ -96,10 +98,10 @@ export function judgmentInventory(
       a.findingId.localeCompare(b.findingId),
   );
   const shown = listed.slice(0, PROMPT_INVENTORY_CAP);
-  return {
+  return ((pinnedReturn: JudgmentInventory) => pinnedReturn)({
     completeness: inventory.completeness,
     json: JSON.stringify(shown, null, 2),
     count: shown.length,
     omitted: listed.length - shown.length,
-  };
+  });
 }

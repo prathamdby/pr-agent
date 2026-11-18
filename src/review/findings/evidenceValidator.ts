@@ -17,7 +17,7 @@ export function assertFindingsHaveEvidence<T extends EvidenceAnchor>(
     readonly checkoutCoverage?: CheckoutCoverage;
     readonly isPathInCheckout?: (path: string) => boolean;
   },
-): { accepted: T[]; rejected: EvidenceRejectedFinding<T>[] } {
+) {
   const accepted: T[] = [];
   const rejected: EvidenceRejectedFinding<T>[] = [];
 
@@ -39,5 +39,6 @@ export function assertFindingsHaveEvidence<T extends EvidenceAnchor>(
     });
   }
 
-  return { accepted, rejected };
+  return ((pinnedReturn: { accepted: T[]; rejected: EvidenceRejectedFinding<T>[] }) =>
+    pinnedReturn)({ accepted, rejected });
 }

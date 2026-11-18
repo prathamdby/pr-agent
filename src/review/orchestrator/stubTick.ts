@@ -58,7 +58,7 @@ export type WriteCancelledProgressCommentArgs = {
   readonly hintCommentId?: number | null;
 };
 
-export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
+export async function tickProgressComment(args: TickProgressCommentArgs) {
   try {
     const rendered = await loadRenderableHeadCi(
       args.pool,
@@ -118,9 +118,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
   }
 }
 
-export async function writeCancelledProgressComment(
-  args: WriteCancelledProgressCommentArgs,
-): Promise<void> {
+export async function writeCancelledProgressComment(args: WriteCancelledProgressCommentArgs) {
   try {
     await createReviewSummaryComment({
       prSurface: args.prSurface,

@@ -253,11 +253,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     );
   }
 
-  function lastSummaryBody(controls: FakePrSurfaceControls): string {
+  function lastSummaryBody(controls: FakePrSurfaceControls) {
     const upserts = controls.events.flatMap((event) =>
       event.kind === "upsertProgressComment" ? [event.body] : [],
     );
-    return upserts.at(-1) ?? "";
+    return ((pinnedReturn: string) => pinnedReturn)(upserts.at(-1) ?? "");
   }
 
   function checkConclusions(controls: FakePrSurfaceControls) {
@@ -280,12 +280,12 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     return tool;
   }
 
-  function openIdAt(inventory: FindingInventory, line: number): FindingId {
+  function openIdAt(inventory: FindingInventory, line: number) {
     const match = [...inventory.findings.values()].find(
       (entry) => entry.state === "open" && entry.line === line,
     );
     if (match == null) throw new Error(`expected an open finding at line ${line}`);
-    return match.id;
+    return ((pinnedReturn: FindingId) => pinnedReturn)(match.id);
   }
 
   function judgmentPayload(source: "correctness" | "security", rows: readonly ReviewFinding[]) {
@@ -324,8 +324,8 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
     });
   }
 
-  function observed(line: number, extras: Partial<ReviewFinding> = {}): ReviewFinding {
-    return {
+  function observed(line: number, extras: Partial<ReviewFinding> = {}) {
+    return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
       severity: "P1",
       severityRationale: "The null read is reachable on this path.",
       file: "src/a.ts",
@@ -335,18 +335,16 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       detail: `A null payload reaches the dereference near line ${line}.`,
       fixPrompt: "Check the payload for null first.",
       ...extras,
-    };
+    });
   }
 
-  async function publishFirstRound(
-    seeded: Awaited<ReturnType<typeof seedReviewPublication>>,
-  ): Promise<number> {
+  async function publishFirstRound(seeded: Awaited<ReturnType<typeof seedReviewPublication>>) {
     const first = seeded.attempt(pool, seeded.surface);
     const published = await publishFindingBatch(findings, first.session, first.input);
     if (published.kind !== "published") throw new Error("expected the first round to publish");
     const [reviewId] = published.delta.inlineReviewIds;
     if (reviewId == null) throw new Error("expected an inline review");
-    return reviewId;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(reviewId);
   }
 
   const noPathChanges = { renames: new Map<string, string>(), deletedPaths: new Set<string>() };
@@ -360,7 +358,7 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
   async function publishCopies(
     seeded: Awaited<ReturnType<typeof seedReviewPublication>>,
     copies: readonly ReviewFinding[],
-  ): Promise<{ readonly reviewId: number; readonly ids: readonly FindingId[] }> {
+  ) {
     const first = seeded.attempt(pool, seeded.surface, copies);
     const published = await publishFindingBatch(copies, first.session, first.input);
     if (published.kind !== "published") throw new Error("expected the copies to publish");
@@ -371,7 +369,11 @@ describe.skipIf(!hasDatabase)("finding identity (integration)", () => {
       .filter((entry) => entry.state === "open" && entry.line === 10)
       .map((entry) => entry.id);
     if (ids.length !== copies.length) throw new Error("expected one open thread per copy");
-    return { reviewId, ids };
+    return ((
+      pinnedReturn:
+        | { readonly reviewId: number; readonly ids: readonly FindingId[] }
+        | Promise<{ readonly reviewId: number; readonly ids: readonly FindingId[] }>,
+    ) => pinnedReturn)({ reviewId, ids });
   }
 
   async function addHumanReply(

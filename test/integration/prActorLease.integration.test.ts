@@ -175,7 +175,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
 
-  async function insertRunningWorkItem(resourceKey: string): Promise<string> {
+  async function insertRunningWorkItem(resourceKey: string) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -189,10 +189,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       [id, OWNER, resourceKey],
     );
     await claimWorkForExecution(pool, id);
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
-  async function insertRunningAsk(resourceKey: string, commentId: number): Promise<string> {
+  async function insertRunningAsk(resourceKey: string, commentId: number) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -213,10 +213,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     if ((await claimWorkForExecution(pool, id)) == null) {
       throw new Error("expected the ask claim");
     }
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
-  async function getLeaseRow(resourceKey: string): Promise<LeaseRow> {
+  async function getLeaseRow(resourceKey: string) {
     const { rows } = await pool.query<LeaseRow>(
       `SELECT lease_epoch, work_item_id, holder_id, expires_at
          FROM pr_actor_leases
@@ -225,7 +225,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     );
     const row = rows[0];
     if (!row) throw new Error(`missing lease row for ${resourceKey}`);
-    return row;
+    return ((pinnedReturn: LeaseRow | Promise<LeaseRow>) => pinnedReturn)(row);
   }
 
   function acquire(resourceKey: string, workItemId: string) {
@@ -1054,10 +1054,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const run: PrSurfaceMutationBoundary["run"] = async <T>(
         mutation: PrSurfaceMutation,
         mutate: () => Promise<T>,
-      ): Promise<T> => {
+      ) => {
         runCalls.push(mutation);
         await assertPrActorLeaseHeld(pool, workItemId, epoch);
-        return mutate();
+        return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(mutate());
       };
       const { surface, controls } = createFakePrSurface(surfaceParams, {
         mutationBoundary: {
@@ -1139,9 +1139,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const run: PrSurfaceMutationBoundary["run"] = async <T>(
         _mutation: PrSurfaceMutation,
         _mutate: () => Promise<T>,
-      ): Promise<T> => {
+      ) => {
         runCalled = true;
-        return undefined as T;
+        return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(undefined as T);
       };
       const { surface, controls } = createFakePrSurface(surfaceParams, {
         mutationBoundary: {
@@ -2012,17 +2012,34 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         const releases: Array<() => void> = [];
         const pending: Promise<void>[] = [];
         const blocked = outcome === "running_resume" ? 3 : 1;
+        let onRelease: () => void = () => undefined;
         if (outcome === "running_resume") {
           run.mockImplementation(
-            () => new Promise((_, reject) => releases.push(() => reject(failure))),
+            () =>
+              new Promise((_, reject) => {
+                releases.push(() => reject(failure));
+                onRelease();
+              }),
           );
         } else {
           vi.mocked(prWorkspaceModule.withPrRepositoryView).mockImplementation(
-            (_params, _run) => new Promise((_, reject) => releases.push(() => reject(failure))),
+            (_params, _run) =>
+              new Promise((_, reject) => {
+                releases.push(() => reject(failure));
+                onRelease();
+              }),
           );
         }
         try {
           for (let attempt = 0; attempt < blocked; attempt++) {
+            const blockedCall = (() => {
+              let resolve!: () => void;
+              const promise = new Promise<void>((done) => {
+                resolve = done;
+              });
+              return { promise, resolve };
+            })();
+            onRelease = () => blockedCall.resolve();
             pending.push(
               createWorkDefinitions({
                 cfg: cfg,
@@ -2031,7 +2048,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
                 installationSurface: openInstallationSurface(),
               }).description.dispatch(jobs[attempt]),
             );
-            await expect.poll(() => releases.length).toBe(attempt + 1);
+            if (releases.length < attempt + 1) await blockedCall.promise;
             await pool.query(
               `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
                  WHERE resource_key = $1 AND work_type = 'description'`,
@@ -2958,7 +2975,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
     async function runShutdownMarkScenario(options: {
       readonly releaseMarkOn: "durableReserve" | "poolEnd";
-    }): Promise<ShutdownScenario> {
+    }) {
       const resourceKey = `${OWNER}/shutdown-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
       const cfg = makeTestConfig({ runtime: { role: "worker", databaseUrl } });
@@ -3170,8 +3187,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         const handler = handlers.get(REVIEW_QUEUE);
         if (!handler) throw new Error("review queue handler was not registered");
         dispatchOutcome = handler([job]).then(
-          (): DispatchOutcome => ({ ok: true }),
-          (error: unknown): DispatchOutcome => ({ ok: false, error }),
+          () => ((pinnedReturn: DispatchOutcome) => pinnedReturn)({ ok: true }),
+          (error: unknown) =>
+            ((pinnedReturn: DispatchOutcome) => pinnedReturn)({ ok: false, error }),
         );
 
         await markEntered;
@@ -3197,7 +3215,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await dispatchOutcome;
         await disposed;
       }
-      return {
+      return ((pinnedReturn: ShutdownScenario | Promise<ShutdownScenario>) => pinnedReturn)({
         workItemId,
         resourceKey,
         cfg,
@@ -3206,7 +3224,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         warnings,
         markError,
         dispatchError,
-      };
+      });
     }
 
     it("marks a past-settle review completed inside the durable shutdown reserve (#643)", async () => {
@@ -3245,7 +3263,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       await expect(acquireFor(scenario.resourceKey, "review", successorId)).resolves.toMatchObject({
         acquired: true,
       });
-    }, 60_000);
+    });
 
     it("recovers a terminal mark dropped after the shutdown reserve (#643)", async () => {
       const scenario = await runShutdownMarkScenario({ releaseMarkOn: "poolEnd" });
@@ -3312,7 +3330,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect(recovered?.status).toBe("failed");
       expect(terminal.rows[0]?.last_error).toBe("worker_lost");
       expect(terminal.rows[0]?.completed_at).not.toBeNull();
-    }, 60_000);
+    });
   });
 
   it("admits exactly one holder per (resource key, work type) under concurrency", async () => {
@@ -3778,7 +3796,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       readonly updated_at: string;
     };
 
-    async function snapshotIntent(workItemId: string): Promise<IntentSnapshot> {
+    async function snapshotIntent(workItemId: string) {
       const { rows } = await pool.query<IntentSnapshot>(
         `SELECT status, detail, lease_epoch, updated_at::text AS updated_at
            FROM operation_intents
@@ -3787,11 +3805,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
       const row = rows[0];
       if (!row) throw new Error("missing operation_intents row");
-      return row;
+      return ((pinnedReturn: IntentSnapshot | Promise<IntentSnapshot>) => pinnedReturn)(row);
     }
 
-    function gatewayError(): Error {
-      return Object.assign(new Error("bad gateway"), { status: 503 });
+    function gatewayError() {
+      return ((pinnedReturn: Error) => pinnedReturn)(
+        Object.assign(new Error("bad gateway"), { status: 503 }),
+      );
     }
 
     async function acquireLive(resourceKey: string) {
@@ -4536,17 +4556,19 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     expect(Number(row.lease_epoch)).toBe(1);
   });
 
-  async function getLeaseRowFor(resourceKey: string, workType: string): Promise<LeaseRow | null> {
+  async function getLeaseRowFor(resourceKey: string, workType: string) {
     const { rows } = await pool.query<LeaseRow>(
       `SELECT lease_epoch, work_item_id, holder_id, expires_at
          FROM pr_actor_leases
         WHERE resource_key = $1 AND work_type = $2`,
       [resourceKey, workType],
     );
-    return rows[0] ?? null;
+    return ((pinnedReturn: (LeaseRow | null) | Promise<LeaseRow | null>) => pinnedReturn)(
+      rows[0] ?? null,
+    );
   }
 
-  async function insertTriageQueued(resourceKey: string, prNumber = 1): Promise<string> {
+  async function insertTriageQueued(resourceKey: string, prNumber = 1) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -4559,13 +4581,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
        )`,
       [id, OWNER, prNumber, resourceKey],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
   async function insertAutoQueued(
     resourceKey: string,
     type: "review" | "description" | "verification",
-  ): Promise<string> {
+  ) {
     const id = randomUUID();
     if (type === "review") {
       await pool.query(
@@ -4579,7 +4601,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
          )`,
         [id, OWNER, resourceKey],
       );
-      return id;
+      return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
     }
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -4589,16 +4611,16 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
        VALUES ($1, $2, 'auto', 'queued', $3, 'r', 1, 1, 'h', NULL, $4, '{"source":"auto"}'::jsonb)`,
       [id, type, OWNER, resourceKey],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
   async function insertAutoRunning(
     resourceKey: string,
     type: "review" | "description" | "verification",
-  ): Promise<string> {
+  ) {
     const id = await insertAutoQueued(resourceKey, type);
     await claimWorkForExecution(pool, id);
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
   function acquireFor(

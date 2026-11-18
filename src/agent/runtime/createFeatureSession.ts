@@ -30,15 +30,15 @@ export type FeatureSessionContext = {
   readonly attemptCount?: number;
 };
 
-function attachSessionAbort(session: PiSession, sessionAbort: AbortController): PiSession {
+function attachSessionAbort(session: PiSession, sessionAbort: AbortController) {
   const originalAbort = session.abort.bind(session);
-  return {
+  return ((pinnedReturn: PiSession) => pinnedReturn)({
     ...session,
     abort: async () => {
       sessionAbort.abort();
       await originalAbort();
     },
-  };
+  });
 }
 
 export async function createFeaturePiSession(params: {
@@ -58,14 +58,14 @@ export async function createFeaturePiSession(params: {
   };
   readonly hostSignal?: AbortSignal;
   readonly attemptModel?: ModelAssignment;
-}): Promise<PiSession> {
+}) {
   const policy = resolveModelPolicy(params.cfg);
   const primary = params.attemptModel ?? modelAssignmentForRole(policy, params.role);
   const agentEventsContext = resolveAgentEventsContext(params.cfg, params.sessionContext);
   const durableEventSink = agentEventsContext
     ? createDurableLifecycleEventSink(agentEventsContext, params.cfg)
     : null;
-  const eventSink = (event: AgentLifecycleEvent): void => {
+  const eventSink = (event: AgentLifecycleEvent) => {
     try {
       params.eventSink?.(event);
     } catch {}
@@ -130,5 +130,7 @@ export async function createFeaturePiSession(params: {
     refreshBeforeTool: params.refreshBeforeTool,
     hostSignal: params.hostSignal,
   });
-  return attachSessionAbort(session, sessionAbort);
+  return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(
+    attachSessionAbort(session, sessionAbort),
+  );
 }

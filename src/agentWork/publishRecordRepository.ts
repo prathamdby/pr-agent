@@ -28,7 +28,7 @@ export async function claimSummaryCommentCreation(
   resourceKey: string,
   reviewLens: AnyReviewLens,
   leaseEpoch?: number | null,
-): Promise<boolean> {
+) {
   const result = await fencedWrite(
     pool,
     workItemId,
@@ -47,14 +47,14 @@ export async function claimSummaryCommentCreation(
         [crypto.randomUUID(), workItemId, resourceKey, reviewLens, leaseEpoch ?? null],
       ),
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
 export async function getSummaryCommentGithubId(
   pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
-): Promise<number | null> {
+) {
   const row = await queryOne<{ github_id: string }>(
     pool,
     `SELECT github_id
@@ -68,16 +68,19 @@ export async function getSummaryCommentGithubId(
 		  LIMIT 1`,
     [resourceKey, reviewLens],
   );
-  if (!row?.github_id) return null;
+  if (!row?.github_id)
+    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null);
   const id = Number(row.github_id);
-  return Number.isFinite(id) ? id : null;
+  return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
+    Number.isFinite(id) ? id : null,
+  );
 }
 
 export async function getProgressCommentOwner(
   pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
-): Promise<{ readonly workItemId: string; readonly generation: number } | null> {
+) {
   const row = await queryOne<{ work_item_id: string; generation: number | null }>(
     pool,
     `SELECT work_item_id, (detail->>'progressGeneration')::integer AS generation
@@ -88,18 +91,27 @@ export async function getProgressCommentOwner(
       LIMIT 1`,
     [resourceKey, reviewLens],
   );
-  if (row == null) return null;
-  return {
+  if (row == null)
+    return ((
+      pinnedReturn:
+        | ({ readonly workItemId: string; readonly generation: number } | null)
+        | Promise<{ readonly workItemId: string; readonly generation: number } | null>,
+    ) => pinnedReturn)(null);
+  return ((
+    pinnedReturn:
+      | ({ readonly workItemId: string; readonly generation: number } | null)
+      | Promise<{ readonly workItemId: string; readonly generation: number } | null>,
+  ) => pinnedReturn)({
     workItemId: row.work_item_id,
     generation: row.generation == null || !Number.isFinite(row.generation) ? 0 : row.generation,
-  };
+  });
 }
 
 export async function getProgressCommentRevision(
   pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
-): Promise<{ readonly workItemId: string; readonly revision: number } | null> {
+) {
   const row = await queryOne<{ work_item_id: string; revision: number | null }>(
     pool,
     `SELECT work_item_id, (detail->>'progressRevision')::integer AS revision
@@ -112,14 +124,20 @@ export async function getProgressCommentRevision(
       LIMIT 1`,
     [resourceKey, reviewLens],
   );
-  return row?.revision == null ? null : { workItemId: row.work_item_id, revision: row.revision };
+  return ((
+    pinnedReturn:
+      | ({ readonly workItemId: string; readonly revision: number } | null)
+      | Promise<{ readonly workItemId: string; readonly revision: number } | null>,
+  ) => pinnedReturn)(
+    row?.revision == null ? null : { workItemId: row.work_item_id, revision: row.revision },
+  );
 }
 
 export async function getProgressStubPostedAtMs(
   pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
-): Promise<number | null> {
+) {
   const row = await queryOne<{ stub_posted_at_ms: string | number | null }>(
     pool,
     `SELECT detail->>'stubPostedAtMs' AS stub_posted_at_ms
@@ -132,16 +150,19 @@ export async function getProgressStubPostedAtMs(
       LIMIT 1`,
     [resourceKey, reviewLens],
   );
-  if (row?.stub_posted_at_ms == null) return null;
+  if (row?.stub_posted_at_ms == null)
+    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null);
   const value = Number(row.stub_posted_at_ms);
-  return Number.isFinite(value) ? value : null;
+  return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
+    Number.isFinite(value) ? value : null,
+  );
 }
 
 export async function getReviewCheckRunGithubId(
   pool: Pool | PoolClient,
   workItemId: string,
   reviewLens: AnyReviewLens,
-): Promise<number | null> {
+) {
   const row = await queryOne<{ github_id: string | null }>(
     pool,
     `SELECT github_id
@@ -153,9 +174,12 @@ export async function getReviewCheckRunGithubId(
 		  LIMIT 1`,
     [workItemId, reviewLens],
   );
-  if (!row?.github_id) return null;
+  if (!row?.github_id)
+    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null);
   const id = Number(row.github_id);
-  return Number.isFinite(id) ? id : null;
+  return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
+    Number.isFinite(id) ? id : null,
+  );
 }
 
 const selectedOwnVerdictSchema = v.object({
@@ -183,9 +207,11 @@ const ownVerdictMutationKinds = {
   status: ["github.review_commit_status", "github.pr_surface.setReviewCommitStatus"],
 };
 
-function ownVerdictSurfaceState(value: unknown, applied: boolean): OwnVerdictSurfaceState {
-  if (applied) return "applied";
-  return value === "skipped-for-this-run" || value === "blocked" ? value : "unresolved";
+function ownVerdictSurfaceState(value: unknown, applied: boolean) {
+  if (applied) return ((pinnedReturn: OwnVerdictSurfaceState) => pinnedReturn)("applied");
+  return ((pinnedReturn: OwnVerdictSurfaceState) => pinnedReturn)(
+    value === "skipped-for-this-run" || value === "blocked" ? value : "unresolved",
+  );
 }
 type OwnVerdictIdentity = {
   readonly workItemId: string;
@@ -194,12 +220,12 @@ type OwnVerdictIdentity = {
   readonly leaseEpoch?: number | null;
 };
 
-export function ownVerdictStatusApplicable(selected: SelectedOwnVerdict): boolean {
-  return (
+export function ownVerdictStatusApplicable(selected: SelectedOwnVerdict) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     selected.status != null &&
-    selected.status.enabled &&
-    selected.status.headSha.length > 0 &&
-    selected.status.headSha !== DEFERRED_HEAD_SHA
+      selected.status.enabled &&
+      selected.status.headSha.length > 0 &&
+      selected.status.headSha !== DEFERRED_HEAD_SHA,
   );
 }
 
@@ -250,7 +276,7 @@ export async function hasOwnVerdictSurfaceAcceptance(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
   surface: "check" | "status",
-): Promise<boolean> {
+) {
   const row = await queryOne<{ applicable: boolean }>(
     client,
     `SELECT EXISTS (
@@ -261,14 +287,14 @@ export async function hasOwnVerdictSurfaceAcceptance(
      ) AS applicable`,
     [params.workItemId, ownVerdictMutationKinds[surface]],
   );
-  return row?.applicable === true;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(row?.applicable === true);
 }
 
 export async function hasUnresolvedDelegatedOwnStatus(
   client: Pool | PoolClient,
   workItemId: string,
   operationKey: string,
-): Promise<boolean> {
+) {
   const row = await queryOne<{ unresolved: boolean }>(
     client,
     `SELECT EXISTS (
@@ -289,7 +315,7 @@ export async function hasUnresolvedDelegatedOwnStatus(
      ) AS unresolved`,
     [workItemId, operationKey],
   );
-  return row?.unresolved === true;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(row?.unresolved === true);
 }
 
 export async function recordOwnVerdictSurfaceState(
@@ -297,7 +323,7 @@ export async function recordOwnVerdictSurfaceState(
   params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
   surface: "check" | "status",
   state: Exclude<OwnVerdictSurfaceState, "applied">,
-): Promise<void> {
+) {
   const key = surface === "check" ? "ownCheckState" : "ownStatusState";
   await fencedWrite(client, params.workItemId, params.leaseEpoch, { before: true }, () =>
     client.query(
@@ -330,30 +356,38 @@ export async function recordOwnVerdictSurfaceState(
   );
 }
 
-export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity): string {
-  return `review:check_run_close:${params.workItemId}:${params.reviewLens}`;
+export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `review:check_run_close:${params.workItemId}:${params.reviewLens}`,
+  );
 }
 
 export async function getDelegatedOwnVerdictFinish(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
-): Promise<Pick<OperationIntentRow, "status" | "detail"> | null> {
-  return queryOne<Pick<OperationIntentRow, "status" | "detail">>(
-    client,
-    `SELECT status, detail FROM operation_intents
+) {
+  return ((
+    pinnedReturn:
+      | (Pick<OperationIntentRow, "status" | "detail"> | null)
+      | Promise<Pick<OperationIntentRow, "status" | "detail"> | null>,
+  ) => pinnedReturn)(
+    queryOne<Pick<OperationIntentRow, "status" | "detail">>(
+      client,
+      `SELECT status, detail FROM operation_intents
       WHERE work_item_id = $1
         AND mutation_kind = 'github.pr_surface.finishReviewCheck'
         AND detail->>'parentOperationKey' = $2
       ORDER BY created_at DESC
       LIMIT 1`,
-    [params.workItemId, ownVerdictCloseOperationKey(params)],
+      [params.workItemId, ownVerdictCloseOperationKey(params)],
+    ),
   );
 }
 
 async function hasLegacyOwnVerdictCompletion(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
-): Promise<boolean> {
+) {
   const row = await queryOne<{ blocked: boolean }>(
     client,
     `SELECT EXISTS (
@@ -382,13 +416,13 @@ async function hasLegacyOwnVerdictCompletion(
      ) AS blocked`,
     [params.workItemId, ownVerdictCloseOperationKey(params)],
   );
-  return row?.blocked === true;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(row?.blocked === true);
 }
 
 async function reconcileSavedOwnVerdictAcceptance(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity,
-): Promise<void> {
+) {
   await fencedWrite(client, params.workItemId, params.leaseEpoch, { before: true }, () =>
     client.query(
       `UPDATE operation_intents SET status = 'reconciled', updated_at = now()
@@ -537,7 +571,7 @@ export async function recordOwnVerdictSurfaceApplied(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
   surface: "check" | "status",
-): Promise<void> {
+) {
   const check = surface === "check";
   const result = await fencedWrite(
     client,
@@ -599,23 +633,25 @@ export async function withOwnVerdictClose<T>(
   pool: Pool,
   params: OwnVerdictIdentity,
   apply: (client: PoolClient) => Promise<T>,
-): Promise<T | undefined> {
-  return withSessionLock(
-    pool,
-    { kind: "own_verdict", workItemId: params.workItemId, reviewLens: params.reviewLens },
-    {
-      mode: "try",
-      unleased: params.leaseEpoch == null,
-      capacityError: () =>
-        new AppError({
-          domain: "agent_work",
-          kind: "own_verdict_capacity",
-          message: "Leased own verdict close requires nested database capacity",
-          context: { workItemId: params.workItemId },
-        }),
-      onContended: (client) => getOwnVerdictCloseRecord(client, params),
-    },
-    apply,
+) {
+  return ((pinnedReturn: (T | undefined) | Promise<T | undefined>) => pinnedReturn)(
+    withSessionLock(
+      pool,
+      { kind: "own_verdict", workItemId: params.workItemId, reviewLens: params.reviewLens },
+      {
+        mode: "try",
+        unleased: params.leaseEpoch == null,
+        capacityError: () =>
+          new AppError({
+            domain: "agent_work",
+            kind: "own_verdict_capacity",
+            message: "Leased own verdict close requires nested database capacity",
+            context: { workItemId: params.workItemId },
+          }),
+        onContended: (client) => getOwnVerdictCloseRecord(client, params),
+      },
+      apply,
+    ),
   );
 }
 
@@ -628,7 +664,7 @@ export async function reserveReviewCheckRun(
     leaseEpoch?: number | null;
     detail?: Record<string, unknown>;
   },
-): Promise<boolean> {
+) {
   const result = await fencedWrite(
     pool,
     params.workItemId,
@@ -665,7 +701,7 @@ export async function reserveReviewCheckRun(
         ],
       ),
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
 export async function recordReviewCheckRun(
@@ -678,7 +714,7 @@ export async function recordReviewCheckRun(
     leaseEpoch?: number | null;
     detail?: Record<string, unknown>;
   },
-): Promise<void> {
+) {
   await fencedWrite(
     pool,
     params.workItemId,
@@ -726,7 +762,7 @@ export async function releaseUnstartedReviewCheckRunReservation(
     leaseEpoch?: number | null;
     staleBefore?: Date;
   },
-): Promise<boolean> {
+) {
   const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
   const leaseParam =
     params.leaseEpoch == null ? null : (values.push(params.leaseEpoch), values.length);
@@ -776,13 +812,10 @@ export async function releaseUnstartedReviewCheckRunReservation(
         values,
       ),
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
-export async function listTriageEligibleInlineReviews(
-  pool: Pool,
-  resourceKey: string,
-): Promise<Map<number, AnyReviewLens>> {
+export async function listTriageEligibleInlineReviews(pool: Pool, resourceKey: string) {
   const result = await pool.query<{ github_id: string; review_lens: AnyReviewLens }>(
     `SELECT github_id, review_lens
        FROM publish_records
@@ -800,7 +833,8 @@ export async function listTriageEligibleInlineReviews(
       reviewLenses.set(reviewId, row.review_lens);
     }
   }
-  return reviewLenses;
+  return ((pinnedReturn: Map<number, AnyReviewLens> | Promise<Map<number, AnyReviewLens>>) =>
+    pinnedReturn)(reviewLenses);
 }
 
 type StoredInlineBatchRef = {
@@ -814,8 +848,11 @@ type StoredInlineBatchRef = {
   }[];
 };
 
-function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"][number] | null {
-  if (!isRecord(value)) return null;
+function parseStoredPlacement(value: unknown) {
+  if (!isRecord(value))
+    return ((pinnedReturn: StoredInlineBatchRef["placements"][number] | null) => pinnedReturn)(
+      null,
+    );
   const finding = v.safeParse(reviewFindingSchema, value.finding);
   const resolvedLine = Number(value.resolvedLine);
   const findingId = value.findingId;
@@ -825,17 +862,20 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
     resolvedLine <= 0 ||
     (findingId !== undefined && (typeof findingId !== "string" || !isFindingId(findingId)))
   ) {
-    return null;
+    return ((pinnedReturn: StoredInlineBatchRef["placements"][number] | null) => pinnedReturn)(
+      null,
+    );
   }
-  return {
+  return ((pinnedReturn: StoredInlineBatchRef["placements"][number] | null) => pinnedReturn)({
     finding: finding.output,
     resolvedLine,
     findingId: findingId ?? null,
-  };
+  });
 }
 
-export function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInlineBatchRef[] {
-  if (!Array.isArray(detail.batches)) return [];
+export function parseStoredInlineBatches(detail: Record<string, unknown>) {
+  if (!Array.isArray(detail.batches))
+    return ((pinnedReturn: StoredInlineBatchRef[]) => pinnedReturn)([]);
   const batches: StoredInlineBatchRef[] = [];
   for (const value of detail.batches) {
     if (!isRecord(value)) continue;
@@ -854,13 +894,13 @@ export function parseStoredInlineBatches(detail: Record<string, unknown>): Store
         : [],
     });
   }
-  return batches;
+  return ((pinnedReturn: StoredInlineBatchRef[]) => pinnedReturn)(batches);
 }
 
 function parseResumedPlacements(
   rows: readonly { step: string; detail?: Record<string, unknown> | null }[],
   workItemId: string,
-): AcceptedPlacement[] {
+) {
   const inlineRow = rows.find((row) => row.step === "inline_review");
   const accepted: AcceptedPlacement[] = [];
   const seen = new Set<string>();
@@ -889,7 +929,7 @@ function parseResumedPlacements(
       });
     }
   }
-  return accepted;
+  return ((pinnedReturn: AcceptedPlacement[]) => pinnedReturn)(accepted);
 }
 
 function parseReviewPublishStateRows(
@@ -899,11 +939,7 @@ function parseReviewPublishStateRows(
     detail?: Record<string, unknown> | null;
   }[],
   workItemId: string,
-): {
-  summaryPublished: boolean;
-  inlineReviewIds: number[];
-  threadCallCount: number;
-} {
+) {
   const steps = new Set(rows.map((row) => row.step));
   const inlineRow = rows.find((row) => row.step === "inline_review");
   const inlineReviewIds = new Set<number>();
@@ -919,13 +955,17 @@ function parseReviewPublishStateRows(
       inlineReviewIds.add(legacyReviewId);
     }
   }
-  return {
+  return ((pinnedReturn: {
+    summaryPublished: boolean;
+    inlineReviewIds: number[];
+    threadCallCount: number;
+  }) => pinnedReturn)({
     summaryPublished: steps.has("summary_comment"),
     inlineReviewIds: [...inlineReviewIds],
     threadCallCount:
       batches.filter((batch) => batch.workItemId === workItemId).length ||
       (batches.length === 0 && inlineReviewIds.size > 0 ? 1 : 0),
-  };
+  });
 }
 
 export type ReviewExecutorPublishContext = {
@@ -944,7 +984,7 @@ export async function loadReviewExecutorPublishContext(
   workItemId: string,
   resourceKey: string,
   reviewLens: AnyReviewLens,
-): Promise<ReviewExecutorPublishContext> {
+) {
   const row = await queryOne<{
     current_publish:
       | { step: string; github_id: string | null; detail: Record<string, unknown> | null }[]
@@ -994,7 +1034,8 @@ export async function loadReviewExecutorPublishContext(
     row?.latest_progress_comment_github_id != null
       ? Number(row.latest_progress_comment_github_id)
       : null;
-  return {
+  return ((pinnedReturn: ReviewExecutorPublishContext | Promise<ReviewExecutorPublishContext>) =>
+    pinnedReturn)({
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,
     resumedPlacements: parseResumedPlacements(currentPublish, workItemId),
@@ -1002,5 +1043,5 @@ export async function loadReviewExecutorPublishContext(
       progressCommentGithubId != null && Number.isFinite(progressCommentGithubId)
         ? progressCommentGithubId
         : null,
-  };
+  });
 }

@@ -11,8 +11,8 @@ import { makeTestConfig } from "./helpers/config.ts";
 
 const features = makeTestConfig().features;
 
-function makeInput(command: string): SlashCommandInput {
-  return {
+function makeInput(command: string) {
+  return ((pinnedReturn: SlashCommandInput) => pinnedReturn)({
     headers: {
       event: "issue_comment",
       delivery: `d-${command}`,
@@ -27,11 +27,11 @@ function makeInput(command: string): SlashCommandInput {
     body: `/${command}`,
     command,
     replyTarget: { kind: "prConversation", prNumber: 7 },
-  };
+  });
 }
 
-function makeClient(): PoolClient {
-  return {
+function makeClient() {
+  return ((pinnedReturn: PoolClient) => pinnedReturn)({
     query: vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_event_replays")) {
         return { rows: [{ body_sha256: "hash" }] };
@@ -44,11 +44,11 @@ function makeClient(): PoolClient {
       }
       return { rows: [] };
     }),
-  } as unknown as PoolClient;
+  } as unknown as PoolClient);
 }
 
-function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
-  return {
+function makeBoss(sent: { queue: string; data: unknown }[]) {
+  return ((pinnedReturn: PgBoss) => pinnedReturn)({
     send: vi.fn(async (queue: string, data: unknown) => {
       sent.push({ queue, data });
       return "job-1";
@@ -56,7 +56,7 @@ function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
     findJobs: vi.fn(async () => []),
     deleteJob: vi.fn(async () => ({ rows: [] })),
     cancel: vi.fn(async () => ({ rows: [] })),
-  } as unknown as PgBoss;
+  } as unknown as PgBoss);
 }
 
 describe("slash command feature gating", () => {

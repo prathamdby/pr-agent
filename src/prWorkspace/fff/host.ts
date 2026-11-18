@@ -56,23 +56,25 @@ export type FffHostResponse =
 
 const finders = new Map<string, FileFinder>();
 
-function touch(key: string, finder: FileFinder): void {
+function touch(key: string, finder: FileFinder) {
   finders.delete(key);
   finders.set(key, finder);
 }
 
-function closeIndex(key: string): void {
+function closeIndex(key: string) {
   finders.get(key)?.destroy();
   finders.delete(key);
 }
 
-function listIndexedFiles(finder: FileFinder, totalFiles: number): FffIndexedFile[] {
+function listIndexedFiles(finder: FileFinder, totalFiles: number) {
   const listed = finder.fileSearch("", { pageSize: Math.max(totalFiles, 1) });
   if (!listed.ok) throw new Error(listed.error);
-  return listed.value.items.map((item) => ({ path: item.relativePath, size: item.size }));
+  return ((pinnedReturn: FffIndexedFile[]) => pinnedReturn)(
+    listed.value.items.map((item) => ({ path: item.relativePath, size: item.size })),
+  );
 }
 
-async function open(request: Extract<HostRequest, { op: "open" }>): Promise<FffOpenResult> {
+async function open(request: Extract<HostRequest, { op: "open" }>) {
   closeIndex(request.key);
   while (finders.size >= request.maxIndexes) {
     const oldest = finders.keys().next();
@@ -97,18 +99,24 @@ async function open(request: Extract<HostRequest, { op: "open" }>): Promise<FffO
     const totalFiles = probe.value.totalFiles;
     if (totalFiles > request.maxFiles) {
       finder.destroy();
-      return { status: "too_large", totalFiles };
+      return ((pinnedReturn: FffOpenResult | Promise<FffOpenResult>) => pinnedReturn)({
+        status: "too_large",
+        totalFiles,
+      });
     }
     const files = listIndexedFiles(finder, totalFiles);
     finders.set(request.key, finder);
-    return { status: "ready", files };
+    return ((pinnedReturn: FffOpenResult | Promise<FffOpenResult>) => pinnedReturn)({
+      status: "ready",
+      files,
+    });
   } catch (error) {
     finder.destroy();
     throw error;
   }
 }
 
-function grep(request: Extract<HostRequest, { op: "grep" }>): FffGrepResult {
+function grep(request: Extract<HostRequest, { op: "grep" }>) {
   const finder = finders.get(request.key);
   if (finder == null) throw new Error("index_not_open");
   touch(request.key, finder);
@@ -134,15 +142,17 @@ function grep(request: Extract<HostRequest, { op: "grep" }>): FffGrepResult {
         line: item.lineNumber,
         byteOffset: item.byteOffset,
       });
-      if (hits.length >= request.maxMatches) return { hits, capped: true };
+      if (hits.length >= request.maxMatches)
+        return ((pinnedReturn: FffGrepResult) => pinnedReturn)({ hits, capped: true });
     }
     cursor = page.value.nextCursor;
-    if (cursor == null) return { hits, capped: false };
+    if (cursor == null)
+      return ((pinnedReturn: FffGrepResult) => pinnedReturn)({ hits, capped: false });
     if (Date.now() > deadline) throw new Error("time_budget_exceeded");
   }
 }
 
-function findFiles(request: Extract<HostRequest, { op: "files" }>): FffFilesResult {
+function findFiles(request: Extract<HostRequest, { op: "files" }>) {
   const finder = finders.get(request.key);
   if (finder == null) throw new Error("index_not_open");
   touch(request.key, finder);
@@ -151,23 +161,26 @@ function findFiles(request: Extract<HostRequest, { op: "files" }>): FffFilesResu
     pageSize: request.maxResults + denied.size + 1,
   });
   if (!found.ok) throw new Error(found.error);
-  return {
+  return ((pinnedReturn: FffFilesResult) => pinnedReturn)({
     paths: found.value.items
       .map((item) => item.relativePath)
       .filter((path) => !denied.has(path))
       .slice(0, request.maxResults + 1),
-  };
+  });
 }
 
-async function handle(request: HostRequest): Promise<unknown> {
-  if (request.op === "open") return open(request);
-  if (request.op === "grep") return grep(request);
-  if (request.op === "files") return findFiles(request);
+async function handle(request: HostRequest) {
+  if (request.op === "open")
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(open(request));
+  if (request.op === "grep")
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(grep(request));
+  if (request.op === "files")
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(findFiles(request));
   closeIndex(request.key);
-  return null;
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(null);
 }
 
-function reply(response: FffHostResponse): void {
+function reply(response: FffHostResponse) {
   process.send?.(response);
 }
 

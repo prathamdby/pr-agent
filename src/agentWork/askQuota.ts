@@ -23,8 +23,8 @@ import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.
 
 export type AskQuotaConfig = Config["ask"];
 
-export function defaultAskQuotaConfig(): AskQuotaConfig {
-  return {
+export function defaultAskQuotaConfig() {
+  return ((pinnedReturn: AskQuotaConfig) => pinnedReturn)({
     actorMaxOutstanding: DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
     repositoryMaxOutstanding: DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
     installationMaxOutstanding: DEFAULT_ASK_INSTALLATION_MAX_OUTSTANDING,
@@ -37,11 +37,14 @@ export function defaultAskQuotaConfig(): AskQuotaConfig {
     providerBudgetTokens: DEFAULT_ASK_PROVIDER_BUDGET_TOKENS,
     providerBudgetWindowSeconds: DEFAULT_ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
     providerReservationTokens: DEFAULT_ASK_PROVIDER_RESERVATION_TOKENS,
-  };
+  });
 }
 
-export function resolveAskQuotaConfig(config: Partial<AskQuotaConfig> | undefined): AskQuotaConfig {
-  return { ...defaultAskQuotaConfig(), ...config };
+export function resolveAskQuotaConfig(config: Partial<AskQuotaConfig> | undefined) {
+  return ((pinnedReturn: AskQuotaConfig) => pinnedReturn)({
+    ...defaultAskQuotaConfig(),
+    ...config,
+  });
 }
 
 export type AskQuotaRejectionReason =
@@ -90,16 +93,18 @@ const BUCKET_LOCK_ORDER: readonly AskQuotaScope[] = ["installation", "repository
 
 const ADMISSION_CHECK_ORDER: readonly AskQuotaScope[] = ["actor", "repository", "installation"];
 
-function installationScopeKey(installationId: number): string {
-  return `installation:${installationId}`;
+function installationScopeKey(installationId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`installation:${installationId}`);
 }
 
-function repositoryScopeKey(installationId: number, owner: string, repo: string): string {
-  return `repository:${installationId}:${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`;
+function repositoryScopeKey(installationId: number, owner: string, repo: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `repository:${installationId}:${owner.trim().toLowerCase()}/${repo.trim().toLowerCase()}`,
+  );
 }
 
-function actorScopeKey(installationId: number, commenterId: number): string {
-  return `actor:${installationId}:${commenterId}`;
+function actorScopeKey(installationId: number, commenterId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`actor:${installationId}:${commenterId}`);
 }
 
 function scopeParams(
@@ -110,8 +115,8 @@ function scopeParams(
     readonly repo: string;
     readonly commenterId: number;
   },
-): readonly AskQuotaScopeParams[] {
-  return [
+) {
+  return ((pinnedReturn: readonly AskQuotaScopeParams[]) => pinnedReturn)([
     {
       scope: "installation",
       key: installationScopeKey(input.installationId),
@@ -133,19 +138,21 @@ function scopeParams(
       burst: config.actorBurst,
       refillSeconds: config.actorRefillSeconds,
     },
-  ];
+  ]);
 }
 
-function numberValue(value: string | number): number {
+function numberValue(value: string | number) {
   const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  return ((pinnedReturn: number) => pinnedReturn)(
+    Number.isFinite(parsed) && parsed >= 0 ? parsed : 0,
+  );
 }
 
 async function lockAndRefillBucket(
   client: PoolClient,
   params: AskQuotaScopeParams,
   config: AskQuotaConfig,
-): Promise<AskQuotaBucket> {
+) {
   await client.query(
     `INSERT INTO ask_quota_buckets (
        scope, scope_key, token_balance, last_refill_at,
@@ -204,17 +211,17 @@ async function lockAndRefillBucket(
     [params.scope, params.key, tokenBalance, providerTokensUsed, providerWindowStartedAt],
   );
 
-  return {
+  return ((pinnedReturn: AskQuotaBucket | Promise<AskQuotaBucket>) => pinnedReturn)({
     ...row,
     tokenBalance,
     outstandingCount: row.outstanding_count,
     providerTokensUsed,
     providerTokensReserved,
     providerWindowStartedAt,
-  };
+  });
 }
 
-function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope): AskQuotaBucket {
+function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope) {
   const bucket = buckets.find((candidate) => candidate.scope === scope);
   if (!bucket) {
     throw new AppError({
@@ -224,7 +231,7 @@ function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope)
       context: { scope },
     });
   }
-  return bucket;
+  return ((pinnedReturn: AskQuotaBucket) => pinnedReturn)(bucket);
 }
 
 async function reserveAskQuota(
@@ -237,7 +244,7 @@ async function reserveAskQuota(
     readonly commenterId: number;
   },
   config: AskQuotaConfig,
-): Promise<AskQuotaAdmission> {
+) {
   const scopes = scopeParams(config, params);
   const buckets: AskQuotaBucket[] = [];
   for (const scope of BUCKET_LOCK_ORDER) {
@@ -251,16 +258,16 @@ async function reserveAskQuota(
     if (!descriptor) throw new Error(`missing ask quota descriptor ${scope}`);
     const bucket = bucketByScope(buckets, scope);
     if (bucket.outstandingCount >= descriptor.maxOutstanding) {
-      return {
+      return ((pinnedReturn: AskQuotaAdmission | Promise<AskQuotaAdmission>) => pinnedReturn)({
         kind: "throttled",
         reason: `${scope}_outstanding` as AskQuotaRejectionReason,
-      };
+      });
     }
     if (bucket.tokenBalance < 1) {
-      return {
+      return ((pinnedReturn: AskQuotaAdmission | Promise<AskQuotaAdmission>) => pinnedReturn)({
         kind: "throttled",
         reason: `${scope}_rate` as AskQuotaRejectionReason,
-      };
+      });
     }
   }
 
@@ -274,7 +281,10 @@ async function reserveAskQuota(
       providerReservationTokens >
       config.providerBudgetTokens
   ) {
-    return { kind: "throttled", reason: "provider_budget" };
+    return ((pinnedReturn: AskQuotaAdmission | Promise<AskQuotaAdmission>) => pinnedReturn)({
+      kind: "throttled",
+      reason: "provider_budget",
+    });
   }
 
   for (const descriptor of scopes) {
@@ -313,7 +323,10 @@ async function reserveAskQuota(
     ],
   );
 
-  return { kind: "admitted", providerReservationTokens };
+  return ((pinnedReturn: AskQuotaAdmission | Promise<AskQuotaAdmission>) => pinnedReturn)({
+    kind: "admitted",
+    providerReservationTokens,
+  });
 }
 
 async function decrementOutstanding(
@@ -321,7 +334,7 @@ async function decrementOutstanding(
   scope: AskQuotaScope,
   key: string,
   providerTokensReserved = 0,
-): Promise<void> {
+) {
   const result = await client.query(
     `UPDATE ask_quota_buckets
         SET outstanding_count = GREATEST(0, outstanding_count - 1),
@@ -340,7 +353,7 @@ async function decrementOutstanding(
   }
 }
 
-async function releaseAskQuotaReservation(client: PoolClient, workItemId: string): Promise<void> {
+async function releaseAskQuotaReservation(client: PoolClient, workItemId: string) {
   const result = await client.query<{
     actor_scope_key: string;
     repository_scope_key: string;
@@ -378,8 +391,8 @@ async function releaseAskQuotaReservation(client: PoolClient, workItemId: string
   );
 }
 
-export function createAskExecutionId(): string {
-  return randomUUID();
+export function createAskExecutionId() {
+  return ((pinnedReturn: string) => pinnedReturn)(randomUUID());
 }
 
 type AskQuotaReservationLock = {
@@ -398,9 +411,11 @@ type AskQuotaBucketApplication =
 function sameProviderWindow(
   left: Date | string | null | undefined,
   right: Date | string | null | undefined,
-): boolean {
-  if (left == null || right == null) return true;
-  return new Date(left).getTime() === new Date(right).getTime();
+) {
+  if (left == null || right == null) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    new Date(left).getTime() === new Date(right).getTime(),
+  );
 }
 
 function bucketApplicationForReceipt(input: {
@@ -410,25 +425,29 @@ function bucketApplicationForReceipt(input: {
   readonly released: boolean;
   readonly sameUnknownWindow: boolean;
   readonly actualTokens: number;
-}): AskQuotaBucketApplication {
+}) {
   if (input.released && input.unknownCharged > 0 && !input.sameUnknownWindow) {
-    return { kind: "receipt_only" };
+    return ((pinnedReturn: AskQuotaBucketApplication) => pinnedReturn)({ kind: "receipt_only" });
   }
   if (input.alreadyKnown) {
-    return { kind: "adjust", reservedRelease: 0, usedDelta: input.actualTokens };
+    return ((pinnedReturn: AskQuotaBucketApplication) => pinnedReturn)({
+      kind: "adjust",
+      reservedRelease: 0,
+      usedDelta: input.actualTokens,
+    });
   }
   if (!input.released) {
-    return {
+    return ((pinnedReturn: AskQuotaBucketApplication) => pinnedReturn)({
       kind: "adjust",
       reservedRelease: input.reserved,
       usedDelta: input.actualTokens,
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: AskQuotaBucketApplication) => pinnedReturn)({
     kind: "adjust",
     reservedRelease: 0,
     usedDelta: input.actualTokens - input.unknownCharged,
-  };
+  });
 }
 
 export async function recordAskProviderUsage(
@@ -438,7 +457,7 @@ export async function recordAskProviderUsage(
     readonly executionId: string;
     readonly usage?: AgentRunnerUsageMetadata;
   },
-): Promise<void> {
+) {
   const totalTokens = params.usage?.totalTokens;
   if (totalTokens == null || !Number.isFinite(totalTokens) || totalTokens < 0) return;
   if (params.executionId.length === 0) {
@@ -569,7 +588,7 @@ export async function deleteExpiredAskQuotaState(
   pool: Pool,
   retentionSeconds: number,
   batchSize: number,
-): Promise<number> {
+) {
   let deleted = 0;
   for (;;) {
     const result = await pool.query(
@@ -596,7 +615,8 @@ export async function deleteExpiredAskQuotaState(
     );
     const batch = result.rowCount ?? 0;
     deleted += batch;
-    if (batch < batchSize) return deleted;
+    if (batch < batchSize)
+      return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(deleted);
   }
 }
 
@@ -616,20 +636,19 @@ type RetainedAskMention = {
   readonly webhookEventId: string | null;
 };
 
-function askMentionLockKey(input: AskAdmissionInput): string {
-  return JSON.stringify([
-    "ask_mention_intake",
-    input.ref.installationId,
-    prResourceKey(input.ref.owner, input.ref.repo, input.ref.prNumber),
-    input.replyTarget.kind,
-    input.commentId,
-  ]);
+function askMentionLockKey(input: AskAdmissionInput) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    JSON.stringify([
+      "ask_mention_intake",
+      input.ref.installationId,
+      prResourceKey(input.ref.owner, input.ref.repo, input.ref.prNumber),
+      input.replyTarget.kind,
+      input.commentId,
+    ]),
+  );
 }
 
-async function findRetainedAskForMention(
-  client: PoolClient,
-  input: AskAdmissionInput,
-): Promise<RetainedAskMention | null> {
+async function findRetainedAskForMention(client: PoolClient, input: AskAdmissionInput) {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     askMentionLockKey(input),
   ]);
@@ -652,16 +671,21 @@ async function findRetainedAskForMention(
     ],
   );
   const row = rows[0];
-  return row ? { id: row.id, webhookEventId: row.webhook_event_id } : null;
+  return ((pinnedReturn: (RetainedAskMention | null) | Promise<RetainedAskMention | null>) =>
+    pinnedReturn)(row ? { id: row.id, webhookEventId: row.webhook_event_id } : null);
 }
 
 export async function admitAsk(
   client: PoolClient,
   input: AskAdmissionInput,
   config: AskQuotaConfig,
-): Promise<AskAdmission> {
+) {
   const retained = await findRetainedAskForMention(client, input);
-  if (retained) return { kind: "retained", ...retained };
+  if (retained)
+    return ((pinnedReturn: AskAdmission | Promise<AskAdmission>) => pinnedReturn)({
+      kind: "retained",
+      ...retained,
+    });
   const workItemId = input.workItemId ?? randomUUID();
   const reservation = await reserveAskQuota(
     client,
@@ -674,12 +698,13 @@ export async function admitAsk(
     },
     config,
   );
-  if (reservation.kind === "throttled") return reservation;
+  if (reservation.kind === "throttled")
+    return ((pinnedReturn: AskAdmission | Promise<AskAdmission>) => pinnedReturn)(reservation);
   const inserted = await createAskWorkItem(client, { ...input, workItemId });
   if (!inserted.created) await releaseAskQuotaReservation(client, workItemId);
-  return {
+  return ((pinnedReturn: AskAdmission | Promise<AskAdmission>) => pinnedReturn)({
     kind: "admitted",
     ...inserted,
     providerReservationTokens: reservation.providerReservationTokens,
-  };
+  });
 }

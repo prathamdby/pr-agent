@@ -1,6 +1,6 @@
 import { AppError } from "../errors/appError.ts";
 
-export function requireEnv(name: string): string {
+export function requireEnv(name: string) {
   const v = process.env[name];
   if (!v) {
     throw new AppError({
@@ -10,14 +10,14 @@ export function requireEnv(name: string): string {
       context: { name },
     });
   }
-  return v;
+  return ((pinnedReturn: string) => pinnedReturn)(v);
 }
 
-export function optionalEnv(name: string, defaultValue: string): string {
-  return process.env[name] ?? defaultValue;
+export function optionalEnv(name: string, defaultValue: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(process.env[name] ?? defaultValue);
 }
 
-export function readPositiveNumber(name: string, defaultValue: number): number {
+export function readPositiveNumber(name: string, defaultValue: number) {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 1) {
     throw new AppError({
@@ -27,10 +27,10 @@ export function readPositiveNumber(name: string, defaultValue: number): number {
       context: { name },
     });
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-export function readNonNegativeNumber(name: string, defaultValue: number): number {
+export function readNonNegativeNumber(name: string, defaultValue: number) {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 0) {
     throw new AppError({
@@ -40,10 +40,10 @@ export function readNonNegativeNumber(name: string, defaultValue: number): numbe
       context: { name },
     });
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-export function readPositiveInteger(name: string, defaultValue: number): number {
+export function readPositiveInteger(name: string, defaultValue: number) {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new AppError({
@@ -53,10 +53,10 @@ export function readPositiveInteger(name: string, defaultValue: number): number 
       context: { name },
     });
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-export function readNonNegativeInteger(name: string, defaultValue: number): number {
+export function readNonNegativeInteger(name: string, defaultValue: number) {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new AppError({
@@ -66,17 +66,13 @@ export function readNonNegativeInteger(name: string, defaultValue: number): numb
       context: { name },
     });
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-export function readEnum<T extends string>(
-  name: string,
-  allowed: readonly T[],
-  defaultValue: T,
-): T {
+export function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T) {
   const value = optionalEnv(name, defaultValue);
   const member = allowed.find((candidate) => candidate === value);
-  if (member !== undefined) return member;
+  if (member !== undefined) return ((pinnedReturn: T) => pinnedReturn)(member);
   throw new AppError({
     domain: "config",
     kind: "invalid_enum",
@@ -85,10 +81,10 @@ export function readEnum<T extends string>(
   });
 }
 
-export function readStrictBoolean(name: string, defaultValue: boolean): boolean {
+export function readStrictBoolean(name: string, defaultValue: boolean) {
   const raw = process.env[name];
   if (raw == null || raw.trim() === "") {
-    return defaultValue;
+    return ((pinnedReturn: boolean) => pinnedReturn)(defaultValue);
   }
   if (raw !== "true" && raw !== "false") {
     throw new AppError({
@@ -98,9 +94,9 @@ export function readStrictBoolean(name: string, defaultValue: boolean): boolean 
       context: { name, allowed: ["true", "false"] },
     });
   }
-  return raw === "true";
+  return ((pinnedReturn: boolean) => pinnedReturn)(raw === "true");
 }
 
-export function isProductionNodeEnv(): boolean {
-  return process.env.NODE_ENV === "production";
+export function isProductionNodeEnv() {
+  return ((pinnedReturn: boolean) => pinnedReturn)(process.env.NODE_ENV === "production");
 }

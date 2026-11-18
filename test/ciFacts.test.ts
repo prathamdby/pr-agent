@@ -17,8 +17,8 @@ import {
   REVIEW_CI_SUMMARY_INCOMPLETE,
 } from "../src/settings/index.ts";
 
-function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
-  return {
+function completedCheck(id: number, name: string, conclusion: string) {
+  return ((pinnedReturn: CiCheckRunSnapshot) => pinnedReturn)({
     id,
     name,
     status: "completed",
@@ -27,7 +27,7 @@ function completedCheck(id: number, name: string, conclusion: string): CiCheckRu
     outputTitle: null,
     outputSummary: null,
     outputText: null,
-  };
+  });
 }
 
 describe("summarizeCiSnapshot", () => {
@@ -263,8 +263,8 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     status: string,
     conclusion: string | null,
     observedAt = "2026-01-01T00:00:00.000Z",
-  ): CiCheckFact {
-    return {
+  ) {
+    return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
       name,
       source: "check_run",
       status,
@@ -274,15 +274,11 @@ describe("classifySnapshot and applyCiCheckFact", () => {
       app_id: null,
       check_run_id: 1,
       observed_at: observedAt,
-    };
+    });
   }
 
-  function statusFact(
-    name: string,
-    state: string,
-    observedAt = "2026-01-01T00:00:00.000Z",
-  ): CiCheckFact {
-    return {
+  function statusFact(name: string, state: string, observedAt = "2026-01-01T00:00:00.000Z") {
+    return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
       name,
       source: "status",
       status: state,
@@ -292,7 +288,7 @@ describe("classifySnapshot and applyCiCheckFact", () => {
       app_id: null,
       check_run_id: null,
       observed_at: observedAt,
-    };
+    });
   }
 
   it("classifies empty facts as none", () => {
@@ -361,8 +357,8 @@ describe("classifySnapshot and applyCiCheckFact", () => {
   });
 });
 
-function factWith(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
-  return {
+function factWith(overrides: Partial<CiCheckFact> = {}) {
+  return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
     name: "lint",
     source: "check_run",
     status: "completed",
@@ -373,7 +369,7 @@ function factWith(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
     check_run_id: 77,
     observed_at: "2026-09-13T00:00:02.000Z",
     ...overrides,
-  };
+  });
 }
 
 describe("head state rendering and authored cache", () => {

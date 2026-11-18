@@ -10,8 +10,8 @@ import {
 import type { WorkStatus, WorkType } from "./types.ts";
 import type { WriteFence } from "./writeFence.ts";
 
-export function liveQueueJobSql(): string {
-  return `AND NOT EXISTS (
+export function liveQueueJobSql() {
+  return ((pinnedReturn: string) => pinnedReturn)(`AND NOT EXISTS (
             SELECT 1 FROM pgboss.job j
              WHERE j.name = CASE w.type
                WHEN 'review' THEN '${REVIEW_QUEUE}'
@@ -26,24 +26,20 @@ export function liveQueueJobSql(): string {
                  OR j.singleton_key = w.id::text
                  OR j.data @> jsonb_build_object('workItemId', w.id::text)
                )
-          )`;
+          )`);
 }
 
-export function lostRunningWorkLivenessSql(
-  clock: "$1::timestamptz" | "statement_timestamp()",
-): string {
-  return `AND NOT EXISTS (
+export function lostRunningWorkLivenessSql(clock: "$1::timestamptz" | "statement_timestamp()") {
+  return ((pinnedReturn: string) => pinnedReturn)(`AND NOT EXISTS (
             SELECT 1 FROM pr_actor_leases l
              WHERE l.work_item_id = w.id
                AND l.expires_at > ${clock}
           )
-          ${liveQueueJobSql()}`;
+          ${liveQueueJobSql()}`);
 }
 
-export function staleQueuedWorkLivenessSql(
-  clock: "$1::timestamptz" | "statement_timestamp()",
-): string {
-  return `AND CASE
+export function staleQueuedWorkLivenessSql(clock: "$1::timestamptz" | "statement_timestamp()") {
+  return ((pinnedReturn: string) => pinnedReturn)(`AND CASE
             WHEN w.type = 'ask' THEN true
             ELSE NOT EXISTS (
               SELECT 1 FROM pr_actor_leases l
@@ -53,14 +49,14 @@ export function staleQueuedWorkLivenessSql(
                  AND l.expires_at > ${clock}
             )
           END
-          ${liveQueueJobSql()}`;
+          ${liveQueueJobSql()}`);
 }
 
-export function leaseFenceSql(workItemIdColumn: string, epochParam: string): string {
-  return `AND (${epochParam}::bigint IS NULL OR EXISTS (
+export function leaseFenceSql(workItemIdColumn: string, epochParam: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`AND (${epochParam}::bigint IS NULL OR EXISTS (
 	          SELECT 1 FROM pr_actor_leases l
 	          WHERE l.work_item_id = ${workItemIdColumn} AND l.lease_epoch = ${epochParam}
-	            AND l.expires_at > now()))`;
+	            AND l.expires_at > now()))`);
 }
 
 type TransitionRow = {
@@ -122,23 +118,28 @@ const SELECTOR_COLUMNS = [
   ["source", "source"],
 ] as const;
 
-function selectorValue(
-  selector: TransitionSelector,
-  key: (typeof SELECTOR_COLUMNS)[number][0],
-): string | undefined {
+function selectorValue(selector: TransitionSelector, key: (typeof SELECTOR_COLUMNS)[number][0]) {
   switch (key) {
     case "id":
-      return "id" in selector ? selector.id : undefined;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        "id" in selector ? selector.id : undefined,
+      );
     case "resourceKey":
-      return selector.resourceKey;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(selector.resourceKey);
     case "type":
-      return "type" in selector ? selector.type : undefined;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        "type" in selector ? selector.type : undefined,
+      );
     case "reviewLens":
-      return "reviewLens" in selector ? selector.reviewLens : undefined;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        "reviewLens" in selector ? selector.reviewLens : undefined,
+      );
     case "source":
-      return "source" in selector ? selector.source : undefined;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        "source" in selector ? selector.source : undefined,
+      );
     default:
-      return undefined;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   }
 }
 
@@ -151,24 +152,27 @@ const TARGET_STAMP: Record<WorkStatus, "started" | "completed" | "none"> = {
   failed: "completed",
 };
 
-function statusLiteral(status: WorkStatus): string {
-  return `'${status}'`;
+function statusLiteral(status: WorkStatus) {
+  return ((pinnedReturn: string) => pinnedReturn)(`'${status}'`);
 }
 
-function statusPredicate(from: readonly WorkStatus[]): string {
+function statusPredicate(from: readonly WorkStatus[]) {
   const [only, ...rest] = from;
-  if (only != null && rest.length === 0) return `w.status = ${statusLiteral(only)}`;
-  return `w.status IN (${from.map(statusLiteral).join(", ")})`;
+  if (only != null && rest.length === 0)
+    return ((pinnedReturn: string) => pinnedReturn)(`w.status = ${statusLiteral(only)}`);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `w.status IN (${from.map(statusLiteral).join(", ")})`,
+  );
 }
 
 export async function transition<K extends TransitionColumn = never>(
   db: Pool | PoolClient,
   spec: TransitionSpec<K>,
-): Promise<TransitionResult<K>> {
+) {
   const params: unknown[] = [];
-  const bind = (value: unknown): string => {
+  const bind = (value: unknown) => {
     params.push(value);
-    return `$${params.length}`;
+    return ((pinnedReturn: string) => pinnedReturn)(`$${params.length}`);
   };
 
   const assignments = [`status = ${statusLiteral(spec.to)}`];
@@ -234,5 +238,8 @@ export async function transition<K extends TransitionColumn = never>(
         ${extra.join("\n        ")}${returning.length > 0 ? `\n    RETURNING ${returning.join(", ")}` : ""}`,
     params,
   );
-  return { rowCount: result.rowCount ?? 0, rows: result.rows };
+  return ((pinnedReturn: TransitionResult<K> | Promise<TransitionResult<K>>) => pinnedReturn)({
+    rowCount: result.rowCount ?? 0,
+    rows: result.rows,
+  });
 }

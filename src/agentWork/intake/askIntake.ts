@@ -34,19 +34,19 @@ export type AskIntakeOutcome =
   | { readonly kind: "promoted"; readonly workItemId: string; readonly created: boolean }
   | { readonly kind: "already_exists_skipped"; readonly workItemId: string };
 
-function askRef(input: AskIntakeInput): PrRef {
-  return {
+function askRef(input: AskIntakeInput) {
+  return ((pinnedReturn: PrRef) => pinnedReturn)({
     owner: input.owner,
     repo: input.repo,
     prNumber: input.prNumber,
     installationId: input.installationId,
     headSha: DEFERRED_HEAD_SHA,
     repositorySizeKb: input.repositorySizeKb,
-  };
+  });
 }
 
-function baseAck(input: AskIntakeInput): AckJobData {
-  return {
+function baseAck(input: AskIntakeInput) {
+  return ((pinnedReturn: AckJobData) => pinnedReturn)({
     kind: "ack",
     installationId: input.installationId,
     owner: input.owner,
@@ -55,7 +55,7 @@ function baseAck(input: AskIntakeInput): AckJobData {
     targets: input.ackTargets,
     commenterId: input.commenterId,
     ...input.correlation,
-  };
+  });
 }
 
 export async function promoteAskFromWebhookEvent(
@@ -63,7 +63,7 @@ export async function promoteAskFromWebhookEvent(
   client: PoolClient,
   input: AskIntakeInput,
   existingWorkItemPolicy: ExistingAskWorkItemPolicy,
-): Promise<AskIntakeOutcome> {
+) {
   const askParse = parseAskQuestion(input.body, input.botLogin);
   const ack = baseAck(input);
 
@@ -78,7 +78,10 @@ export async function promoteAskFromWebhookEvent(
         },
         input.webhookEventId,
       );
-      return { kind: "hint_acked", reason: "too_long" };
+      return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+        kind: "hint_acked",
+        reason: "too_long",
+      });
     }
     case "missing":
     case "not_ask": {
@@ -91,13 +94,18 @@ export async function promoteAskFromWebhookEvent(
         },
         input.webhookEventId,
       );
-      return { kind: "hint_acked", reason: "usage" };
+      return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+        kind: "hint_acked",
+        reason: "usage",
+      });
     }
     case "ok":
       break;
     default: {
       const exhaustive: never = askParse;
-      return exhaustive;
+      return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)(
+        exhaustive,
+      );
     }
   }
 
@@ -118,11 +126,18 @@ export async function promoteAskFromWebhookEvent(
   );
   if (admission.kind === "retained") {
     if (admission.webhookEventId !== input.webhookEventId || existingWorkItemPolicy === "skip")
-      return { kind: "already_exists_skipped", workItemId: admission.id };
+      return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+        kind: "already_exists_skipped",
+        workItemId: admission.id,
+      });
     const workItemId = admission.id;
     await enqueueAskAckIdempotent(boss, client, { ...ack, workItemId }, input.webhookEventId);
     await enqueueAsk(boss, client, ref, workItemId, input.correlation);
-    return { kind: "promoted", workItemId, created: false };
+    return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+      kind: "promoted",
+      workItemId,
+      created: false,
+    });
   }
   if (admission.kind === "throttled") {
     await enqueueAskAckIdempotent(
@@ -134,13 +149,23 @@ export async function promoteAskFromWebhookEvent(
       },
       input.webhookEventId,
     );
-    return { kind: "throttled", reason: admission.reason };
+    return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+      kind: "throttled",
+      reason: admission.reason,
+    });
   }
 
   if (!admission.created && existingWorkItemPolicy === "skip")
-    return { kind: "already_exists_skipped", workItemId: admission.id };
+    return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+      kind: "already_exists_skipped",
+      workItemId: admission.id,
+    });
   const workItemId = admission.id;
   await enqueueAskAckIdempotent(boss, client, { ...ack, workItemId }, input.webhookEventId);
   await enqueueAsk(boss, client, ref, workItemId, input.correlation);
-  return { kind: "promoted", workItemId, created: admission.created };
+  return ((pinnedReturn: AskIntakeOutcome | Promise<AskIntakeOutcome>) => pinnedReturn)({
+    kind: "promoted",
+    workItemId,
+    created: admission.created,
+  });
 }

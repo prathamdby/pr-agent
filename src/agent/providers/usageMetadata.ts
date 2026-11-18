@@ -24,17 +24,18 @@ export type AgentRunnerTurn = {
   readonly prompt?: AgentRunnerPromptMetadata;
 };
 
-export function promptMetadataFromText(text: string): AgentRunnerPromptMetadata {
-  return {
+export function promptMetadataFromText(text: string) {
+  return ((pinnedReturn: AgentRunnerPromptMetadata) => pinnedReturn)({
     inputCharacters: text.length,
     inputBytes: Buffer.byteLength(text, "utf8"),
-  };
+  });
 }
 
-export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetadata | undefined {
+export function exactUsageFromProviderUsage(usage: Usage) {
   const hasTokenData = usage.totalTokens > 0 || usage.input > 0 || usage.output > 0;
-  if (!hasTokenData) return undefined;
-  return {
+  if (!hasTokenData)
+    return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)({
     estimated: false,
     inputTokens: usage.input,
     outputTokens: usage.output,
@@ -42,24 +43,25 @@ export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetad
     ...(usage.cacheWrite != null ? { cacheWriteTokens: usage.cacheWrite } : {}),
     ...(usage.cacheWrite1h != null ? { cacheWrite1hTokens: usage.cacheWrite1h } : {}),
     totalTokens: usage.totalTokens,
-  };
+  });
 }
 
-function mergeOptionalCount(left?: number, right?: number): number | undefined {
-  if (left === undefined && right === undefined) return undefined;
-  return (left ?? 0) + (right ?? 0);
+function mergeOptionalCount(left?: number, right?: number) {
+  if (left === undefined && right === undefined)
+    return ((pinnedReturn: number | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: number | undefined) => pinnedReturn)((left ?? 0) + (right ?? 0));
 }
 
 export function mergeExactUsage(
   left: AgentRunnerUsageMetadata | undefined,
   right: AgentRunnerUsageMetadata | undefined,
-): AgentRunnerUsageMetadata | undefined {
-  if (!left) return right;
-  if (!right) return left;
+) {
+  if (!left) return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)(right);
+  if (!right) return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)(left);
   const cacheReadTokens = mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens);
   const cacheWriteTokens = mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens);
   const cacheWrite1hTokens = mergeOptionalCount(left.cacheWrite1hTokens, right.cacheWrite1hTokens);
-  return {
+  return ((pinnedReturn: AgentRunnerUsageMetadata | undefined) => pinnedReturn)({
     estimated: false,
     inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),
     outputTokens: mergeOptionalCount(left.outputTokens, right.outputTokens),
@@ -67,5 +69,5 @@ export function mergeExactUsage(
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(cacheWrite1hTokens !== undefined ? { cacheWrite1hTokens } : {}),
     totalTokens: mergeOptionalCount(left.totalTokens, right.totalTokens),
-  };
+  });
 }

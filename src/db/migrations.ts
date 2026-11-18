@@ -9,7 +9,7 @@ const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
 
 const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 
-export async function runMigrations(pool: Pool): Promise<void> {
+export async function runMigrations(pool: Pool) {
   const lockClient = await pool.connect();
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_ADVISORY_LOCK_KEY]);
@@ -22,7 +22,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
   }
 }
 
-async function applyMigrations(pool: Pool): Promise<void> {
+async function applyMigrations(pool: Pool) {
   await pool.query(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version text PRIMARY KEY,

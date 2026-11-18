@@ -34,30 +34,36 @@ type DiscoveredFile =
   | { readonly filename: AgentInstructionFilename; readonly kind: "loaded"; readonly body: string }
   | { readonly filename: AgentInstructionFilename; readonly kind: "skip"; readonly reason: string };
 
-function errnoCode(error: unknown): string | undefined {
+function errnoCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
     const code = error.code;
-    return typeof code === "string" ? code : undefined;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      typeof code === "string" ? code : undefined,
+    );
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 async function discoverAgentInstructionFile(
   checkoutRoot: string,
   filename: AgentInstructionFilename,
-): Promise<DiscoveredFile | null> {
+) {
   const absolutePath = join(checkoutRoot, filename);
   let fileStat;
   try {
     fileStat = await stat(absolutePath);
   } catch (error) {
-    if (errnoCode(error) === "ENOENT") return null;
+    if (errnoCode(error) === "ENOENT")
+      return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
+        pinnedReturn)(null);
     const message = errorMessage(error);
-    return { filename, kind: "skip", reason: message };
+    return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
+      pinnedReturn)({ filename, kind: "skip", reason: message });
   }
 
   if (!fileStat.isFile()) {
-    return { filename, kind: "skip", reason: "not a regular file" };
+    return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
+      pinnedReturn)({ filename, kind: "skip", reason: "not a regular file" });
   }
 
   let raw: string;
@@ -65,15 +71,19 @@ async function discoverAgentInstructionFile(
     raw = await readFile(absolutePath, "utf8");
   } catch (error) {
     const message = errorMessage(error);
-    return { filename, kind: "skip", reason: message };
+    return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
+      pinnedReturn)({ filename, kind: "skip", reason: message });
   }
 
   const body = raw.trim();
   if (body.length === 0) {
-    return { filename, kind: "skip", reason: "empty after trim" };
+    return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
+      pinnedReturn)({ filename, kind: "skip", reason: "empty after trim" });
   }
 
-  return { filename, kind: "loaded", body };
+  return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) => pinnedReturn)(
+    { filename, kind: "loaded", body },
+  );
 }
 
 export type AgentInstructionCandidate = {
@@ -84,15 +94,18 @@ export type AgentInstructionCandidate = {
 export async function loadAgentInstructionFiles(
   source: string | readonly AgentInstructionCandidate[],
   maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
-): Promise<AgentInstructionFilesResult> {
-  if (typeof source !== "string") return loadAgentInstructionCandidates(source, maxBytes);
-  return loadAgentInstructionFilesFromCheckout(source, maxBytes);
+) {
+  if (typeof source !== "string")
+    return ((pinnedReturn: AgentInstructionFilesResult | Promise<AgentInstructionFilesResult>) =>
+      pinnedReturn)(loadAgentInstructionCandidates(source, maxBytes));
+  return ((pinnedReturn: AgentInstructionFilesResult | Promise<AgentInstructionFilesResult>) =>
+    pinnedReturn)(loadAgentInstructionFilesFromCheckout(source, maxBytes));
 }
 
 function loadAgentInstructionCandidates(
   candidates: readonly AgentInstructionCandidate[],
   maxBytes: number,
-): AgentInstructionFilesResult {
+) {
   const byPath = new Map(
     candidates
       .filter((file) => isAllowlistedPolicyPath(file.path))
@@ -130,14 +143,19 @@ function loadAgentInstructionCandidates(
     aggregateBytes += byteLength;
     files.push({ filename, body });
   }
-  if (files.length === 0) return { kind: "absent", drops };
-  return { kind: "ok", files, drops };
+  if (files.length === 0)
+    return ((pinnedReturn: AgentInstructionFilesResult) => pinnedReturn)({ kind: "absent", drops });
+  return ((pinnedReturn: AgentInstructionFilesResult) => pinnedReturn)({
+    kind: "ok",
+    files,
+    drops,
+  });
 }
 
 async function loadAgentInstructionFilesFromCheckout(
   checkoutRoot: string,
   maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
-): Promise<AgentInstructionFilesResult> {
+) {
   const settled = await Promise.allSettled(
     AGENT_INSTRUCTION_FILENAMES.map((filename) =>
       discoverAgentInstructionFile(checkoutRoot, filename),
@@ -196,21 +214,23 @@ async function loadAgentInstructionFilesFromCheckout(
   }
 
   if (files.length === 0) {
-    return { kind: "absent", drops };
+    return ((pinnedReturn: AgentInstructionFilesResult | Promise<AgentInstructionFilesResult>) =>
+      pinnedReturn)({ kind: "absent", drops });
   }
-  return { kind: "ok", files, drops };
+  return ((pinnedReturn: AgentInstructionFilesResult | Promise<AgentInstructionFilesResult>) =>
+    pinnedReturn)({ kind: "ok", files, drops });
 }
 
 export function renderAgentInstructionFilesBlock(params: {
   readonly files: readonly AgentInstructionFile[];
-}): string {
+}) {
   if (params.files.length === 0) {
-    return "";
+    return ((pinnedReturn: string) => pinnedReturn)("");
   }
 
   const lines = renderAgentInstructionFilesTrustGuidance();
   for (const file of params.files) {
     lines.push("", `### File \`${file.filename}\``, file.body);
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }

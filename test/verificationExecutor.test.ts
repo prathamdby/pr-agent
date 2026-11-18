@@ -97,7 +97,7 @@ import { makeVerificationWorkItem } from "./helpers/agentWorkItems.ts";
 let runExecution: () => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["verification"]) => Promise<unknown>,
-): void {
+) {
   runExecution = () =>
     run(
       createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
@@ -121,7 +121,7 @@ function item(overrides: Parameters<typeof makeVerificationWorkItem>[0] = {}) {
   });
 }
 
-function mockDurableExecution(workItem = item()): void {
+function mockDurableExecution(workItem = item()) {
   configureExecution(async (spec) =>
     spec.execute(
       workItem,
@@ -151,8 +151,8 @@ function findingThread(
     humanReplies: string[];
     hasTriageReply: boolean;
   }> = {},
-): BotFindingThread {
-  return {
+) {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId,
     lens: "review" as const,
     path: "src/app.ts",
@@ -162,51 +162,56 @@ function findingThread(
     humanReplies: [] as string[],
     threadUrl: "https://github.test/thread",
     ...overrides,
-  };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function callArgument(fn: {
-  mock: { calls: readonly (readonly unknown[])[] };
-}): Record<string, unknown> {
+function callArgument(fn: { mock: { calls: readonly (readonly unknown[])[] } }) {
   const value = fn.mock.calls[0]?.[0];
   if (!isRecord(value)) throw new Error("expected an object argument");
-  return value;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(value);
 }
 
-function inventoryThreads(argument: Record<string, unknown>): readonly Record<string, unknown>[] {
+function inventoryThreads(argument: Record<string, unknown>) {
   if (!Array.isArray(argument.inventory)) throw new Error("expected an inventory");
-  return argument.inventory.map((thread) => {
-    if (!isRecord(thread)) throw new Error("expected a thread");
-    return thread;
-  });
+  return ((pinnedReturn: readonly Record<string, unknown>[]) => pinnedReturn)(
+    argument.inventory.map((thread) => {
+      if (!isRecord(thread)) throw new Error("expected a thread");
+      return thread;
+    }),
+  );
 }
 
-function objectionCommentIds(thread: Record<string, unknown> | undefined): number[] | undefined {
-  if (thread == null || thread.objections == null) return undefined;
+function objectionCommentIds(thread: Record<string, unknown> | undefined) {
+  if (thread == null || thread.objections == null)
+    return ((pinnedReturn: number[] | undefined) => pinnedReturn)(undefined);
   if (!Array.isArray(thread.objections)) throw new Error("expected objections");
-  return thread.objections.map((objection) => {
-    if (!isRecord(objection) || typeof objection.commentId !== "number") {
-      throw new Error("expected an objection");
-    }
-    return objection.commentId;
-  });
+  return ((pinnedReturn: number[] | undefined) => pinnedReturn)(
+    thread.objections.map((objection) => {
+      if (!isRecord(objection) || typeof objection.commentId !== "number") {
+        throw new Error("expected an objection");
+      }
+      return objection.commentId;
+    }),
+  );
 }
 
-function rootCommentIds(threads: readonly Record<string, unknown>[]): number[] {
-  return threads.map((thread) => {
-    if (typeof thread.rootCommentId !== "number") throw new Error("expected a root comment id");
-    return thread.rootCommentId;
-  });
+function rootCommentIds(threads: readonly Record<string, unknown>[]) {
+  return ((pinnedReturn: number[]) => pinnedReturn)(
+    threads.map((thread) => {
+      if (typeof thread.rootCommentId !== "number") throw new Error("expected a root comment id");
+      return thread.rootCommentId;
+    }),
+  );
 }
 
 async function addUserObjections(
   rootCommentId: number,
   replies: readonly { readonly id: number; readonly createdAt: string }[],
-): Promise<void> {
+) {
   const listed = await fakeDurablePrSurface().listReviewComments();
   const rootAt = "2026-01-01T13:00:00Z";
   durablePrSurfaceControls().setReviewComments([

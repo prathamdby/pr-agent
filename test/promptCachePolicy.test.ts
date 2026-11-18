@@ -332,20 +332,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function systemBlocks(
-  value: unknown,
-): Array<{ text?: string; cache_control?: unknown }> | undefined {
-  if (!isRecord(value) || !Array.isArray(value.system)) return undefined;
-  return value.system.filter(isRecord);
+function systemBlocks(value: unknown) {
+  if (!isRecord(value) || !Array.isArray(value.system))
+    return ((pinnedReturn: Array<{ text?: string; cache_control?: unknown }> | undefined) =>
+      pinnedReturn)(undefined);
+  return ((pinnedReturn: Array<{ text?: string; cache_control?: unknown }> | undefined) =>
+    pinnedReturn)(value.system.filter(isRecord));
 }
 
-function cacheMarkerCount(value: unknown): number {
-  if (Array.isArray(value)) return value.reduce((count, item) => count + cacheMarkerCount(item), 0);
-  if (!isRecord(value)) return 0;
+function cacheMarkerCount(value: unknown) {
+  if (Array.isArray(value))
+    return ((pinnedReturn: number) => pinnedReturn)(
+      value.reduce((count, item) => count + cacheMarkerCount(item), 0),
+    );
+  if (!isRecord(value)) return ((pinnedReturn: number) => pinnedReturn)(0);
   let count = value.cache_control == null ? 0 : 1;
   for (const [key, child] of Object.entries(value)) {
     if (key === "cache_control") continue;
     count += cacheMarkerCount(child);
   }
-  return count;
+  return ((pinnedReturn: number) => pinnedReturn)(count);
 }

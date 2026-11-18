@@ -50,26 +50,33 @@ export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
-function trimString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+function trimString(value: unknown) {
+  if (typeof value !== "string")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const trimmed = fixDoubleEscapedString(value).text.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    trimmed.length > 0 ? trimmed : undefined,
+  );
 }
 
-function coerceStringArray(value: unknown): string[] | undefined {
+function coerceStringArray(value: unknown) {
   if (Array.isArray(value)) {
     const items = value.flatMap((item) => {
       const s = trimString(item);
       return s ? [s] : [];
     });
-    return items.length > 0 ? items : undefined;
+    return ((pinnedReturn: string[] | undefined) => pinnedReturn)(
+      items.length > 0 ? items : undefined,
+    );
   }
   const single = trimString(value);
-  if (!single) return undefined;
-  return single
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  if (!single) return ((pinnedReturn: string[] | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string[] | undefined) => pinnedReturn)(
+    single
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 }
 
 const PR_TYPE_ALIASES: Record<string, v.InferOutput<typeof descriptionPrTypeSchema>> = {
@@ -84,11 +91,11 @@ const PR_TYPE_ALIASES: Record<string, v.InferOutput<typeof descriptionPrTypeSche
   other: "Other",
 };
 
-function coercePrTypes(
-  value: unknown,
-): v.InferOutput<typeof descriptionPrTypeSchema>[] | undefined {
+function coercePrTypes(value: unknown) {
   const raw = coerceStringArray(value);
-  if (!raw) return undefined;
+  if (!raw)
+    return ((pinnedReturn: v.InferOutput<typeof descriptionPrTypeSchema>[] | undefined) =>
+      pinnedReturn)(undefined);
   const mapped = raw.flatMap((item) => {
     const key = item.toLowerCase().replace(/\s+/g, " ");
     const alias = PR_TYPE_ALIASES[key.replace(/ /g, "_")] ?? PR_TYPE_ALIASES[key];
@@ -96,11 +103,13 @@ function coercePrTypes(
     const match = v.safeParse(descriptionPrTypeSchema, item);
     return match.success ? [match.output] : [];
   });
-  return mapped.length > 0 ? [...new Set(mapped)] : undefined;
+  return ((pinnedReturn: v.InferOutput<typeof descriptionPrTypeSchema>[] | undefined) =>
+    pinnedReturn)(mapped.length > 0 ? [...new Set(mapped)] : undefined);
 }
 
-function coerceVisuals(value: unknown): DescriptionVisual[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+function coerceVisuals(value: unknown) {
+  if (!Array.isArray(value))
+    return ((pinnedReturn: DescriptionVisual[] | undefined) => pinnedReturn)(undefined);
   const visuals = value.flatMap((item) => {
     if (!isRecord(item)) return [];
     const row = item;
@@ -121,11 +130,14 @@ function coerceVisuals(value: unknown): DescriptionVisual[] | undefined {
       },
     ];
   });
-  return visuals.length > 0 ? visuals : undefined;
+  return ((pinnedReturn: DescriptionVisual[] | undefined) => pinnedReturn)(
+    visuals.length > 0 ? visuals : undefined,
+  );
 }
 
-function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
-  if (!Array.isArray(value)) return undefined;
+function coercePrFiles(value: unknown) {
+  if (!Array.isArray(value))
+    return ((pinnedReturn: DescriptionPrFile[] | undefined) => pinnedReturn)(undefined);
   const files = value.flatMap((item) => {
     if (!isRecord(item)) return [];
     const row = item;
@@ -143,12 +155,12 @@ function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
       },
     ];
   });
-  return files.length > 0 ? files : undefined;
+  return ((pinnedReturn: DescriptionPrFile[] | undefined) => pinnedReturn)(
+    files.length > 0 ? files : undefined,
+  );
 }
 
-export function coerceDescriptionPayloadInput(
-  raw: Record<string, unknown>,
-): Record<string, unknown> {
+export function coerceDescriptionPayloadInput(raw: Record<string, unknown>) {
   const envelopeKeys = ["description", "describe", "payload", "result"];
   let source = raw;
   for (const key of envelopeKeys) {
@@ -173,5 +185,5 @@ export function coerceDescriptionPayloadInput(
   if (visuals) coerced.visuals = visuals;
   const prFiles = coercePrFiles(coerced.prFiles);
   if (prFiles) coerced.prFiles = prFiles;
-  return coerced;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(coerced);
 }

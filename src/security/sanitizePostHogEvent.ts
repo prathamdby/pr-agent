@@ -10,13 +10,11 @@ export type PostHogEventMessage = {
   readonly [key: string]: unknown;
 };
 
-export function sanitizePostHogEvent(
-  event: PostHogEventMessage | null,
-): PostHogEventMessage | null {
-  if (event == null) return null;
+export function sanitizePostHogEvent(event: PostHogEventMessage | null) {
+  if (event == null) return ((pinnedReturn: PostHogEventMessage | null) => pinnedReturn)(null);
   const sanitized = sanitizeTelemetryValue(event);
   if (!isPostHogEventMessage(sanitized)) {
-    return { properties: {} };
+    return ((pinnedReturn: PostHogEventMessage | null) => pinnedReturn)({ properties: {} });
   }
-  return sanitized;
+  return ((pinnedReturn: PostHogEventMessage | null) => pinnedReturn)(sanitized);
 }

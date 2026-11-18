@@ -95,53 +95,61 @@ const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const PROMPT_TO_FIX_BLOCK_RE =
   /<details>\s*<summary>\s*Prompt to fix[\s\S]*?<\/summary>[\s\S]*?<\/details>/gi;
 
-export function capFindingDetail(text: string): string | undefined {
+export function capFindingDetail(text: string) {
   const compact = neutralizeMarkerEcho(text).replace(/\s+/g, " ").trim();
-  if (compact.length === 0) return undefined;
-  if (compact.length <= FINDING_DETAIL_CAP) return compact;
-  return `${compact.slice(0, FINDING_DETAIL_CAP - 1)}…`;
+  if (compact.length === 0) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (compact.length <= FINDING_DETAIL_CAP)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(compact);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    `${compact.slice(0, FINDING_DETAIL_CAP - 1)}…`,
+  );
 }
 
-function visibleThreadDetail(body: string): string | undefined {
+function visibleThreadDetail(body: string) {
   const heading = /^\*\*P[0-3]\*\* · \*\*.+?\*\*\s*$/m.exec(body);
   const afterTitle =
     heading?.index != null
       ? body.slice(heading.index + heading[0].length)
       : body.slice(body.indexOf("\n") + 1);
   const stripped = afterTitle.replace(HTML_COMMENT_RE, "").replace(PROMPT_TO_FIX_BLOCK_RE, "");
-  return capFindingDetail(stripped);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(capFindingDetail(stripped));
 }
 
-function parseHeading(
-  body: string,
-): { readonly severity: FindingSeverity; readonly title: string } | null {
+function parseHeading(body: string) {
   const match = FINDING_HEADING_RE.exec(body);
-  if (match == null) return null;
+  if (match == null)
+    return ((pinnedReturn: { readonly severity: FindingSeverity; readonly title: string } | null) =>
+      pinnedReturn)(null);
   const severity = match[1];
-  if (severity !== "P0" && severity !== "P1" && severity !== "P2" && severity !== "P3") return null;
-  return { severity, title: match[2].trim() };
+  if (severity !== "P0" && severity !== "P1" && severity !== "P2" && severity !== "P3")
+    return ((pinnedReturn: { readonly severity: FindingSeverity; readonly title: string } | null) =>
+      pinnedReturn)(null);
+  return ((pinnedReturn: { readonly severity: FindingSeverity; readonly title: string } | null) =>
+    pinnedReturn)({ severity, title: match[2].trim() });
 }
 
 function completenessOf(
   status: ListReviewThreadResolutionResult["status"],
   summaryComplete: boolean,
-): InventoryCompleteness {
+) {
   switch (status) {
     case "ok":
-      return summaryComplete ? "complete" : "partial";
+      return ((pinnedReturn: InventoryCompleteness) => pinnedReturn)(
+        summaryComplete ? "complete" : "partial",
+      );
     case "partial":
     case "unavailable":
     case "permission_denied":
-      return status;
+      return ((pinnedReturn: InventoryCompleteness) => pinnedReturn)(status);
     default: {
       const exhaustive: never = status;
-      return exhaustive;
+      return ((pinnedReturn: InventoryCompleteness) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function openThreadFromInventory(finding: InventoryFinding): OpenReviewThread {
-  return {
+function openThreadFromInventory(finding: InventoryFinding) {
+  return ((pinnedReturn: OpenReviewThread) => pinnedReturn)({
     findingId: finding.id,
     severity: finding.severity,
     lens: finding.lens,
@@ -151,21 +159,21 @@ function openThreadFromInventory(finding: InventoryFinding): OpenReviewThread {
     endLine: finding.line,
     title: neutralizeMarkerEcho(finding.title),
     ...(finding.detail != null ? { detail: finding.detail } : {}),
-  };
+  });
 }
 
 export function openReviewThreads(
   inventory: FindingInventory,
   accepted: readonly AcceptedOpenThread[],
-): readonly OpenReviewThread[] {
+) {
   const fromInventory = [...inventory.findings.values()]
     .filter((finding) => finding.state === "open")
     .map(openThreadFromInventory);
   const known = new Set(fromInventory.map((thread) => thread.findingId));
-  const fromRun = accepted.flatMap((entry): OpenReviewThread[] => {
-    if (known.has(entry.id)) return [];
+  const fromRun = accepted.flatMap((entry) => {
+    if (known.has(entry.id)) return ((pinnedReturn: OpenReviewThread[]) => pinnedReturn)([]);
     const detail = entry.detail == null ? undefined : capFindingDetail(entry.detail);
-    return [
+    return ((pinnedReturn: OpenReviewThread[]) => pinnedReturn)([
       {
         findingId: entry.id,
         severity: entry.severity,
@@ -176,44 +184,46 @@ export function openReviewThreads(
         title: neutralizeMarkerEcho(entry.title),
         ...(detail != null ? { detail } : {}),
       },
-    ];
+    ]);
   });
-  return [...fromInventory, ...fromRun];
+  return ((pinnedReturn: readonly OpenReviewThread[]) => pinnedReturn)([
+    ...fromInventory,
+    ...fromRun,
+  ]);
 }
 
-function placePath(
-  rawPath: string,
-  context: InventoryPathContext,
-): Pick<InventoryFinding, "path" | "previousPath" | "fileDeleted"> {
+function placePath(rawPath: string, context: InventoryPathContext) {
   const renamed = context.renames.get(rawPath);
   const path = renamed ?? rawPath;
-  return {
+  return ((pinnedReturn: Pick<InventoryFinding, "path" | "previousPath" | "fileDeleted">) =>
+    pinnedReturn)({
     path,
     ...(renamed != null && renamed !== rawPath ? { previousPath: rawPath } : {}),
     fileDeleted: context.deletedPaths.has(path),
-  };
+  });
 }
 
-export function hasHumanReplies(
-  thread: Pick<ReviewThreadSnapshot, "comments">,
-  botLogin: string,
-): boolean {
-  return thread.comments.slice(1).some((reply) => !isBotAuthor(reply.authorLogin, botLogin));
+export function hasHumanReplies(thread: Pick<ReviewThreadSnapshot, "comments">, botLogin: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    thread.comments.slice(1).some((reply) => !isBotAuthor(reply.authorLogin, botLogin)),
+  );
 }
 
 function threadFinding(
   thread: ReviewThreadSnapshot,
   botLogin: string,
   context: InventoryPathContext,
-): InventoryFinding | null {
+) {
   const [root] = thread.comments;
-  if (root == null || thread.path == null || !isBotAuthor(root.authorLogin, botLogin)) return null;
+  if (root == null || thread.path == null || !isBotAuthor(root.authorLogin, botLogin))
+    return ((pinnedReturn: InventoryFinding | null) => pinnedReturn)(null);
   const marker = parseOwnedFindingMarker(
     { body: root.body, authorLogin: root.authorLogin, isRoot: true },
     botLogin,
   );
   const heading = parseHeading(root.body);
-  if (marker == null && heading == null) return null;
+  if (marker == null && heading == null)
+    return ((pinnedReturn: InventoryFinding | null) => pinnedReturn)(null);
   const id = marker?.id ?? legacyFindingId(thread.threadNodeId);
   const receipts = parseOwnedReceipts(thread.comments, botLogin).filter(
     (receipt) => receipt.id === id,
@@ -231,7 +241,7 @@ function threadFinding(
         : "dismissed";
   const line = thread.line;
   const detail = visibleThreadDetail(root.body);
-  return {
+  return ((pinnedReturn: InventoryFinding | null) => pinnedReturn)({
     id,
     source: "thread",
     legacy: marker == null,
@@ -255,18 +265,19 @@ function threadFinding(
     createdAt: root.createdAt,
     hasHumanReplies: hasHumanReplies(thread, botLogin),
     commentsComplete: thread.commentsComplete,
-  };
+  });
 }
 
-function isOlder(left: InventoryFinding, right: InventoryFinding): boolean {
-  if (left.createdAt !== right.createdAt) return left.createdAt < right.createdAt;
-  return (left.rootCommentId ?? 0) < (right.rootCommentId ?? 0);
+function isOlder(left: InventoryFinding, right: InventoryFinding) {
+  if (left.createdAt !== right.createdAt)
+    return ((pinnedReturn: boolean) => pinnedReturn)(left.createdAt < right.createdAt);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    (left.rootCommentId ?? 0) < (right.rootCommentId ?? 0),
+  );
 }
 
-function canonicalResolver(
-  findings: ReadonlyMap<FindingId, InventoryFinding>,
-): (id: FindingId) => FindingId | null {
-  return (start) => {
+function canonicalResolver(findings: ReadonlyMap<FindingId, InventoryFinding>) {
+  return ((pinnedReturn: (id: FindingId) => FindingId | null) => pinnedReturn)((start) => {
     const seen = new Set<FindingId>();
     let current = findings.get(start);
     while (current != null) {
@@ -276,7 +287,7 @@ function canonicalResolver(
       current = findings.get(current.aliasOf);
     }
     return null;
-  };
+  });
 }
 
 export function buildFindingInventory(
@@ -286,7 +297,7 @@ export function buildFindingInventory(
     readonly summaryComplete: boolean;
     readonly botLogin: string;
   },
-): FindingInventory {
+) {
   const findings = new Map<FindingId, InventoryFinding>();
   const sameIdCopies: InventoryFinding[] = [];
   for (const thread of input.threads.threads) {
@@ -325,18 +336,15 @@ export function buildFindingInventory(
       });
     }
   }
-  return {
+  return ((pinnedReturn: FindingInventory) => pinnedReturn)({
     completeness: completenessOf(input.threads.status, input.summaryComplete),
     findings,
     sameIdCopies,
     canonicalOf: canonicalResolver(findings),
-  };
+  });
 }
 
-async function readSummaryComment(
-  surface: PrSurface,
-  botLogin: string,
-): Promise<{ readonly summary: InventorySummaryComment | null; readonly complete: boolean }> {
+async function readSummaryComment(surface: PrSurface, botLogin: string) {
   try {
     const comments = (await surface.listConversationComments()).comments;
     const summary = comments.findLast(
@@ -344,17 +352,33 @@ async function readSummaryComment(
         comment.body.startsWith(REVIEW_SUMMARY_SENTINEL) &&
         isBotAuthor(comment.authorLogin, botLogin),
     );
-    if (summary == null) return { summary: null, complete: true };
-    return {
+    if (summary == null)
+      return ((
+        pinnedReturn:
+          | { readonly summary: InventorySummaryComment | null; readonly complete: boolean }
+          | Promise<{
+              readonly summary: InventorySummaryComment | null;
+              readonly complete: boolean;
+            }>,
+      ) => pinnedReturn)({ summary: null, complete: true });
+    return ((
+      pinnedReturn:
+        | { readonly summary: InventorySummaryComment | null; readonly complete: boolean }
+        | Promise<{ readonly summary: InventorySummaryComment | null; readonly complete: boolean }>,
+    ) => pinnedReturn)({
       summary: {
         body: summary.body,
         authorLogin: summary.authorLogin,
         url: `https://github.com/${surface.owner}/${surface.repo}/pull/${surface.prNumber}#issuecomment-${summary.id}`,
       },
       complete: true,
-    };
+    });
   } catch {
-    return { summary: null, complete: false };
+    return ((
+      pinnedReturn:
+        | { readonly summary: InventorySummaryComment | null; readonly complete: boolean }
+        | Promise<{ readonly summary: InventorySummaryComment | null; readonly complete: boolean }>,
+    ) => pinnedReturn)({ summary: null, complete: false });
   }
 }
 
@@ -364,22 +388,21 @@ export async function loadFindingInventoryFromThreads(
     readonly threads: Pick<ListReviewThreadResolutionResult, "status" | "threads">;
     readonly botLogin: string;
   },
-): Promise<FindingInventory> {
+) {
   const summary = await readSummaryComment(surface, input.botLogin);
-  return buildFindingInventory({
-    threads: input.threads,
-    summary: summary.summary,
-    summaryComplete: summary.complete,
-    botLogin: input.botLogin,
-    renames: input.renames,
-    deletedPaths: input.deletedPaths,
-  });
+  return ((pinnedReturn: FindingInventory | Promise<FindingInventory>) => pinnedReturn)(
+    buildFindingInventory({
+      threads: input.threads,
+      summary: summary.summary,
+      summaryComplete: summary.complete,
+      botLogin: input.botLogin,
+      renames: input.renames,
+      deletedPaths: input.deletedPaths,
+    }),
+  );
 }
 
-export async function loadFindingInventory(
-  surface: PrSurface,
-  context: InventoryPathContext,
-): Promise<FindingInventory> {
+export async function loadFindingInventory(surface: PrSurface, context: InventoryPathContext) {
   const botLogin = await surface.getBotLogin();
   const [threads, summary] = await Promise.all([
     surface
@@ -387,31 +410,37 @@ export async function loadFindingInventory(
       .catch(() => ({ status: "unavailable" as const, threads: [] })),
     readSummaryComment(surface, botLogin),
   ]);
-  return buildFindingInventory({
-    threads,
-    summary: summary.summary,
-    summaryComplete: summary.complete,
-    botLogin,
-    ...context,
-  });
+  return ((pinnedReturn: FindingInventory | Promise<FindingInventory>) => pinnedReturn)(
+    buildFindingInventory({
+      threads,
+      summary: summary.summary,
+      summaryComplete: summary.complete,
+      botLogin,
+      ...context,
+    }),
+  );
 }
 
-export function unavailableFindingInventory(context: InventoryPathContext): FindingInventory {
-  return buildFindingInventory({
-    threads: { status: "unavailable", threads: [] },
-    summary: null,
-    summaryComplete: false,
-    botLogin: "",
-    ...context,
-  });
+export function unavailableFindingInventory(context: InventoryPathContext) {
+  return ((pinnedReturn: FindingInventory) => pinnedReturn)(
+    buildFindingInventory({
+      threads: { status: "unavailable", threads: [] },
+      summary: null,
+      summaryComplete: false,
+      botLogin: "",
+      ...context,
+    }),
+  );
 }
 
 export async function loadFindingInventoryOrUnavailable(
   surface: PrSurface,
   context: InventoryPathContext,
-): Promise<FindingInventory> {
+) {
   try {
-    return await loadFindingInventory(surface, context);
+    return ((pinnedReturn: FindingInventory | Promise<FindingInventory>) => pinnedReturn)(
+      await loadFindingInventory(surface, context),
+    );
   } catch (error) {
     logWarn("review_finding_inventory_failed", {
       owner: surface.owner,
@@ -419,6 +448,8 @@ export async function loadFindingInventoryOrUnavailable(
       pr: surface.prNumber,
       message: errorMessage(error),
     });
-    return unavailableFindingInventory(context);
+    return ((pinnedReturn: FindingInventory | Promise<FindingInventory>) => pinnedReturn)(
+      unavailableFindingInventory(context),
+    );
   }
 }

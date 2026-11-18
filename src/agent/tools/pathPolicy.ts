@@ -19,7 +19,7 @@ export function createPathPolicy(
   profile:
     | { readonly kind: "investigation"; readonly gate: AskPathGate }
     | { readonly kind: "verification" | "triage" },
-): PathPolicy {
+) {
   const normalize = (path: string) =>
     profile.kind === "investigation" ? path.replace(/\\/g, "/") : normalizeRepoRelativePath(path);
   const allows = (path: string) => {
@@ -40,7 +40,7 @@ export function createPathPolicy(
     assertWorkspacePath(root, normalized);
     return normalized;
   };
-  return {
+  return ((pinnedReturn: PathPolicy) => pinnedReturn)({
     allows,
     assertDiff,
     resolveRead: async (path) => assertContainedWorkspacePath(root, assertDiff(path)),
@@ -48,30 +48,31 @@ export function createPathPolicy(
       profile.kind === "investigation"
         ? Promise.resolve(allows(path))
         : isTriageSearchPathAllowed(root, path),
-  };
+  });
 }
 
-async function isAllowedTriageSearchPath(
-  root: string,
-  realRoot: string,
-  path: string,
-): Promise<boolean> {
+async function isAllowedTriageSearchPath(root: string, realRoot: string, path: string) {
   const normalized = normalizeRepoRelativePath(path);
-  if (!normalized || isTriageControlPath(normalized)) return false;
+  if (!normalized || isTriageControlPath(normalized))
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
 
   try {
     const fullPath = assertWorkspacePath(root, normalized);
     const realCandidate = await realpath(fullPath);
     if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     }
     const resolvedPath = normalizeRepoRelativePath(relative(realRoot, realCandidate));
-    return !isTriageControlPath(resolvedPath);
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+      !isTriageControlPath(resolvedPath),
+    );
   } catch {
-    return false;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   }
 }
 
-export async function isTriageSearchPathAllowed(root: string, path: string): Promise<boolean> {
-  return isAllowedTriageSearchPath(root, await realpath(root), path);
+export async function isTriageSearchPathAllowed(root: string, path: string) {
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    isAllowedTriageSearchPath(root, await realpath(root), path),
+  );
 }

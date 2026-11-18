@@ -90,19 +90,21 @@ export type ModelsJsonCatalog = {
   readonly providers: Readonly<Record<string, ModelsJsonProvider>>;
 };
 
-function invalidSchema(detail: string): AppError {
-  return new AppError({
-    domain: "settings",
-    kind: "models_json_load_error",
-    message: `Invalid models.json schema: ${detail}`,
-  });
+function invalidSchema(detail: string) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "settings",
+      kind: "models_json_load_error",
+      message: `Invalid models.json schema: ${detail}`,
+    }),
+  );
 }
 
 function assertAllowedKeys(
   value: Record<string, unknown>,
   allowed: ReadonlySet<string>,
   label: string,
-): void {
+) {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       throw invalidSchema(`unknown field ${label}.${key}`);
@@ -110,47 +112,48 @@ function assertAllowedKeys(
   }
 }
 
-function asString(value: unknown, label: string): string {
+function asString(value: unknown, label: string) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw invalidSchema(`${label} must be a non-empty string`);
   }
-  return value;
+  return ((pinnedReturn: string) => pinnedReturn)(value);
 }
 
-function asOptionalString(value: unknown, label: string): string | undefined {
-  if (value === undefined) return undefined;
-  return asString(value, label);
+function asOptionalString(value: unknown, label: string) {
+  if (value === undefined) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(asString(value, label));
 }
 
-function asBoolean(value: unknown, label: string): boolean {
+function asBoolean(value: unknown, label: string) {
   if (typeof value !== "boolean") throw invalidSchema(`${label} must be a boolean`);
-  return value;
+  return ((pinnedReturn: boolean) => pinnedReturn)(value);
 }
 
-function asPositiveNumber(value: unknown, label: string): number {
+function asPositiveNumber(value: unknown, label: string) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw invalidSchema(`${label} must be a positive number`);
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-function asNonNegativeNumber(value: unknown, label: string): number {
+function asNonNegativeNumber(value: unknown, label: string) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw invalidSchema(`${label} must be a non-negative number`);
   }
-  return value;
+  return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
-export function expandEnvTemplate(value: string): string {
+export function expandEnvTemplate(value: string) {
   const braced = value.match(/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
   const bare = value.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
   const name = braced?.[1] ?? bare?.[1];
-  if (!name) return value;
-  return process.env[name] ?? "";
+  if (!name) return ((pinnedReturn: string) => pinnedReturn)(value);
+  return ((pinnedReturn: string) => pinnedReturn)(process.env[name] ?? "");
 }
 
-function parseCompat(value: unknown, label: string): ModelsJsonCompat | undefined {
-  if (value === undefined) return undefined;
+function parseCompat(value: unknown, label: string) {
+  if (value === undefined)
+    return ((pinnedReturn: ModelsJsonCompat | undefined) => pinnedReturn)(undefined);
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, COMPAT_KEYS, label);
   const compat: { [K in CompatFlagKey]?: boolean } = {};
@@ -158,14 +161,12 @@ function parseCompat(value: unknown, label: string): ModelsJsonCompat | undefine
     const flag = value[key];
     if (flag !== undefined) compat[key] = asBoolean(flag, `${label}.${key}`);
   }
-  return compat;
+  return ((pinnedReturn: ModelsJsonCompat | undefined) => pinnedReturn)(compat);
 }
 
-function parseThinkingLevelMap(
-  value: unknown,
-  label: string,
-): ModelsJsonThinkingLevelMap | undefined {
-  if (value === undefined) return undefined;
+function parseThinkingLevelMap(value: unknown, label: string) {
+  if (value === undefined)
+    return ((pinnedReturn: ModelsJsonThinkingLevelMap | undefined) => pinnedReturn)(undefined);
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, THINKING_LEVEL_MAP_KEYS, label);
   const map: Record<string, string | null> = {};
@@ -175,36 +176,45 @@ function parseThinkingLevelMap(
     }
     map[level] = mapped;
   }
-  return map;
+  return ((pinnedReturn: ModelsJsonThinkingLevelMap | undefined) => pinnedReturn)(map);
 }
 
-function parseHeaders(value: unknown, label: string): Readonly<Record<string, string>> | undefined {
-  if (value === undefined) return undefined;
+function parseHeaders(value: unknown, label: string) {
+  if (value === undefined)
+    return ((pinnedReturn: Readonly<Record<string, string>> | undefined) => pinnedReturn)(
+      undefined,
+    );
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   const headers: Record<string, string> = {};
   for (const [key, header] of Object.entries(value)) {
     if (typeof header !== "string") throw invalidSchema(`${label}.${key} must be a string`);
     headers[key] = header;
   }
-  return headers;
+  return ((pinnedReturn: Readonly<Record<string, string>> | undefined) => pinnedReturn)(headers);
 }
 
-function parseCost(value: unknown, label: string): ModelsJsonCost {
+function parseCost(value: unknown, label: string) {
   if (value === undefined) {
-    return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    return ((pinnedReturn: ModelsJsonCost) => pinnedReturn)({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
   }
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, COST_KEYS, label);
-  return {
+  return ((pinnedReturn: ModelsJsonCost) => pinnedReturn)({
     input: asNonNegativeNumber(value.input ?? 0, `${label}.input`),
     output: asNonNegativeNumber(value.output ?? 0, `${label}.output`),
     cacheRead: asNonNegativeNumber(value.cacheRead ?? 0, `${label}.cacheRead`),
     cacheWrite: asNonNegativeNumber(value.cacheWrite ?? 0, `${label}.cacheWrite`),
-  };
+  });
 }
 
-function parseInput(value: unknown, label: string): ReadonlyArray<"text" | "image"> {
-  if (value === undefined) return ["text"];
+function parseInput(value: unknown, label: string) {
+  if (value === undefined)
+    return ((pinnedReturn: ReadonlyArray<"text" | "image">) => pinnedReturn)(["text"]);
   if (!Array.isArray(value) || value.length === 0) {
     throw invalidSchema(`${label} must be a non-empty array`);
   }
@@ -215,10 +225,10 @@ function parseInput(value: unknown, label: string): ReadonlyArray<"text" | "imag
     }
     input.push(entry);
   }
-  return input;
+  return ((pinnedReturn: ReadonlyArray<"text" | "image">) => pinnedReturn)(input);
 }
 
-function parseModel(value: unknown, label: string): ModelsJsonModel {
+function parseModel(value: unknown, label: string) {
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, MODEL_KEYS, label);
   const id = asString(value.id, `${label}.id`);
@@ -230,7 +240,7 @@ function parseModel(value: unknown, label: string): ModelsJsonModel {
     value.maxTokens === undefined
       ? 16_384
       : asPositiveNumber(value.maxTokens, `${label}.maxTokens`);
-  return {
+  return ((pinnedReturn: ModelsJsonModel) => pinnedReturn)({
     id,
     name: asOptionalString(value.name, `${label}.name`) ?? id,
     reasoning:
@@ -248,16 +258,16 @@ function parseModel(value: unknown, label: string): ModelsJsonModel {
           ),
         }
       : {}),
-  };
+  });
 }
 
-function parseProvider(value: unknown, label: string): ModelsJsonProvider {
+function parseProvider(value: unknown, label: string) {
   if (!isPlainObject(value)) throw invalidSchema(`${label} must be an object`);
   assertAllowedKeys(value, PROVIDER_KEYS, label);
   if (value.models === undefined || !Array.isArray(value.models) || value.models.length === 0) {
     throw invalidSchema(`${label}.models must be a non-empty array`);
   }
-  return {
+  return ((pinnedReturn: ModelsJsonProvider) => pinnedReturn)({
     ...(value.name !== undefined ? { name: asOptionalString(value.name, `${label}.name`) } : {}),
     baseUrl: asString(value.baseUrl, `${label}.baseUrl`),
     api: asString(value.api, `${label}.api`),
@@ -270,10 +280,10 @@ function parseProvider(value: unknown, label: string): ModelsJsonProvider {
       ? { headers: parseHeaders(value.headers, `${label}.headers`) }
       : {}),
     models: value.models.map((model, index) => parseModel(model, `${label}.models[${index}]`)),
-  };
+  });
 }
 
-export function parseModelsJsonCatalog(text: string): ModelsJsonCatalog {
+export function parseModelsJsonCatalog(text: string) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -288,12 +298,14 @@ export function parseModelsJsonCatalog(text: string): ModelsJsonCatalog {
     if (id.trim().length === 0) throw invalidSchema("provider id must be non-empty");
     providers[id] = parseProvider(provider, `providers.${id}`);
   }
-  return { providers };
+  return ((pinnedReturn: ModelsJsonCatalog) => pinnedReturn)({ providers });
 }
 
-export async function loadModelsJsonCatalog(path: string): Promise<ModelsJsonCatalog> {
+export async function loadModelsJsonCatalog(path: string) {
   try {
-    return parseModelsJsonCatalog(await readFile(path, "utf8"));
+    return ((pinnedReturn: ModelsJsonCatalog | Promise<ModelsJsonCatalog>) => pinnedReturn)(
+      parseModelsJsonCatalog(await readFile(path, "utf8")),
+    );
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError({

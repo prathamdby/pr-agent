@@ -63,13 +63,15 @@ type PendingPreflight = {
   waiters: number;
   cancelled: boolean;
 };
-function preflightUnavailable(cause?: unknown): AppError {
-  return new AppError({
-    domain: "github",
-    kind: "preflight_unavailable",
-    message: "GitHub repository installation could not be confirmed within its deadline",
-    cause,
-  });
+function preflightUnavailable(cause?: unknown) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "github",
+      kind: "preflight_unavailable",
+      message: "GitHub repository installation could not be confirmed within its deadline",
+      cause,
+    }),
+  );
 }
 
 export function openInstallationSurface(
@@ -85,16 +87,22 @@ export function openInstallationSurface(
   const preflights = new Map<string, PendingPreflight>();
   let lastGeneration = 0;
   const scopedTokens = new Map<string, ScopedTokenEntry>();
-  function usableScopedToken(params: InstallationPreflightParams): InstallationToken | undefined {
+  function usableScopedToken(params: InstallationPreflightParams) {
     const value = scopedTokens.get(repositoryKey(params))?.value;
-    return value && value.expiresAtTs > dependencies.now() ? value : undefined;
+    return ((pinnedReturn: InstallationToken | undefined) => pinnedReturn)(
+      value && value.expiresAtTs > dependencies.now() ? value : undefined,
+    );
   }
 
-  async function scopedToken(
+  const scopedToken: (
     params: InstallationPreflightParams,
     permissions?: InstallationPermissions,
     seed?: InstallationToken,
-  ): Promise<InstallationToken> {
+  ) => Promise<InstallationToken> = async (
+    params: InstallationPreflightParams,
+    permissions?: InstallationPermissions,
+    seed?: InstallationToken,
+  ) => {
     const key = repositoryKey(params);
     const cached = scopedTokens.get(key);
     const permissionsKey = permissions
@@ -114,8 +122,13 @@ export function openInstallationSurface(
       consistent &&
       !isInstallationTokenNearExpiry(previous.expiresAtTs, dependencies.now())
     )
-      return previous;
-    if (cached && scopedTokens.get(key) !== cached) return scopedToken(params, permissions, seed);
+      return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+        previous,
+      );
+    if (cached && scopedTokens.get(key) !== cached)
+      return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+        scopedToken(params, permissions, seed),
+      );
     const repositories = previous?.repositories ? [...previous.repositories] : [params.repo];
     const discardAborted = () => {
       if (scopedTokens.get(key)?.pending !== pending) return;
@@ -153,17 +166,21 @@ export function openInstallationSurface(
       .finally(() => params.signal?.removeEventListener("abort", discardAborted));
     scopedTokens.set(key, { pending, permissionsKey, value: cached?.value });
     params.signal?.addEventListener("abort", discardAborted, { once: true });
-    return pending;
-  }
+    return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+      pending,
+    );
+  };
 
-  function preflight(params: InstallationPreflightParams): Promise<InstallationPreflightResult> {
+  function preflight(params: InstallationPreflightParams) {
     params.signal?.throwIfAborted();
     const key = repositoryKey(params);
     const joined = preflights.get(key);
     if (joined)
-      return joinPreflight(joined, params.signal, () => {
-        if (preflights.get(key) === joined) preflights.delete(key);
-      });
+      return ((pinnedReturn: Promise<InstallationPreflightResult>) => pinnedReturn)(
+        joinPreflight(joined, params.signal, () => {
+          if (preflights.get(key) === joined) preflights.delete(key);
+        }),
+      );
     const controller = new AbortController();
     lastGeneration = Math.max(dependencies.now(), lastGeneration + 1);
     const generation = params.generation ?? String(lastGeneration);
@@ -180,7 +197,7 @@ export function openInstallationSurface(
     });
     const abort = () => rejectAborted(controller.signal.reason);
     controller.signal.addEventListener("abort", abort, { once: true });
-    const observe = async (): Promise<InstallationPreflightResult> => {
+    const observe = async () => {
       const raw = await (dependencies.lookupInstallation ?? lookupRepositoryInstallation)(
         params.cfg,
         params.owner,
@@ -195,7 +212,9 @@ export function openInstallationSurface(
         metadata.id !== params.installationId ||
         metadata.suspended_at != null
       ) {
-        return { observation: deniedInstallationCapabilities(scope, generation) };
+        return ((
+          pinnedReturn: InstallationPreflightResult | Promise<InstallationPreflightResult>,
+        ) => pinnedReturn)({ observation: deniedInstallationCapabilities(scope, generation) });
       }
       const observed = installationCapabilitiesFromPermissions({
         scope,
@@ -206,7 +225,9 @@ export function openInstallationSurface(
         observed.availability.pullRequestsRead === "denied" ||
         observed.availability.contentsRead === "denied"
       )
-        return { observation: observed };
+        return ((
+          pinnedReturn: InstallationPreflightResult | Promise<InstallationPreflightResult>,
+        ) => pinnedReturn)({ observation: observed });
       const installation = await scopedToken(
         { ...params, signal: controller.signal },
         metadata.permissions,
@@ -225,7 +246,8 @@ export function openInstallationSurface(
         generation,
         permissions: effective,
       });
-      return { observation, installation };
+      return ((pinnedReturn: InstallationPreflightResult | Promise<InstallationPreflightResult>) =>
+        pinnedReturn)({ observation, installation });
     };
     let entry: PendingPreflight;
     const pending = Promise.race([observe(), aborted])
@@ -242,38 +264,51 @@ export function openInstallationSurface(
       });
     entry = { pending, controller, waiters: 0, cancelled: false };
     preflights.set(key, entry);
-    return joinPreflight(entry, params.signal, () => {
-      if (preflights.get(key) === entry) preflights.delete(key);
-    });
+    return ((pinnedReturn: Promise<InstallationPreflightResult>) => pinnedReturn)(
+      joinPreflight(entry, params.signal, () => {
+        if (preflights.get(key) === entry) preflights.delete(key);
+      }),
+    );
   }
 
-  function botIdentity(cfg: AppConfig): Promise<BotIdentity> {
+  function botIdentity(cfg: AppConfig) {
     const key = identityKey(cfg);
     const cached = bots.get(key);
-    if (cached) return cached;
+    if (cached) return ((pinnedReturn: Promise<BotIdentity>) => pinnedReturn)(cached);
     const pending = dependencies.resolveBot(cfg).catch((error: unknown) => {
       if (bots.get(key) === pending) bots.delete(key);
       throw error;
     });
     bots.set(key, pending);
-    return pending;
+    return ((pinnedReturn: Promise<BotIdentity>) => pinnedReturn)(pending);
   }
 
-  async function token(cfg: AppConfig, installationId: number): Promise<InstallationToken> {
+  const token: (cfg: AppConfig, installationId: number) => Promise<InstallationToken> = async (
+    cfg: AppConfig,
+    installationId: number,
+  ) => {
     const key = `${identityKey(cfg)}:${installationId}`;
     const cached = tokens.get(key);
     if (cached) {
       const value = await cached;
-      if (!isInstallationTokenNearExpiry(value.expiresAtTs, dependencies.now())) return value;
-      if (tokens.get(key) !== cached) return token(cfg, installationId);
+      if (!isInstallationTokenNearExpiry(value.expiresAtTs, dependencies.now()))
+        return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+          value,
+        );
+      if (tokens.get(key) !== cached)
+        return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+          token(cfg, installationId),
+        );
     }
     const pending = dependencies.mintToken(cfg, installationId).catch((error: unknown) => {
       if (tokens.get(key) === pending) tokens.delete(key);
       throw error;
     });
     tokens.set(key, pending);
-    return pending;
-  }
+    return ((pinnedReturn: InstallationToken | Promise<InstallationToken>) => pinnedReturn)(
+      pending,
+    );
+  };
 
   async function create(
     params: Omit<Parameters<typeof createPrSurface>[0], "installation"> & {
@@ -322,36 +357,38 @@ function joinPreflight(
   entry: PendingPreflight,
   signal: AbortSignal | undefined,
   remove: () => void,
-): Promise<InstallationPreflightResult> {
+) {
   entry.waiters++;
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return false;
-      settled = true;
-      entry.waiters--;
-      signal?.removeEventListener("abort", abort);
-      return true;
-    };
-    const abort = () => {
-      if (!finish()) return;
-      reject(signal?.reason);
-      if (entry.waiters === 0) {
-        entry.cancelled = true;
-        remove();
-        entry.controller.abort(signal?.reason);
-      }
-    };
-    signal?.addEventListener("abort", abort, { once: true });
-    entry.pending.then(
-      (result) => {
-        if (finish()) resolve(result);
-      },
-      (error: unknown) => {
-        if (finish()) reject(error);
-      },
-    );
-  });
+  return ((pinnedReturn: Promise<InstallationPreflightResult>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return false;
+        settled = true;
+        entry.waiters--;
+        signal?.removeEventListener("abort", abort);
+        return true;
+      };
+      const abort = () => {
+        if (!finish()) return;
+        reject(signal?.reason);
+        if (entry.waiters === 0) {
+          entry.cancelled = true;
+          remove();
+          entry.controller.abort(signal?.reason);
+        }
+      };
+      signal?.addEventListener("abort", abort, { once: true });
+      entry.pending.then(
+        (result) => {
+          if (finish()) resolve(result);
+        },
+        (error: unknown) => {
+          if (finish()) reject(error);
+        },
+      );
+    }),
+  );
 }
 
 export type InstallationSurface = ReturnType<typeof openInstallationSurface>;

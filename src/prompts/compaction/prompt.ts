@@ -37,6 +37,8 @@ Exact identifiers the agent needs to continue: paths, symbol names, comment or t
 
 Copy paths, names, IDs, and error messages exactly.`;
 
-export function renderCompactionUserPrompt(conversationText: string): string {
-  return `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`;
+export function renderCompactionUserPrompt(conversationText: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `<conversation>\n${conversationText}\n</conversation>\n\n${SUMMARIZATION_PROMPT}\n\nAdditional focus: ${COMPACTION_CUSTOM_INSTRUCTIONS}`,
+  );
 }

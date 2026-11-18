@@ -114,30 +114,30 @@ const queueConfig: QueueConfig = makeTestConfig({
   concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
 });
 
-function headers(action: string, delivery: string): WebhookHeaders {
-  return {
+function headers(action: string, delivery: string) {
+  return ((pinnedReturn: WebhookHeaders) => pinnedReturn)({
     event: EVENT,
     delivery,
     rawBody: Buffer.from(JSON.stringify({ action, delivery })),
-  };
+  });
 }
 
-function makePrRef(suffix = ""): PrRef {
+function makePrRef(suffix = "") {
   const id = suffix || randomUUID().slice(0, 8);
-  return {
+  return ((pinnedReturn: PrRef) => pinnedReturn)({
     owner: OWNER,
     repo: `repo-${id}`,
     prNumber: 100 + id.charCodeAt(0),
     installationId: 9001,
     headSha: `sha-${id}`,
-  };
+  });
 }
 
 function intakeLog() {
   return createOperationLogger({ method: "POST", path: "/webhooks" });
 }
 
-function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () => void } {
+function withSendFailOnNth(realBoss: PgBoss, failOnSend: number) {
   let sendCount = 0;
   const originalSend = realBoss.send.bind(realBoss);
   realBoss.send = (async (name: string, data?: object | null, options?: SendOptions) => {
@@ -147,14 +147,14 @@ function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () 
     }
     return originalSend(name, data, options);
   }) as PgBoss["send"];
-  return {
+  return ((pinnedReturn: { restore: () => void }) => pinnedReturn)({
     restore: () => {
       realBoss.send = originalSend;
     },
-  };
+  });
 }
 
-async function deleteQueueJobs(boss: PgBoss): Promise<void> {
+async function deleteQueueJobs(boss: PgBoss) {
   const items = await boss.findJobs<AskJobData>(ASK_QUEUE, {});
   const { rows } = await boss
     .getDb()
@@ -189,7 +189,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
 
-  async function grantInstallation(ref: PrRef): Promise<void> {
+  async function grantInstallation(ref: PrRef) {
     await saveGithubCapabilityObservation(pool, {
       installationId: ref.installationId,
       owner: ref.owner,
@@ -665,7 +665,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     });
     try {
       await vi.waitFor(() => expect(entered).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 20));
       expect(responded).toBe(false);
     } finally {
       release();
@@ -3005,31 +3004,37 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   );
 
-  async function countWebhookRows(delivery?: string): Promise<number> {
+  async function countWebhookRows(delivery?: string) {
     const { rows } = await pool.query<{ count: string }>(
       delivery
         ? "SELECT COUNT(*)::text AS count FROM webhook_events WHERE event_name = $1 AND delivery_id = $2"
         : "SELECT COUNT(*)::text AS count FROM webhook_events WHERE event_name = $1",
       delivery ? [EVENT, delivery] : [EVENT],
     );
-    return Number(rows[0]?.count ?? "0");
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(
+      Number(rows[0]?.count ?? "0"),
+    );
   }
 
-  async function countWorkItems(): Promise<number> {
+  async function countWorkItems() {
     const { rows } = await pool.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM agent_work_items WHERE owner = $1",
       [OWNER],
     );
-    return Number(rows[0]?.count ?? "0");
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(
+      Number(rows[0]?.count ?? "0"),
+    );
   }
 
-  async function countReplayRows(rawBody: Buffer): Promise<number> {
+  async function countReplayRows(rawBody: Buffer) {
     const bodySha256 = createHash("sha256").update(rawBody).digest("hex");
     const { rows } = await pool.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM webhook_event_replays WHERE body_sha256 = $1",
       [bodySha256],
     );
-    return Number(rows[0]?.count ?? "0");
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(
+      Number(rows[0]?.count ?? "0"),
+    );
   }
 
   async function reviewJobsFor(ref: PrRef) {

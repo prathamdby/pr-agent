@@ -39,8 +39,8 @@ type Receipt = {
   provider_tokens_used: number;
 };
 
-function keyPart(value: unknown): string {
-  return String(value);
+function keyPart(value: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(String(value));
 }
 
 class FakeQuotaClient {
@@ -48,13 +48,26 @@ class FakeQuotaClient {
   readonly reservations = new Map<string, Reservation>();
   readonly receipts = new Map<string, Receipt>();
 
-  async query(sql: string, values: unknown[] = []): Promise<{ rows: unknown[]; rowCount: number }> {
+  async query(sql: string, values: unknown[] = []) {
     const text = sql.replaceAll(/\s+/g, " ");
     if (text.includes("pg_advisory_xact_lock") || text.includes("payload->'replyTarget'"))
-      return { rows: [], rowCount: 0 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 0 });
     if (text.includes("INSERT INTO agent_work_items"))
-      return { rows: [{ id: String(values[0]), created: true }], rowCount: 1 };
-    if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) return { rows: [], rowCount: 0 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [{ id: String(values[0]), created: true }], rowCount: 1 });
+    if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text))
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 0 });
 
     if (text.includes("INSERT INTO ask_quota_buckets")) {
       const scope = String(values[0]);
@@ -72,64 +85,121 @@ class FakeQuotaClient {
           provider_window_started_at: new Date(),
         });
       }
-      return { rows: [], rowCount: 1 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 1 });
     }
 
     if (text.includes("FROM ask_quota_buckets") && text.includes("FOR UPDATE")) {
       if (text.includes("scope = 'installation'")) {
         const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
-        return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 });
       }
       const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-      return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 });
     }
 
     if (text.includes("UPDATE ask_quota_buckets")) {
       if (text.includes("provider_tokens_used = GREATEST(0, provider_tokens_used + $3)")) {
         const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
+        if (!bucket)
+          return ((
+            pinnedReturn:
+              | { rows: unknown[]; rowCount: number }
+              | Promise<{ rows: unknown[]; rowCount: number }>,
+          ) => pinnedReturn)({ rows: [], rowCount: 0 });
         bucket.provider_tokens_reserved = Math.max(
           0,
           bucket.provider_tokens_reserved - Number(values[1]),
         );
         bucket.provider_tokens_used = Math.max(0, bucket.provider_tokens_used + Number(values[2]));
-        return { rows: [{ scope_key: bucket.scope_key }], rowCount: 1 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [{ scope_key: bucket.scope_key }], rowCount: 1 });
       }
 
       if (text.includes("provider_tokens_reserved = provider_tokens_reserved + $2")) {
         const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
+        if (!bucket)
+          return ((
+            pinnedReturn:
+              | { rows: unknown[]; rowCount: number }
+              | Promise<{ rows: unknown[]; rowCount: number }>,
+          ) => pinnedReturn)({ rows: [], rowCount: 0 });
         bucket.provider_tokens_reserved += Number(values[1]);
-        return { rows: [], rowCount: 1 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [], rowCount: 1 });
       }
 
       if (text.includes("outstanding_count = outstanding_count + 1")) {
         const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
+        if (!bucket)
+          return ((
+            pinnedReturn:
+              | { rows: unknown[]; rowCount: number }
+              | Promise<{ rows: unknown[]; rowCount: number }>,
+          ) => pinnedReturn)({ rows: [], rowCount: 0 });
         bucket.token_balance = Number(values[2]);
         bucket.outstanding_count += 1;
-        return { rows: [], rowCount: 1 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [], rowCount: 1 });
       }
 
       if (text.includes("provider_tokens_used = $4")) {
         const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
+        if (!bucket)
+          return ((
+            pinnedReturn:
+              | { rows: unknown[]; rowCount: number }
+              | Promise<{ rows: unknown[]; rowCount: number }>,
+          ) => pinnedReturn)({ rows: [], rowCount: 0 });
         bucket.token_balance = Number(values[2]);
         bucket.provider_tokens_used = Number(values[3]);
         bucket.provider_window_started_at = values[4] as Date;
         bucket.last_refill_at = new Date();
-        return { rows: [], rowCount: 1 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [], rowCount: 1 });
       }
 
       if (text.includes("outstanding_count = GREATEST")) {
         const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
+        if (!bucket)
+          return ((
+            pinnedReturn:
+              | { rows: unknown[]; rowCount: number }
+              | Promise<{ rows: unknown[]; rowCount: number }>,
+          ) => pinnedReturn)({ rows: [], rowCount: 0 });
         bucket.outstanding_count = Math.max(0, bucket.outstanding_count - 1);
         bucket.provider_tokens_reserved = Math.max(
           0,
           bucket.provider_tokens_reserved - Number(values[2]),
         );
-        return { rows: [], rowCount: 1 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [], rowCount: 1 });
       }
     }
 
@@ -147,12 +217,20 @@ class FakeQuotaClient {
         unknown_usage_window_started_at: null,
         released_at: null,
       });
-      return { rows: [], rowCount: 1 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 1 });
     }
 
     if (text.includes("FROM ask_quota_execution_receipts") && text.includes("FOR UPDATE")) {
       const receipt = this.receipts.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-      return { rows: receipt ? [receipt] : [], rowCount: receipt ? 1 : 0 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: receipt ? [receipt] : [], rowCount: receipt ? 1 : 0 });
     }
 
     if (text.includes("INSERT INTO ask_quota_execution_receipts")) {
@@ -162,15 +240,30 @@ class FakeQuotaClient {
         execution_id: String(executionId),
         provider_tokens_used: Number(tokens),
       });
-      return { rows: [], rowCount: 1 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 1 });
     }
 
     if (text.includes("FROM ask_quota_reservations") && text.includes("FOR UPDATE")) {
       const reservation = this.reservations.get(String(values[0]));
       if (text.includes("SELECT actor_scope_key")) {
-        return { rows: reservation ? [reservation] : [], rowCount: reservation ? 1 : 0 };
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({
+          rows: reservation ? [reservation] : [],
+          rowCount: reservation ? 1 : 0,
+        });
       }
-      return {
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({
         rows: reservation
           ? [
               {
@@ -184,12 +277,17 @@ class FakeQuotaClient {
             ]
           : [],
         rowCount: reservation ? 1 : 0,
-      };
+      });
     }
 
     if (text.includes("UPDATE ask_quota_reservations")) {
       const reservation = this.reservations.get(String(values[0]));
-      if (!reservation) return { rows: [], rowCount: 0 };
+      if (!reservation)
+        return ((
+          pinnedReturn:
+            | { rows: unknown[]; rowCount: number }
+            | Promise<{ rows: unknown[]; rowCount: number }>,
+        ) => pinnedReturn)({ rows: [], rowCount: 0 });
       if (text.includes("unknown_usage_charged = 0")) {
         reservation.provider_usage_known = true;
         reservation.provider_tokens_used += Number(values[1]);
@@ -201,24 +299,28 @@ class FakeQuotaClient {
       } else {
         reservation.released_at = new Date();
       }
-      return { rows: [], rowCount: 1 };
+      return ((
+        pinnedReturn:
+          | { rows: unknown[]; rowCount: number }
+          | Promise<{ rows: unknown[]; rowCount: number }>,
+      ) => pinnedReturn)({ rows: [], rowCount: 1 });
     }
 
     throw new Error(`unexpected quota query: ${text}`);
   }
 
-  pool(): Pool {
-    return {
+  pool() {
+    return ((pinnedReturn: Pool) => pinnedReturn)({
       connect: vi.fn(async () => ({
         query: this.query.bind(this),
         release: vi.fn(),
       })),
-    } as unknown as Pool;
+    } as unknown as Pool);
   }
 }
 
-function config(overrides: Partial<AskQuotaConfig> = {}): AskQuotaConfig {
-  return {
+function config(overrides: Partial<AskQuotaConfig> = {}) {
+  return ((pinnedReturn: AskQuotaConfig) => pinnedReturn)({
     ...defaultAskQuotaConfig(),
     actorMaxOutstanding: 2,
     repositoryMaxOutstanding: 10,
@@ -230,7 +332,7 @@ function config(overrides: Partial<AskQuotaConfig> = {}): AskQuotaConfig {
     repositoryRefillSeconds: 100_000,
     installationRefillSeconds: 100_000,
     ...overrides,
-  };
+  });
 }
 
 function admission(
@@ -311,16 +413,17 @@ describe("ask admission quotas", () => {
         installationRefillSeconds: 60,
       });
       const client = new FakeQuotaClient();
-      const emptyBucket = (scope: string, scopeKey: string): Bucket => ({
-        scope,
-        scope_key: scopeKey,
-        token_balance: 0,
-        last_refill_at: new Date(Date.now()),
-        outstanding_count: 0,
-        provider_tokens_used: 0,
-        provider_tokens_reserved: 0,
-        provider_window_started_at: new Date(Date.now()),
-      });
+      const emptyBucket = (scope: string, scopeKey: string) =>
+        ((pinnedReturn: Bucket) => pinnedReturn)({
+          scope,
+          scope_key: scopeKey,
+          token_balance: 0,
+          last_refill_at: new Date(Date.now()),
+          outstanding_count: 0,
+          provider_tokens_used: 0,
+          provider_tokens_reserved: 0,
+          provider_window_started_at: new Date(Date.now()),
+        });
 
       client.buckets.set("actor:actor:9:7", emptyBucket("actor", "actor:9:7"));
       await expect(admission(client, "ask-rate-actor", 7, "app", limited)).resolves.toEqual({

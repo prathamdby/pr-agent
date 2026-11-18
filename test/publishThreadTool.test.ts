@@ -46,8 +46,8 @@ const eventPool = new Pool();
 
 let nextReviewId = 100;
 
-function finding(line: number): ReviewFinding {
-  return {
+function finding(line: number) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     severityRationale: "The trigger is reachable in the changed branch.",
     file: "src/a.ts",
@@ -56,7 +56,7 @@ function finding(line: number): ReviewFinding {
     title: `Bug at line ${line}`,
     detail: `The changed path at line ${line} returns the wrong value.`,
     fixPrompt: `Correct the path at line ${line}.`,
-  };
+  });
 }
 
 function acceptedDispositions(source: SpecialistId, findings: readonly ReviewFinding[]) {

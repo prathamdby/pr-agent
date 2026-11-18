@@ -58,13 +58,9 @@ export type ParsedGithubEvent =
 
 const CHECK_RUN_ACTIONS = new Set(["created", "completed"]);
 
-function parseOrThrow<T>(
-  eventName: string,
-  schema: v.GenericSchema<unknown, T>,
-  payload: unknown,
-): T {
+function parseOrThrow<T>(eventName: string, schema: v.GenericSchema<unknown, T>, payload: unknown) {
   try {
-    return v.parse(schema, payload);
+    return ((pinnedReturn: T) => pinnedReturn)(v.parse(schema, payload));
   } catch (e) {
     if (e instanceof v.ValiError) {
       throw new WebhookParseError(e.message, eventName, e);
@@ -73,86 +69,121 @@ function parseOrThrow<T>(
   }
 }
 
-function payloadAction(payload: unknown): string | undefined {
-  if (payload == null || typeof payload !== "object") return undefined;
+function payloadAction(payload: unknown) {
+  if (payload == null || typeof payload !== "object")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const action = (payload as { action?: unknown }).action;
-  return typeof action === "string" ? action : undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    typeof action === "string" ? action : undefined,
+  );
 }
 
-export function parseGithubPayload(eventName: string, payload: unknown): ParsedGithubEvent {
+export function parseGithubPayload(eventName: string, payload: unknown) {
   switch (eventName) {
     case "pull_request":
       if (!AUTOMATED_PR_ACTIONS.has(payloadAction(payload) ?? "")) {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "pull_request",
         data: parseOrThrow(eventName, pullRequestWebhookSchema, payload),
-      };
+      });
     case "pull_request_review": {
       if (payloadAction(payload) !== "submitted") {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
       const parsed = parseOrThrow(eventName, pullRequestReviewWebhookSchema, payload);
       if (!isApprovalReview(parsed)) {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return { name: "pull_request_review", data: parsed };
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+        name: "pull_request_review",
+        data: parsed,
+      });
     }
     case "issue_comment":
       if (payloadAction(payload) !== "created") {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "issue_comment",
         data: parseOrThrow(eventName, issueCommentWebhookSchema, payload),
-      };
+      });
     case "pull_request_review_comment":
       if (payloadAction(payload) !== "created") {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "pull_request_review_comment",
         data: parseOrThrow(eventName, pullRequestReviewCommentWebhookSchema, payload),
-      };
+      });
     case "workflow_run": {
       const action = payloadAction(payload);
       if (action !== "completed" && action !== "in_progress") {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
       const data = parseOrThrow(eventName, workflowRunWebhookSchema, payload);
       if (action === "in_progress") {
-        return data.workflow_run.event === "pull_request"
-          ? { name: "workflow_run_started", data }
-          : { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)(
+          data.workflow_run.event === "pull_request"
+            ? { name: "workflow_run_started", data }
+            : { name: "ignored", data: payload },
+        );
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "workflow_run",
         data,
-      };
+      });
     }
     case "check_suite":
       if (payloadAction(payload) !== "completed") {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "check_suite",
         data: parseOrThrow(eventName, checkSuiteWebhookSchema, payload),
-      };
+      });
     case "check_run":
       if (!CHECK_RUN_ACTIONS.has(payloadAction(payload) ?? "")) {
-        return { name: "ignored", data: payload };
+        return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+          name: "ignored",
+          data: payload,
+        });
       }
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "check_run",
         data: parseOrThrow(eventName, checkRunWebhookSchema, payload),
-      };
+      });
     case "status":
-      return {
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
         name: "status",
         data: parseOrThrow(eventName, statusWebhookSchema, payload),
-      };
+      });
     default:
-      return { name: "ignored", data: payload };
+      return ((pinnedReturn: ParsedGithubEvent) => pinnedReturn)({
+        name: "ignored",
+        data: payload,
+      });
   }
 }

@@ -7,24 +7,26 @@ import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.ts";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.ts";
 import { renderDescriptionVisual } from "./descriptionVisualSanitize.ts";
 
-function renderReviewMap(files: readonly DescriptionPrFile[], ctx: PrResource): string {
-  if (files.length === 0) return "";
+function renderReviewMap(files: readonly DescriptionPrFile[], ctx: PrResource) {
+  if (files.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
   const lines: string[] = [DESCRIPTION_REVIEW_MAP_HEADING, ""];
   files.forEach((file, index) => {
     const href = githubPullRequestFileDiffUrl(ctx, file.filename);
     const reason = escapeTableHtml(file.changesTitle.trim());
     lines.push(`${index + 1}. ${renderInlineCodeLink(file.filename, href)}: ${reason}`);
   });
-  return lines.join("\n").trimEnd();
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n").trimEnd());
 }
 
-function renderVisuals(payload: DescriptionPayload): string {
+function renderVisuals(payload: DescriptionPayload) {
   const visuals = payload.visuals;
-  if (!visuals || visuals.length === 0) return "";
-  return visuals.map((visual) => renderDescriptionVisual(visual)).join("\n\n");
+  if (!visuals || visuals.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    visuals.map((visual) => renderDescriptionVisual(visual)).join("\n\n"),
+  );
 }
 
-export function renderDescriptionAgentBlock(payload: DescriptionPayload, ctx: PrResource): string {
+export function renderDescriptionAgentBlock(payload: DescriptionPayload, ctx: PrResource) {
   const typeLine = payload.type.join(", ");
   const description = payload.description.trim();
   const visualBlock = renderVisuals(payload);
@@ -49,21 +51,27 @@ export function renderDescriptionAgentBlock(payload: DescriptionPayload, ctx: Pr
     sections.push("", reviewMap);
   }
 
-  return redactOutboundSecrets(sections.join("\n").trimEnd());
+  return ((pinnedReturn: string) => pinnedReturn)(
+    redactOutboundSecrets(sections.join("\n").trimEnd()),
+  );
 }
 
-export function prBodyHasDescriptionReviewMap(body: string | null | undefined): boolean {
+export function prBodyHasDescriptionReviewMap(body: string | null | undefined) {
   const agentBlock = extractAgentDescriptionBlock(body);
-  if (!agentBlock) return false;
-  return agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING);
+  if (!agentBlock) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING),
+  );
 }
 
-function githubPullRequestFileDiffAnchor(filePath: string): string {
+function githubPullRequestFileDiffAnchor(filePath: string) {
   const digest = createHash("sha256").update(filePath).digest("hex");
-  return `diff-${digest}`;
+  return ((pinnedReturn: string) => pinnedReturn)(`diff-${digest}`);
 }
 
-function githubPullRequestFileDiffUrl(ctx: PrResource, filePath: string): string {
+function githubPullRequestFileDiffUrl(ctx: PrResource, filePath: string) {
   const anchor = githubPullRequestFileDiffAnchor(filePath);
-  return `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}/files#${anchor}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}/files#${anchor}`,
+  );
 }

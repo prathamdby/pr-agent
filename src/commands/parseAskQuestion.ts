@@ -6,10 +6,10 @@ export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
 
 const ASK_COMMAND_RE = /^\/ask(?:\s+(.*))?$/;
 
-function askRestFromBody(body: string): string | null {
+function askRestFromBody(body: string) {
   const first = firstNonEmptyLine(body);
   const m = first.match(ASK_COMMAND_RE);
-  if (!m) return null;
+  if (!m) return ((pinnedReturn: string | null) => pinnedReturn)(null);
 
   let rest = (m[1] ?? "").trim();
   if (
@@ -18,7 +18,7 @@ function askRestFromBody(body: string): string | null {
   ) {
     rest = rest.slice(1, -1).trim();
   }
-  return rest;
+  return ((pinnedReturn: string | null) => pinnedReturn)(rest);
 }
 
 export type AskQuestionParseResult =
@@ -27,25 +27,35 @@ export type AskQuestionParseResult =
   | { kind: "missing" }
   | { kind: "too_long" };
 
-export function parseAskQuestionResult(body: string): AskQuestionParseResult {
+export function parseAskQuestionResult(body: string) {
   const rest = askRestFromBody(body);
-  if (rest == null) return { kind: "not_ask" };
-  if (rest.length === 0) return { kind: "missing" };
-  if (rest.length > MAX_ASK_QUESTION_CHARS) return { kind: "too_long" };
-  return { kind: "ok", question: rest };
+  if (rest == null)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "not_ask" });
+  if (rest.length === 0)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "missing" });
+  if (rest.length > MAX_ASK_QUESTION_CHARS)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "too_long" });
+  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "ok", question: rest });
 }
 
-function parseMentionAskQuestion(body: string, botLogin: string): AskQuestionParseResult {
-  if (!commentMentionsBot(body, botLogin)) return { kind: "not_ask" };
+function parseMentionAskQuestion(body: string, botLogin: string) {
+  if (!commentMentionsBot(body, botLogin))
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "not_ask" });
   const question = stripBotMentions(body, botLogin);
-  if (question.length === 0) return { kind: "missing" };
-  if (question.length > MAX_ASK_QUESTION_CHARS) return { kind: "too_long" };
-  return { kind: "ok", question };
+  if (question.length === 0)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "missing" });
+  if (question.length > MAX_ASK_QUESTION_CHARS)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "too_long" });
+  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "ok", question });
 }
 
-export function parseAskQuestion(body: string, botLogin?: string): AskQuestionParseResult {
+export function parseAskQuestion(body: string, botLogin?: string) {
   const result = parseAskQuestionResult(body);
-  if (result.kind !== "not_ask") return result;
-  if (botLogin == null || botLogin.length === 0) return result;
-  return parseMentionAskQuestion(body, botLogin);
+  if (result.kind !== "not_ask")
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)(result);
+  if (botLogin == null || botLogin.length === 0)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)(result);
+  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)(
+    parseMentionAskQuestion(body, botLogin),
+  );
 }

@@ -73,15 +73,15 @@ import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts"
 
 const exec = promisify(execFile);
 
-function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}): LocalWorkspaceToolLimits {
-  return {
+function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}) {
+  return ((pinnedReturn: LocalWorkspaceToolLimits) => pinnedReturn)({
     searchMaxFiles: 100,
     searchMaxTotalBytes: 1_000_000,
     maxFileBytes: 100_000,
     readResponseBytes: 8_000,
     diffResponseBytes: 4_000,
     ...overrides,
-  };
+  });
 }
 
 function mockWorkspace(
@@ -97,7 +97,7 @@ function mockWorkspace(
     lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
     getSymbolIndexStatus?: LocalPrWorkspace["reader"]["getSymbolIndexStatus"];
   },
-): LocalPrWorkspace {
+) {
   const paths = new Set(checkoutPaths);
   const privateGitDir = join(agentCwd, ".git");
   const changedFiles = overrides?.changedFiles ?? [
@@ -106,7 +106,7 @@ function mockWorkspace(
   const headSha = overrides?.headSha ?? "a".repeat(40);
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
-  return {
+  return ((pinnedReturn: LocalPrWorkspace) => pinnedReturn)({
     rootDir: agentCwd,
     privateGitDir,
     agentCwd,
@@ -145,7 +145,7 @@ function mockWorkspace(
       getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     },
     cleanup: async () => {},
-  };
+  });
 }
 
 const FIRST_CHANGED_FILE_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -165,11 +165,13 @@ type ChangedFilePageView = {
   readonly warning?: string;
 };
 
-function changedPaths(count: number): LocalPrChangedFile[] {
-  return Array.from({ length: count }, (_, index) => ({
-    path: `src/file-${String(index).padStart(3, "0")}.ts`,
-    status: "modified",
-  }));
+function changedPaths(count: number) {
+  return ((pinnedReturn: LocalPrChangedFile[]) => pinnedReturn)(
+    Array.from({ length: count }, (_, index) => ({
+      path: `src/file-${String(index).padStart(3, "0")}.ts`,
+      status: "modified",
+    })),
+  );
 }
 
 function pageWorkspace(
@@ -2102,8 +2104,6 @@ describe("local workspace tools", () => {
 
 {
   const exec = promisify(execFile);
-  const WORKSPACE_TEST_TIMEOUT_MS = 20_000;
-
   const APP_PATCH = [
     "diff --git a/src/app.ts b/src/app.ts",
     "--- a/src/app.ts",
@@ -2132,24 +2132,21 @@ describe("local workspace tools", () => {
     readonly truncated?: boolean;
   };
 
-  async function writeTree(dir: string, files: Readonly<Record<string, string>>): Promise<void> {
+  async function writeTree(dir: string, files: Readonly<Record<string, string>>) {
     for (const [path, content] of Object.entries(files)) {
       await mkdir(dirname(join(dir, path)), { recursive: true });
       await writeFile(join(dir, path), content);
     }
   }
 
-  function prFileEntry(
-    path: string,
-    status: string,
-    options: SetupOptions,
-  ): PullRequestFileEntry | null {
+  function prFileEntry(path: string, status: string, options: SetupOptions) {
     const omitted = options.omittedPatchPaths?.includes(path) === true;
     const absent = options.absentPatchPaths?.includes(path) === true;
     const patch = options.patches?.[path];
     const previousFilename = options.previousFilenames?.[path];
-    if (patch == null && !omitted && !absent && status !== "removed") return null;
-    return {
+    if (patch == null && !omitted && !absent && status !== "removed")
+      return ((pinnedReturn: PullRequestFileEntry | null) => pinnedReturn)(null);
+    return ((pinnedReturn: PullRequestFileEntry | null) => pinnedReturn)({
       filename: path,
       status,
       additions: status === "removed" ? 0 : 1,
@@ -2158,10 +2155,10 @@ describe("local workspace tools", () => {
       ...(previousFilename ? { previousFilename } : {}),
       ...(omitted ? { patchOmitted: true } : {}),
       ...(patch != null && !omitted ? { patch } : {}),
-    };
+    });
   }
 
-  describe("buildWorkspaceTools", { timeout: WORKSPACE_TEST_TIMEOUT_MS }, () => {
+  describe("buildWorkspaceTools", () => {
     const sources: string[] = [];
     const workspaces: LocalPrWorkspace[] = [];
 
@@ -3169,7 +3166,7 @@ describe("local workspace tools", () => {
         ).rejects.toMatchObject({
           code: "ENOENT",
         });
-      }, 60_000);
+      });
 
       it("forwards workspace search truncation and the shared byte cap", async () => {
         const root = await mkdtemp(join(tmpdir(), "verification-ws-budget-"));
@@ -3209,8 +3206,8 @@ describe("local workspace tools", () => {
 {
   const exec = promisify(execFile);
 
-  function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThread {
-    return {
+  function findingThread(overrides: Partial<BotFindingThread> = {}) {
+    return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
       rootCommentId: 101,
       lens: "review",
       path: "src/app.ts",
@@ -3220,14 +3217,11 @@ describe("local workspace tools", () => {
       humanReplies: [],
       threadUrl: "https://example.test/thread/101",
       ...overrides,
-    };
+    });
   }
 
-  function mockCheckout(
-    dir: string,
-    commitImpl?: WritablePrCheckout["commit"],
-  ): WritablePrCheckout {
-    return {
+  function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]) {
+    return ((pinnedReturn: WritablePrCheckout) => pinnedReturn)({
       dir,
       reader: createWritableRepositoryReader(dir),
       headRef: "feature",
@@ -3241,10 +3235,10 @@ describe("local workspace tools", () => {
       push: async () => {},
       listCommittedShas: () => [],
       listCommittedDetails: () => [],
-    };
+    });
   }
 
-  async function initCheckout(files: Readonly<Record<string, string>>): Promise<string> {
+  async function initCheckout(files: Readonly<Record<string, string>>) {
     const root = await mkdtemp(join(tmpdir(), "triage-ws-tools-"));
     for (const [path, content] of Object.entries(files)) {
       await mkdir(dirname(join(root, path)), { recursive: true });
@@ -3255,7 +3249,7 @@ describe("local workspace tools", () => {
     await exec("git", ["config", "user.name", "Test"], { cwd: root });
     await exec("git", ["add", "."], { cwd: root });
     await exec("git", ["commit", "-m", "seed"], { cwd: root });
-    return root;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
   }
 
   describe("triage read profile", () => {

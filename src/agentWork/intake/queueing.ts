@@ -23,14 +23,11 @@ import {
   type WebhookHeaders,
 } from "../types.ts";
 
-export function jobCorrelation(
-  eventId: string,
-  headers: Pick<WebhookHeaders, "delivery">,
-): JobCorrelation {
-  return {
+export function jobCorrelation(eventId: string, headers: Pick<WebhookHeaders, "delivery">) {
+  return ((pinnedReturn: JobCorrelation) => pinnedReturn)({
     webhookEventId: eventId,
     delivery: headers.delivery,
-  };
+  });
 }
 
 async function requireBossJobSend(
@@ -38,7 +35,7 @@ async function requireBossJobSend(
   queue: string,
   data: object,
   options: Parameters<PgBoss["send"]>[2],
-): Promise<void> {
+) {
   const jobId = await boss.send(queue, data, options);
   if (jobId == null) {
     throw new AppError({
@@ -56,7 +53,7 @@ async function enqueueLeasedWork(
   ref: PrRef,
   queue: string,
   data: object,
-): Promise<void> {
+) {
   await requireBossJobSend(boss, queue, data, {
     db: pgBossDb(client),
     group: { id: installationGroupId(ref.installationId) },
@@ -68,16 +65,14 @@ async function sendBossJobIdempotent(
   queue: string,
   data: object,
   options: Parameters<PgBoss["send"]>[2],
-): Promise<"enqueued" | "already_present"> {
+) {
   const jobId = await boss.send(queue, data, options);
-  return jobId == null ? "already_present" : "enqueued";
+  return ((
+    pinnedReturn: ("enqueued" | "already_present") | Promise<"enqueued" | "already_present">,
+  ) => pinnedReturn)(jobId == null ? "already_present" : "enqueued");
 }
 
-export async function enqueueAck(
-  boss: PgBoss,
-  client: PoolClient,
-  data: AckJobData,
-): Promise<void> {
+export async function enqueueAck(boss: PgBoss, client: PoolClient, data: AckJobData) {
   await requireBossJobSend(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
     priority: 100,
@@ -90,13 +85,17 @@ export async function enqueueAskAckIdempotent(
   client: PoolClient,
   data: AckJobData,
   webhookEventId: string,
-): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(boss, ACK_QUEUE, data, {
-    db: pgBossDb(client),
-    id: webhookEventId,
-    priority: 100,
-    group: { id: installationGroupId(data.installationId) },
-  });
+) {
+  return ((
+    pinnedReturn: ("enqueued" | "already_present") | Promise<"enqueued" | "already_present">,
+  ) => pinnedReturn)(
+    sendBossJobIdempotent(boss, ACK_QUEUE, data, {
+      db: pgBossDb(client),
+      id: webhookEventId,
+      priority: 100,
+      group: { id: installationGroupId(data.installationId) },
+    }),
+  );
 }
 
 export async function enqueueReview(
@@ -105,7 +104,7 @@ export async function enqueueReview(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+) {
   const data: ReviewJobData = { kind: "review", workItemId, ...correlation };
   await enqueueLeasedWork(boss, client, ref, REVIEW_QUEUE, data);
 }
@@ -116,14 +115,18 @@ export async function enqueueAsk(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<"enqueued" | "already_present"> {
+) {
   const data: AskJobData = { kind: "ask", workItemId, ...correlation };
-  return sendBossJobIdempotent(boss, ASK_QUEUE, data, {
-    db: pgBossDb(client),
-    id: workItemId,
-    priority: 50,
-    group: { id: installationGroupId(ref.installationId) },
-  });
+  return ((
+    pinnedReturn: ("enqueued" | "already_present") | Promise<"enqueued" | "already_present">,
+  ) => pinnedReturn)(
+    sendBossJobIdempotent(boss, ASK_QUEUE, data, {
+      db: pgBossDb(client),
+      id: workItemId,
+      priority: 50,
+      group: { id: installationGroupId(ref.installationId) },
+    }),
+  );
 }
 
 export async function enqueueDescription(
@@ -132,7 +135,7 @@ export async function enqueueDescription(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+) {
   const data: DescriptionJobData = {
     kind: "description",
     workItemId,
@@ -147,7 +150,7 @@ export async function enqueueTriage(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+) {
   const data: TriageJobData = {
     kind: "triage",
     workItemId,
@@ -162,7 +165,7 @@ export async function enqueueVerification(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+) {
   const data: VerificationJobData = {
     kind: "verification",
     workItemId,

@@ -26,7 +26,7 @@ export type FakePiSessionControls = {
 export function createFakePiSession(
   params: PiSessionCreateParams,
   initialScript?: FakePiSessionScript,
-): { readonly session: PiSession; readonly controls: FakePiSessionControls } {
+) {
   const events: AgentLifecycleEvent[] = [];
   const sends: Array<{ prompt: string; opts: PiSessionSendOptions }> = [];
   let script: FakePiSessionScript =
@@ -140,5 +140,8 @@ export function createFakePiSession(
     },
   };
 
-  return { session, controls };
+  return ((pinnedReturn: {
+    readonly session: PiSession;
+    readonly controls: FakePiSessionControls;
+  }) => pinnedReturn)({ session, controls });
 }

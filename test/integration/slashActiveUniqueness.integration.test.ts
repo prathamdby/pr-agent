@@ -91,7 +91,7 @@ const queueConfig: QueueConfig = makeTestConfig({
   concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
 });
 
-async function deleteQueueJobs(boss: PgBoss): Promise<void> {
+async function deleteQueueJobs(boss: PgBoss) {
   for (const queue of CLEANUP_QUEUES) {
     const jobs = await boss.findJobs(queue, {});
     if (jobs.length > 0) {
@@ -159,7 +159,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await deleteQueueJobs(boss);
   });
 
-  async function acquireReviewLease(workItemId: string, resourceKey: string): Promise<number> {
+  async function acquireReviewLease(workItemId: string, resourceKey: string) {
     const acquisition = await acquirePrActorLease(pool, {
       resourceKey,
       workType: "review",
@@ -168,7 +168,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       ttlSeconds: 900,
     });
     if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${workItemId}`);
-    return acquisition.leaseEpoch;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(acquisition.leaseEpoch);
   }
 
   function makeDescribeInput(repo: string, delivery: string, commentId: number) {

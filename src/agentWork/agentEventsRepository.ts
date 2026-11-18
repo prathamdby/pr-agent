@@ -24,7 +24,7 @@ export type AgentEventInsertRow = {
 export async function appendAgentEvents(
   client: Pool | PoolClient,
   rows: readonly AgentEventInsertRow[],
-): Promise<void> {
+) {
   if (rows.length === 0) return;
 
   const values: unknown[] = [];
@@ -64,7 +64,7 @@ export function safeAppendAgentEvents(
   client: Pool | PoolClient,
   cfg: Pick<Config, "agentEvents">,
   rows: readonly AgentEventInsertRow[],
-): void {
+) {
   if (!cfg.agentEvents.enabled || rows.length === 0) return;
   void appendAgentEvents(client, rows).catch((error) => {
     logWarn("agent_events_append_failed", {

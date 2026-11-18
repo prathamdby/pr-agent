@@ -20,7 +20,7 @@ import {
 import { ENV } from "../envKeys.ts";
 import { readEnum, readStrictBoolean } from "../envReaders.ts";
 
-export function readFeatures(): Features {
+export function readFeatures() {
   const review = readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW);
   const reviewCadence = readEnum(
     ENV.FEATURE_REVIEW_CADENCE,
@@ -45,7 +45,7 @@ export function readFeatures(): Features {
       },
     });
   }
-  return {
+  return ((pinnedReturn: Features) => pinnedReturn)({
     review,
     reviewCadence,
     describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
@@ -63,5 +63,5 @@ export function readFeatures(): Features {
     ),
     commitStatus: readStrictBoolean(ENV.FEATURE_COMMIT_STATUS, DEFAULT_FEATURE_COMMIT_STATUS),
     titleRewrite: readStrictBoolean(ENV.FEATURE_TITLE_REWRITE, DEFAULT_FEATURE_TITLE_REWRITE),
-  } satisfies Features;
+  } satisfies Features);
 }

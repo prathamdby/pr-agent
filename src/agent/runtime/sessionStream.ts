@@ -46,12 +46,8 @@ export type SessionStream = {
   readonly getAttempts: () => number;
 };
 
-function failureMessage(
-  model: Model<Api>,
-  stopReason: "error" | "aborted",
-  reason: string,
-): AssistantMessage {
-  return {
+function failureMessage(model: Model<Api>, stopReason: "error" | "aborted", reason: string) {
+  return ((pinnedReturn: AssistantMessage) => pinnedReturn)({
     role: "assistant",
     content: [],
     api: model.api,
@@ -61,35 +57,31 @@ function failureMessage(
     stopReason,
     errorMessage: reason,
     timestamp: Date.now(),
-  };
+  });
 }
 
-function requestSystemText(context: Context): string {
+function requestSystemText(context: Context) {
   if (typeof context.systemPrompt === "string" && context.systemPrompt.length > 0) {
-    return context.systemPrompt;
+    return ((pinnedReturn: string) => pinnedReturn)(context.systemPrompt);
   }
   for (const message of context.messages) {
-    if (message.role === "system") return contentText(message.content);
+    if (message.role === "system")
+      return ((pinnedReturn: string) => pinnedReturn)(contentText(message.content));
   }
-  return "";
+  return ((pinnedReturn: string) => pinnedReturn)("");
 }
 
-function encodeFailureStream(
-  model: Model<Api>,
-  stopReason: "error" | "aborted",
-  error: unknown,
-): ReturnType<typeof createAssistantMessageEventStream> {
+function encodeFailureStream(model: Model<Api>, stopReason: "error" | "aborted", error: unknown) {
   const message = failureMessage(model, stopReason, errorMessage(error));
   const stream = createAssistantMessageEventStream();
   stream.push({ type: "error", reason: stopReason, error: message });
   stream.end(message);
-  return stream;
+  return ((pinnedReturn: ReturnType<typeof createAssistantMessageEventStream>) => pinnedReturn)(
+    stream,
+  );
 }
 
-export function createSessionStreamFn(
-  models: Models,
-  defaults: SessionStreamDefaults,
-): SessionStream {
+export function createSessionStreamFn(models: Models, defaults: SessionStreamDefaults) {
   let lastOptions: SimpleStreamOptions | undefined;
   let attempts = 0;
   let previousSections: PromptCacheSections | null = null;
@@ -130,9 +122,9 @@ export function createSessionStreamFn(
       return encodeFailureStream(model, aborted ? "aborted" : "error", error);
     }
   };
-  return {
+  return ((pinnedReturn: SessionStream) => pinnedReturn)({
     streamFn,
     getLastOptions: () => lastOptions,
     getAttempts: () => attempts,
-  };
+  });
 }

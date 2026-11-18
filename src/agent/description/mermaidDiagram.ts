@@ -1,9 +1,9 @@
 const FLOWCHART_HEADER = /^(flowchart|graph)\s+(LR|RL|TB|BT|TD)\s*$/i;
 
-export function extractMermaidDiagramBody(diagramRaw: string): string {
+export function extractMermaidDiagramBody(diagramRaw: string) {
   const trimmed = diagramRaw.trim();
   if (!trimmed.startsWith("```mermaid")) {
-    return trimmed;
+    return ((pinnedReturn: string) => pinnedReturn)(trimmed);
   }
   const lines = trimmed.split("\n");
   const bodyLines: string[] = [];
@@ -18,39 +18,41 @@ export function extractMermaidDiagramBody(diagramRaw: string): string {
     if (line.trim() === "```") break;
     bodyLines.push(line);
   }
-  return bodyLines.join("\n").trim();
+  return ((pinnedReturn: string) => pinnedReturn)(bodyLines.join("\n").trim());
 }
 
-function quoteLabel(label: string): string {
+function quoteLabel(label: string) {
   const escaped = label.replace(/`/g, "").replace(/"/g, "'");
-  return `["${escaped}"]`;
+  return ((pinnedReturn: string) => pinnedReturn)(`["${escaped}"]`);
 }
 
-export function repairMermaidNodeLabels(line: string): string {
-  return line.replace(/(\b[A-Za-z][\w-]*)\[([^\]]+)\]/g, (match, nodeId: string, label: string) => {
-    const inner = label.trim();
-    if (inner.startsWith('"') && inner.endsWith('"')) {
+export function repairMermaidNodeLabels(line: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    line.replace(/(\b[A-Za-z][\w-]*)\[([^\]]+)\]/g, (match, nodeId: string, label: string) => {
+      const inner = label.trim();
+      if (inner.startsWith('"') && inner.endsWith('"')) {
+        return match;
+      }
+      if (inner.startsWith("/") && !inner.endsWith("/")) {
+        const text = inner.replace(/^\//, "").trim();
+        return `${nodeId}${quoteLabel(text)}`;
+      }
+      if (inner.startsWith("/") && inner.endsWith("/") && inner.length > 2) {
+        const text = inner.slice(1, -1).trim();
+        return `${nodeId}${quoteLabel(text)}`;
+      }
+      if (/[`/()]/.test(inner)) {
+        return `${nodeId}${quoteLabel(inner)}`;
+      }
       return match;
-    }
-    if (inner.startsWith("/") && !inner.endsWith("/")) {
-      const text = inner.replace(/^\//, "").trim();
-      return `${nodeId}${quoteLabel(text)}`;
-    }
-    if (inner.startsWith("/") && inner.endsWith("/") && inner.length > 2) {
-      const text = inner.slice(1, -1).trim();
-      return `${nodeId}${quoteLabel(text)}`;
-    }
-    if (/[`/()]/.test(inner)) {
-      return `${nodeId}${quoteLabel(inner)}`;
-    }
-    return match;
-  });
+    }),
+  );
 }
 
-export function sanitizeMermaidDiagram(diagramRaw: string): string {
+export function sanitizeMermaidDiagram(diagramRaw: string) {
   const diagram = diagramRaw.trim();
   if (!diagram.startsWith("```mermaid")) {
-    return "";
+    return ((pinnedReturn: string) => pinnedReturn)("");
   }
   let fixed = diagram;
   if (!fixed.endsWith("```")) {
@@ -63,7 +65,7 @@ export function sanitizeMermaidDiagram(diagramRaw: string): string {
       return `["${label.replace(/`/g, "")}"]`;
     });
   });
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 export type MermaidValidationIssue = {
@@ -71,12 +73,12 @@ export type MermaidValidationIssue = {
   readonly message: string;
 };
 
-function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
+function validateMermaidDiagramBody(body: string) {
   const issues: MermaidValidationIssue[] = [];
   const lines = body.split("\n").filter((line) => line.trim().length > 0);
   if (lines.length === 0) {
     issues.push({ line: 1, message: "Diagram is empty." });
-    return issues;
+    return ((pinnedReturn: MermaidValidationIssue[]) => pinnedReturn)(issues);
   }
 
   const header = lines[0]?.trim() ?? "";
@@ -142,13 +144,17 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
     issues.push({ line: 1, message: "Diagram has nodes but no --> edges." });
   }
 
-  return issues;
+  return ((pinnedReturn: MermaidValidationIssue[]) => pinnedReturn)(issues);
 }
 
-export function validateSanitizedMermaidFence(sanitizedFence: string): MermaidValidationIssue[] {
+export function validateSanitizedMermaidFence(sanitizedFence: string) {
   const trimmed = sanitizedFence.trim();
   if (!trimmed.startsWith("```mermaid")) {
-    return [{ line: 1, message: "Mermaid visual content must be a ```mermaid fenced block." }];
+    return ((pinnedReturn: MermaidValidationIssue[]) => pinnedReturn)([
+      { line: 1, message: "Mermaid visual content must be a ```mermaid fenced block." },
+    ]);
   }
-  return validateMermaidDiagramBody(extractMermaidDiagramBody(trimmed));
+  return ((pinnedReturn: MermaidValidationIssue[]) => pinnedReturn)(
+    validateMermaidDiagramBody(extractMermaidDiagramBody(trimmed)),
+  );
 }

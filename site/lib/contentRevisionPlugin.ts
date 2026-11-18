@@ -24,7 +24,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function stampHashes(value: unknown): Record<RevisionId, string | undefined> {
+function stampHashes(value: unknown) {
   const hashes: Record<RevisionId, string | undefined> = {
     landing: undefined,
     llms: undefined,
@@ -32,7 +32,7 @@ function stampHashes(value: unknown): Record<RevisionId, string | undefined> {
     openapi: undefined,
   };
   if (!isRecord(value)) {
-    return hashes;
+    return ((pinnedReturn: Record<RevisionId, string | undefined>) => pinnedReturn)(hashes);
   }
   for (const id of REVISION_IDS) {
     const entry = value[id];
@@ -42,17 +42,17 @@ function stampHashes(value: unknown): Record<RevisionId, string | undefined> {
     const { hash } = entry;
     hashes[id] = typeof hash === "string" ? hash : undefined;
   }
-  return hashes;
+  return ((pinnedReturn: Record<RevisionId, string | undefined>) => pinnedReturn)(hashes);
 }
 
-function stampPath(): string {
-  return resolve(siteDir, "content-revision.json");
+function stampPath() {
+  return ((pinnedReturn: string) => pinnedReturn)(resolve(siteDir, "content-revision.json"));
 }
 
-export function contentRevisionBuildPlugin(io: ContentRevisionIo = {}): Plugin {
+export function contentRevisionBuildPlugin(io: ContentRevisionIo = {}) {
   const read = io.readStamp ?? (() => readFileSync(stampPath(), "utf8"));
   const bodies = io.bodies ?? stableDocumentBodies;
-  return {
+  return ((pinnedReturn: Plugin) => pinnedReturn)({
     name: "content-revision-build",
     apply: "build",
     buildStart() {
@@ -67,5 +67,5 @@ export function contentRevisionBuildPlugin(io: ContentRevisionIo = {}): Plugin {
         }
       }
     },
-  };
+  });
 }

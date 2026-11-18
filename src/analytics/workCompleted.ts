@@ -53,8 +53,8 @@ export type WorkIdentity = {
 
 export type AnalyticsDistinctId = `installation:${number}` | "server";
 
-export function installationDistinctId(installationId: number): AnalyticsDistinctId {
-  return `installation:${installationId}`;
+export function installationDistinctId(installationId: number) {
+  return ((pinnedReturn: AnalyticsDistinctId) => pinnedReturn)(`installation:${installationId}`);
 }
 
 export type PublishTelemetry = {
@@ -137,10 +137,10 @@ export type RecordWorkCompletedInput = {
   readonly workspaceCheckout?: WorkspaceCheckoutAnalytics;
 };
 
-export function workFailureReasonFromClassified(failure: ClassifiedFailure): WorkFailureReason {
+export function workFailureReasonFromClassified(failure: ClassifiedFailure) {
   const phase = posthogSafePhase(failure.phase);
   const errorMessage = posthogErrorMessage(failure.errorMessage);
-  return {
+  return ((pinnedReturn: WorkFailureReason) => pinnedReturn)({
     failureDomain: failure.failureDomain,
     errorKind: failure.errorKind,
     ...(failure.failureDomain === "provider" ? { providerErrorKind: failure.errorKind } : {}),
@@ -148,17 +148,18 @@ export function workFailureReasonFromClassified(failure: ClassifiedFailure): Wor
     ...(errorMessage != null ? { errorMessage } : {}),
     ...(failure.httpStatus != null ? { httpStatus: failure.httpStatus } : {}),
     ...(failure.requestPath != null ? { requestPath: failure.requestPath } : {}),
-  };
+  });
 }
 
-function posthogErrorMessage(message: string | undefined): string | undefined {
-  if (message == null || message.length === 0) return undefined;
-  return message.slice(0, MAX_LOG_MESSAGE_LEN);
+function posthogErrorMessage(message: string | undefined) {
+  if (message == null || message.length === 0)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    message.slice(0, MAX_LOG_MESSAGE_LEN),
+  );
 }
 
-function failureEnvelopeProperties(
-  failure: WorkFailureReason,
-): Record<string, string | number | boolean> {
+function failureEnvelopeProperties(failure: WorkFailureReason) {
   const errorMessage = posthogErrorMessage(failure.errorMessage);
   const properties: Record<string, string | number | boolean> = {
     failure_domain: failure.failureDomain,
@@ -171,22 +172,28 @@ function failureEnvelopeProperties(
   if (errorMessage != null) properties.error_message = errorMessage;
   if (failure.httpStatus != null) properties.http_status = failure.httpStatus;
   if (failure.requestPath != null) properties.request_path = failure.requestPath;
-  return properties;
+  return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)(properties);
 }
 
 export function degradedReasonFromReviewFlags(input: {
   readonly publishAttempts: number;
   readonly snapshot?: ReviewRunMetricsSnapshot | null;
-}): DegradedReason | null {
-  if (input.publishAttempts > 0) return "publish_retry";
+}) {
+  if (input.publishAttempts > 0)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("publish_retry");
   const snapshot = input.snapshot;
-  if (!snapshot) return null;
-  if (snapshot.judgmentDegraded) return "judgment_degraded";
-  if (snapshot.briefFallback) return "brief_fallback";
-  if (snapshot.rateLimitCircuitOpened) return "rate_limit_circuit";
-  if (snapshot.validationFailureCount > 0) return "validation_failure";
-  if (snapshot.toolCallErrors > 0) return "tool_call_error";
-  return null;
+  if (!snapshot) return ((pinnedReturn: DegradedReason | null) => pinnedReturn)(null);
+  if (snapshot.judgmentDegraded)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("judgment_degraded");
+  if (snapshot.briefFallback)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("brief_fallback");
+  if (snapshot.rateLimitCircuitOpened)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("rate_limit_circuit");
+  if (snapshot.validationFailureCount > 0)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("validation_failure");
+  if (snapshot.toolCallErrors > 0)
+    return ((pinnedReturn: DegradedReason | null) => pinnedReturn)("tool_call_error");
+  return ((pinnedReturn: DegradedReason | null) => pinnedReturn)(null);
 }
 
 export function reviewWorkOutcome(input: {
@@ -195,41 +202,47 @@ export function reviewWorkOutcome(input: {
   readonly lightweight?: boolean;
   readonly publishAttempts?: number;
   readonly snapshot?: ReviewRunMetricsSnapshot | null;
-}): WorkCompletedOutcome {
-  if (input.publishSuperseded) return "superseded";
-  if (input.lightweight) return "lightweight";
-  if (!input.published) return "failed";
+}) {
+  if (input.publishSuperseded)
+    return ((pinnedReturn: WorkCompletedOutcome) => pinnedReturn)("superseded");
+  if (input.lightweight)
+    return ((pinnedReturn: WorkCompletedOutcome) => pinnedReturn)("lightweight");
+  if (!input.published) return ((pinnedReturn: WorkCompletedOutcome) => pinnedReturn)("failed");
   if (
     degradedReasonFromReviewFlags({
       publishAttempts: input.publishAttempts ?? 0,
       snapshot: input.snapshot,
     }) != null
   ) {
-    return "degraded";
+    return ((pinnedReturn: WorkCompletedOutcome) => pinnedReturn)("degraded");
   }
-  return "published";
+  return ((pinnedReturn: WorkCompletedOutcome) => pinnedReturn)("published");
 }
 
 export function durationMsFromClaim(
   claim: { readonly startedAt: Date } | null | undefined,
   nowMs = Date.now(),
-): number {
-  if (!claim) return 0;
-  return Math.max(0, nowMs - claim.startedAt.getTime());
+) {
+  if (!claim) return ((pinnedReturn: number) => pinnedReturn)(0);
+  return ((pinnedReturn: number) => pinnedReturn)(Math.max(0, nowMs - claim.startedAt.getTime()));
 }
 
-function completionProperties(
-  completion: WorkCompletion,
-): Record<string, string | number | boolean> {
+function completionProperties(completion: WorkCompletion) {
   switch (completion.kind) {
     case "ask":
-      return { reply_target_kind: completion.replyTargetKind };
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
+        reply_target_kind: completion.replyTargetKind,
+      });
     case "description":
-      return { source: completion.source };
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
+        source: completion.source,
+      });
     case "triage":
-      return { scope: completion.scope };
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
+        scope: completion.scope,
+      });
     case "verification":
-      return {
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
         inventory_narrowed: completion.inventoryNarrowed,
         ...(completion.objectionsPresented != null
           ? { objections_presented: completion.objectionsPresented }
@@ -246,13 +259,13 @@ function completionProperties(
         ...(completion.objectionsSkippedIncomplete != null
           ? { objections_skipped_incomplete: completion.objectionsSkippedIncomplete }
           : {}),
-      };
+      });
     case "failure":
     case "cancelled":
     case "superseded":
-      return {};
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({});
     case "review-profile":
-      return {
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
         review_lens: completion.reviewLens,
         source: completion.source,
         ...(completion.model != null ? { model: completion.model } : {}),
@@ -267,25 +280,28 @@ function completionProperties(
         ...(completion.specialistError != null
           ? { specialist_error: completion.specialistError }
           : {}),
-      };
+      });
     default: {
       const exhaustive: never = completion;
-      return exhaustive;
+      return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)(
+        exhaustive,
+      );
     }
   }
 }
 
-function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | number | boolean> {
-  if (ci == null) return {};
-  return {
+function ciProperties(ci: CiWorkTelemetry | undefined) {
+  if (ci == null)
+    return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({});
+  return ((pinnedReturn: Record<string, string | number | boolean>) => pinnedReturn)({
     ci_rollup: ci.rollup,
     ci_failing_count: ci.failingCount,
     ci_authored: ci.authored,
     ...(ci.unavailableReason != null ? { ci_unavailable_reason: ci.unavailableReason } : {}),
-  };
+  });
 }
 
-export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
+export function recordWorkCompleted(input: RecordWorkCompletedInput) {
   const { item, completion, ci } = input;
   const profile = completion.kind === "review-profile" ? completion : undefined;
   const outcome =
@@ -350,7 +366,7 @@ export type WebhookReceived = {
   readonly reason?: string;
 };
 
-export function captureWebhookReceived(input: WebhookReceived): void {
+export function captureWebhookReceived(input: WebhookReceived) {
   const properties: Record<string, string | number> = {
     github_event: input.githubEvent,
     delivery: input.delivery,
@@ -374,7 +390,7 @@ export type WorkItemRetried = WorkIdentity & {
   readonly workspaceCheckout?: WorkspaceCheckoutAnalytics;
 };
 
-export function captureWorkRetried(input: WorkItemRetried): void {
+export function captureWorkRetried(input: WorkItemRetried) {
   try {
     captureEvent({
       distinctId: installationDistinctId(input.installationId),
@@ -410,7 +426,7 @@ export function captureWorkExecutionStopped(
     readonly attemptCount: number;
     readonly leaseEpoch: number | null;
   },
-): void {
+) {
   try {
     captureEvent({
       distinctId: installationDistinctId(input.installationId),
@@ -439,7 +455,7 @@ export function captureWorkTerminal(
     readonly executionId?: string;
     readonly attemptCount?: number;
   },
-): void {
+) {
   try {
     captureEvent({
       distinctId: installationDistinctId(input.installationId),
@@ -471,7 +487,7 @@ export type CiStateChanged = {
   readonly version: number;
 };
 
-export function captureCiStateChanged(input: CiStateChanged): void {
+export function captureCiStateChanged(input: CiStateChanged) {
   if (input.fromRollup === input.toRollup) return;
   captureEvent({
     distinctId: installationDistinctId(input.installationId),

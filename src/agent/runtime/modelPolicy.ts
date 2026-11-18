@@ -7,7 +7,7 @@ export type ResolvedModelPolicy = {
   readonly fallback: ModelAssignment | undefined;
 };
 
-export function resolveModelPolicy(cfg: Config): ResolvedModelPolicy {
+export function resolveModelPolicy(cfg: Config) {
   const generalPrimary: ModelAssignment = {
     provider: cfg.models.provider,
     model: cfg.models.model,
@@ -23,26 +23,27 @@ export function resolveModelPolicy(cfg: Config): ResolvedModelPolicy {
       ? { provider: fallbackProvider, model: fallbackModel }
       : undefined;
 
-  return { orchestratorPrimary, generalPrimary, fallback };
+  return ((pinnedReturn: ResolvedModelPolicy) => pinnedReturn)({
+    orchestratorPrimary,
+    generalPrimary,
+    fallback,
+  });
 }
 
-export function modelAssignmentForRole(
-  policy: ResolvedModelPolicy,
-  role: AgentSessionRole,
-): ModelAssignment {
+export function modelAssignmentForRole(policy: ResolvedModelPolicy, role: AgentSessionRole) {
   switch (role) {
     case "orchestrator":
-      return policy.orchestratorPrimary;
+      return ((pinnedReturn: ModelAssignment) => pinnedReturn)(policy.orchestratorPrimary);
     case "specialist":
     case "ask":
     case "description":
     case "triage":
     case "verification":
     case "ci_summary":
-      return policy.generalPrimary;
+      return ((pinnedReturn: ModelAssignment) => pinnedReturn)(policy.generalPrimary);
     default: {
       const _exhaustive: never = role;
-      return _exhaustive;
+      return ((pinnedReturn: ModelAssignment) => pinnedReturn)(_exhaustive);
     }
   }
 }

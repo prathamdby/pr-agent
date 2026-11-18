@@ -17,7 +17,7 @@ export async function openRunRateLimitCircuit(params: {
   readonly type: "ask" | "review";
   readonly workItemId?: string;
   readonly onOpened?: (kind: RateLimitFailureClass) => void;
-}): Promise<RateLimitCircuit> {
+}) {
   const { pool, installationId, type } = params;
   const logIdentity = {
     installationId,
@@ -31,7 +31,8 @@ export async function openRunRateLimitCircuit(params: {
       openSharedRateLimitCircuitBestEffort(pool, { installationId, lastErrorKind: kind });
     },
   });
-  if (pool == null || installationId <= 0) return circuit;
+  if (pool == null || installationId <= 0)
+    return ((pinnedReturn: RateLimitCircuit | Promise<RateLimitCircuit>) => pinnedReturn)(circuit);
   try {
     const shared = await getSharedRateLimitCircuit(pool, installationId);
     if (shared != null && shared.openUntil.getTime() > Date.now()) {
@@ -47,5 +48,5 @@ export async function openRunRateLimitCircuit(params: {
       message: errorMessage(error),
     });
   }
-  return circuit;
+  return ((pinnedReturn: RateLimitCircuit | Promise<RateLimitCircuit>) => pinnedReturn)(circuit);
 }

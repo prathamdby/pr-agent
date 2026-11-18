@@ -341,10 +341,9 @@ describe("validateReviewPayload", () => {
     index.listPullRequestFilesIngested = true;
     index.files.set("a.ts", {
       patchOmitted: false,
-      commentableRightLineRanges: Array.from({ length: 25 }, (_, i): [number, number] => [
-        i + 1,
-        i + 1,
-      ]),
+      commentableRightLineRanges: Array.from({ length: 25 }, (_, i) =>
+        ((pinnedReturn: [number, number]) => pinnedReturn)([i + 1, i + 1]),
+      ),
       additions: 25,
       deletions: 0,
     });

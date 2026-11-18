@@ -244,7 +244,7 @@ describe("agent work runtime teardown", () => {
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
-  }, 5_000);
+  });
 
   it("waits for durable marks before propagating an analytics shutdown failure", async () => {
     runtimeMocks.trace.length = 0;
@@ -310,7 +310,7 @@ describe("agent work runtime teardown", () => {
     ]);
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
-  }, 5_000);
+  });
 
   it("warns and still ends the pool when a durable dispatch outlasts the reserve", async () => {
     runtimeMocks.trace.length = 0;
@@ -356,15 +356,15 @@ describe("agent work runtime teardown", () => {
 
     releaseDurable();
     await durable;
-  }, 5_000);
+  });
 });
 
-function connectError(code: string): Error {
+function connectError(code: string) {
   const error = new Error(`connect ${code}`);
-  return Object.assign(error, { code });
+  return ((pinnedReturn: Error) => pinnedReturn)(Object.assign(error, { code }));
 }
 
-function restoreBootDoubles(): void {
+function restoreBootDoubles() {
   runtimeMocks.runMigrations.mockReset();
   runtimeMocks.runMigrations.mockImplementation(async () => undefined);
   runtimeMocks.createStartedBoss.mockReset();

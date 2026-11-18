@@ -32,9 +32,7 @@ export type PublishReviewTestHarness = {
   readonly setReviewCommitStatus: Mock<PrSurface["setReviewCommitStatus"]>;
 };
 
-export function createPublishReviewTestHarness(options?: {
-  readonly labels?: readonly string[];
-}): PublishReviewTestHarness {
+export function createPublishReviewTestHarness(options?: { readonly labels?: readonly string[] }) {
   const bundle = createFakePrSurface(
     { owner: "o", repo: "r", prNumber: 1 },
     options?.labels ? { labels: options.labels } : undefined,
@@ -79,7 +77,7 @@ export function createPublishReviewTestHarness(options?: {
   const setLabels = vi.spyOn(bundle.surface, "setLabels");
   const setReviewCommitStatus = vi.spyOn(bundle.surface, "setReviewCommitStatus");
 
-  return {
+  return ((pinnedReturn: PublishReviewTestHarness) => pinnedReturn)({
     surface: bundle.surface,
     controls: bundle.controls,
     publishThreadBatch,
@@ -90,7 +88,7 @@ export function createPublishReviewTestHarness(options?: {
     getLabels,
     setLabels,
     setReviewCommitStatus,
-  };
+  });
 }
 
 export function publishReviewTestBaseParams(

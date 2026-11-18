@@ -10,30 +10,34 @@ export type TriageCommitAttribution = {
   readonly source: "human" | "app";
 };
 
-export function githubNoreplyEmail(userId: number, login: string): string {
-  return `${userId}+${login}@users.noreply.github.com`;
+export function githubNoreplyEmail(userId: number, login: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${userId}+${login}@users.noreply.github.com`);
 }
 
-export function botGitPerson(bot: BotIdentity): GitPerson {
-  return {
+export function botGitPerson(bot: BotIdentity) {
+  return ((pinnedReturn: GitPerson) => pinnedReturn)({
     name: bot.login,
     email: githubNoreplyEmail(bot.userId, bot.login),
-  };
+  });
 }
 
 export function buildTriageCommitAttribution(params: {
   readonly botIdentity: BotIdentity;
   readonly triggerer: GitPerson | null;
-}): TriageCommitAttribution {
+}) {
   const bot = botGitPerson(params.botIdentity);
   if (params.triggerer == null) {
-    return { person: bot, coAuthoredBy: [], source: "app" };
+    return ((pinnedReturn: TriageCommitAttribution) => pinnedReturn)({
+      person: bot,
+      coAuthoredBy: [],
+      source: "app",
+    });
   }
-  return {
+  return ((pinnedReturn: TriageCommitAttribution) => pinnedReturn)({
     person: params.triggerer,
     coAuthoredBy: [bot],
     source: "human",
-  };
+  });
 }
 
 export function gitPersonFromGithubUser(user: {
@@ -42,11 +46,13 @@ export function gitPersonFromGithubUser(user: {
   readonly name?: string | null;
   readonly email?: string | null;
   readonly type?: string;
-}): GitPerson | null {
-  if (!Number.isFinite(user.id) || user.id <= 0) return null;
+}) {
+  if (!Number.isFinite(user.id) || user.id <= 0)
+    return ((pinnedReturn: GitPerson | null) => pinnedReturn)(null);
   const login = user.login?.trim();
-  if (!login) return null;
-  if (user.type === "Bot" || login.endsWith("[bot]")) return null;
+  if (!login) return ((pinnedReturn: GitPerson | null) => pinnedReturn)(null);
+  if (user.type === "Bot" || login.endsWith("[bot]"))
+    return ((pinnedReturn: GitPerson | null) => pinnedReturn)(null);
   const rawName = user.name?.trim() || login;
   const name =
     rawName
@@ -54,12 +60,14 @@ export function gitPersonFromGithubUser(user: {
       .split("\0")
       .join(" ")
       .trim() || login;
-  if (!name) return null;
+  if (!name) return ((pinnedReturn: GitPerson | null) => pinnedReturn)(null);
   const email = (user.email?.trim() || githubNoreplyEmail(user.id, login)).trim();
-  if (!email.includes("@")) return null;
-  return { name, email };
+  if (!email.includes("@")) return ((pinnedReturn: GitPerson | null) => pinnedReturn)(null);
+  return ((pinnedReturn: GitPerson | null) => pinnedReturn)({ name, email });
 }
 
-export function formatCoAuthoredByTrailer(person: GitPerson): string {
-  return `Co-authored-by: ${person.name} <${person.email}>`;
+export function formatCoAuthoredByTrailer(person: GitPerson) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `Co-authored-by: ${person.name} <${person.email}>`,
+  );
 }

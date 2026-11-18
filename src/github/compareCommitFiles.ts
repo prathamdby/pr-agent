@@ -14,7 +14,7 @@ export async function listCommitCompareFiles(params: {
   readonly repo: string;
   readonly base: string;
   readonly head: string;
-}): Promise<ListCommitCompareFilesResult> {
+}) {
   const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
   const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
     owner: params.owner,
@@ -24,8 +24,9 @@ export async function listCommitCompareFiles(params: {
   const files = (data.files ?? [])
     .map((file) => file.filename)
     .filter((filename): filename is string => typeof filename === "string" && filename.length > 0);
-  return {
+  return ((pinnedReturn: ListCommitCompareFilesResult | Promise<ListCommitCompareFilesResult>) =>
+    pinnedReturn)({
     files,
     truncated: files.length >= GITHUB_COMPARE_FILES_PAGE_CAP,
-  };
+  });
 }

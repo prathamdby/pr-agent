@@ -71,8 +71,10 @@ export type ReportObstacleContext = {
   readonly model: string;
 };
 
-export function obstacleGroupKey(obstacle: ReportObstacle["obstacle"], subject: string): string {
-  return `${obstacle}:${subject.trim().toLowerCase().replace(/\s+/g, " ")}`;
+export function obstacleGroupKey(obstacle: ReportObstacle["obstacle"], subject: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${obstacle}:${subject.trim().toLowerCase().replace(/\s+/g, " ")}`,
+  );
 }
 
 export function obstacleDeliveryKey(input: {
@@ -80,75 +82,81 @@ export function obstacleDeliveryKey(input: {
   readonly sessionRole: string;
   readonly specialistId?: string;
   readonly toolCallId: string | null;
-}): string | null {
+}) {
   const toolCallId = input.toolCallId?.trim();
-  if (!toolCallId) return null;
-  return [input.workItemId, input.sessionRole, input.specialistId ?? "", toolCallId].join("\n");
+  if (!toolCallId) return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    [input.workItemId, input.sessionRole, input.specialistId ?? "", toolCallId].join("\n"),
+  );
 }
 
-export function reportObstaclePiTool(): PiTool {
-  return {
+export function reportObstaclePiTool() {
+  return ((pinnedReturn: PiTool) => pinnedReturn)({
     name: REPORT_OBSTACLE_NAME,
     description: REPORT_OBSTACLE_DESCRIPTION,
     parameters: toToolParameters(reportObstacleSchema),
-  };
+  });
 }
 
-export function createReportObstacleExecutor(
-  context: ReportObstacleContext,
-): AgentRunnerToolExecutor {
-  return async (args, ctx?: AgentToolCallContext): Promise<ReportObstacleResult> => {
-    const parsed = parseToolInput(reportObstacleSchema, args, {
-      toolName: REPORT_OBSTACLE_NAME,
-      errorTitle: "report_obstacle validation failed:",
-    });
-    if (!parsed.ok) return { recorded: false, error: parsed.error };
-    const report = parsed.value;
-    const subject = redactOutboundSecrets(report.subject);
-    const intent = redactOutboundSecrets(report.intent);
-    const problem = redactOutboundSecrets(report.problem);
-    const expected = redactOutboundSecrets(report.expected);
-    try {
-      const toolCallId = ctx?.toolCallId?.trim() || null;
-      await insertAgentFeedback(context.pool, {
-        deliveryKey: obstacleDeliveryKey({
+export function createReportObstacleExecutor(context: ReportObstacleContext) {
+  return ((pinnedReturn: AgentRunnerToolExecutor) => pinnedReturn)(
+    async (args, ctx?: AgentToolCallContext) => {
+      const parsed = parseToolInput(reportObstacleSchema, args, {
+        toolName: REPORT_OBSTACLE_NAME,
+        errorTitle: "report_obstacle validation failed:",
+      });
+      if (!parsed.ok)
+        return ((pinnedReturn: ReportObstacleResult | Promise<ReportObstacleResult>) =>
+          pinnedReturn)({ recorded: false, error: parsed.error });
+      const report = parsed.value;
+      const subject = redactOutboundSecrets(report.subject);
+      const intent = redactOutboundSecrets(report.intent);
+      const problem = redactOutboundSecrets(report.problem);
+      const expected = redactOutboundSecrets(report.expected);
+      try {
+        const toolCallId = ctx?.toolCallId?.trim() || null;
+        await insertAgentFeedback(context.pool, {
+          deliveryKey: obstacleDeliveryKey({
+            workItemId: context.workItemId,
+            sessionRole: context.sessionRole,
+            ...(context.specialistId ? { specialistId: context.specialistId } : {}),
+            toolCallId,
+          }),
+          groupKey: obstacleGroupKey(report.obstacle, subject),
+          workItemId: context.workItemId,
+          installationId: context.installationId,
+          owner: context.owner,
+          repo: context.repo,
+          prNumber: context.prNumber,
+          ...(context.executionId != null ? { executionId: context.executionId } : {}),
+          ...(context.attemptCount != null ? { attemptCount: context.attemptCount } : {}),
+          sessionRole: context.sessionRole,
+          ...(context.specialistId ? { specialist: context.specialistId } : {}),
+          provider: context.provider,
+          model: context.model,
+          toolCallId,
+          obstacle: report.obstacle,
+          subject,
+          intent,
+          problem,
+          expected,
+          severity: report.severity,
+        });
+        return ((pinnedReturn: ReportObstacleResult | Promise<ReportObstacleResult>) =>
+          pinnedReturn)({ recorded: true });
+      } catch (error) {
+        logWarn("agent_feedback_insert_failed", {
           workItemId: context.workItemId,
           sessionRole: context.sessionRole,
-          ...(context.specialistId ? { specialistId: context.specialistId } : {}),
-          toolCallId,
-        }),
-        groupKey: obstacleGroupKey(report.obstacle, subject),
-        workItemId: context.workItemId,
-        installationId: context.installationId,
-        owner: context.owner,
-        repo: context.repo,
-        prNumber: context.prNumber,
-        ...(context.executionId != null ? { executionId: context.executionId } : {}),
-        ...(context.attemptCount != null ? { attemptCount: context.attemptCount } : {}),
-        sessionRole: context.sessionRole,
-        ...(context.specialistId ? { specialist: context.specialistId } : {}),
-        provider: context.provider,
-        model: context.model,
-        toolCallId,
-        obstacle: report.obstacle,
-        subject,
-        intent,
-        problem,
-        expected,
-        severity: report.severity,
-      });
-      return { recorded: true };
-    } catch (error) {
-      logWarn("agent_feedback_insert_failed", {
-        workItemId: context.workItemId,
-        sessionRole: context.sessionRole,
-        specialist: context.specialistId,
-        obstacle: report.obstacle,
-        message: errorMessage(error),
-      });
-      return { recorded: false };
-    }
-  };
+          specialist: context.specialistId,
+          obstacle: report.obstacle,
+          message: errorMessage(error),
+        });
+        return ((pinnedReturn: ReportObstacleResult | Promise<ReportObstacleResult>) =>
+          pinnedReturn)({ recorded: false });
+      }
+    },
+  );
 }
 
 export function attachReportObstacle(
@@ -157,13 +165,17 @@ export function attachReportObstacle(
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   },
   context: ReportObstacleContext | null,
-): {
-  readonly tools: readonly PiTool[];
-  readonly executors: Record<string, AgentRunnerToolExecutor>;
-} {
+) {
   const hasSurface = session.tools.length > 0 || Object.keys(session.executors).length > 0;
-  if (!hasSurface || session.executors[REPORT_OBSTACLE_NAME]) return session;
-  return {
+  if (!hasSurface || session.executors[REPORT_OBSTACLE_NAME])
+    return ((pinnedReturn: {
+      readonly tools: readonly PiTool[];
+      readonly executors: Record<string, AgentRunnerToolExecutor>;
+    }) => pinnedReturn)(session);
+  return ((pinnedReturn: {
+    readonly tools: readonly PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  }) => pinnedReturn)({
     tools: [...session.tools, reportObstaclePiTool()],
     executors: {
       ...session.executors,
@@ -171,5 +183,5 @@ export function attachReportObstacle(
         ? createReportObstacleExecutor(context)
         : async () => ({ recorded: false }),
     },
-  };
+  });
 }

@@ -67,7 +67,7 @@ export async function reviewLifecycleObservationAccepted(
   client: PoolClient,
   resourceKey: string,
   observation: ReviewLifecycleObservation,
-): Promise<boolean> {
+) {
   const { rows } = await client.query<{ accepted: boolean }>(
     `SELECT NOT EXISTS (
        SELECT 1 FROM pr_review_lifecycle
@@ -79,7 +79,7 @@ export async function reviewLifecycleObservationAccepted(
      ) AS accepted`,
     [resourceKey, observation.state, observation.observedAt],
   );
-  return rows[0]?.accepted ?? false;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(rows[0]?.accepted ?? false);
 }
 
 export async function recordReviewLifecycleObservation(
@@ -87,7 +87,7 @@ export async function recordReviewLifecycleObservation(
   resourceKey: string,
   observation: ReviewLifecycleObservation,
   webhookEventId: string,
-): Promise<boolean> {
+) {
   const { rows } = await client.query<{ state: ReviewLifecycleObservation["state"] }>(
     `INSERT INTO pr_review_lifecycle (resource_key, state, observed_at, webhook_event_id)
      VALUES ($1, $2, $3::timestamptz, $4)
@@ -104,7 +104,7 @@ export async function recordReviewLifecycleObservation(
      RETURNING state`,
     [resourceKey, observation.state, observation.observedAt, webhookEventId],
   );
-  return rows[0] != null;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(rows[0] != null);
 }
 
 type AgentWorkInsertCommon = {
@@ -152,8 +152,8 @@ type AgentWorkInsert =
       readonly conflict: "ask_webhook";
     });
 
-function insertParams(params: AgentWorkInsert): unknown[] {
-  return [
+function insertParams(params: AgentWorkInsert) {
+  return ((pinnedReturn: unknown[]) => pinnedReturn)([
     params.id,
     params.webhookEventId,
     params.type,
@@ -167,14 +167,14 @@ function insertParams(params: AgentWorkInsert): unknown[] {
     params.resourceKey,
     params.priority,
     JSON.stringify(params.payload),
-  ];
+  ]);
 }
 
 async function insertOnSlashActiveConflict(
   client: PoolClient,
   values: unknown[],
   conflictTarget: string,
-): Promise<ConflictAwareInsertResult> {
+) {
   const result = await client.query<{ id: string; created: boolean }>(
     `INSERT INTO agent_work_items (
 		   ${AGENT_WORK_INSERT_COLUMNS}
@@ -193,13 +193,13 @@ async function insertOnSlashActiveConflict(
       message: "slash active resolution returned no work item",
     });
   }
-  return winner.created ? { created: true, id: winner.id } : { created: false, id: winner.id };
+  return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+    pinnedReturn)(
+    winner.created ? { created: true, id: winner.id } : { created: false, id: winner.id },
+  );
 }
 
-async function insertAgentWorkItem(
-  client: PoolClient,
-  params: AgentWorkInsert,
-): Promise<ConflictAwareInsertResult> {
+async function insertAgentWorkItem(client: PoolClient, params: AgentWorkInsert) {
   const values = insertParams(params);
   switch (params.conflict) {
     case "none": {
@@ -210,12 +210,17 @@ async function insertAgentWorkItem(
 		 VALUES (${AGENT_WORK_INSERT_VALUES})`,
         values,
       );
-      return { created: true, id: params.id };
+      return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+        pinnedReturn)({ created: true, id: params.id });
     }
     case "slash_active":
-      return insertOnSlashActiveConflict(client, values, SLASH_ACTIVE_CONFLICT_TARGET);
+      return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+        pinnedReturn)(insertOnSlashActiveConflict(client, values, SLASH_ACTIVE_CONFLICT_TARGET));
     case "slash_active_verification":
-      return insertOnSlashActiveConflict(client, values, VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET);
+      return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+        pinnedReturn)(
+        insertOnSlashActiveConflict(client, values, VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET),
+      );
     case "ask_webhook": {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO agent_work_items (
@@ -229,7 +234,8 @@ async function insertAgentWorkItem(
       );
       const createdId = inserted.rows[0]?.id;
       if (createdId) {
-        return { created: true, id: createdId };
+        return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+          pinnedReturn)({ created: true, id: createdId });
       }
       const existing = await client.query<{ id: string }>(
         `SELECT id
@@ -247,7 +253,8 @@ async function insertAgentWorkItem(
           message: "ask work item conflict without existing row",
         });
       }
-      return { created: false, id: existingId };
+      return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+        pinnedReturn)({ created: false, id: existingId });
     }
     default: {
       const exhaustive: never = params;
@@ -268,7 +275,7 @@ export async function transferProgressCommentOwnership(
     readonly resourceKey: string;
     readonly reviewLens: ReviewMode;
   },
-): Promise<void> {
+) {
   await client.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
 			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending', '{"progressGeneration":0}'::jsonb)
@@ -309,7 +316,7 @@ export async function createReviewWorkItem(
 export async function createReviewWorkItem(
   client: PoolClient,
   params: ReviewWorkItemParams & { source: WorkSource },
-): Promise<string | SlashActiveWorkInsertResult> {
+) {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
   const payload = {
@@ -335,14 +342,22 @@ export async function createReviewWorkItem(
       conflict: "slash_active",
     });
     if (!insert.created) {
-      return insert;
+      return ((
+        pinnedReturn:
+          | (string | SlashActiveWorkInsertResult)
+          | Promise<string | SlashActiveWorkInsertResult>,
+      ) => pinnedReturn)(insert);
     }
     await transferProgressCommentOwnership(client, {
       workItemId: insert.id,
       resourceKey,
       reviewLens: "review",
     });
-    return insert;
+    return ((
+      pinnedReturn:
+        | (string | SlashActiveWorkInsertResult)
+        | Promise<string | SlashActiveWorkInsertResult>,
+    ) => pinnedReturn)(insert);
   }
 
   const insert = await insertAgentWorkItem(client, {
@@ -362,7 +377,11 @@ export async function createReviewWorkItem(
     resourceKey,
     reviewLens: "review",
   });
-  return insert.id;
+  return ((
+    pinnedReturn:
+      | (string | SlashActiveWorkInsertResult)
+      | Promise<string | SlashActiveWorkInsertResult>,
+  ) => pinnedReturn)(insert.id);
 }
 
 type DescriptionWorkItemParams = {
@@ -384,7 +403,7 @@ export async function createDescriptionWorkItem(
 export async function createDescriptionWorkItem(
   client: PoolClient,
   params: DescriptionWorkItemParams & { source: WorkSource },
-): Promise<string | SlashActiveWorkInsertResult> {
+) {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
   const payload = {
@@ -396,18 +415,24 @@ export async function createDescriptionWorkItem(
   } satisfies DescriptionWorkPayload;
 
   if (params.source === "slash") {
-    return insertAgentWorkItem(client, {
-      id,
-      webhookEventId: params.webhookEventId,
-      type: "description",
-      source: "slash",
-      ref: params.ref,
-      reviewLens: null,
-      resourceKey,
-      priority: 50,
-      payload,
-      conflict: "slash_active",
-    });
+    return ((
+      pinnedReturn:
+        | (string | SlashActiveWorkInsertResult)
+        | Promise<string | SlashActiveWorkInsertResult>,
+    ) => pinnedReturn)(
+      insertAgentWorkItem(client, {
+        id,
+        webhookEventId: params.webhookEventId,
+        type: "description",
+        source: "slash",
+        ref: params.ref,
+        reviewLens: null,
+        resourceKey,
+        priority: 50,
+        payload,
+        conflict: "slash_active",
+      }),
+    );
   }
 
   const insert = await insertAgentWorkItem(client, {
@@ -422,7 +447,11 @@ export async function createDescriptionWorkItem(
     payload,
     conflict: "none",
   });
-  return insert.id;
+  return ((
+    pinnedReturn:
+      | (string | SlashActiveWorkInsertResult)
+      | Promise<string | SlashActiveWorkInsertResult>,
+  ) => pinnedReturn)(insert.id);
 }
 
 export async function createTriageWorkItem(
@@ -440,36 +469,39 @@ export async function createTriageWorkItem(
     replyTarget: ReplyTarget;
     ackTargets?: readonly AckTarget[];
   },
-): Promise<SlashActiveWorkInsertResult> {
+) {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  return insertAgentWorkItem(client, {
-    id,
-    webhookEventId: params.webhookEventId,
-    type: "triage",
-    source: "slash",
-    ref: params.ref,
-    reviewLens: null,
-    resourceKey,
-    priority: 50,
-    payload: {
+  return ((pinnedReturn: SlashActiveWorkInsertResult | Promise<SlashActiveWorkInsertResult>) =>
+    pinnedReturn)(
+    insertAgentWorkItem(client, {
+      id,
+      webhookEventId: params.webhookEventId,
+      type: "triage",
       source: "slash",
-      repositorySizeKb: params.ref.repositorySizeKb,
-      commentId: params.commentId,
-      commenterId: params.commenterId,
-      scope: params.scope,
-      ...(params.mode != null && params.mode !== "apply" ? { mode: params.mode } : {}),
-      ...(params.excludeThreadRootCommentIds != null &&
-      params.excludeThreadRootCommentIds.length > 0
-        ? { excludeThreadRootCommentIds: params.excludeThreadRootCommentIds }
-        : {}),
-      threadAnchorCommentId: params.threadAnchorCommentId,
-      needsThreadRootResolution: params.needsThreadRootResolution,
-      replyTarget: params.replyTarget,
-      ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-    } satisfies TriageWorkPayload,
-    conflict: "slash_active",
-  });
+      ref: params.ref,
+      reviewLens: null,
+      resourceKey,
+      priority: 50,
+      payload: {
+        source: "slash",
+        repositorySizeKb: params.ref.repositorySizeKb,
+        commentId: params.commentId,
+        commenterId: params.commenterId,
+        scope: params.scope,
+        ...(params.mode != null && params.mode !== "apply" ? { mode: params.mode } : {}),
+        ...(params.excludeThreadRootCommentIds != null &&
+        params.excludeThreadRootCommentIds.length > 0
+          ? { excludeThreadRootCommentIds: params.excludeThreadRootCommentIds }
+          : {}),
+        threadAnchorCommentId: params.threadAnchorCommentId,
+        needsThreadRootResolution: params.needsThreadRootResolution,
+        replyTarget: params.replyTarget,
+        ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
+      } satisfies TriageWorkPayload,
+      conflict: "slash_active",
+    }),
+  );
 }
 
 type VerificationWorkItemParams = {
@@ -491,28 +523,34 @@ export async function createVerificationWorkItem(
 export async function createVerificationWorkItem(
   client: PoolClient,
   params: VerificationWorkItemParams & { source?: WorkSource },
-): Promise<string | SlashActiveWorkInsertResult> {
+) {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
   const source = params.source ?? "auto";
   if (source === "slash") {
-    return insertAgentWorkItem(client, {
-      id,
-      webhookEventId: params.webhookEventId,
-      type: "verification",
-      source,
-      ref: params.ref,
-      reviewLens: null,
-      resourceKey,
-      priority: 50,
-      payload: {
+    return ((
+      pinnedReturn:
+        | (string | SlashActiveWorkInsertResult)
+        | Promise<string | SlashActiveWorkInsertResult>,
+    ) => pinnedReturn)(
+      insertAgentWorkItem(client, {
+        id,
+        webhookEventId: params.webhookEventId,
+        type: "verification",
         source,
-        repositorySizeKb: params.ref.repositorySizeKb,
-        ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
-        ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-      } satisfies VerificationWorkPayload,
-      conflict: "slash_active_verification",
-    });
+        ref: params.ref,
+        reviewLens: null,
+        resourceKey,
+        priority: 50,
+        payload: {
+          source,
+          repositorySizeKb: params.ref.repositorySizeKb,
+          ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
+          ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
+        } satisfies VerificationWorkPayload,
+        conflict: "slash_active_verification",
+      }),
+    );
   }
   const insert = await insertAgentWorkItem(client, {
     id,
@@ -531,13 +569,14 @@ export async function createVerificationWorkItem(
     } satisfies VerificationWorkPayload,
     conflict: "none",
   });
-  return insert.id;
+  return ((
+    pinnedReturn:
+      | (string | SlashActiveWorkInsertResult)
+      | Promise<string | SlashActiveWorkInsertResult>,
+  ) => pinnedReturn)(insert.id);
 }
 
-export async function fetchActiveVerificationWorkItem(
-  client: PoolClient,
-  resourceKey: string,
-): Promise<{ id: string } | null> {
+export async function fetchActiveVerificationWorkItem(client: PoolClient, resourceKey: string) {
   const result = await client.query<{ id: string }>(
     `SELECT id
 			   FROM agent_work_items
@@ -548,15 +587,19 @@ export async function fetchActiveVerificationWorkItem(
     [resourceKey],
   );
   const row = result.rows[0];
-  if (!row) return null;
-  return { id: row.id };
+  if (!row)
+    return ((pinnedReturn: ({ id: string } | null) | Promise<{ id: string } | null>) =>
+      pinnedReturn)(null);
+  return ((pinnedReturn: ({ id: string } | null) | Promise<{ id: string } | null>) => pinnedReturn)(
+    { id: row.id },
+  );
 }
 
 export async function fetchActiveTriageWorkItem(
   client: PoolClient,
   resourceKey: string,
   winnerId: string,
-): Promise<{ id: string; payload: TriageWorkPayload } | null> {
+) {
   const result = await client.query<{ id: string; payload: unknown }>(
     `SELECT id, payload
 			   FROM agent_work_items
@@ -568,8 +611,17 @@ export async function fetchActiveTriageWorkItem(
     [resourceKey, winnerId],
   );
   const row = result.rows[0];
-  if (!row) return null;
-  return { id: row.id, payload: parseWorkItemPayload("triage", row.payload) };
+  if (!row)
+    return ((
+      pinnedReturn:
+        | ({ id: string; payload: TriageWorkPayload } | null)
+        | Promise<{ id: string; payload: TriageWorkPayload } | null>,
+    ) => pinnedReturn)(null);
+  return ((
+    pinnedReturn:
+      | ({ id: string; payload: TriageWorkPayload } | null)
+      | Promise<{ id: string; payload: TriageWorkPayload } | null>,
+  ) => pinnedReturn)({ id: row.id, payload: parseWorkItemPayload("triage", row.payload) });
 }
 
 export type CancelledActiveReview = {
@@ -588,13 +640,15 @@ export type CancelledActiveTriage = {
 
 function sortWorkItemsByCreatedAtDesc<T extends { id: string; created_at: Date | string }>(
   rows: readonly T[],
-): T[] {
-  return [...rows].toSorted((a, b) => {
-    const ta = new Date(a.created_at).getTime();
-    const tb = new Date(b.created_at).getTime();
-    if (tb !== ta) return tb - ta;
-    return b.id.localeCompare(a.id);
-  });
+) {
+  return ((pinnedReturn: T[]) => pinnedReturn)(
+    [...rows].toSorted((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      if (tb !== ta) return tb - ta;
+      return b.id.localeCompare(a.id);
+    }),
+  );
 }
 
 function mapCancelledReviewRows(
@@ -604,12 +658,14 @@ function mapCancelledReviewRows(
     head_sha: string;
     created_at: Date | string;
   }[],
-): CancelledActiveReview[] {
-  return sortWorkItemsByCreatedAtDesc(rows).map((row) => ({
-    id: row.id,
-    source: row.source,
-    headSha: row.head_sha,
-  }));
+) {
+  return ((pinnedReturn: CancelledActiveReview[]) => pinnedReturn)(
+    sortWorkItemsByCreatedAtDesc(rows).map((row) => ({
+      id: row.id,
+      source: row.source,
+      headSha: row.head_sha,
+    })),
+  );
 }
 
 function mapCancelledTriageRows(
@@ -621,24 +677,26 @@ function mapCancelledTriageRows(
     payload: unknown;
   }[],
   prNumber: number | undefined,
-): CancelledActiveTriage[] {
-  return sortWorkItemsByCreatedAtDesc(rows).map((row) => {
-    const payload = parseWorkItemPayload("triage", row.payload);
-    return {
-      id: row.id,
-      source: row.source,
-      headSha: row.head_sha,
-      ackTargets: triageAckTargets(payload, prNumber),
-      replyTarget: payload.replyTarget,
-    };
-  });
+) {
+  return ((pinnedReturn: CancelledActiveTriage[]) => pinnedReturn)(
+    sortWorkItemsByCreatedAtDesc(rows).map((row) => {
+      const payload = parseWorkItemPayload("triage", row.payload);
+      return {
+        id: row.id,
+        source: row.source,
+        headSha: row.head_sha,
+        ackTargets: triageAckTargets(payload, prNumber),
+        replyTarget: payload.replyTarget,
+      };
+    }),
+  );
 }
 
 export async function cancelActiveReviews(
   client: PoolClient,
   resourceKey: string,
   attribution: ReviewCancelAttribution,
-): Promise<readonly CancelledActiveReview[]> {
+) {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
 
@@ -668,21 +726,21 @@ export async function cancelActiveReviews(
     workType: "review",
     holders,
   });
-  return cancelled;
+  return ((
+    pinnedReturn: readonly CancelledActiveReview[] | Promise<readonly CancelledActiveReview[]>,
+  ) => pinnedReturn)(cancelled);
 }
 
-function triageAckTargets(
-  payload: TriageWorkPayload,
-  prNumber: number | undefined,
-): readonly AckTarget[] {
-  if (payload.ackTargets != null && payload.ackTargets.length > 0) return payload.ackTargets;
-  if (prNumber == null) return [];
-  return [
+function triageAckTargets(payload: TriageWorkPayload, prNumber: number | undefined) {
+  if (payload.ackTargets != null && payload.ackTargets.length > 0)
+    return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)(payload.ackTargets);
+  if (prNumber == null) return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)([]);
+  return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)([
     { kind: "pr", prNumber },
     payload.replyTarget.kind === "inlineReviewThread"
       ? { kind: "reviewComment", commentId: payload.commentId }
       : { kind: "issueComment", commentId: payload.commentId },
-  ];
+  ]);
 }
 
 export async function cancelActiveTriage(
@@ -690,7 +748,7 @@ export async function cancelActiveTriage(
   resourceKey: string,
   attribution: ReviewCancelAttribution,
   prNumber?: number,
-): Promise<readonly CancelledActiveTriage[]> {
+) {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
 
@@ -716,10 +774,12 @@ export async function cancelActiveTriage(
     workType: "triage",
     holders,
   });
-  return [
+  return ((
+    pinnedReturn: readonly CancelledActiveTriage[] | Promise<readonly CancelledActiveTriage[]>,
+  ) => pinnedReturn)([
     ...mapCancelledTriageRows(running.rows, prNumber),
     ...mapCancelledTriageRows(queued.rows, prNumber),
-  ];
+  ]);
 }
 
 export async function createAskWorkItem(
@@ -735,7 +795,7 @@ export async function createAskWorkItem(
     codeAnchor?: CodeAnchor;
     ackTargets?: readonly AckTarget[];
   },
-): Promise<ConflictAwareInsertResult> {
+) {
   const id = params.workItemId ?? crypto.randomUUID();
   const payload = {
     question: params.question,
@@ -746,16 +806,19 @@ export async function createAskWorkItem(
     codeAnchor: params.codeAnchor,
     ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
   } satisfies AskWorkPayload;
-  return insertAgentWorkItem(client, {
-    id,
-    webhookEventId: params.webhookEventId,
-    type: "ask",
-    source: "slash",
-    ref: params.ref,
-    reviewLens: null,
-    resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
-    priority: 50,
-    payload,
-    conflict: "ask_webhook",
-  });
+  return ((pinnedReturn: ConflictAwareInsertResult | Promise<ConflictAwareInsertResult>) =>
+    pinnedReturn)(
+    insertAgentWorkItem(client, {
+      id,
+      webhookEventId: params.webhookEventId,
+      type: "ask",
+      source: "slash",
+      ref: params.ref,
+      reviewLens: null,
+      resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
+      priority: 50,
+      payload,
+      conflict: "ask_webhook",
+    }),
+  );
 }

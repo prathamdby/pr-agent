@@ -32,17 +32,15 @@ export function resetDurablePrSurface(
   return durableSurfaceBundle;
 }
 
-export function durablePrSurfaceControls(): FakePrSurfaceControls {
-  return durableSurfaceBundle.controls;
+export function durablePrSurfaceControls() {
+  return ((pinnedReturn: FakePrSurfaceControls) => pinnedReturn)(durableSurfaceBundle.controls);
 }
 
 const SEEDED_BOT_USER_ID = 999;
 let seededComments: PrReviewComment[] = [];
 
-function seedComment(
-  comment: Partial<PrReviewComment> & Pick<PrReviewComment, "id" | "body">,
-): PrReviewComment {
-  return {
+function seedComment(comment: Partial<PrReviewComment> & Pick<PrReviewComment, "id" | "body">) {
+  return ((pinnedReturn: PrReviewComment) => pinnedReturn)({
     inReplyToId: null,
     pullRequestReviewId: null,
     userId: null,
@@ -53,13 +51,13 @@ function seedComment(
     originalLine: null,
     htmlUrl: "",
     ...comment,
-  };
+  });
 }
 
 export function seedBotFindingThreads(
   threads: readonly BotFindingThread[],
   controls: FakePrSurfaceControls = durablePrSurfaceControls(),
-): void {
+) {
   seededComments = [];
   controls.setPullRequestReviews(
     threads.map((thread) => ({
@@ -124,7 +122,7 @@ export function seedBotFindingThreads(
 
 export function seedReviewCommentGraph(
   nodes: readonly { readonly id: number; readonly inReplyToId: number | null }[],
-): void {
+) {
   for (const node of nodes) {
     if (seededComments.some((comment) => comment.id === node.id)) continue;
     seededComments.push(seedComment({ id: node.id, inReplyToId: node.inReplyToId, body: "" }));
@@ -148,46 +146,46 @@ export function fakeDurablePrSurface(
   return durableSurfaceBundle.surface;
 }
 
-export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
+export function coreOf(item: AgentWorkItem) {
   switch (item.type) {
     case "review": {
       const { payload: _payload, ...core } = item;
-      return core;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(core);
     }
     case "ask": {
       const { payload: _payload, ...core } = item;
-      return core;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(core);
     }
     case "description": {
       const { payload: _payload, ...core } = item;
-      return core;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(core);
     }
     case "triage": {
       const { payload: _payload, ...core } = item;
-      return core;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(core);
     }
     case "verification": {
       const { payload: _payload, ...core } = item;
-      return core;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(core);
     }
     default: {
       const exhaustive: never = item;
-      return exhaustive;
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-export function mockWorkClaim(overrides: Partial<WorkClaim> = {}): WorkClaim {
-  return {
+export function mockWorkClaim(overrides: Partial<WorkClaim> = {}) {
+  return ((pinnedReturn: WorkClaim) => pinnedReturn)({
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     startedAt: new Date("2026-01-01T00:00:05.000Z"),
     attemptCount: 1,
     resumed: false,
     ...overrides,
-  };
+  });
 }
 
-export function setupDefaultDurableRepositoryMocks(): void {
+export function setupDefaultDurableRepositoryMocks() {
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
   vi.mocked(repo.claimWorkForExecution).mockResolvedValue(mockWorkClaim());
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
@@ -198,13 +196,9 @@ export function setupDefaultDurableRepositoryMocks(): void {
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
 }
 
-export function makeDurableJobMetadata(
-  workItemId = "wi-1",
-  retryCount = 0,
-  retryLimit = 3,
-): JobWithMetadata<{ workItemId: string }> {
+export function makeDurableJobMetadata(workItemId = "wi-1", retryCount = 0, retryLimit = 3) {
   const now = new Date();
-  return {
+  return ((pinnedReturn: JobWithMetadata<{ workItemId: string }>) => pinnedReturn)({
     id: "job-1",
     name: "agent-work",
     data: { workItemId },
@@ -238,5 +232,5 @@ export function makeDurableJobMetadata(
     sourceRetryCount: null,
     sourceOutput: null,
     sourceRootId: null,
-  };
+  });
 }

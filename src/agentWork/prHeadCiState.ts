@@ -38,8 +38,8 @@ export type PrHeadCiStateRow = {
   readonly sourceAvailability?: CiSourceAvailability;
 };
 
-export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null): boolean {
-  return row == null || row.seededAt == null;
+export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(row == null || row.seededAt == null);
 }
 
 export type HeadCiListingPhase = "seed" | "pending-refresh" | "none";
@@ -47,7 +47,7 @@ const UNKNOWN_CI_READ_LIMIT = 3;
 
 export function headCiListingPhase(
   row: Pick<PrHeadCiStateRow, "seededAt" | "checks" | "rollup" | "sourceAvailability"> | null,
-): HeadCiListingPhase {
+) {
   if (row?.sourceAvailability != null) {
     const availability = row.sourceAvailability;
     const needsListing = (["checks", "statuses"] as const).some((source) => {
@@ -65,13 +65,18 @@ export function headCiListingPhase(
         )
       );
     });
-    if (!needsListing) return "none";
-    return row.seededAt == null ? "seed" : "pending-refresh";
+    if (!needsListing) return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)("none");
+    return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)(
+      row.seededAt == null ? "seed" : "pending-refresh",
+    );
   }
-  if (row == null || row.seededAt == null) return "seed";
-  if (row.rollup === "unknown") return "pending-refresh";
-  if (Object.values(row.checks).some(isCheckFactPending)) return "pending-refresh";
-  return "none";
+  if (row == null || row.seededAt == null)
+    return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)("seed");
+  if (row.rollup === "unknown")
+    return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)("pending-refresh");
+  if (Object.values(row.checks).some(isCheckFactPending))
+    return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)("pending-refresh");
+  return ((pinnedReturn: HeadCiListingPhase) => pinnedReturn)("none");
 }
 
 export type ApplyPrHeadCiFactInput = {
@@ -105,31 +110,28 @@ type LockedCiStateRow = {
   readonly rollup: string;
 };
 
-function asRollup(value: unknown): CiRollup {
+function asRollup(value: unknown) {
   switch (value) {
     case "pending":
     case "passing":
     case "failing":
     case "none":
     case "unknown":
-      return value;
+      return ((pinnedReturn: CiRollup) => pinnedReturn)(value);
     default:
-      return "unknown";
+      return ((pinnedReturn: CiRollup) => pinnedReturn)("unknown");
   }
 }
 
 const checkMapSchema = v.record(v.string(), ciCheckFactSchema);
 
-function asCheckMap(value: unknown): Record<string, CiCheckFact> {
-  if (!isRecord(value)) return {};
+function asCheckMap(value: unknown) {
+  if (!isRecord(value)) return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)({});
   v.assert(checkMapSchema, value);
-  return value;
+  return ((pinnedReturn: Record<string, CiCheckFact>) => pinnedReturn)(value);
 }
 
-export async function applyPrHeadCiFact(
-  client: PoolClient,
-  input: ApplyPrHeadCiFactInput,
-): Promise<ApplyPrHeadCiFactResult> {
+export async function applyPrHeadCiFact(client: PoolClient, input: ApplyPrHeadCiFactInput) {
   await client.query(
     `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
      VALUES ($1, $2, $3, '{}'::jsonb, 'none', 0)
@@ -156,12 +158,13 @@ export async function applyPrHeadCiFact(
   const merged = applyCiCheckFact(currentChecks, input.fact, CI_STATE_MAX_CHECKS);
   const currentVersion = Number(row.version);
   if (!merged.accepted) {
-    return {
+    return ((pinnedReturn: ApplyPrHeadCiFactResult | Promise<ApplyPrHeadCiFactResult>) =>
+      pinnedReturn)({
       accepted: false,
       version: currentVersion,
       previousRollup,
       rollup: previousRollup,
-    };
+    });
   }
   const rollup = classifySnapshot(Object.values(merged.checks));
   const nextVersion = currentVersion + 1;
@@ -184,7 +187,8 @@ export async function applyPrHeadCiFact(
       truncated,
     ],
   );
-  return { accepted: true, version: nextVersion, previousRollup, rollup };
+  return ((pinnedReturn: ApplyPrHeadCiFactResult | Promise<ApplyPrHeadCiFactResult>) =>
+    pinnedReturn)({ accepted: true, version: nextVersion, previousRollup, rollup });
 }
 
 type LoadedCiStateRow = {
@@ -208,7 +212,7 @@ export async function loadPrHeadCiState(
   owner: string,
   repo: string,
   headSha: string,
-): Promise<PrHeadCiStateRow | null> {
+) {
   const result = await db.query<LoadedCiStateRow>(
     `SELECT owner, repo, head_sha, checks, rollup, version, authored, pr_numbers,
             truncated, seeded_at, projection_repair_pending, first_seen_at, updated_at
@@ -217,18 +221,21 @@ export async function loadPrHeadCiState(
     [owner, repo, headSha],
   );
   const row = result.rows[0];
-  if (row == null) return null;
-  return mapLoadedRow(row);
+  if (row == null)
+    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+      pinnedReturn)(null);
+  return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+    pinnedReturn)(mapLoadedRow(row));
 }
 
-export function asPrNumbers(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
+export function asPrNumbers(value: unknown) {
+  if (!Array.isArray(value)) return ((pinnedReturn: number[]) => pinnedReturn)([]);
   const numbers: number[] = [];
   for (const entry of value) {
     const n = typeof entry === "number" ? entry : Number(entry);
     if (Number.isInteger(n) && n > 0 && !numbers.includes(n)) numbers.push(n);
   }
-  return numbers;
+  return ((pinnedReturn: number[]) => pinnedReturn)(numbers);
 }
 
 export async function listPrNumbersForHeadFromWorkItems(
@@ -236,7 +243,7 @@ export async function listPrNumbersForHeadFromWorkItems(
   owner: string,
   repo: string,
   headSha: string,
-): Promise<number[]> {
+) {
   const result = await pool.query<{ pr_number: number }>(
     `SELECT DISTINCT pr_number
        FROM agent_work_items
@@ -244,13 +251,12 @@ export async function listPrNumbersForHeadFromWorkItems(
       ORDER BY pr_number`,
     [owner, repo, headSha, DEFERRED_HEAD_SHA],
   );
-  return result.rows.map((row) => row.pr_number);
+  return ((pinnedReturn: number[] | Promise<number[]>) => pinnedReturn)(
+    result.rows.map((row) => row.pr_number),
+  );
 }
 
-export async function newestHeadShaForResource(
-  pool: Pool,
-  resourceKey: string,
-): Promise<string | null> {
+export async function newestHeadShaForResource(pool: Pool, resourceKey: string) {
   const result = await pool.query<{ head_sha: string }>(
     `SELECT head_sha
        FROM agent_work_items
@@ -261,7 +267,9 @@ export async function newestHeadShaForResource(
       LIMIT 1`,
     [resourceKey, DEFERRED_HEAD_SHA],
   );
-  return result.rows[0]?.head_sha ?? null;
+  return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
+    result.rows[0]?.head_sha ?? null,
+  );
 }
 
 export async function storePrHeadCiAuthored(
@@ -270,7 +278,7 @@ export async function storePrHeadCiAuthored(
   repo: string,
   headSha: string,
   authored: CiAuthoredCache,
-): Promise<void> {
+) {
   await pool.query(
     `UPDATE pr_head_ci_state
         SET authored = $4::jsonb,
@@ -286,7 +294,7 @@ export async function storePrNumbersForHead(
   repo: string,
   headSha: string,
   prNumbers: readonly number[],
-): Promise<void> {
+) {
   if (prNumbers.length === 0) return;
   await pool.query(
     `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, pr_numbers)
@@ -313,7 +321,7 @@ export async function listTerminalReviewsForHead(
   repo: string,
   prNumber: number,
   headSha: string,
-): Promise<readonly TerminalReviewForHead[]> {
+) {
   const result = await pool.query<{
     id: string;
     status: TerminalReviewForHead["status"];
@@ -332,19 +340,23 @@ export async function listTerminalReviewsForHead(
         AND status IN ('completed', 'failed', 'cancelled', 'superseded')`,
     [owner, repo, prNumber, headSha],
   );
-  return result.rows.flatMap((row) => {
-    if (row.review_lens == null) return [];
-    return [
-      {
-        id: row.id,
-        status: row.status,
-        resourceKey: row.resource_key,
-        reviewLens: row.review_lens,
-        prNumber: row.pr_number,
-        headSha: row.head_sha,
-      },
-    ];
-  });
+  return ((
+    pinnedReturn: readonly TerminalReviewForHead[] | Promise<readonly TerminalReviewForHead[]>,
+  ) => pinnedReturn)(
+    result.rows.flatMap((row) => {
+      if (row.review_lens == null) return [];
+      return [
+        {
+          id: row.id,
+          status: row.status,
+          resourceKey: row.resource_key,
+          reviewLens: row.review_lens,
+          prNumber: row.pr_number,
+          headSha: row.head_sha,
+        },
+      ];
+    }),
+  );
 }
 
 type GithubSnapshotWriteInput = {
@@ -374,10 +386,7 @@ function mergeLockedGithubSnapshot(
   });
 }
 
-export async function seedPrHeadCiStateFromSnapshot(
-  pool: Pool,
-  input: GithubSnapshotWriteInput,
-): Promise<SeedPrHeadCiStateResult> {
+export async function seedPrHeadCiStateFromSnapshot(pool: Pool, input: GithubSnapshotWriteInput) {
   const client = await pool.connect();
   let previousRollup: CiRollup = "none";
   try {
@@ -407,7 +416,8 @@ export async function seedPrHeadCiStateFromSnapshot(
     if (row.seeded_at != null) {
       await client.query("COMMIT");
       const mapped = mapLoadedRow(row);
-      return { row: mapped, previousRollup: mapped.rollup };
+      return ((pinnedReturn: SeedPrHeadCiStateResult | Promise<SeedPrHeadCiStateResult>) =>
+        pinnedReturn)({ row: mapped, previousRollup: mapped.rollup });
     }
     const merged = mergeLockedGithubSnapshot(row, input, "initial-seed");
     previousRollup = asRollup(row.rollup);
@@ -446,13 +456,14 @@ export async function seedPrHeadCiStateFromSnapshot(
       message: "pr_head_ci_state missing after seed",
     });
   }
-  return { row: seeded, previousRollup };
+  return ((pinnedReturn: SeedPrHeadCiStateResult | Promise<SeedPrHeadCiStateResult>) =>
+    pinnedReturn)({ row: seeded, previousRollup });
 }
 
 export async function refreshPrHeadCiFromGithubSnapshot(
   pool: Pool,
   input: GithubSnapshotWriteInput,
-): Promise<RefreshPrHeadCiStateResult> {
+) {
   const client = await pool.connect();
   let previousRollup: CiRollup = "none";
   let materialChange = false;
@@ -488,10 +499,11 @@ export async function refreshPrHeadCiFromGithubSnapshot(
     const truncatedChanged = merged.truncated !== row.truncated;
     if (!materialChange && !rollupChanged && !truncatedChanged) {
       await client.query("COMMIT");
-      return {
+      return ((pinnedReturn: RefreshPrHeadCiStateResult | Promise<RefreshPrHeadCiStateResult>) =>
+        pinnedReturn)({
         row: mapLoadedRow(row),
         previousRollup,
-      };
+      });
     }
     const nextVersion =
       materialChange || rollupChanged ? Number(row.version) + 1 : Number(row.version);
@@ -528,11 +540,12 @@ export async function refreshPrHeadCiFromGithubSnapshot(
       message: "pr_head_ci_state missing after pending refresh",
     });
   }
-  return { row: refreshed, previousRollup };
+  return ((pinnedReturn: RefreshPrHeadCiStateResult | Promise<RefreshPrHeadCiStateResult>) =>
+    pinnedReturn)({ row: refreshed, previousRollup });
 }
 
-function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {
-  return {
+function mapLoadedRow(row: LoadedCiStateRow) {
+  return ((pinnedReturn: PrHeadCiStateRow) => pinnedReturn)({
     owner: row.owner,
     repo: row.repo,
     headSha: row.head_sha,
@@ -546,7 +559,7 @@ function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {
     projectionRepairPending: row.projection_repair_pending,
     firstSeenAt: row.first_seen_at,
     updatedAt: row.updated_at,
-  };
+  });
 }
 
 export type VerificationSignalPrior = {
@@ -557,13 +570,13 @@ export type VerificationSignalPrior = {
 export function isEffectiveVerificationSignalTransition(
   prior: VerificationSignalPrior | null,
   next: { readonly active: boolean; readonly headSha: string },
-): boolean {
+) {
   const wasActive = prior?.active === true;
   if (next.active) {
-    if (!wasActive) return true;
-    return prior?.headSha !== next.headSha;
+    if (!wasActive) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+    return ((pinnedReturn: boolean) => pinnedReturn)(prior?.headSha !== next.headSha);
   }
-  return wasActive && prior?.headSha === next.headSha;
+  return ((pinnedReturn: boolean) => pinnedReturn)(wasActive && prior?.headSha === next.headSha);
 }
 
 export async function advancePrHeadCiRevisionForVerificationSignal(
@@ -574,7 +587,7 @@ export async function advancePrHeadCiRevisionForVerificationSignal(
     readonly headSha: string;
     readonly effective: boolean;
   },
-): Promise<{ readonly version: number; readonly bumped: boolean }> {
+) {
   await client.query(
     `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
      VALUES ($1, $2, $3, '{}'::jsonb, 'none', 0)
@@ -598,7 +611,11 @@ export async function advancePrHeadCiRevisionForVerificationSignal(
   }
   const currentVersion = Number(row.version);
   if (!input.effective) {
-    return { version: currentVersion, bumped: false };
+    return ((
+      pinnedReturn:
+        | { readonly version: number; readonly bumped: boolean }
+        | Promise<{ readonly version: number; readonly bumped: boolean }>,
+    ) => pinnedReturn)({ version: currentVersion, bumped: false });
   }
   const nextVersion = currentVersion + 1;
   await client.query(
@@ -608,7 +625,11 @@ export async function advancePrHeadCiRevisionForVerificationSignal(
       WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
     [input.owner, input.repo, input.headSha, nextVersion],
   );
-  return { version: nextVersion, bumped: true };
+  return ((
+    pinnedReturn:
+      | { readonly version: number; readonly bumped: boolean }
+      | Promise<{ readonly version: number; readonly bumped: boolean }>,
+  ) => pinnedReturn)({ version: nextVersion, bumped: true });
 }
 
 export type ProjectionRepairCandidate = {
@@ -619,10 +640,7 @@ export type ProjectionRepairCandidate = {
   readonly installationId: number | null;
 };
 
-export async function listProjectionRepairPendingHeads(
-  pool: Pool,
-  limit: number,
-): Promise<readonly ProjectionRepairCandidate[]> {
+export async function listProjectionRepairPendingHeads(pool: Pool, limit: number) {
   const result = await pool.query<{
     owner: string;
     repo: string;
@@ -666,16 +684,22 @@ export async function listProjectionRepairPendingHeads(
       LIMIT $1::int`,
     [limit],
   );
-  return result.rows.map((row) => ({
-    owner: row.owner,
-    repo: row.repo,
-    headSha: row.head_sha,
-    version: Number(row.version),
-    installationId:
-      row.installation_id == null || Number(row.installation_id) <= 0
-        ? null
-        : Number(row.installation_id),
-  }));
+  return ((
+    pinnedReturn:
+      | readonly ProjectionRepairCandidate[]
+      | Promise<readonly ProjectionRepairCandidate[]>,
+  ) => pinnedReturn)(
+    result.rows.map((row) => ({
+      owner: row.owner,
+      repo: row.repo,
+      headSha: row.head_sha,
+      version: Number(row.version),
+      installationId:
+        row.installation_id == null || Number(row.installation_id) <= 0
+          ? null
+          : Number(row.installation_id),
+    })),
+  );
 }
 
 export async function clearProjectionRepairPending(
@@ -683,7 +707,7 @@ export async function clearProjectionRepairPending(
   owner: string,
   repo: string,
   headSha: string,
-): Promise<boolean> {
+) {
   const result = await pool.query(
     `UPDATE pr_head_ci_state
         SET projection_repair_pending = false,
@@ -692,13 +716,10 @@ export async function clearProjectionRepairPending(
         AND projection_repair_pending = true`,
     [owner, repo, headSha],
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
-export async function deleteExpiredPrHeadCiState(
-  pool: Pool,
-  agentWorkRetentionSeconds: number,
-): Promise<number> {
+export async function deleteExpiredPrHeadCiState(pool: Pool, agentWorkRetentionSeconds: number) {
   let deleted = 0;
   for (;;) {
     const result = await pool.query(
@@ -721,5 +742,5 @@ export async function deleteExpiredPrHeadCiState(
     deleted += batch;
     if (batch < RETENTION_DELETE_BATCH_SIZE) break;
   }
-  return deleted;
+  return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(deleted);
 }

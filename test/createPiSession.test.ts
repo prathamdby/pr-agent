@@ -222,10 +222,10 @@ describe("createPiSession models.json", () => {
     }
   });
 
-  function tempDir(): string {
+  function tempDir() {
     const dir = mkdtempSync(join(tmpdir(), "pr-agent-session-models-"));
     dirs.push(dir);
-    return dir;
+    return ((pinnedReturn: string) => pinnedReturn)(dir);
   }
 
   beforeEach(() => {
@@ -1220,25 +1220,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function includesMarker(value: unknown, marker: string): boolean {
-  if (typeof value === "string") return value.includes(marker);
-  if (Array.isArray(value)) return value.some((entry) => includesMarker(entry, marker));
-  if (!isRecord(value)) return false;
-  return Object.values(value).some((entry) => includesMarker(entry, marker));
-}
+const includesMarker: (value: unknown, marker: string) => boolean = (
+  value: unknown,
+  marker: string,
+) => {
+  if (typeof value === "string")
+    return ((pinnedReturn: boolean) => pinnedReturn)(value.includes(marker));
+  if (Array.isArray(value))
+    return ((pinnedReturn: boolean) => pinnedReturn)(
+      value.some((entry) => includesMarker(entry, marker)),
+    );
+  if (!isRecord(value)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    Object.values(value).some((entry) => includesMarker(entry, marker)),
+  );
+};
 
-function headerValue(headers: IncomingMessage["headers"], name: string): string | undefined {
+function headerValue(headers: IncomingMessage["headers"], name: string) {
   const value = headers[name];
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value[0];
-  return undefined;
+  if (typeof value === "string") return ((pinnedReturn: string | undefined) => pinnedReturn)(value);
+  if (Array.isArray(value)) return ((pinnedReturn: string | undefined) => pinnedReturn)(value[0]);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
-function inspectRequest(
-  path: string,
-  headers: IncomingMessage["headers"],
-  body: unknown,
-): InspectedRequest {
+function inspectRequest(path: string, headers: IncomingMessage["headers"], body: unknown) {
   const authorization = headerValue(headers, "authorization");
   const apiKey = headerValue(headers, "x-api-key");
   const effort =
@@ -1250,7 +1255,7 @@ function inspectRequest(
       ? body.thinking.type
       : undefined;
   const model = isRecord(body) && typeof body.model === "string" ? body.model : undefined;
-  return {
+  return ((pinnedReturn: InspectedRequest) => pinnedReturn)({
     path,
     authorization,
     apiKey,
@@ -1267,34 +1272,38 @@ function inspectRequest(
       includesMarker(body, FEDERATION_TOKEN) ||
       authorization?.includes(FEDERATION_TOKEN) === true ||
       apiKey === FEDERATION_TOKEN,
-  };
-}
-
-function readRequestBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    request.on("end", () => {
-      resolve(Buffer.concat(chunks).toString("utf8"));
-    });
-    request.on("error", reject);
   });
 }
 
-function sse(events: readonly unknown[]): string {
-  return events
-    .map((event) => {
-      if (isRecord(event) && typeof event.type === "string") {
-        return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
-      }
-      return `data: ${JSON.stringify(event)}\n\n`;
-    })
-    .join("");
+function readRequestBody(request: IncomingMessage) {
+  return ((pinnedReturn: Promise<string>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      request.on("end", () => {
+        resolve(Buffer.concat(chunks).toString("utf8"));
+      });
+      request.on("error", reject);
+    }),
+  );
 }
 
-function openAiText(text: string, finish = "stop", usage?: Record<string, unknown>): string {
+function sse(events: readonly unknown[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    events
+      .map((event) => {
+        if (isRecord(event) && typeof event.type === "string") {
+          return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+        }
+        return `data: ${JSON.stringify(event)}\n\n`;
+      })
+      .join(""),
+  );
+}
+
+function openAiText(text: string, finish = "stop", usage?: Record<string, unknown>) {
   const chunks: unknown[] = [
     {
       id: "chatcmpl-test",
@@ -1312,10 +1321,10 @@ function openAiText(text: string, finish = "stop", usage?: Record<string, unknow
       ...(usage ? { usage } : {}),
     },
   ];
-  return `${sse(chunks)}data: [DONE]\n\n`;
+  return ((pinnedReturn: string) => pinnedReturn)(`${sse(chunks)}data: [DONE]\n\n`);
 }
 
-function openAiDuplicateToolIds(): string {
+function openAiDuplicateToolIds() {
   const chunk = (delta: unknown) => ({
     id: "chatcmpl-test",
     object: "chat.completion.chunk",
@@ -1323,70 +1332,74 @@ function openAiDuplicateToolIds(): string {
     model: "lab-model",
     choices: [{ index: 0, delta, finish_reason: null }],
   });
-  return `${sse([
-    chunk({
-      tool_calls: [
-        {
-          index: 0,
-          id: "call_dup",
-          type: "function",
-          function: { name: "execute", arguments: "{}" },
-        },
-      ],
-    }),
-    chunk({
-      tool_calls: [{ index: 1, type: "function", function: { name: "execute", arguments: "" } }],
-    }),
-    chunk({
-      tool_calls: [{ index: 1, id: "call_dup", type: "function", function: { arguments: "{}" } }],
-    }),
-    {
-      id: "chatcmpl-test",
-      object: "chat.completion.chunk",
-      created: 1,
-      model: "lab-model",
-      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-    },
-  ])}data: [DONE]\n\n`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${sse([
+      chunk({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_dup",
+            type: "function",
+            function: { name: "execute", arguments: "{}" },
+          },
+        ],
+      }),
+      chunk({
+        tool_calls: [{ index: 1, type: "function", function: { name: "execute", arguments: "" } }],
+      }),
+      chunk({
+        tool_calls: [{ index: 1, id: "call_dup", type: "function", function: { arguments: "{}" } }],
+      }),
+      {
+        id: "chatcmpl-test",
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "lab-model",
+        choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      },
+    ])}data: [DONE]\n\n`,
+  );
 }
 
-function openAiTools(calls: readonly { id: string; name: string; arguments: string }[]): string {
-  return `${sse([
-    {
-      id: "chatcmpl-test",
-      object: "chat.completion.chunk",
-      created: 1,
-      model: "lab-model",
-      choices: [
-        {
-          index: 0,
-          delta: {
-            tool_calls: calls.map((call, index) => ({
-              index,
-              id: call.id,
-              type: "function",
-              function: { name: call.name, arguments: call.arguments },
-            })),
+function openAiTools(calls: readonly { id: string; name: string; arguments: string }[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${sse([
+      {
+        id: "chatcmpl-test",
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "lab-model",
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: calls.map((call, index) => ({
+                index,
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            },
+            finish_reason: null,
           },
-          finish_reason: null,
-        },
-      ],
-    },
-    {
-      id: "chatcmpl-test",
-      object: "chat.completion.chunk",
-      created: 1,
-      model: "lab-model",
-      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-    },
-  ])}data: [DONE]\n\n`;
+        ],
+      },
+      {
+        id: "chatcmpl-test",
+        object: "chat.completion.chunk",
+        created: 1,
+        model: "lab-model",
+        choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+      },
+    ])}data: [DONE]\n\n`,
+  );
 }
 
 function anthropicMessage(params: {
   readonly model: string;
   readonly blocks: readonly Record<string, unknown>[];
   readonly stop: string;
-}): string {
+}) {
   const events: Record<string, unknown>[] = [
     {
       type: "message_start",
@@ -1439,7 +1452,7 @@ function anthropicMessage(params: {
     usage: { output_tokens: 0 },
   });
   events.push({ type: "message_stop" });
-  return sse(events);
+  return ((pinnedReturn: string) => pinnedReturn)(sse(events));
 }
 
 async function startLoopback(
@@ -1448,7 +1461,7 @@ async function startLoopback(
     response: ServerResponse,
     index: number,
   ) => Promise<void> | void,
-): Promise<Loopback> {
+) {
   const requests: InspectedRequest[] = [];
   const sockets = new Set<Socket>();
   const server = createServer((request, response) => {
@@ -1481,7 +1494,7 @@ async function startLoopback(
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("loopback did not bind");
-  return {
+  return ((pinnedReturn: Loopback | Promise<Loopback>) => pinnedReturn)({
     origin: `http://127.0.0.1:${address.port}`,
     requests,
     close: () =>
@@ -1489,24 +1502,24 @@ async function startLoopback(
         for (const socket of sockets) socket.destroy();
         server.close((error) => (error ? reject(error) : resolve()));
       }),
-  };
+  });
 }
 
-function writeCatalog(dir: string, providerId: string, provider: Record<string, unknown>): string {
+function writeCatalog(dir: string, providerId: string, provider: Record<string, unknown>) {
   const path = join(dir, "models.json");
   writeFileSync(path, JSON.stringify({ providers: { [providerId]: provider } }));
-  return path;
+  return ((pinnedReturn: string) => pinnedReturn)(path);
 }
 
-function objectTool(name: string, description: string): PiTool {
-  return {
+function objectTool(name: string, description: string) {
+  return ((pinnedReturn: PiTool) => pinnedReturn)({
     name,
     description,
     parameters: { type: "object", properties: {}, additionalProperties: false },
-  };
+  });
 }
 
-async function expectAppCode(work: Promise<unknown>, code: string): Promise<void> {
+async function expectAppCode(work: Promise<unknown>, code: string) {
   try {
     await work;
   } catch (error) {
@@ -1540,23 +1553,25 @@ describe("Pi 1.0 compatibility", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  function tempDir(): string {
+  function tempDir() {
     const dir = mkdtempSync(join(tmpdir(), "pr-agent-pi-compat-"));
     dirs.push(dir);
-    return dir;
+    return ((pinnedReturn: string) => pinnedReturn)(dir);
   }
 
-  function labConfig(path: string, providerKeys?: Config["models"]["providerKeys"]): Config {
-    return makeTestConfig({
-      models: {
-        jsonPath: path,
-        provider: "lab",
-        model: "lab-model",
-        api: "openai-completions",
-        providerKeys: providerKeys ?? { openai: "unused-openai-key" },
-      },
-      provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
-    });
+  function labConfig(path: string, providerKeys?: Config["models"]["providerKeys"]) {
+    return ((pinnedReturn: Config) => pinnedReturn)(
+      makeTestConfig({
+        models: {
+          jsonPath: path,
+          provider: "lab",
+          model: "lab-model",
+          api: "openai-completions",
+          providerKeys: providerKeys ?? { openai: "unused-openai-key" },
+        },
+        provider: { promptTimeoutMs: 30_000, retryMax: 0, maxRetryDelayMs: 1 },
+      }),
+    );
   }
 
   it("resolves built-in and custom chat models without a type field", async () => {
@@ -1601,7 +1616,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("keeps an explicit API key and catalog headers ahead of env and federation", async () => {
     vi.stubEnv("LAB_API_KEY", "env-key-must-lose");
@@ -1637,7 +1652,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("does not let Anthropic federation replace an explicit API key", async () => {
     const tokenPath = join(tempDir(), "token");
@@ -1693,7 +1708,7 @@ describe("Pi 1.0 compatibility", () => {
       globalThis.fetch = originalFetch;
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("keeps a tool result between the assistant that called it and the final answer", async () => {
     const calls: string[] = [];
@@ -1732,7 +1747,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("runs two nonterminal mutation tools in one batch sequentially, once each", async () => {
     const order: Array<{ name: string; start: number; end: number }> = [];
@@ -1777,7 +1792,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("rejects a duplicate tool-call id before either tool runs", async () => {
     let executions = 0;
@@ -1813,7 +1828,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("surfaces a rejected terminal submit and still accepts a correction", async () => {
     const codes: string[] = [];
@@ -1870,7 +1885,7 @@ describe("Pi 1.0 compatibility", () => {
       spy.mockRestore();
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("stops on a provider refusal without another model call", async () => {
     const events: Array<{ kind: string; failureCode?: string }> = [];
@@ -1900,7 +1915,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("aborts before a later mutation when the host signal fires", async () => {
     const host = new AbortController();
@@ -1963,7 +1978,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 
   it("reports idle timeout unless streaming activity refreshes the window", async () => {
     const hang = await startLoopback(() => undefined);
@@ -2032,7 +2047,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await drip.close();
     }
-  }, 20_000);
+  });
 
   it("retries one transient failure and stops when the budget is exhausted", async () => {
     let transientFailures = 0;
@@ -2097,7 +2112,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await exhausted.close();
     }
-  }, 20_000);
+  });
 
   it("compacts an ask window and keeps overflow recovery paired", async () => {
     const events: Array<{ kind: string; reason?: string }> = [];
@@ -2229,13 +2244,10 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await overflow.close();
     }
-  }, 20_000);
+  });
 
   it("holds orchestrator effort at the ceiling and strips retained adaptive thinking", async () => {
-    async function effortFor(
-      ceiling: ThinkingPolicy["ceiling"],
-      phase: "synthesis" | "recon",
-    ): Promise<string | undefined> {
+    async function effortFor(ceiling: ThinkingPolicy["ceiling"], phase: "synthesis" | "recon") {
       const loop = await startLoopback((_request, response) => {
         response.writeHead(200, { "content-type": "text/event-stream" });
         response.end(
@@ -2280,7 +2292,9 @@ describe("Pi 1.0 compatibility", () => {
         });
         await session.send("think", { phase, checkpointId: "test" });
         await session.dispose();
-        return loop.requests[0]?.effort;
+        return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+          loop.requests[0]?.effort,
+        );
       } finally {
         await loop.close();
       }
@@ -2357,7 +2371,7 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await compacted.close();
     }
-  }, 20_000);
+  });
 
   it("preserves scripted token and cache counts without treating catalog price as usage", async () => {
     const usage = {
@@ -2415,5 +2429,5 @@ describe("Pi 1.0 compatibility", () => {
     } finally {
       await loop.close();
     }
-  }, 20_000);
+  });
 });

@@ -7,8 +7,8 @@ export const THEME_CHROME: Record<Theme, string> = {
   dark: "#0b111c",
 };
 
-export function renderThemeScript(): string {
-  return `(function () {
+export function renderThemeScript() {
+  return ((pinnedReturn: string) => pinnedReturn)(`(function () {
   var theme;
   try {
     var stored = localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
@@ -22,5 +22,5 @@ export function renderThemeScript(): string {
   document.documentElement.dataset.theme = theme;
   var chrome = document.querySelector('meta[name="theme-color"]');
   if (chrome) chrome.setAttribute("content", ${JSON.stringify(THEME_CHROME)}[theme]);
-})();`;
+})();`);
 }

@@ -10,41 +10,43 @@ type CodeBlockProps = {
   readonly language: Language;
 };
 
-function highlight(code: string, language: Language): ReactNode[] {
-  return code.split("\n").map((line, index) => {
-    const key = `${index}-${line}`;
-    if (language === "bash") {
-      if (line.startsWith("#")) {
+function highlight(code: string, language: Language) {
+  return ((pinnedReturn: ReactNode[]) => pinnedReturn)(
+    code.split("\n").map((line, index) => {
+      const key = `${index}-${line}`;
+      if (language === "bash") {
+        if (line.startsWith("#")) {
+          return (
+            <span key={key} className="block whitespace-pre-wrap text-text-tertiary">
+              {line}
+            </span>
+          );
+        }
+        const [head, ...tail] = line.split(" ");
         return (
-          <span key={key} className="block whitespace-pre-wrap text-text-tertiary">
+          <span key={key} className="block">
+            <span className="text-accent-text">{head}</span>
+            {tail.length > 0 ? <span className="text-text"> {tail.join(" ")}</span> : null}
+          </span>
+        );
+      }
+      const separator = line.indexOf("=");
+      if (separator === -1) {
+        return (
+          <span key={key} className="block text-text">
             {line}
           </span>
         );
       }
-      const [head, ...tail] = line.split(" ");
       return (
         <span key={key} className="block">
-          <span className="text-accent-text">{head}</span>
-          {tail.length > 0 ? <span className="text-text"> {tail.join(" ")}</span> : null}
+          <span className="text-accent-text">{line.slice(0, separator)}</span>
+          <span className="text-text-tertiary">=</span>
+          <span className="text-text-secondary">{line.slice(separator + 1)}</span>
         </span>
       );
-    }
-    const separator = line.indexOf("=");
-    if (separator === -1) {
-      return (
-        <span key={key} className="block text-text">
-          {line}
-        </span>
-      );
-    }
-    return (
-      <span key={key} className="block">
-        <span className="text-accent-text">{line.slice(0, separator)}</span>
-        <span className="text-text-tertiary">=</span>
-        <span className="text-text-secondary">{line.slice(separator + 1)}</span>
-      </span>
-    );
-  });
+    }),
+  );
 }
 
 export function CodeBlock({ label, code, language }: CodeBlockProps) {

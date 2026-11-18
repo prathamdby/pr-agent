@@ -4,16 +4,20 @@ import { THEME_CHROME, THEME_STORAGE_KEY, type Theme } from "@/lib/theme";
 
 let chosenTheme: Theme | null = null;
 
-function readTheme(): Theme {
-  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+function readTheme() {
+  return ((pinnedReturn: Theme) => pinnedReturn)(
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
 }
 
-function readStored(): Theme | null {
+function readStored() {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return stored === "light" || stored === "dark" ? stored : null;
+    return ((pinnedReturn: Theme | null) => pinnedReturn)(
+      stored === "light" || stored === "dark" ? stored : null,
+    );
   } catch {
-    return null;
+    return ((pinnedReturn: Theme | null) => pinnedReturn)(null);
   }
 }
 

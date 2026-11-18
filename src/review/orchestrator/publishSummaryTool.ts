@@ -57,13 +57,13 @@ type SummaryInput = v.InferOutput<typeof publishSummarySchema>;
 export function createPublishSummaryState(initial?: {
   readonly published?: boolean;
   readonly check?: FindingCheck | null;
-}): PublishSummaryState {
-  return {
+}) {
+  return ((pinnedReturn: PublishSummaryState) => pinnedReturn)({
     published: initial?.published ?? false,
     check: initial?.check ?? null,
     lastValidationError: null,
     stoppedReason: null,
-  };
+  });
 }
 
 function throwValidationError(
@@ -79,7 +79,7 @@ function reconstructPayload(
   state: PublishSummaryState,
   ledger: FindingLedger,
   input: SummaryInput,
-): ReviewPayload {
+) {
   const findings = ledgerFindings(ledger);
   const parsed = v.safeParse(createReviewPayloadSchema(), { ...input, findings });
   if (!parsed.success) {
@@ -89,13 +89,10 @@ function reconstructPayload(
       `${formatReviewValidationError(parsed.issues).message}\nFindings come from accepted placements, not from publish_summary arguments. Fix only size, followUps, mergeability, or blastRadius here; a findings issue means the ledger itself is invalid.`,
     );
   }
-  return parsed.output;
+  return ((pinnedReturn: ReviewPayload) => pinnedReturn)(parsed.output);
 }
 
-export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
-} {
+export function buildPublishSummaryTool(params: PublishSummaryToolParams) {
   const { state, getLedger, getCoverage, session } = params;
   const piTool: PiTool = {
     name: "publish_summary",
@@ -103,19 +100,21 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       "Publish the final review summary. Call it once, after every specialist batch is judged. You supply size, followUps, mergeability, and blastRadius; the findings come from accepted placements and the server writes the action line. A repeat call after success is a no-op.",
     parameters: toToolParameters(publishSummarySchema),
   };
-  const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
+  const executor = async (args: Record<string, unknown>) => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");
     if (!gate.ok) {
-      return {
+      return ((pinnedReturn: PublishSummaryToolResult | Promise<PublishSummaryToolResult>) =>
+        pinnedReturn)({
         ok: false,
         code: gate.code,
         phase: gate.phase,
         allowed: gate.allowed,
         error: gate.error,
-      };
+      });
     }
     if (state.published) {
-      return { ok: true, duplicate: true };
+      return ((pinnedReturn: PublishSummaryToolResult | Promise<PublishSummaryToolResult>) =>
+        pinnedReturn)({ ok: true, duplicate: true });
     }
 
     const parsed = parseToolInput(publishSummarySchema, args, {
@@ -159,14 +158,19 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     }
     if (result.kind === "stopped") {
       state.stoppedReason = result.reason;
-      return { ok: false, reason: result.reason };
+      return ((pinnedReturn: PublishSummaryToolResult | Promise<PublishSummaryToolResult>) =>
+        pinnedReturn)({ ok: false, reason: result.reason });
     }
 
     state.published = true;
     state.check = result.check;
     state.stoppedReason = null;
-    return { ok: true, summaryCommentId: result.summaryCommentId };
+    return ((pinnedReturn: PublishSummaryToolResult | Promise<PublishSummaryToolResult>) =>
+      pinnedReturn)({ ok: true, summaryCommentId: result.summaryCommentId });
   };
 
-  return { piTool, executor };
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
+  }) => pinnedReturn)({ piTool, executor });
 }

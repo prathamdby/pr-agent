@@ -10,10 +10,7 @@ export type GitCredentialFiles = {
   readonly cleanup: () => Promise<void>;
 };
 
-export async function createGitCredentialFiles(
-  rootDir: string,
-  token: string,
-): Promise<GitCredentialFiles> {
+export async function createGitCredentialFiles(rootDir: string, token: string) {
   const askpass = join(rootDir, GIT_ASKPASS_NAME);
   const tokenFile = join(rootDir, GIT_TOKEN_FILE_NAME);
   await writeFile(
@@ -33,17 +30,17 @@ export async function createGitCredentialFiles(
     { mode: 0o700 },
   );
   await writeFile(tokenFile, token, { mode: 0o600 });
-  return {
+  return ((pinnedReturn: GitCredentialFiles | Promise<GitCredentialFiles>) => pinnedReturn)({
     askpass,
     tokenFile,
     cleanup: async () => {
       await rm(askpass, { force: true });
       await rm(tokenFile, { force: true });
     },
-  };
+  });
 }
 
-export async function makeDirectoriesWritable(dir: string): Promise<void> {
+export async function makeDirectoriesWritable(dir: string) {
   await chmod(dir, 0o755).catch(() => undefined);
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     const full = join(dir, entry.name);

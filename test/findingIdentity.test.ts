@@ -54,9 +54,9 @@ function buildFindingView(
 
 const BOT = "pr-agent[bot]";
 
-function id(value: string): FindingId {
+function id(value: string) {
   if (!isFindingId(value)) throw new Error(`not a finding id: ${value}`);
-  return value;
+  return ((pinnedReturn: FindingId) => pinnedReturn)(value);
 }
 
 const A = id("f_0000000000000000000000000A");
@@ -182,13 +182,13 @@ function thread(
     readonly rootAuthor?: string | null;
     readonly replies?: readonly { readonly body: string; readonly authorLogin: string | null }[];
   },
-): ReviewThreadSnapshot {
+) {
   const rootCommentId = overrides.rootCommentId ?? nextRoot++;
   const { rootBody, rootAuthor, replies, ...rest } = overrides;
   const createdAt =
     rest.comments?.[0]?.createdAt ??
     `2026-01-01T00:00:${String(rootCommentId % 60).padStart(2, "0")}Z`;
-  return {
+  return ((pinnedReturn: ReviewThreadSnapshot) => pinnedReturn)({
     threadNodeId: `PRRT_${rootCommentId}`,
     isResolved: false,
     rootCommentId,
@@ -219,11 +219,13 @@ function thread(
       })),
     ],
     ...rest,
-  };
+  });
 }
 
-function markedBody(findingId: FindingId, severity: "P0" | "P1" | "P2" | "P3" = "P1"): string {
-  return `**${severity}** · **Title ${findingId}**\n\ndetail\n\n${renderFindingMarker({ id: findingId, lens: "correctness", severity })}`;
+function markedBody(findingId: FindingId, severity: "P0" | "P1" | "P2" | "P3" = "P1") {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `**${severity}** · **Title ${findingId}**\n\ndetail\n\n${renderFindingMarker({ id: findingId, lens: "correctness", severity })}`,
+  );
 }
 
 function inventoryOf(
@@ -860,8 +862,8 @@ describe("observation reconciliation", () => {
 
 const D = id("f_0000000000000000000000000D");
 
-function runFinding(severity: ReviewFinding["severity"]): ReviewFinding {
-  return {
+function runFinding(severity: ReviewFinding["severity"]) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity,
     file: "src/run.ts",
     startLine: 5,
@@ -869,38 +871,35 @@ function runFinding(severity: ReviewFinding["severity"]): ReviewFinding {
     title: "Run finding",
     detail: "detail",
     fixPrompt: "fix",
-  };
+  });
 }
 
-function postedThisRun(
-  findingId: FindingId,
-  severity: ReviewFinding["severity"],
-): AcceptedPlacement {
-  return {
+function postedThisRun(findingId: FindingId, severity: ReviewFinding["severity"]) {
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
     kind: "posted",
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: 5, inlinePosted: true },
     findingId,
     reviewId: 1,
-  };
+  });
 }
 
-function heldThisRun(findingId: FindingId, severity: ReviewFinding["severity"]): AcceptedPlacement {
-  return {
+function heldThisRun(findingId: FindingId, severity: ReviewFinding["severity"]) {
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
     kind: "summary_only",
     source: "correctness",
     placement: { finding: runFinding(severity), inlineLine: null, inlinePosted: false },
     findingId,
     reason: "cap",
-  };
+  });
 }
 
 function reaffirmedThisRun(
   findingId: FindingId,
   severity: ReviewFinding["severity"],
   heldBy: ReaffirmedFinding["heldBy"],
-): ReaffirmedFinding {
-  return {
+) {
+  return ((pinnedReturn: ReaffirmedFinding) => pinnedReturn)({
     id: findingId,
     source: "correctness",
     severity,
@@ -910,7 +909,7 @@ function reaffirmedThisRun(
       inlineLine: null,
       inlinePosted: heldBy === "thread",
     },
-  };
+  });
 }
 
 function reviewed(
@@ -920,8 +919,8 @@ function reviewed(
     readonly suppressedDismissedCount?: number;
     readonly duplicates?: Extract<FindingRunOutcomes, { kind: "reviewed" }>["duplicates"];
   } = {},
-): FindingRunOutcomes {
-  return {
+) {
+  return ((pinnedReturn: FindingRunOutcomes) => pinnedReturn)({
     kind: "reviewed",
     ledger: {
       accepted: ledger.accepted ?? [],
@@ -929,7 +928,7 @@ function reviewed(
       suppressedDismissedCount: ledger.suppressedDismissedCount ?? 0,
     },
     duplicates: ledger.duplicates ?? [],
-  };
+  });
 }
 
 function summaryWithRows(
@@ -1815,10 +1814,7 @@ function cleanupHarness(initial: readonly ReviewThreadSnapshot[]) {
       events.push(`read:${threadNodeId}`);
       return threads.get(threadNodeId)?.snapshot ?? null;
     },
-    replyAt: async (
-      target: { readonly inReplyToCommentId: number },
-      body: string,
-    ): Promise<{ readonly id: number; readonly url: string }> => {
+    replyAt: async (target: { readonly inReplyToCommentId: number }, body: string) => {
       if (lockDepth === 0) throw new Error("reply outside the thread lock");
       const state = [...threads.values()].find(
         (entry) => entry.snapshot?.rootCommentId === target.inReplyToCommentId,
@@ -1839,7 +1835,11 @@ function cleanupHarness(initial: readonly ReviewThreadSnapshot[]) {
           },
         ],
       };
-      return { id: 9000 + events.length, url: "" };
+      return ((
+        pinnedReturn:
+          | { readonly id: number; readonly url: string }
+          | Promise<{ readonly id: number; readonly url: string }>,
+      ) => pinnedReturn)({ id: 9000 + events.length, url: "" });
     },
     resolveInlineReviewThread: async (threadNodeId: string) => {
       if (lockDepth === 0) throw new Error("resolve outside the thread lock");
@@ -1855,10 +1855,10 @@ function cleanupHarness(initial: readonly ReviewThreadSnapshot[]) {
     steps,
     deps: {
       surface,
-      withThreadLock: async <T>(apply: () => Promise<T>): Promise<T> => {
+      withThreadLock: async <T>(apply: () => Promise<T>) => {
         lockDepth += 1;
         try {
-          return await apply();
+          return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await apply());
         } finally {
           lockDepth -= 1;
         }

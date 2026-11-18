@@ -11,7 +11,7 @@ export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
   "An id belongs in yes when the finding's own text and snippet show it breaks that pair's rule. When the evidence leaves the violation unclear, the id stays out; the finding still publishes without a policy path.",
 ].join("\n");
 
-export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudgePair[]): string {
+export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudgePair[]) {
   const asked = pairs.map((pair) => pair.id).join(", ");
   const blocks = pairs.map((pair) => {
     const findingLines = [
@@ -29,5 +29,7 @@ export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudg
       wrapUntrustedBlock("bound_policy_finding", findingLines),
     ].join("\n");
   });
-  return [`Asked ids: ${asked}`, "", ...blocks].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [`Asked ids: ${asked}`, "", ...blocks].join("\n"),
+  );
 }

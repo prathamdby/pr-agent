@@ -53,16 +53,16 @@ export async function canAckPublishProgress(
     readonly resourceKey: string;
     readonly reviewLens: ReviewMode;
   },
-): Promise<boolean> {
+) {
   const workItem = await getWorkItemCore(pool, params.workItemId);
   if (workItem == null || !(ACTIVE_WORK_STATUSES as readonly string[]).includes(workItem.status)) {
-    return false;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   }
   const owner = await getProgressCommentOwner(pool, params.resourceKey, params.reviewLens);
   if (owner != null && owner.workItemId !== params.workItemId) {
-    return false;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   }
-  return true;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
 }
 
 type AckInstallation = Awaited<ReturnType<typeof productionInstallationSurface.token>>;
@@ -93,7 +93,7 @@ async function publishAckProgress(
   resourceKey: string,
   boss?: PgBoss,
   capabilities?: ReviewCapabilityPolicy,
-): Promise<void> {
+) {
   const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
   if ((prSurface.capabilities?.access("commentsWrite") ?? "available") !== "available") return;
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
@@ -166,7 +166,7 @@ async function publishCancelProgress(
   installation: AckInstallation,
   resourceKey: string,
   capabilities?: ReviewCapabilityPolicy,
-): Promise<void> {
+) {
   const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
   const commentsAvailable =
     (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available";
@@ -220,7 +220,7 @@ async function publishCancelProgress(
 async function publishTriageCancellation(
   prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
   data: AckJobData & { readonly cancelTriage: NonNullable<AckJobData["cancelTriage"]> },
-): Promise<void> {
+) {
   if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available") {
     await prSurface.setAcknowledgementReaction(
       data.cancelTriage.targets,
@@ -235,12 +235,7 @@ async function publishTriageCancellation(
   }
 }
 
-export async function executeAckJob(
-  cfg: Config,
-  pool: Pool,
-  data: AckJobData,
-  boss?: PgBoss,
-): Promise<void> {
+export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData, boss?: PgBoss) {
   try {
     const bot = await productionInstallationSurface.botIdentity(cfg);
     if (data.commenterId != null && bot.userId === data.commenterId) return;
@@ -392,7 +387,7 @@ async function reactBestEffort(
   prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
   targets: AckJobData["targets"],
   reaction: GithubReactionContent,
-): Promise<void> {
+) {
   if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") !== "available") return;
   try {
     await prSurface.setAcknowledgementReaction(targets, reaction);

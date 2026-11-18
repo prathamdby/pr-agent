@@ -13,17 +13,17 @@ export type CachedPrDiffIndex = {
   listPullRequestFilesIngested: boolean;
 };
 
-export function createCachedPrDiffIndex(): CachedPrDiffIndex {
-  return {
+export function createCachedPrDiffIndex() {
+  return ((pinnedReturn: CachedPrDiffIndex) => pinnedReturn)({
     truncated: false,
     files: new Map(),
     listPullRequestFilesIngested: false,
-  };
+  });
 }
 
 const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 
-export function parseCommentableRightLineRanges(patch: string): CommentableRightLineRanges {
+export function parseCommentableRightLineRanges(patch: string) {
   const ranges: CommentableRightLineRanges = [];
   let rightLine = 0;
   let range: [number, number] | undefined;
@@ -48,7 +48,7 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     return ranges;
   };
 
-  if (patch === "") return ranges;
+  if (patch === "") return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(ranges);
 
   const lines = patch.endsWith("\n") ? patch.slice(0, -1).split("\n") : patch.split("\n");
   let seenHunk = false;
@@ -57,7 +57,8 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
   for (const rawLine of lines) {
     if (rawLine.startsWith("@@")) {
       const hunkMatch = rawLine.match(DIFF_HUNK_RE);
-      if (!hunkMatch) return finishRanges();
+      if (!hunkMatch)
+        return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
       rightLine = Number(hunkMatch[1]);
       rightLinesRemaining = Number(hunkMatch[2] ?? "1");
       seenHunk = true;
@@ -92,10 +93,10 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     if (rawLine.startsWith("\\")) {
       continue;
     }
-    return finishRanges();
+    return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
   }
 
-  return finishRanges();
+  return ((pinnedReturn: CommentableRightLineRanges) => pinnedReturn)(finishRanges());
 }
 
 export type ListPullRequestFilesToolResult = {
@@ -112,7 +113,7 @@ export type ListPullRequestFilesToolResult = {
 export function ingestListPullRequestFilesResult(
   index: CachedPrDiffIndex,
   result: ListPullRequestFilesToolResult,
-): void {
+) {
   index.listPullRequestFilesIngested = true;
   if (result.truncated) {
     index.truncated = true;
@@ -136,10 +137,11 @@ export function resolveInlineAnchorLine(
   file: string,
   startLine: number,
   endLine: number,
-): number | null {
-  if (!index) return null;
+) {
+  if (!index) return ((pinnedReturn: number | null) => pinnedReturn)(null);
   const entry = index.files.get(file);
-  if (!entry || entry.patchOmitted || entry.commentableRightLineRanges.length === 0) return null;
+  if (!entry || entry.patchOmitted || entry.commentableRightLineRanges.length === 0)
+    return ((pinnedReturn: number | null) => pinnedReturn)(null);
   const lo = Math.min(startLine, endLine);
   const hi = Math.max(startLine, endLine);
   let anchor: number | null = null;
@@ -150,5 +152,5 @@ export function resolveInlineAnchorLine(
       anchor = candidate;
     }
   }
-  return anchor;
+  return ((pinnedReturn: number | null) => pinnedReturn)(anchor);
 }

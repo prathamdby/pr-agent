@@ -64,7 +64,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
 
-  async function insertWorkItem(input: InsertWorkItemInput = {}): Promise<string> {
+  async function insertWorkItem(input: InsertWorkItemInput = {}) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -82,10 +82,10 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         JSON.stringify(input.payload ?? {}),
       ],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
-  async function insertAskWorkItem(resourceKey: string): Promise<string> {
+  async function insertAskWorkItem(resourceKey: string) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -105,10 +105,10 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         }),
       ],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
-  async function acquireReviewLease(id: string, resourceKey: string): Promise<number> {
+  async function acquireReviewLease(id: string, resourceKey: string) {
     const acquisition = await acquirePrActorLease(pool, {
       resourceKey,
       workType: "review",
@@ -117,10 +117,10 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       ttlSeconds: 900,
     });
     if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${id}`);
-    return acquisition.leaseEpoch;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(acquisition.leaseEpoch);
   }
 
-  async function getWorkRow(id: string): Promise<WorkRow> {
+  async function getWorkRow(id: string) {
     const { rows } = await pool.query<WorkRow>(
       `SELECT status, attempt_count, started_at, completed_at, cancel_requested_at, last_error
          FROM agent_work_items
@@ -129,7 +129,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     );
     const row = rows[0];
     if (!row) throw new Error(`missing work item ${id}`);
-    return row;
+    return ((pinnedReturn: WorkRow | Promise<WorkRow>) => pinnedReturn)(row);
   }
 
   it("returns claim timestamps that preserve queue wait", async () => {

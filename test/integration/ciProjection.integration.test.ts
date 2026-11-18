@@ -127,19 +127,19 @@ const queueConfig: QueueConfig = makeTestConfig({
   concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
 });
 
-function headers(event: string, delivery: string): WebhookHeaders {
-  return {
+function headers(event: string, delivery: string) {
+  return ((pinnedReturn: WebhookHeaders) => pinnedReturn)({
     event,
     delivery,
     rawBody: Buffer.from(JSON.stringify({ action: "completed", delivery })),
-  };
+  });
 }
 
 function intakeLog() {
   return createOperationLogger({ method: "POST", path: "/webhooks" });
 }
 
-async function deleteQueueJobs(boss: PgBoss, queue: string): Promise<void> {
+async function deleteQueueJobs(boss: PgBoss, queue: string) {
   const jobs = await boss.findJobs(queue, {});
   if (jobs.length > 0) {
     await boss.deleteJob(
@@ -149,8 +149,8 @@ async function deleteQueueJobs(boss: PgBoss, queue: string): Promise<void> {
   }
 }
 
-function ciStateFact(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
-  return {
+function ciStateFact(overrides: Partial<CiCheckFact> = {}) {
+  return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
     name: "lint",
     source: "check_run",
     status: "completed",
@@ -161,17 +161,17 @@ function ciStateFact(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
     check_run_id: 77,
     observed_at: "2026-09-13T00:00:02.000Z",
     ...overrides,
-  };
+  });
 }
 
-function stubCiAuthor(calls: unknown[]): CiSummaryAuthor {
-  return async (input) => {
+function stubCiAuthor(calls: unknown[]) {
+  return ((pinnedReturn: CiSummaryAuthor) => pinnedReturn)(async (input) => {
     calls.push(input);
     return {
       headline: "❌ authored lint",
       failures: [{ name: "lint", reason: "oxfmt failed", fixHint: "run oxfmt" }],
     };
-  };
+  });
 }
 
 function reviewCommentBody(
@@ -179,7 +179,7 @@ function reviewCommentBody(
   version: number,
   workItemId: string,
   options?: { readonly actionPhrase?: string },
-): string {
+) {
   const cell = renderCiSummaryCell(
     { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     headSha,
@@ -193,21 +193,23 @@ function reviewCommentBody(
           `> No findings, ready to merge. <!-- pr-agent:ci-action fmt=1 -->${options.actionPhrase}<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.`,
           "",
         ];
-  return [
-    REVIEW_SUMMARY_SENTINEL,
-    "",
-    ...action,
-    `<table><tr><td><strong>CI</strong></td><td>${cell}</td></tr></table>`,
-    "",
-    `<!-- pr-agent:review-meta headSha=${headSha} lens=review stale=false -->`,
-    `<!-- pr-agent:progress-revision workItemId=${workItemId} value=1 -->`,
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      ...action,
+      `<table><tr><td><strong>CI</strong></td><td>${cell}</td></tr></table>`,
+      "",
+      `<!-- pr-agent:review-meta headSha=${headSha} lens=review stale=false -->`,
+      `<!-- pr-agent:progress-revision workItemId=${workItemId} value=1 -->`,
+    ].join("\n"),
+  );
 }
 
 function checkRunSnapshot(
   overrides: Partial<CiCheckRunSnapshot> & Pick<CiCheckRunSnapshot, "id" | "name">,
-): CiCheckRunSnapshot {
-  return {
+) {
+  return ((pinnedReturn: CiCheckRunSnapshot) => pinnedReturn)({
     status: "completed",
     conclusion: "success",
     htmlUrl: null,
@@ -215,11 +217,13 @@ function checkRunSnapshot(
     outputSummary: null,
     outputText: null,
     ...overrides,
-  };
+  });
 }
 
-function getCiStatusCount(events: readonly { readonly kind: string }[]): number {
-  return events.filter((event) => event.kind === "getCiStatus").length;
+function getCiStatusCount(events: readonly { readonly kind: string }[]) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    events.filter((event) => event.kind === "getCiStatus").length,
+  );
 }
 
 describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)", () => {
@@ -657,7 +661,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     checks: Record<string, CiCheckFact>,
     rollup: string,
     version: number,
-  ): Promise<void> {
+  ) {
     await pool.query(
       `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $6, now())`,
@@ -665,7 +669,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
   }
 
-  async function insertReviewWorkItem(headSha: string): Promise<string> {
+  async function insertReviewWorkItem(headSha: string) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -675,15 +679,17 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
        VALUES ($1, 'review', 'auto', 'running', $2, $3, $4, 9001, $5, 'review', $6, 0, '{}'::jsonb)`,
       [id, OWNER, REPO, PR_NUMBER, headSha, `${OWNER}/${REPO}#${PR_NUMBER}`],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
-  async function webhookDecision(delivery: string): Promise<string | undefined> {
+  async function webhookDecision(delivery: string) {
     const { rows } = await pool.query<{ processing_decision: string }>(
       "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
       [delivery],
     );
-    return rows[0]?.processing_decision;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      rows[0]?.processing_decision,
+    );
   }
 
   it("enqueues one projection from workflow_run intake", async () => {
@@ -1260,6 +1266,13 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       releaseCommit = resolve;
     });
     const arrivals: Array<{ delivery?: string; id: string | null; pid: number; slot: number }> = [];
+    const bothArrived = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     let bAtCommit = false;
     let querySpy: { mockRestore(): void } | undefined;
     let connectSpy: { mockRestore(): void } | undefined;
@@ -1280,6 +1293,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
               "SELECT pg_backend_pid() AS pid, floor(extract(epoch FROM now()) / 5)::int AS slot",
             );
             arrivals.push({ delivery: identity.delivery, id, ...result.rows[0] });
+            if (arrivals.length === 2) bothArrived.resolve();
             await (identity.delivery === deliveries[1] ? gateB : gateC);
           }
           return id;
@@ -1332,7 +1346,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       );
       void b.catch(() => undefined);
       void c.catch(() => undefined);
-      await expect.poll(() => arrivals.length, { timeout: 2000 }).toBe(2);
+      await bothArrived.promise;
       expect(arrivals.map((arrival) => arrival.id)).toEqual([null, null]);
       expect(arrivals[0].slot).toBe(arrivals[1].slot);
       releaseB();

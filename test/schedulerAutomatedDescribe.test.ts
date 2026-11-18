@@ -35,11 +35,11 @@ function makePrRef() {
   };
 }
 
-function headCiStateSelect(sql: string): { rows: unknown[] } | null {
+function headCiStateSelect(sql: string) {
   if (sql.includes("FROM pr_head_ci_state") || sql.includes("FROM pr_review_lifecycle")) {
-    return { rows: [] };
+    return ((pinnedReturn: { rows: unknown[] } | null) => pinnedReturn)({ rows: [] });
   }
-  return null;
+  return ((pinnedReturn: { rows: unknown[] } | null) => pinnedReturn)(null);
 }
 
 function mockAutomatedClient() {
@@ -70,8 +70,8 @@ function mockAutomatedClient() {
   } as unknown as PoolClient;
 }
 
-function makeBoss(sentQueues: string[]): PgBoss {
-  return {
+function makeBoss(sentQueues: string[]) {
+  return ((pinnedReturn: PgBoss) => pinnedReturn)({
     send: vi.fn(async (queue: string) => {
       sentQueues.push(queue);
       return "job-1";
@@ -83,7 +83,7 @@ function makeBoss(sentQueues: string[]): PgBoss {
     findJobs: vi.fn(async () => []),
     deleteJob: vi.fn(async () => ({ rows: [] })),
     cancel: vi.fn(async () => ({ rows: [] })),
-  } as unknown as PgBoss;
+  } as unknown as PgBoss);
 }
 
 describe("makeAgentWorkScheduler automated describe", () => {

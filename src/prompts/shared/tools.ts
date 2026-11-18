@@ -19,7 +19,7 @@ export function renderCodeModeHarness(params: {
   readonly nativeTools: readonly string[];
   readonly cellBoundary: string;
   readonly extra?: readonly string[];
-}): string {
+}) {
   const example = renderFanOutExampleShort(params.guest);
   const lines = [
     "## Harness",
@@ -45,7 +45,7 @@ export function renderCodeModeHarness(params: {
     lines.push(...params.extra);
   }
   lines.push(obstacleReportGuidance);
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 export const specialistInvestigationHarness = [

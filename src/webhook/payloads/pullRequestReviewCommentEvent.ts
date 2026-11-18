@@ -36,13 +36,14 @@ export type PullRequestReviewCommentWebhookPayload = v.InferOutput<
 
 export function codeAnchorFromReviewComment(
   comment: PullRequestReviewCommentWebhookPayload["comment"],
-): CodeAnchor | undefined {
-  if (comment.path == null || comment.line == null) return undefined;
-  return {
+) {
+  if (comment.path == null || comment.line == null)
+    return ((pinnedReturn: CodeAnchor | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: CodeAnchor | undefined) => pinnedReturn)({
     path: comment.path,
     line: comment.line,
     startLine: comment.start_line ?? undefined,
     side: comment.side,
     diffHunk: comment.diff_hunk,
-  };
+  });
 }

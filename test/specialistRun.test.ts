@@ -68,6 +68,7 @@ const runnerMocks = vi.hoisted(() => ({
   sessions: [] as TestSession[],
   submitResults: [] as unknown[],
   recordExecutionSpan: vi.fn(),
+  sessionSend: null as { resolve: () => void } | null,
 }));
 
 vi.mock("../src/traces/recorder.ts", async (importOriginal) => ({
@@ -185,7 +186,10 @@ describe("runSpecialist", () => {
       if (behavior.kind === "pending_create") {
         const session: TestSession = {
           role: "specialist",
-          send: vi.fn(async () => ({ text: "", end: "completed" as const })),
+          send: vi.fn(async () => {
+            runnerMocks.sessionSend?.resolve();
+            return { text: "", end: "completed" as const };
+          }),
           abort: vi.fn(async () => undefined),
           dispose: vi.fn(async () => undefined),
         };
@@ -202,6 +206,7 @@ describe("runSpecialist", () => {
       const session: TestSession = {
         role: "specialist",
         send: vi.fn(async () => {
+          runnerMocks.sessionSend?.resolve();
           if (behavior.kind === "error") throw behavior.error;
           if (behavior.kind === "pending_send") {
             return new Promise<AgentRunnerTurn>((resolve) => {
@@ -977,8 +982,16 @@ describe("runSpecialist", () => {
     runnerMocks.behaviors.push({ kind: "pending" });
     const controller = new AbortController();
 
+    const sessionSend = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    runnerMocks.sessionSend = sessionSend;
     const outcomePromise = runSpecialist(specialistArgs({ signal: controller.signal }));
-    await vi.waitFor(() => expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledTimes(1));
+    await sessionSend.promise;
     controller.abort();
     const outcome = await outcomePromise;
 

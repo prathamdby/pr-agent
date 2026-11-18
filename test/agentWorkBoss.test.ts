@@ -10,12 +10,12 @@ const pgBossHarness = vi.hoisted(() => ({
 
 vi.mock("pg-boss", () => ({
   PgBoss: class {
-    on(): void {}
-    start(): Promise<void> {
-      return pgBossHarness.start();
+    on() {}
+    start() {
+      return ((pinnedReturn: Promise<void>) => pinnedReturn)(pgBossHarness.start());
     }
-    stop(options?: { close?: boolean; graceful?: boolean; timeout?: number }): Promise<void> {
-      return pgBossHarness.stop(options);
+    stop(options?: { close?: boolean; graceful?: boolean; timeout?: number }) {
+      return ((pinnedReturn: Promise<void>) => pinnedReturn)(pgBossHarness.stop(options));
     }
   },
 }));
@@ -121,12 +121,14 @@ describe("ensureAgentQueues", () => {
       readonly resolve: () => void;
     };
     const started: Deferred[] = [];
+    let onStarted: () => void = () => undefined;
     const createQueue = vi.fn((name: string, options: unknown) => {
       let resolve!: () => void;
       const promise = new Promise<void>((res) => {
         resolve = res;
       });
       started.push({ name, options, resolve });
+      onStarted();
       return promise;
     });
     const boss = {
@@ -138,19 +140,28 @@ describe("ensureAgentQueues", () => {
     } as unknown as PgBoss;
     const cfg = makeTestConfig();
 
+    const deadLettersStarted = new Promise<void>((resolve) => {
+      onStarted = () => {
+        if (started.length >= deadLetterQueues.length) resolve();
+      };
+    });
     const ensurePromise = ensureAgentQueues(boss, cfg);
 
-    await vi.waitFor(() => expect(started).toHaveLength(deadLetterQueues.length));
+    await deadLettersStarted;
     expect(started.map((entry) => entry.name)).toEqual(deadLetterQueues);
     expect(started.some((entry) => parentQueues.includes(entry.name))).toBe(false);
 
+    const parentsStarted = new Promise<void>((resolve) => {
+      onStarted = () => {
+        if (started.length >= deadLetterQueues.length + parentQueues.length) resolve();
+      };
+      if (started.length >= deadLetterQueues.length + parentQueues.length) resolve();
+    });
     for (const entry of started) {
       entry.resolve();
     }
 
-    await vi.waitFor(() =>
-      expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length),
-    );
+    await parentsStarted;
     const parentStarted = started.slice(deadLetterQueues.length);
     expect(parentStarted.map((entry) => entry.name)).toEqual(parentQueues);
     expect(parentStarted.map((entry) => entry.options)).toEqual([
@@ -205,14 +216,14 @@ describe("ensureAgentQueues", () => {
     });
   });
 
-  function bossWithJobIndex(executeSql: (sql: string) => Promise<{ rows: [] }>): PgBoss {
-    return {
+  function bossWithJobIndex(executeSql: (sql: string) => Promise<{ rows: [] }>) {
+    return ((pinnedReturn: PgBoss) => pinnedReturn)({
       createQueue: vi.fn(async () => undefined),
       getQueue: vi.fn(async () => ({ policy: "standard" })),
       getQueueStats: vi.fn(async () => [{ queuedCount: 0, activeCount: 0, deferredCount: 0 }]),
       deleteQueue: vi.fn(async () => undefined),
       getDb: () => ({ executeSql }),
-    } as unknown as PgBoss;
+    } as unknown as PgBoss);
   }
 
   it("rejects queue startup when job index creation is denied", async () => {

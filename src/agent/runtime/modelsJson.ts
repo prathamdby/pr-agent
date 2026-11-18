@@ -56,7 +56,7 @@ function isKnownApi(api: string): api is KnownApi {
   return Object.hasOwn(KNOWN_API_STREAMS, api);
 }
 
-function streamsForApi(api: string): ProviderStreams {
+function streamsForApi(api: string) {
   if (!isKnownApi(api)) {
     throw new AppError({
       domain: "settings",
@@ -64,7 +64,7 @@ function streamsForApi(api: string): ProviderStreams {
       message: `Invalid models.json schema: unknown provider api: ${api}`,
     });
   }
-  return KNOWN_API_STREAMS[api]();
+  return ((pinnedReturn: ProviderStreams) => pinnedReturn)(KNOWN_API_STREAMS[api]());
 }
 
 function toPiModel(
@@ -73,10 +73,10 @@ function toPiModel(
   api: string,
   entry: ModelsJsonModel,
   providerCompat: ModelsJsonCompat | undefined,
-): Model<Api> {
+) {
   const compat =
     providerCompat || entry.compat ? { ...providerCompat, ...entry.compat } : undefined;
-  return {
+  return ((pinnedReturn: Model<Api>) => pinnedReturn)({
     id: entry.id,
     name: entry.name,
     api,
@@ -89,7 +89,7 @@ function toPiModel(
     maxTokens: entry.maxTokens,
     ...(compat ? { compat } : {}),
     ...(entry.thinkingLevelMap ? { thinkingLevelMap: { ...entry.thinkingLevelMap } } : {}),
-  };
+  });
 }
 
 function catalogApiKeyAuth(
@@ -120,11 +120,7 @@ function catalogApiKeyAuth(
   };
 }
 
-function overlayProvider(
-  models: MutableModels,
-  providerId: string,
-  provider: ModelsJsonProvider,
-): void {
+function overlayProvider(models: MutableModels, providerId: string, provider: ModelsJsonProvider) {
   models.setProvider(
     createProvider({
       id: providerId,
@@ -150,9 +146,10 @@ function overlayProvider(
 export async function overlayCatalog(
   catalogPath: string | null,
   credentials: InMemoryCredentialStore,
-): Promise<MutableModels> {
+) {
   const models = builtinModels({ credentials });
-  if (!catalogPath) return models;
+  if (!catalogPath)
+    return ((pinnedReturn: MutableModels | Promise<MutableModels>) => pinnedReturn)(models);
   const catalog = await loadModelsJsonCatalog(catalogPath);
   for (const [id, provider] of Object.entries(catalog.providers)) {
     if (provider.apiKey.length > 0) {
@@ -160,16 +157,16 @@ export async function overlayCatalog(
     }
     overlayProvider(models, id, provider);
   }
-  return models;
+  return ((pinnedReturn: MutableModels | Promise<MutableModels>) => pinnedReturn)(models);
 }
 
-function builtinPiApi(piProvider: string, piModel: string): string {
+function builtinPiApi(piProvider: string, piModel: string) {
   const provider = getBuiltinProviders().find((candidate) => candidate === piProvider);
   const models: readonly Model<Api>[] = provider === undefined ? [] : getBuiltinModels(provider);
   const model = models.find((candidate) => candidate.id === piModel);
-  if (model?.api) return model.api;
+  if (model?.api) return ((pinnedReturn: string) => pinnedReturn)(model.api);
   const fallback = models[0];
-  if (fallback?.api) return fallback.api;
+  if (fallback?.api) return ((pinnedReturn: string) => pinnedReturn)(fallback.api);
   throw new AppError({
     domain: "settings",
     kind: "models_json_unresolvable_api",
@@ -183,7 +180,7 @@ export async function assertPiModelSelection(options: {
   readonly piProvider: string;
   readonly piModel: string;
   readonly catalogCandidatePath?: string;
-}): Promise<string> {
+}) {
   const { modelsJsonPath, piProvider, piModel } = options;
 
   if (!modelsJsonPath) {
@@ -201,7 +198,9 @@ export async function assertPiModelSelection(options: {
         },
       });
     }
-    return builtinPiApi(piProvider, piModel);
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(
+      builtinPiApi(piProvider, piModel),
+    );
   }
 
   try {
@@ -216,7 +215,7 @@ export async function assertPiModelSelection(options: {
         context: { piProvider, piModel },
       });
     }
-    return model.api;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(model.api);
   } catch (error) {
     if (isAppError(error)) throw error;
     throw new AppError({

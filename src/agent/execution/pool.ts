@@ -22,20 +22,20 @@ export type ExecutorLease = {
 const waiters: Waiter[] = [];
 let active = 0;
 
-function useWorkerThreads(kind: CodeModeExecutorKind): boolean {
+function useWorkerThreads(kind: CodeModeExecutorKind) {
   switch (kind) {
     case "worker_threads":
-      return true;
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
     case "in_process":
-      return false;
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
     default: {
       const _exhaustive: never = kind;
-      return _exhaustive;
+      return ((pinnedReturn: boolean) => pinnedReturn)(_exhaustive);
     }
   }
 }
 
-function releaseSlot(): void {
+function releaseSlot() {
   const next = waiters.shift();
   if (next) {
     next.resolve(createLease(next.kind));
@@ -44,8 +44,8 @@ function releaseSlot(): void {
   active = Math.max(0, active - 1);
 }
 
-function createLease(kind: CodeModeExecutorKind): ExecutorLease {
-  return {
+function createLease(kind: CodeModeExecutorKind) {
+  return ((pinnedReturn: ExecutorLease) => pinnedReturn)({
     async run(params) {
       if (useWorkerThreads(kind)) {
         return runInWorker(params);
@@ -55,17 +55,17 @@ function createLease(kind: CodeModeExecutorKind): ExecutorLease {
     release() {
       releaseSlot();
     },
-  };
+  });
 }
 
-function postToWorker(worker: Worker, message: unknown): void {
+function postToWorker(worker: Worker, message: unknown) {
   try {
     // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.
     worker.postMessage(message);
   } catch {}
 }
 
-async function runInWorker(params: QuickJsCellParams): Promise<QuickJsCellResult> {
+async function runInWorker(params: QuickJsCellParams) {
   const worker = new Worker(new URL("./executorWorker.js", import.meta.url));
   let settled = false;
   let resolveResult!: (result: QuickJsCellResult) => void;
@@ -141,7 +141,9 @@ async function runInWorker(params: QuickJsCellParams): Promise<QuickJsCellResult
         capabilityNames: params.capabilityNames,
       });
     }
-    return await completed;
+    return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+      await completed,
+    );
   } finally {
     params.signal.removeEventListener("abort", onAbort);
     await worker.terminate();
@@ -158,46 +160,47 @@ type WorkerMessage =
     }
   | { readonly type: "done"; readonly result: QuickJsCellResult };
 
-export async function acquireExecutor(
-  signal: AbortSignal,
-  kind: CodeModeExecutorKind,
-): Promise<ExecutorLease> {
+export async function acquireExecutor(signal: AbortSignal, kind: CodeModeExecutorKind) {
   if (signal.aborted) {
     throw hostCancelHalt();
   }
   if (active < CODE_MODE_EXECUTOR_POOL_SIZE) {
     active += 1;
-    return createLease(kind);
+    return ((pinnedReturn: ExecutorLease | Promise<ExecutorLease>) => pinnedReturn)(
+      createLease(kind),
+    );
   }
   if (waiters.length >= CODE_MODE_EXECUTOR_QUEUE_LENGTH) {
     throw new CodeModeHostHalt("LIMIT_EXCEEDED", "Executor pool queue is full", {
       reason: "pool_queue",
     });
   }
-  return await new Promise<ExecutorLease>((resolve, reject) => {
-    const waiter: Waiter = { kind, resolve, reject };
-    waiters.push(waiter);
-    const timer = setTimeout(() => {
-      const index = waiters.indexOf(waiter);
-      if (index >= 0) waiters.splice(index, 1);
-      reject(
-        new CodeModeHostHalt("TIMEOUT", "Timed out waiting for an executor", {
-          reason: "pool_wait",
-        }),
-      );
-    }, CODE_MODE_EXECUTOR_QUEUE_WAIT_MS);
-    const onAbort = () => {
-      const index = waiters.indexOf(waiter);
-      if (index >= 0) waiters.splice(index, 1);
-      clearTimeout(timer);
-      reject(hostCancelHalt());
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    const originalResolve = waiter.resolve;
-    waiter.resolve = (lease) => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      originalResolve(lease);
-    };
-  });
+  return ((pinnedReturn: ExecutorLease | Promise<ExecutorLease>) => pinnedReturn)(
+    await new Promise<ExecutorLease>((resolve, reject) => {
+      const waiter: Waiter = { kind, resolve, reject };
+      waiters.push(waiter);
+      const timer = setTimeout(() => {
+        const index = waiters.indexOf(waiter);
+        if (index >= 0) waiters.splice(index, 1);
+        reject(
+          new CodeModeHostHalt("TIMEOUT", "Timed out waiting for an executor", {
+            reason: "pool_wait",
+          }),
+        );
+      }, CODE_MODE_EXECUTOR_QUEUE_WAIT_MS);
+      const onAbort = () => {
+        const index = waiters.indexOf(waiter);
+        if (index >= 0) waiters.splice(index, 1);
+        clearTimeout(timer);
+        reject(hostCancelHalt());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      const originalResolve = waiter.resolve;
+      waiter.resolve = (lease) => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        originalResolve(lease);
+      };
+    }),
+  );
 }

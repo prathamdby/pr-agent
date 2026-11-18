@@ -42,7 +42,7 @@ export async function runFullPrDescription(params: {
   sessionContext?: FeatureSessionContext;
   escalation?: EscalationPlan;
   signal?: AbortSignal;
-}): Promise<DescriptionRunResult> {
+}) {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.models.provider;
   const setup = buildDescriptionRunSetup(params);
@@ -87,9 +87,9 @@ export async function runFullPrDescription(params: {
     logInfo("description_run_completed", { owner, repo, pr: prNumber });
   }
 
-  return {
+  return ((pinnedReturn: DescriptionRunResult | Promise<DescriptionRunResult>) => pinnedReturn)({
     lastAssistant: assistantFromText(cfg, lastText, providerName),
     published: setup.submitState.published,
     publishSuperseded: setup.submitState.publishSuperseded,
-  };
+  });
 }

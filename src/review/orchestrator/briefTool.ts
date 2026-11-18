@@ -42,13 +42,7 @@ export function buildSpecialistBriefTool(
     readonly initialBrief?: SpecialistBrief;
     readonly onAccepted?: (brief: SpecialistBrief) => Promise<void>;
   },
-): {
-  readonly piTool: PiTool;
-  readonly executor: AgentRunnerToolExecutor;
-  readonly getBrief: () => SpecialistBrief | null;
-  readonly getValidationError: () => string | null;
-  readonly clearValidationError: () => void;
-} {
+) {
   let brief: SpecialistBrief | null = options?.initialBrief ?? null;
   let validationError: string | null = null;
   const piTool: PiTool = {
@@ -83,7 +77,13 @@ export function buildSpecialistBriefTool(
     return { accepted: true };
   };
 
-  return {
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: AgentRunnerToolExecutor;
+    readonly getBrief: () => SpecialistBrief | null;
+    readonly getValidationError: () => string | null;
+    readonly clearValidationError: () => void;
+  }) => pinnedReturn)({
     piTool,
     executor,
     getBrief: () => brief,
@@ -91,5 +91,5 @@ export function buildSpecialistBriefTool(
     clearValidationError: () => {
       validationError = null;
     },
-  };
+  });
 }

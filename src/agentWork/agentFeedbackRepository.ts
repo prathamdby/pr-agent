@@ -31,30 +31,30 @@ function isPoolClient(db: Pool | PoolClient): db is PoolClient {
   return "release" in db && typeof db.release === "function";
 }
 
-function rejectAfter(ms: number): {
-  readonly promise: Promise<never>;
-  readonly cancel: () => void;
-} {
+function rejectAfter(ms: number) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const promise = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error("obstacle_report_budget")), ms);
   });
-  return {
+  return ((pinnedReturn: { readonly promise: Promise<never>; readonly cancel: () => void }) =>
+    pinnedReturn)({
     promise,
     cancel() {
       if (timer) clearTimeout(timer);
     },
-  };
+  });
 }
 
 async function withFeedbackClient<T>(
   db: Pool | PoolClient,
   run: (client: Pool | PoolClient) => Promise<T>,
-): Promise<T> {
+) {
   if (isPoolClient(db)) {
     const budget = rejectAfter(FEEDBACK_BUDGET_MS);
     try {
-      return await Promise.race([run(db), budget.promise]);
+      return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(
+        await Promise.race([run(db), budget.promise]),
+      );
     } finally {
       budget.cancel();
     }
@@ -79,7 +79,7 @@ async function withFeedbackClient<T>(
     ]);
     const result = await run(client);
     await client.query("COMMIT");
-    return result;
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(result);
   } catch (error) {
     await client.query("ROLLBACK").catch((rollbackError) => {
       logWarn("agent_feedback_rollback_failed", { message: errorMessage(rollbackError) });
@@ -90,10 +90,7 @@ async function withFeedbackClient<T>(
   }
 }
 
-export async function insertAgentFeedback(
-  db: Pool | PoolClient,
-  row: AgentFeedbackInsert,
-): Promise<void> {
+export async function insertAgentFeedback(db: Pool | PoolClient, row: AgentFeedbackInsert) {
   await withFeedbackClient(db, (client) =>
     client.query(
       `INSERT INTO agent_feedback (

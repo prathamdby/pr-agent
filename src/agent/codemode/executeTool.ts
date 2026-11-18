@@ -26,34 +26,34 @@ export function buildCodeModeExecuteTool(params: {
   readonly session?: ExecutionSessionStore;
   readonly evidenceLedger?: EvidenceLedger;
   readonly headSha?: string;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: AgentRunnerToolExecutor;
-} {
+}) {
   const session = params.session ?? createExecutionSessionStore();
   const tool = defineLocalTool({
     description: renderExecuteDescription(params.capabilities),
     schema: v.object({
       code: v.pipe(v.string(), v.minLength(1)),
     }),
-    run: async ({ code }, ctx): Promise<CodeModeResult> =>
-      runCodeModeScript({
-        code,
-        capabilities: params.capabilities,
-        executorKind: params.executorKind,
-        session,
-        evidenceLedger: params.evidenceLedger,
-        headSha: params.headSha,
-        signal: ctx?.signal,
-        emit: ctx?.emit,
-        traceHostCall: ctx?.traceHostCall,
-        role: ctx?.role,
-        provider: ctx?.provider,
-        model: ctx?.model,
-      }),
+    run: async ({ code }, ctx) =>
+      ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+        runCodeModeScript({
+          code,
+          capabilities: params.capabilities,
+          executorKind: params.executorKind,
+          session,
+          evidenceLedger: params.evidenceLedger,
+          headSha: params.headSha,
+          signal: ctx?.signal,
+          emit: ctx?.emit,
+          traceHostCall: ctx?.traceHostCall,
+          role: ctx?.role,
+          provider: ctx?.provider,
+          model: ctx?.model,
+        }),
+      ),
   });
-  return {
+  return ((pinnedReturn: { readonly piTool: PiTool; readonly executor: AgentRunnerToolExecutor }) =>
+    pinnedReturn)({
     piTool: toPiTool(CODE_MODE_EXECUTE_NAME, tool),
     executor: toExecutor(CODE_MODE_EXECUTE_NAME, tool),
-  };
+  });
 }

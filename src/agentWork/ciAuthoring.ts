@@ -18,11 +18,17 @@ export async function authorHeadCiIfFactsChanged(params: {
   readonly prSurface: PrSurface;
   readonly row: PrHeadCiStateRow;
   readonly author?: CiSummaryAuthor;
-}): Promise<PrHeadCiStateRow> {
-  if (params.row.rollup !== "failing") return params.row;
+}) {
+  if (params.row.rollup !== "failing")
+    return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)(
+      params.row,
+    );
   const factsHash = hashCiFacts(params.row.checks);
   const cached = parseCiAuthoredCache(params.row.authored);
-  if (cached?.factsHash === factsHash) return params.row;
+  if (cached?.factsHash === factsHash)
+    return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)(
+      params.row,
+    );
 
   const context = await fetchCiAuthorContext({
     prSurface: params.prSurface,
@@ -50,5 +56,8 @@ export async function authorHeadCiIfFactsChanged(params: {
     params.row.headSha,
     authored,
   );
-  return { ...params.row, authored };
+  return ((pinnedReturn: PrHeadCiStateRow | Promise<PrHeadCiStateRow>) => pinnedReturn)({
+    ...params.row,
+    authored,
+  });
 }

@@ -15,8 +15,8 @@ vi.mock("../src/agent/runtime/createFeatureSession.ts", () => ({
 
 const cfg = makeTestConfig();
 
-function checkout(): WritablePrCheckout {
-  return {
+function checkout() {
+  return ((pinnedReturn: WritablePrCheckout) => pinnedReturn)({
     dir: "/tmp/checkout",
     reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
@@ -25,7 +25,7 @@ function checkout(): WritablePrCheckout {
     push: vi.fn(),
     listCommittedShas: () => [],
     listCommittedDetails: () => [],
-  };
+  });
 }
 
 const inventory = [

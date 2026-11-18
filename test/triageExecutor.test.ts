@@ -165,7 +165,7 @@ import { makeTriageWorkItem } from "./helpers/agentWorkItems.ts";
 let runExecution: (executionPool?: Pool) => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["triage"]) => Promise<unknown>,
-): void {
+) {
   runExecution = (executionPool = pool) =>
     run(
       createWorkDefinitions({
@@ -188,7 +188,7 @@ function item(overrides: Parameters<typeof makeTriageWorkItem>[0] = {}) {
 function mockDurableExecution(
   workItem = item(),
   executionEnv: { escalation?: EscalationPlan } = {},
-): void {
+) {
   configureExecution(async (spec) =>
     spec.execute(
       workItem,

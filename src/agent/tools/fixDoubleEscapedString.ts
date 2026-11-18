@@ -4,40 +4,42 @@ const DOUBLED_BACKSLASH_RE = /\\\\/;
 const REGEX_CLASS_ESCAPE_RE = /\\[dDwWsSbB]/;
 const REGEX_LITERAL_RE = /^\/(?:\\.|[^\\/])+\/[gimsuy]*$/;
 
-function countControlChars(value: string): number {
+function countControlChars(value: string) {
   let count = 0;
   for (const ch of value) {
     if (ch === "\n" || ch === "\r" || ch === "\t") {
       count += 1;
     }
   }
-  return count;
+  return ((pinnedReturn: number) => pinnedReturn)(count);
 }
 
-function isAmbiguousBackslashInput(value: string): boolean {
-  return (
+function isAmbiguousBackslashInput(value: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     DOUBLED_BACKSLASH_RE.test(value) ||
-    DRIVE_LETTER_PATH_RE.test(value) ||
-    REGEX_CLASS_ESCAPE_RE.test(value) ||
-    REGEX_LITERAL_RE.test(value)
+      DRIVE_LETTER_PATH_RE.test(value) ||
+      REGEX_CLASS_ESCAPE_RE.test(value) ||
+      REGEX_LITERAL_RE.test(value),
   );
 }
 
-function tryDecodeJsonStringBody(value: string): string | null {
+function tryDecodeJsonStringBody(value: string) {
   try {
     const parsed: unknown = JSON.parse(`"${value}"`);
-    return typeof parsed === "string" ? parsed : null;
+    return ((pinnedReturn: string | null) => pinnedReturn)(
+      typeof parsed === "string" ? parsed : null,
+    );
   } catch {
-    return null;
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
   }
 }
 
-export function fixDoubleEscapedString(value: string): {
-  text: string;
-  fixed: boolean;
-} {
+export function fixDoubleEscapedString(value: string) {
   if (!HAS_JSON_ESCAPE_CANDIDATE_RE.test(value)) {
-    return { text: value, fixed: false };
+    return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+      text: value,
+      fixed: false,
+    });
   }
 
   const trimmed = value.trim();
@@ -45,23 +47,38 @@ export function fixDoubleEscapedString(value: string): {
     try {
       const parsed: unknown = JSON.parse(trimmed);
       if (typeof parsed === "string" && parsed !== value) {
-        return { text: parsed, fixed: true };
+        return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+          text: parsed,
+          fixed: true,
+        });
       }
     } catch {}
   }
 
   if (isAmbiguousBackslashInput(value)) {
-    return { text: value, fixed: false };
+    return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+      text: value,
+      fixed: false,
+    });
   }
 
   const decoded = tryDecodeJsonStringBody(value);
   if (decoded === null || decoded === value) {
-    return { text: value, fixed: false };
+    return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+      text: value,
+      fixed: false,
+    });
   }
 
   if (countControlChars(decoded) <= countControlChars(value)) {
-    return { text: value, fixed: false };
+    return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+      text: value,
+      fixed: false,
+    });
   }
 
-  return { text: decoded, fixed: true };
+  return ((pinnedReturn: { text: string; fixed: boolean }) => pinnedReturn)({
+    text: decoded,
+    fixed: true,
+  });
 }

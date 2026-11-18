@@ -33,11 +33,13 @@ const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CA
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
-function rendered(status: number): Response {
-  return new Response('<!DOCTYPE html><html lang="en"><body>page</body></html>', {
-    status,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
+function rendered(status: number) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    new Response('<!DOCTYPE html><html lang="en"><body>page</body></html>', {
+      status,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    }),
+  );
 }
 
 describe("varyOnAccept", () => {
@@ -302,7 +304,7 @@ describe("notAcceptableResponse", () => {
 async function expectFresh304(
   load: (conditional?: ConditionalHeaders) => Response,
   contentTypeOn304?: string,
-): Promise<void> {
+) {
   const first = load();
   const etag = first.headers.get("ETag");
   const lastModified = first.headers.get("Last-Modified");

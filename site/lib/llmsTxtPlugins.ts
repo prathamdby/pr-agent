@@ -14,26 +14,28 @@ export type LlmsTxtIo = {
   readonly render?: () => string;
 };
 
-function committedPath(): string {
-  return resolve(siteDir, "public/llms.txt");
+function committedPath() {
+  return ((pinnedReturn: string) => pinnedReturn)(resolve(siteDir, "public/llms.txt"));
 }
 
-function watchedModules(): readonly string[] {
-  return [
-    "llmsKnowledge.ts",
-    "agentResources.ts",
-    "discovery.ts",
-    "content.ts",
-    "acceptLanguage.ts",
-    "site.ts",
-  ].map((name) => resolve(siteDir, "lib", name));
+function watchedModules() {
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(
+    [
+      "llmsKnowledge.ts",
+      "agentResources.ts",
+      "discovery.ts",
+      "content.ts",
+      "acceptLanguage.ts",
+      "site.ts",
+    ].map((name) => resolve(siteDir, "lib", name)),
+  );
 }
 
-export function llmsTxtBuildPlugin(io: LlmsTxtIo = {}): Plugin {
+export function llmsTxtBuildPlugin(io: LlmsTxtIo = {}) {
   const read = io.readFileSync ?? readFileSync;
   const render = io.render ?? renderLlmsTxt;
   const path = committedPath();
-  return {
+  return ((pinnedReturn: Plugin) => pinnedReturn)({
     name: "emit-llms-txt-build",
     apply: "build",
     buildStart() {
@@ -43,10 +45,10 @@ export function llmsTxtBuildPlugin(io: LlmsTxtIo = {}): Plugin {
         throw new Error(LLMS_TXT_MISMATCH);
       }
     },
-  };
+  });
 }
 
-export function llmsTxtServePlugin(io: LlmsTxtIo = {}): Plugin {
+export function llmsTxtServePlugin(io: LlmsTxtIo = {}) {
   const write = io.writeFileSync ?? writeFileSync;
   const render = io.render ?? renderLlmsTxt;
   const path = committedPath();
@@ -54,7 +56,7 @@ export function llmsTxtServePlugin(io: LlmsTxtIo = {}): Plugin {
   const rewrite = () => {
     write(path, render());
   };
-  return {
+  return ((pinnedReturn: Plugin) => pinnedReturn)({
     name: "emit-llms-txt-serve",
     apply: "serve",
     configureServer(server) {
@@ -64,5 +66,5 @@ export function llmsTxtServePlugin(io: LlmsTxtIo = {}): Plugin {
         if (watched.includes(file)) rewrite();
       });
     },
-  };
+  });
 }

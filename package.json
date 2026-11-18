@@ -59,6 +59,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@interfere/landmines": "0.1.0",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
     "oxfmt": "^0.67.0",

@@ -21,7 +21,7 @@ type SchemaNode = {
   readonly item?: unknown;
 };
 
-function baseNode(node: SchemaNode): SchemaNode {
+function baseNode(node: SchemaNode) {
   let current = node;
   while (
     (current.type === "optional" || current.type === "nullish" || current.type === "nullable") &&
@@ -29,36 +29,39 @@ function baseNode(node: SchemaNode): SchemaNode {
   ) {
     current = current.wrapped;
   }
-  return current;
+  return ((pinnedReturn: SchemaNode) => pinnedReturn)(current);
 }
 
-function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): SchemaNode | null {
+function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string) {
   let current: SchemaNode = schema;
-  if (dotPath === "") return current;
+  if (dotPath === "") return ((pinnedReturn: SchemaNode | null) => pinnedReturn)(current);
   for (const segment of dotPath.split(".")) {
     const base = baseNode(current);
     if (base.type === "object" && isPlainObject(base.entries)) {
       const next: unknown = base.entries[segment];
-      if (!isPlainObject(next)) return null;
+      if (!isPlainObject(next)) return ((pinnedReturn: SchemaNode | null) => pinnedReturn)(null);
       current = next;
     } else if (base.type === "array" && /^\d+$/.test(segment)) {
-      if (!isPlainObject(base.item)) return null;
+      if (!isPlainObject(base.item))
+        return ((pinnedReturn: SchemaNode | null) => pinnedReturn)(null);
       current = base.item;
     } else {
-      return null;
+      return ((pinnedReturn: SchemaNode | null) => pinnedReturn)(null);
     }
   }
-  return current;
+  return ((pinnedReturn: SchemaNode | null) => pinnedReturn)(current);
 }
 
-function tryParseJsonArray(value: string): unknown[] | null {
+function tryParseJsonArray(value: string) {
   const trimmed = value.trim();
-  if (!trimmed.startsWith("[")) return null;
+  if (!trimmed.startsWith("[")) return ((pinnedReturn: unknown[] | null) => pinnedReturn)(null);
   try {
     const parsed: unknown = JSON.parse(trimmed);
-    return Array.isArray(parsed) ? parsed : null;
+    return ((pinnedReturn: unknown[] | null) => pinnedReturn)(
+      Array.isArray(parsed) ? parsed : null,
+    );
   } catch {
-    return null;
+    return ((pinnedReturn: unknown[] | null) => pinnedReturn)(null);
   }
 }
 
@@ -67,28 +70,39 @@ type AppliedRepair = {
   readonly value?: unknown;
 };
 
-function repairAt(node: SchemaNode, value: unknown): AppliedRepair | null {
+function repairAt(node: SchemaNode, value: unknown) {
   if (value === null && (node.type === "optional" || node.type === "nullish")) {
-    return { kind: "null_optional_dropped" };
+    return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)({
+      kind: "null_optional_dropped",
+    });
   }
   const base = baseNode(node);
-  if (base.type !== "array") return null;
+  if (base.type !== "array") return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)(null);
   if (typeof value === "string") {
     const parsed = tryParseJsonArray(value);
     if (parsed !== null) {
-      return { kind: "stringified_json_array", value: parsed };
+      return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)({
+        kind: "stringified_json_array",
+        value: parsed,
+      });
     }
   }
   if (isPlainObject(value)) {
-    return { kind: "object_wrapped_as_array", value: [value] };
+    return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)({
+      kind: "object_wrapped_as_array",
+      value: [value],
+    });
   }
   if (typeof value === "string" && isPlainObject(base.item)) {
     const item = baseNode(base.item);
     if (item.type === "string") {
-      return { kind: "string_wrapped_as_array", value: [value] };
+      return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)({
+        kind: "string_wrapped_as_array",
+        value: [value],
+      });
     }
   }
-  return null;
+  return ((pinnedReturn: AppliedRepair | null) => pinnedReturn)(null);
 }
 
 type RepairTarget =
@@ -96,8 +110,9 @@ type RepairTarget =
   | { readonly parent: unknown[]; readonly key: number }
   | { readonly parent: null; readonly key: null };
 
-function resolveRepairTarget(root: unknown, segments: readonly string[]): RepairTarget | null {
-  if (segments.length === 0) return { parent: null, key: null };
+function resolveRepairTarget(root: unknown, segments: readonly string[]) {
+  if (segments.length === 0)
+    return ((pinnedReturn: RepairTarget | null) => pinnedReturn)({ parent: null, key: null });
   let current: unknown = root;
   for (const segment of segments.slice(0, -1)) {
     if (Array.isArray(current) && /^\d+$/.test(segment)) {
@@ -105,27 +120,34 @@ function resolveRepairTarget(root: unknown, segments: readonly string[]): Repair
     } else if (isPlainObject(current)) {
       current = current[segment];
     } else {
-      return null;
+      return ((pinnedReturn: RepairTarget | null) => pinnedReturn)(null);
     }
   }
   const last = segments[segments.length - 1];
   if (Array.isArray(current) && /^\d+$/.test(last)) {
-    return { parent: current, key: Number(last) };
+    return ((pinnedReturn: RepairTarget | null) => pinnedReturn)({
+      parent: current,
+      key: Number(last),
+    });
   }
   if (isPlainObject(current)) {
-    return { parent: current, key: last };
+    return ((pinnedReturn: RepairTarget | null) => pinnedReturn)({ parent: current, key: last });
   }
-  return null;
+  return ((pinnedReturn: RepairTarget | null) => pinnedReturn)(null);
 }
 
 export function parseToolInput<TSchema extends v.GenericSchema>(
   schema: TSchema,
   raw: unknown,
   opts: { readonly toolName: string; readonly errorTitle?: string },
-): ParsedToolInput<v.InferOutput<TSchema>> {
+) {
   const first = v.safeParse(schema, raw);
   if (first.success) {
-    return { ok: true, value: first.output, repairs: [] };
+    return ((pinnedReturn: ParsedToolInput<v.InferOutput<TSchema>>) => pinnedReturn)({
+      ok: true,
+      value: first.output,
+      repairs: [],
+    });
   }
 
   const title = opts.errorTitle ?? "Tool input validation failed:";
@@ -164,15 +186,23 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
   }
 
   if (repairs.length === 0) {
-    return { ok: false, error: formatValidationIssues(first.issues, title), issues: first.issues };
+    return ((pinnedReturn: ParsedToolInput<v.InferOutput<TSchema>>) => pinnedReturn)({
+      ok: false,
+      error: formatValidationIssues(first.issues, title),
+      issues: first.issues,
+    });
   }
   const second = v.safeParse(schema, candidate);
   if (!second.success) {
-    return {
+    return ((pinnedReturn: ParsedToolInput<v.InferOutput<TSchema>>) => pinnedReturn)({
       ok: false,
       error: formatValidationIssues(second.issues, title),
       issues: second.issues,
-    };
+    });
   }
-  return { ok: true, value: second.output, repairs };
+  return ((pinnedReturn: ParsedToolInput<v.InferOutput<TSchema>>) => pinnedReturn)({
+    ok: true,
+    value: second.output,
+    repairs,
+  });
 }

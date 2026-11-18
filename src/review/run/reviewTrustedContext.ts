@@ -9,14 +9,14 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
   reviewLens: AnyReviewLens;
   maintainerDecisionAssociations?: ReadonlySet<string>;
   onPriorFeedbackError?: (error: unknown) => void;
-}): Promise<string | undefined> {
+}) {
   try {
     const threads = await fetchPriorInlineFeedback(params.prSurface, {
       botUserId: params.botUserId,
       currentLens: params.reviewLens,
       maintainerDecisionAssociations: params.maintainerDecisionAssociations,
     });
-    return (
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
       formatPriorInlineFeedbackBlock(
         threads.map((thread) => ({
           ...thread,
@@ -29,10 +29,12 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
             : {}),
           ...(thread.replies != null ? { replies: [...thread.replies] } : {}),
         })),
-      ) || undefined
+      ) || undefined,
     );
   } catch (error) {
     params.onPriorFeedbackError?.(error);
-    return undefined;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   }
 }

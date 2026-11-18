@@ -317,11 +317,13 @@ describe("shouldSpillToFile", () => {
 });
 
 describe("readBudgetedWorkspaceTextFile spill gate", () => {
-  async function writeTempFile(content: string): Promise<{ dir: string; path: string }> {
+  async function writeTempFile(content: string) {
     const dir = await mkdtemp(join(tmpdir(), "tool-output-budget-"));
     const path = join(dir, "input.txt");
     await writeFile(path, content, "utf8");
-    return { dir, path };
+    return ((
+      pinnedReturn: { dir: string; path: string } | Promise<{ dir: string; path: string }>,
+    ) => pinnedReturn)({ dir, path });
   }
 
   it("returns a non-truncated read inline without spilling", async () => {

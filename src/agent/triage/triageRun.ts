@@ -41,7 +41,7 @@ export async function runFullPrTriage(params: {
   readonly sessionContext?: FeatureSessionContext;
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
-}): Promise<TriageRunResult> {
+}) {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.models.provider;
   const setup = buildTriageRunSetup(params);
@@ -85,11 +85,11 @@ export async function runFullPrTriage(params: {
     logInfo("triage_run_completed", { owner, repo, pr: prNumber });
   }
 
-  return {
+  return ((pinnedReturn: TriageRunResult | Promise<TriageRunResult>) => pinnedReturn)({
     lastAssistant: assistantFromText(cfg, lastText, providerName),
     submitted: setup.submitState.submitted,
     payload: setup.submitState.payload,
     commitByThreadRootCommentId: setup.workspaceState.commitByThreadRootCommentId,
     commitErrors: [...setup.workspaceState.commitErrors],
-  };
+  });
 }

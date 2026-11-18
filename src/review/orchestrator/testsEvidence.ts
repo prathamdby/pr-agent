@@ -29,9 +29,12 @@ export type TestsEvidenceFinding = {
 
 export function coverageGapCeiling(
   finding: Pick<TestsEvidenceFinding, "testsClaim" | "testEvidence">,
-): "P0" | "P1" | undefined {
-  if (finding.testsClaim !== "coverage_gap" || finding.testEvidence == null) return undefined;
-  return finding.testEvidence.criticalPath == null ? "P1" : "P0";
+) {
+  if (finding.testsClaim !== "coverage_gap" || finding.testEvidence == null)
+    return ((pinnedReturn: "P0" | "P1" | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: "P0" | "P1" | undefined) => pinnedReturn)(
+    finding.testEvidence.criticalPath == null ? "P1" : "P0",
+  );
 }
 
 export function coverageGapCeilingForFinding(params: {
@@ -48,8 +51,9 @@ export function coverageGapCeilingForFinding(params: {
     readonly endLine: number;
     readonly title: string;
   };
-}): "P0" | "P1" | undefined {
-  if (params.specialist !== "tests") return undefined;
+}) {
+  if (params.specialist !== "tests")
+    return ((pinnedReturn: "P0" | "P1" | undefined) => pinnedReturn)(undefined);
   const gaps = params.reportFindings.filter(
     (row) =>
       row.testsClaim === "coverage_gap" &&
@@ -58,8 +62,11 @@ export function coverageGapCeilingForFinding(params: {
       row.endLine === params.finding.endLine &&
       row.title === params.finding.title,
   );
-  if (gaps.length === 0) return undefined;
-  return gaps.every((gap) => coverageGapCeiling(gap) === "P0") ? "P0" : "P1";
+  if (gaps.length === 0)
+    return ((pinnedReturn: "P0" | "P1" | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: "P0" | "P1" | undefined) => pinnedReturn)(
+    gaps.every((gap) => coverageGapCeiling(gap) === "P0") ? "P0" : "P1",
+  );
 }
 
 export function coverageGapPublishError(params: {
@@ -77,13 +84,15 @@ export function coverageGapPublishError(params: {
     readonly endLine: number;
     readonly title: string;
   };
-}): string | undefined {
+}) {
   const ceiling = coverageGapCeilingForFinding(params);
-  if (ceiling == null) return undefined;
+  if (ceiling == null) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   if (REVIEW_SEVERITY_RANK[params.finding.severity] < REVIEW_SEVERITY_RANK[ceiling]) {
-    return `coverage gap severity ${params.finding.severity} is above the ${ceiling} ceiling`;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      `coverage gap severity ${params.finding.severity} is above the ${ceiling} ceiling`,
+    );
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 export function testsFindingError(params: {
@@ -92,13 +101,14 @@ export function testsFindingError(params: {
   readonly cwd: string;
   readonly ledger: EvidenceLedger | undefined;
   readonly requireContentRead: boolean;
-}): string | undefined {
-  if (params.specialist !== "tests") return undefined;
+}) {
+  if (params.specialist !== "tests")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   for (const finding of params.findings) {
     const error = coverageGapError(finding, params);
-    if (error != null) return error;
+    if (error != null) return ((pinnedReturn: string | undefined) => pinnedReturn)(error);
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 function coverageGapError(
@@ -108,53 +118,75 @@ function coverageGapError(
     readonly ledger: EvidenceLedger | undefined;
     readonly requireContentRead: boolean;
   },
-): string | undefined {
-  if (finding.testsClaim == null) return "A tests finding requires testsClaim.";
-  if (finding.testsClaim !== "coverage_gap") return undefined;
+) {
+  if (finding.testsClaim == null)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      "A tests finding requires testsClaim.",
+    );
+  if (finding.testsClaim !== "coverage_gap")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const evidence = finding.testEvidence;
-  if (evidence == null) return "A coverage_gap finding requires testEvidence.";
+  if (evidence == null)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      "A coverage_gap finding requires testEvidence.",
+    );
   const shapeError = gapShapeError(evidence);
-  if (shapeError != null) return shapeError;
+  if (shapeError != null) return ((pinnedReturn: string | undefined) => pinnedReturn)(shapeError);
   if (finding.suggestedSeverity === "P0" && evidence.criticalPath == null) {
-    return "A coverage gap without criticalPath has ceiling P1.";
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      "A coverage gap without criticalPath has ceiling P1.",
+    );
   }
   for (const path of evidence.read) {
     const pathError = readPathError(params.cwd, path);
-    if (pathError != null) return pathError;
+    if (pathError != null) return ((pinnedReturn: string | undefined) => pinnedReturn)(pathError);
     if (!params.requireContentRead) continue;
     if (params.ledger != null && hasContentRead(params.ledger, path)) continue;
-    return `read path has no content read in this run: ${path}`;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      `read path has no content read in this run: ${path}`,
+    );
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
-function gapShapeError(evidence: TestEvidence): string | undefined {
+function gapShapeError(evidence: TestEvidence) {
   if (evidence.read.length === 0) {
     if (evidence.gap !== NO_CANDIDATE_TEST_GAP) {
-      return `When read is empty, gap must be ${NO_CANDIDATE_TEST_GAP}`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `When read is empty, gap must be ${NO_CANDIDATE_TEST_GAP}`,
+      );
     }
-    return undefined;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   }
   if (evidence.gap === NO_CANDIDATE_TEST_GAP) {
-    return "When read lists paths, gap names the missed neighbor.";
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      "When read lists paths, gap names the missed neighbor.",
+    );
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
-function readPathError(cwd: string, requestedPath: string): string | undefined {
+function readPathError(cwd: string, requestedPath: string) {
   try {
     assertWorkspacePath(cwd, requestedPath);
   } catch (error) {
     if (error instanceof AppError && error.kind === "path_traversal") {
-      return `read path is outside the workspace: ${requestedPath}`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `read path is outside the workspace: ${requestedPath}`,
+      );
     }
     throw error;
   }
-  if (isSensitivePath(requestedPath)) return `read path is sensitive: ${requestedPath}`;
-  return undefined;
+  if (isSensitivePath(requestedPath))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      `read path is sensitive: ${requestedPath}`,
+    );
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
-function hasContentRead(ledger: EvidenceLedger, requestedPath: string): boolean {
+function hasContentRead(ledger: EvidenceLedger, requestedPath: string) {
   const path = normalizeEvidencePath(requestedPath);
-  return ledger.snapshot().some((read) => read.path === path);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    ledger.snapshot().some((read) => read.path === path),
+  );
 }

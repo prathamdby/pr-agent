@@ -70,14 +70,11 @@ export type SpecialistWorkSpan = WorkSpanBase & {
 
 export type WorkSpan = LlmWorkSpan | PublishWorkSpan | CheckpointWorkSpan | SpecialistWorkSpan;
 
-export function newSpanId(): string {
-  return randomUUID();
+export function newSpanId() {
+  return ((pinnedReturn: string) => pinnedReturn)(randomUUID());
 }
 
-export function projectWorkSpanToAgentEventRow(
-  context: WorkSpanContext,
-  span: WorkSpan,
-): AgentEventInsertRow {
+export function projectWorkSpanToAgentEventRow(context: WorkSpanContext, span: WorkSpan) {
   const detail: Record<string, unknown> = {
     spanId: span.spanId,
     spanName: span.spanName,
@@ -93,7 +90,7 @@ export function projectWorkSpanToAgentEventRow(
 
   switch (span.kind) {
     case "llm_generation":
-      return {
+      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
         workItemId: context.workItemId,
         installationId: context.installationId,
         owner: context.owner,
@@ -117,9 +114,9 @@ export function projectWorkSpanToAgentEventRow(
             : {}),
           ...(span.totalTokens != null ? { totalTokens: span.totalTokens } : {}),
         },
-      };
+      });
     case "publish_span":
-      return {
+      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
         workItemId: context.workItemId,
         installationId: context.installationId,
         owner: context.owner,
@@ -131,9 +128,9 @@ export function projectWorkSpanToAgentEventRow(
         ok: !span.isError,
         failureCode: span.errorReason ?? null,
         detail: { ...detail, publishStep: span.publishStep },
-      };
+      });
     case "phase_checkpoint":
-      return {
+      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
         workItemId: context.workItemId,
         installationId: context.installationId,
         owner: context.owner,
@@ -144,9 +141,9 @@ export function projectWorkSpanToAgentEventRow(
         ok: !span.isError,
         failureCode: span.errorReason ?? null,
         detail,
-      };
+      });
     case "specialist_span":
-      return {
+      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
         workItemId: context.workItemId,
         installationId: context.installationId,
         owner: context.owner,
@@ -168,10 +165,10 @@ export function projectWorkSpanToAgentEventRow(
           ...(span.attempts != null ? { attempts: span.attempts } : {}),
           ...(span.deadlineHit != null ? { deadlineHit: span.deadlineHit } : {}),
         },
-      };
+      });
     default: {
       const exhaustive: never = span;
-      return exhaustive;
+      return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)(exhaustive);
     }
   }
 }
@@ -196,8 +193,8 @@ export function llmSpanFromSession(input: {
   readonly spanId?: string;
   readonly sessionId?: string;
   readonly specialistId?: string;
-}): LlmWorkSpan {
-  return {
+}) {
+  return ((pinnedReturn: LlmWorkSpan) => pinnedReturn)({
     kind: "llm_generation",
     ...(input.traceSpanId != null ? { traceSpanId: input.traceSpanId } : {}),
     workItemId: input.context.workItemId,
@@ -225,7 +222,7 @@ export function llmSpanFromSession(input: {
     ...(input.specialistId != null ? { specialistId: input.specialistId } : {}),
     ...(input.context.executionId != null ? { executionId: input.context.executionId } : {}),
     ...(input.context.attemptCount != null ? { attemptCount: input.context.attemptCount } : {}),
-  };
+  });
 }
 
 export function specialistSpanFromContext(input: {
@@ -241,8 +238,8 @@ export function specialistSpanFromContext(input: {
   readonly classification?: string;
   readonly attempts?: number;
   readonly deadlineHit?: boolean;
-}): SpecialistWorkSpan {
-  return {
+}) {
+  return ((pinnedReturn: SpecialistWorkSpan) => pinnedReturn)({
     workItemId: input.context.workItemId,
     installationId: input.context.installationId,
     owner: input.context.owner,
@@ -267,7 +264,7 @@ export function specialistSpanFromContext(input: {
     ...(input.classification != null ? { classification: input.classification } : {}),
     ...(input.attempts != null ? { attempts: input.attempts } : {}),
     ...(input.deadlineHit != null ? { deadlineHit: input.deadlineHit } : {}),
-  };
+  });
 }
 
 export function publishSpanFromContext(input: {
@@ -277,8 +274,8 @@ export function publishSpanFromContext(input: {
   readonly isError: boolean;
   readonly parentSpanId?: string | null;
   readonly errorReason?: string;
-}): PublishWorkSpan {
-  return {
+}) {
+  return ((pinnedReturn: PublishWorkSpan) => pinnedReturn)({
     kind: "publish_span",
     workItemId: input.context.workItemId,
     installationId: input.context.installationId,
@@ -294,5 +291,5 @@ export function publishSpanFromContext(input: {
     publishStep: input.publishStep,
     ...(input.context.executionId != null ? { executionId: input.context.executionId } : {}),
     ...(input.context.attemptCount != null ? { attemptCount: input.context.attemptCount } : {}),
-  };
+  });
 }

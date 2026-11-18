@@ -28,7 +28,7 @@ export async function publishReviewRunFailureNotice(params: {
   readonly publishAttempts: number;
   readonly lastFailure?: ClassifiedFailure;
   readonly findingView: FindingView;
-}): Promise<void> {
+}) {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
@@ -55,7 +55,7 @@ export function renderFailureNoticeWithFindings(
   mode: AnyReviewLens,
   findingView: FindingView,
   reservedChars = 0,
-): string {
+) {
   const notice = { mode, retryCommand: "/review" };
   const blankLine = "\n\n";
   const budget =
@@ -63,8 +63,10 @@ export function renderFailureNoticeWithFindings(
     renderReviewFailureNotice(notice).length -
     blankLine.length -
     reservedChars;
-  return renderReviewFailureNotice({
-    ...notice,
-    findingsSection: renderFindingsSection(findingView, budget),
-  });
+  return ((pinnedReturn: string) => pinnedReturn)(
+    renderReviewFailureNotice({
+      ...notice,
+      findingsSection: renderFindingsSection(findingView, budget),
+    }),
+  );
 }

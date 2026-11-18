@@ -120,15 +120,17 @@ class TraceRecorder {
     this.timer.unref();
   }
 
-  addSecret(value: string | undefined): void {
+  addSecret(value: string | undefined) {
     this.redactor.addSecret(value);
   }
 
-  redact(value: unknown): unknown {
-    return redactTraceValue(value, (text) => this.redactor.redact(text));
+  redact(value: unknown) {
+    return ((pinnedReturn: unknown) => pinnedReturn)(
+      redactTraceValue(value, (text) => this.redactor.redact(text)),
+    );
   }
 
-  emit(execution: ExecutionState, draft: TraceDraft): void {
+  emit(execution: ExecutionState, draft: TraceDraft) {
     if (this.closed) return;
     try {
       const full = propertiesFor(execution, draft, (value) => this.redact(value));
@@ -177,7 +179,7 @@ class TraceRecorder {
     }
   }
 
-  async flush(): Promise<void> {
+  async flush() {
     if (this.flushing) {
       await this.flushing;
       if (this.queue.length === 0) return;
@@ -191,7 +193,7 @@ class TraceRecorder {
     }
   }
 
-  private async flushBatch(): Promise<void> {
+  private async flushBatch() {
     const batch = this.queue.splice(0, this.queue.length);
     if (batch.length === 0) return;
     let bytes = 0;
@@ -221,7 +223,7 @@ class TraceRecorder {
     }
   }
 
-  async drain(): Promise<void> {
+  async drain() {
     clearInterval(this.timer);
     this.closed = true;
     const deadline = Date.now() + SHUTDOWN_SETTLE_TIMEOUT_MS;
@@ -252,10 +254,12 @@ class TraceRecorder {
 
 let recorder: TraceRecorder | undefined;
 
-export function initTraces(cfg: Config, capture?: AiCapture): () => Promise<void> {
-  if (cfg.runtime.role !== "worker") return async () => undefined;
+export function initTraces(cfg: Config, capture?: AiCapture) {
+  if (cfg.runtime.role !== "worker")
+    return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(async () => undefined);
   const token = cfg.posthog.projectToken.trim();
-  if (!capture && token.length === 0) return async () => undefined;
+  if (!capture && token.length === 0)
+    return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(async () => undefined);
   const previous = recorder;
   recorder = undefined;
   let active: TraceRecorder | undefined;
@@ -269,10 +273,10 @@ export function initTraces(cfg: Config, capture?: AiCapture): () => Promise<void
     logWarn("agent_trace_init_failed");
   }
   if (previous) void previous.drain().catch(() => logWarn("agent_trace_drain_failed"));
-  return async () => {
+  return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(async () => {
     if (recorder === active) recorder = undefined;
     await active?.drain().catch(() => logWarn("agent_trace_drain_failed"));
-  };
+  });
 }
 
 export type TraceHandle = {
@@ -288,12 +292,9 @@ export type TraceHandle = {
   closeOwnedExecution(): void;
 };
 
-export function openTraceSession(input: {
-  readonly provider: string;
-  readonly model: string;
-}): TraceHandle | undefined {
+export function openTraceSession(input: { readonly provider: string; readonly model: string }) {
   const active = recorder;
-  if (!active) return undefined;
+  if (!active) return ((pinnedReturn: TraceHandle | undefined) => pinnedReturn)(undefined);
   const current = context.getStore();
   const execution =
     current ??
@@ -304,12 +305,12 @@ export function openTraceSession(input: {
       model: input.model,
     });
   const owned = current == null;
-  return handle(active, execution, input.provider, input.model, owned);
+  return ((pinnedReturn: TraceHandle | undefined) => pinnedReturn)(
+    handle(active, execution, input.provider, input.model, owned),
+  );
 }
 
-export function recordExecutionSpan(
-  draft: Omit<TraceDraft, "provider" | "model" | "parentId">,
-): void {
+export function recordExecutionSpan(draft: Omit<TraceDraft, "provider" | "model" | "parentId">) {
   const active = recorder;
   const execution = context.getStore();
   if (!active || !execution) return;
@@ -323,15 +324,15 @@ export function recordExecutionSpan(
 
 export function annotateExecution(input: {
   readonly extra: Readonly<Record<string, string | number | boolean | null>>;
-}): void {
+}) {
   const execution = context.getStore();
   if (!execution) return;
   Object.assign(execution.annotations, input.extra);
 }
 
-export async function startWorkTrace<T>(work: TraceWork, run: () => Promise<T>): Promise<T> {
+export async function startWorkTrace<T>(work: TraceWork, run: () => Promise<T>) {
   const active = recorder;
-  if (!active) return run();
+  if (!active) return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(run());
   const execution = executionState({
     executionId: work.executionId,
     workItemId: work.workItemId,
@@ -344,7 +345,7 @@ export async function startWorkTrace<T>(work: TraceWork, run: () => Promise<T>):
     model: work.model,
   });
   try {
-    return await context.run(execution, run);
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await context.run(execution, run));
   } catch (error) {
     if (execution.status === "ok") {
       execution.status = "error";
@@ -363,8 +364,8 @@ function handle(
   provider: string,
   model: string,
   owned: boolean,
-): TraceHandle {
-  return {
+) {
+  return ((pinnedReturn: TraceHandle) => pinnedReturn)({
     executionId: execution.executionId,
     workItemId: execution.workItemId,
     executionSpanId: execution.executionSpanId,
@@ -389,7 +390,7 @@ function handle(
       if (!owned) return;
       active.emit(execution, executionDraft(execution));
     },
-  };
+  });
 }
 
 function executionState(input: {
@@ -402,8 +403,8 @@ function executionState(input: {
   readonly installationId?: number;
   readonly provider: string;
   readonly model: string;
-}): ExecutionState {
-  return {
+}) {
+  return ((pinnedReturn: ExecutionState) => pinnedReturn)({
     ...input,
     executionSpanId: randomUUID(),
     startedAt: Date.now(),
@@ -414,11 +415,11 @@ function executionState(input: {
     dropped: 0,
     degraded: 0,
     truncated: 0,
-  };
+  });
 }
 
-function executionDraft(execution: ExecutionState): TraceDraft {
-  return {
+function executionDraft(execution: ExecutionState) {
+  return ((pinnedReturn: TraceDraft) => pinnedReturn)({
     event: "$ai_span",
     spanId: execution.executionSpanId,
     parentId: null,
@@ -436,22 +437,26 @@ function executionDraft(execution: ExecutionState): TraceDraft {
       trace_events_degraded: execution.degraded,
       trace_events_truncated: execution.truncated,
     },
-  };
+  });
 }
 
-function isExecutionSpan(draft: TraceDraft): boolean {
-  return draft.spanName === "execution" && draft.parentId === null;
+function isExecutionSpan(draft: TraceDraft) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    draft.spanName === "execution" && draft.parentId === null,
+  );
 }
 
-function distinctId(execution: ExecutionState): string {
-  return execution.installationId != null ? `installation:${execution.installationId}` : "pr-agent";
+function distinctId(execution: ExecutionState) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    execution.installationId != null ? `installation:${execution.installationId}` : "pr-agent",
+  );
 }
 
 function propertiesFor(
   execution: ExecutionState,
   draft: TraceDraft,
   redact: (value: unknown) => unknown,
-): Record<string, unknown> {
+) {
   const properties: Record<string, unknown> = {
     $ai_trace_id: execution.executionId,
     $ai_session_id: execution.workItemId,
@@ -491,107 +496,115 @@ function propertiesFor(
   if (draft.hostCalls !== undefined) properties.codemode_host_calls = redact(draft.hostCalls);
   const extra = draft.extra == null ? undefined : redact(draft.extra);
   if (isPlainObject(extra)) Object.assign(properties, extra);
-  return properties;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(properties);
 }
 
-function assignCount(
-  properties: Record<string, unknown>,
-  key: string,
-  value: number | undefined,
-): void {
+function assignCount(properties: Record<string, unknown>, key: string, value: number | undefined) {
   if (value != null) properties[key] = value;
 }
 
-function eventBytes(properties: Record<string, unknown>): number {
-  return Buffer.byteLength(JSON.stringify(properties));
+function eventBytes(properties: Record<string, unknown>) {
+  return ((pinnedReturn: number) => pinnedReturn)(Buffer.byteLength(JSON.stringify(properties)));
 }
 
-function fitProperties(properties: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (eventBytes(properties) <= TRACE_EVENT_BYTES) return properties;
+function fitProperties(properties: Record<string, unknown>) {
+  if (eventBytes(properties) <= TRACE_EVENT_BYTES)
+    return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(properties);
   let next = properties;
   if (next.$ai_input !== undefined) {
     next = { ...next, $ai_input: elideInput(next.$ai_input) };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
     next = { ...next, $ai_input: [{ role: "user", content: MARKER }] };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
   }
   if (next.codemode_host_calls !== undefined) {
     next = { ...next, codemode_host_calls: shrinkHostCalls(next.codemode_host_calls) };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
     next = { ...next, codemode_host_calls: MARKER };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
   }
   if (next.$ai_tools !== undefined) {
     next = { ...next, $ai_tools: MARKER };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
   }
   for (const key of ["$ai_input_state", "$ai_output_state"] as const) {
     if (next[key] !== undefined) {
       next = { ...next, [key]: MARKER };
-      if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+      if (eventBytes(next) <= TRACE_EVENT_BYTES)
+        return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
     }
   }
   if (next.$ai_output_choices !== undefined) {
     next = { ...next, $ai_output_choices: truncateChoices(next.$ai_output_choices) };
-    if (eventBytes(next) <= TRACE_EVENT_BYTES) return next;
+    if (eventBytes(next) <= TRACE_EVENT_BYTES)
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(next);
   }
-  return undefined;
+  return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(undefined);
 }
 
-function metadataOnly(properties: Record<string, unknown>): Record<string, unknown> {
+function metadataOnly(properties: Record<string, unknown>) {
   const next: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (CONTENT_KEYS.has(key)) continue;
     next[key] = typeof value === "string" && value.length > METADATA_STRING_CHARS ? MARKER : value;
   }
   next.trace_content_dropped = true;
-  return next;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(next);
 }
 
-function elideInput(input: unknown): unknown {
-  if (!Array.isArray(input)) return markerValue(input);
+function elideInput(input: unknown) {
+  if (!Array.isArray(input)) return ((pinnedReturn: unknown) => pinnedReturn)(markerValue(input));
   const bounded = input.map((message) => boundMessage(message));
-  if (bounded.length < 3) return bounded;
+  if (bounded.length < 3) return ((pinnedReturn: unknown) => pinnedReturn)(bounded);
   const head = bounded[0];
   const tail = bounded[bounded.length - 1];
-  return [head, { role: "user", content: MARKER }, tail];
+  return ((pinnedReturn: unknown) => pinnedReturn)([head, { role: "user", content: MARKER }, tail]);
 }
 
-function boundMessage(message: unknown): unknown {
-  if (!isPlainObject(message)) return markerValue(message);
+function boundMessage(message: unknown) {
+  if (!isPlainObject(message))
+    return ((pinnedReturn: unknown) => pinnedReturn)(markerValue(message));
   const next: Record<string, unknown> = { ...message };
   if (typeof next.content === "string") next.content = markerValue(next.content);
   else if (Array.isArray(next.content)) next.content = next.content.slice(0, 8).map(truncatePart);
-  return next;
+  return ((pinnedReturn: unknown) => pinnedReturn)(next);
 }
 
-function markerValue(value: unknown): unknown {
-  if (typeof value === "string") return `${value.slice(0, 1024)}\n${MARKER}`;
-  return MARKER;
+function markerValue(value: unknown) {
+  if (typeof value === "string")
+    return ((pinnedReturn: unknown) => pinnedReturn)(`${value.slice(0, 1024)}\n${MARKER}`);
+  return ((pinnedReturn: unknown) => pinnedReturn)(MARKER);
 }
 
-function shrinkHostCalls(value: unknown): unknown {
-  if (!Array.isArray(value)) return markerValue(value);
-  return value.map((call) => {
-    if (!isPlainObject(call)) return call;
-    const next: Record<string, unknown> = { ...call };
-    for (const key of ["input", "output_preview"]) {
-      const field = next[key];
-      if (typeof field === "string" && field.length > 512) {
-        next[key] = `${field.slice(0, 512)}\n${MARKER}`;
+function shrinkHostCalls(value: unknown) {
+  if (!Array.isArray(value)) return ((pinnedReturn: unknown) => pinnedReturn)(markerValue(value));
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    value.map((call) => {
+      if (!isPlainObject(call)) return call;
+      const next: Record<string, unknown> = { ...call };
+      for (const key of ["input", "output_preview"]) {
+        const field = next[key];
+        if (typeof field === "string" && field.length > 512) {
+          next[key] = `${field.slice(0, 512)}\n${MARKER}`;
+        }
       }
-    }
-    return next;
-  });
+      return next;
+    }),
+  );
 }
 
-function truncateChoices(value: unknown): unknown {
-  if (!Array.isArray(value)) return markerValue(value);
-  return value.map((choice) => truncatePart(choice));
+function truncateChoices(value: unknown) {
+  if (!Array.isArray(value)) return ((pinnedReturn: unknown) => pinnedReturn)(markerValue(value));
+  return ((pinnedReturn: unknown) => pinnedReturn)(value.map((choice) => truncatePart(choice)));
 }
 
-function truncatePart(part: unknown): unknown {
-  if (!isPlainObject(part)) return part;
+function truncatePart(part: unknown) {
+  if (!isPlainObject(part)) return ((pinnedReturn: unknown) => pinnedReturn)(part);
   const next: Record<string, unknown> = { ...part };
   for (const key of ["text", "thinking", "content", "arguments"]) {
     const field = next[key];
@@ -609,5 +622,5 @@ function truncatePart(part: unknown): unknown {
     }
   }
   if (isPlainObject(next.function)) next.function = truncatePart(next.function);
-  return next;
+  return ((pinnedReturn: unknown) => pinnedReturn)(next);
 }

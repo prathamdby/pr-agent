@@ -16,8 +16,8 @@ import { makeTestConfig } from "./helpers/config.ts";
 
 const exec = promisify(execFile);
 
-function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThread {
-  return {
+function findingThread(overrides: Partial<BotFindingThread> = {}) {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId: 101,
     lens: "review",
     path: "src/app.ts",
@@ -27,11 +27,11 @@ function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThr
     humanReplies: [],
     threadUrl: "https://example.test/thread/101",
     ...overrides,
-  };
+  });
 }
 
-function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]): WritablePrCheckout {
-  return {
+function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]) {
+  return ((pinnedReturn: WritablePrCheckout) => pinnedReturn)({
     dir,
     reader: createWritableRepositoryReader(dir),
     headRef: "feature",
@@ -45,10 +45,10 @@ function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]): W
     push: async () => {},
     listCommittedShas: () => [],
     listCommittedDetails: () => [],
-  };
+  });
 }
 
-async function initCheckout(files: Readonly<Record<string, string>>): Promise<string> {
+async function initCheckout(files: Readonly<Record<string, string>>) {
   const root = await mkdtemp(join(tmpdir(), "triage-ws-tools-"));
   for (const [path, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, path)), { recursive: true });
@@ -59,7 +59,7 @@ async function initCheckout(files: Readonly<Record<string, string>>): Promise<st
   await exec("git", ["config", "user.name", "Test"], { cwd: root });
   await exec("git", ["add", "."], { cwd: root });
   await exec("git", ["commit", "-m", "seed"], { cwd: root });
-  return root;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
 }
 
 describe("buildTriageWorkspaceTools", () => {

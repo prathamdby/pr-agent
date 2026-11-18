@@ -18,8 +18,9 @@ export const installationOperations = [
 export type InstallationOperation = (typeof installationOperations)[number];
 export type CapabilityAvailability = "available" | "denied" | "unknown";
 export type InstallationPermissions = Readonly<Record<string, string>>;
-export function parseInstallationPermissions(value: unknown): InstallationPermissions | undefined {
-  if (typeof value !== "object" || value == null || Array.isArray(value)) return undefined;
+export function parseInstallationPermissions(value: unknown) {
+  if (typeof value !== "object" || value == null || Array.isArray(value))
+    return ((pinnedReturn: InstallationPermissions | undefined) => pinnedReturn)(undefined);
   const permissions: Record<string, string> = {};
   for (const [key, grant] of Object.entries(value)) {
     if (
@@ -28,17 +29,17 @@ export function parseInstallationPermissions(value: unknown): InstallationPermis
       key === "prototype" ||
       (grant !== "read" && grant !== "write" && grant !== "admin")
     )
-      return undefined;
+      return ((pinnedReturn: InstallationPermissions | undefined) => pinnedReturn)(undefined);
     if (
       grant === "admin" &&
       Object.values(permissionAlternatives).some((alternatives) =>
         alternatives.some(([permission]) => permission === key),
       )
     )
-      return undefined;
+      return ((pinnedReturn: InstallationPermissions | undefined) => pinnedReturn)(undefined);
     permissions[key] = grant;
   }
-  return permissions;
+  return ((pinnedReturn: InstallationPermissions | undefined) => pinnedReturn)(permissions);
 }
 export type InstallationCapabilityScope = {
   readonly appId: string | number;
@@ -91,14 +92,18 @@ function uniformCapabilities(
   scope: InstallationCapabilityScope,
   generation: string,
   value: CapabilityAvailability,
-): InstallationCapabilities {
-  return { scope, generation, availability: operationAvailability(() => value) };
+) {
+  return ((pinnedReturn: InstallationCapabilities) => pinnedReturn)({
+    scope,
+    generation,
+    availability: operationAvailability(() => value),
+  });
 }
 
 function operationAvailability(
   access: (operation: InstallationOperation) => CapabilityAvailability,
-): Record<InstallationOperation, CapabilityAvailability> {
-  return {
+) {
+  return ((pinnedReturn: Record<InstallationOperation, CapabilityAvailability>) => pinnedReturn)({
     pullRequestsRead: access("pullRequestsRead"),
     contentsRead: access("contentsRead"),
     reviewWrite: access("reviewWrite"),
@@ -111,31 +116,37 @@ function operationAvailability(
     labelsRead: access("labelsRead"),
     labelsWrite: access("labelsWrite"),
     reactionsWrite: access("reactionsWrite"),
-  };
+  });
 }
 export function availableInstallationCapabilities(
   scope: InstallationCapabilityScope,
   generation = "0",
-): InstallationCapabilities {
-  return uniformCapabilities(scope, generation, "available");
+) {
+  return ((pinnedReturn: InstallationCapabilities) => pinnedReturn)(
+    uniformCapabilities(scope, generation, "available"),
+  );
 }
 export function deniedInstallationCapabilities(
   scope: InstallationCapabilityScope,
   generation: string,
-): InstallationCapabilities {
-  return uniformCapabilities(scope, generation, "denied");
+) {
+  return ((pinnedReturn: InstallationCapabilities) => pinnedReturn)(
+    uniformCapabilities(scope, generation, "denied"),
+  );
 }
 export function unknownInstallationCapabilities(
   scope: InstallationCapabilityScope,
   generation: string,
-): InstallationCapabilities {
-  return uniformCapabilities(scope, generation, "unknown");
+) {
+  return ((pinnedReturn: InstallationCapabilities) => pinnedReturn)(
+    uniformCapabilities(scope, generation, "unknown"),
+  );
 }
 export function installationCapabilitiesFromPermissions(params: {
   readonly scope: InstallationCapabilityScope;
   readonly generation: string;
   readonly permissions: InstallationPermissions;
-}): InstallationCapabilities {
+}) {
   const availability = operationAvailability((operation) =>
     permissionAlternatives[operation].some(([permission, required]) => {
       const grant = params.permissions[permission];
@@ -144,21 +155,19 @@ export function installationCapabilitiesFromPermissions(params: {
       ? "available"
       : "denied",
   );
-  return { ...params, availability };
+  return ((pinnedReturn: InstallationCapabilities) => pinnedReturn)({ ...params, availability });
 }
 export function capabilityObservationUnconfirmed(
   availability: Partial<Record<InstallationOperation, CapabilityAvailability>>,
-): boolean {
-  return Object.values(availability).includes("unknown");
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(Object.values(availability).includes("unknown"));
 }
 export function essentialCapabilitiesDenied(observation: InstallationCapabilities) {
   return essentialInstallationOperations.filter(
     (operation) => observation.availability[operation] === "denied",
   );
 }
-export function assertEssentialInstallationCapabilities(
-  observation: InstallationCapabilities,
-): void {
+export function assertEssentialInstallationCapabilities(observation: InstallationCapabilities) {
   const denied = essentialCapabilitiesDenied(observation);
   if (denied.length) {
     throw new AppError({
@@ -184,9 +193,9 @@ export type ReviewCapabilityPolicy = {
 export function createReviewCapabilityPolicy(
   observation: InstallationCapabilities,
   onDenied?: (operation: InstallationOperation) => Promise<void>,
-): ReviewCapabilityPolicy {
+) {
   const denied = new Set<InstallationOperation>();
-  return {
+  return ((pinnedReturn: ReviewCapabilityPolicy) => pinnedReturn)({
     observation,
     access: (operation) => (denied.has(operation) ? "denied" : observation.availability[operation]),
     async deny(operation) {
@@ -194,12 +203,15 @@ export function createReviewCapabilityPolicy(
       denied.add(operation);
       await onDenied?.(operation);
     },
-  };
+  });
 }
 
-export function isConfirmedCapabilityDenial(error: unknown): boolean {
-  if (httpStatus(error) !== 403 || !(error instanceof Error)) return false;
-  return /resource not accessible by integration|resource not accessible by personal access token|insufficient permissions/i.test(
-    error.message,
+export function isConfirmedCapabilityDenial(error: unknown) {
+  if (httpStatus(error) !== 403 || !(error instanceof Error))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    /resource not accessible by integration|resource not accessible by personal access token|insufficient permissions/i.test(
+      error.message,
+    ),
   );
 }

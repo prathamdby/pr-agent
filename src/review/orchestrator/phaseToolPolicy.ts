@@ -36,20 +36,16 @@ export type OrchestratorPhaseRef = {
   current: AgentSessionPhase;
 };
 
-export function createOrchestratorPhaseRef(
-  initial: AgentSessionPhase = "recon",
-): OrchestratorPhaseRef {
-  return { current: initial };
+export function createOrchestratorPhaseRef(initial: AgentSessionPhase = "recon") {
+  return ((pinnedReturn: OrchestratorPhaseRef) => pinnedReturn)({ current: initial });
 }
 
-export function assertPhaseToolAllowed(
-  phase: AgentSessionPhase,
-  toolName: OrchestratorPhaseTool,
-): PhaseToolGateResult {
+export function assertPhaseToolAllowed(phase: AgentSessionPhase, toolName: OrchestratorPhaseTool) {
   const allowed = ALLOWED_BY_PHASE[phase];
-  if (allowed?.has(toolName)) return { ok: true };
+  if (allowed?.has(toolName))
+    return ((pinnedReturn: PhaseToolGateResult) => pinnedReturn)({ ok: true });
   const allowedList = allowed ? [...allowed] : [];
-  return {
+  return ((pinnedReturn: PhaseToolGateResult) => pinnedReturn)({
     ok: false,
     code: WRONG_PHASE_TOOL_CODE,
     toolName,
@@ -58,5 +54,5 @@ export function assertPhaseToolAllowed(
     error: `Tool ${toolName} is not allowed during phase ${phase}. Allowed: ${
       allowedList.length > 0 ? allowedList.join(", ") : "(none)"
     }.`,
-  };
+  });
 }

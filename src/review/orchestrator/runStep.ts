@@ -46,66 +46,84 @@ const STEPS = {
 
 const step = <K extends ReviewStepKind>(kind: K) => STEPS[kind];
 
-function afterAbortCheck(facts: ReviewStepFacts): ReviewStep {
-  return facts.lifecycle !== "stopped" ? step("dispatch_specialists") : finish(facts);
+function afterAbortCheck(facts: ReviewStepFacts) {
+  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
+    facts.lifecycle !== "stopped" ? step("dispatch_specialists") : finish(facts),
+  );
 }
 
-function finish(facts: ReviewStepFacts): ReviewStep {
-  if (facts.lifecycle === "stopped") return step("terminal_tick");
-  if (facts.lifecycle === "finalizing") return step("finalize_deadline");
-  if (facts.failedSpecialists === facts.specialistCount) return step("failure_notice");
-  if (!facts.sessionRetired && facts.hasSession) return step("synthesis");
-  return step("deterministic_summary");
+function finish(facts: ReviewStepFacts) {
+  if (facts.lifecycle === "stopped")
+    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("terminal_tick"));
+  if (facts.lifecycle === "finalizing")
+    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("finalize_deadline"));
+  if (facts.failedSpecialists === facts.specialistCount)
+    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("failure_notice"));
+  if (!facts.sessionRetired && facts.hasSession)
+    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("synthesis"));
+  return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("deterministic_summary"));
 }
 
-function summaryLoopOpen(facts: ReviewStepFacts): boolean {
-  return !facts.summaryPublished && !facts.sessionRetired && facts.lifecycle === "running";
+function summaryLoopOpen(facts: ReviewStepFacts) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    !facts.summaryPublished && !facts.sessionRetired && facts.lifecycle === "running",
+  );
 }
 
-function recoverOrSettle(facts: ReviewStepFacts): ReviewStep {
-  return summaryLoopOpen(facts) && facts.recoveryRoundsRun < facts.recoveryRoundLimit
-    ? step("recover_summary")
-    : step("settle_summary");
+function recoverOrSettle(facts: ReviewStepFacts) {
+  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
+    summaryLoopOpen(facts) && facts.recoveryRoundsRun < facts.recoveryRoundLimit
+      ? step("recover_summary")
+      : step("settle_summary"),
+  );
 }
 
-export function nextStep(last: ReviewStepKind | null, facts: ReviewStepFacts): ReviewStep {
+export function nextStep(last: ReviewStepKind | null, facts: ReviewStepFacts) {
   if (facts.hostAborted && facts.lifecycle === "running" && last !== "stop_on_host_abort") {
-    return step("stop_on_host_abort");
+    return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("stop_on_host_abort"));
   }
   switch (last) {
     case null:
-      return facts.hasSession ? step("recon") : briefOrAfter(facts);
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(
+        facts.hasSession ? step("recon") : briefOrAfter(facts),
+      );
     case "recon":
-      return briefOrAfter(facts);
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(briefOrAfter(facts));
     case "repair_brief":
-      return afterAbortCheck(facts);
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(afterAbortCheck(facts));
     case "stop_on_host_abort":
-      return afterAbortCheck(facts);
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(afterAbortCheck(facts));
     case "dispatch_specialists":
-      return finish(facts);
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
     case "synthesis":
-      if (facts.lifecycle !== "running") return finish(facts);
-      return summaryLoopOpen(facts) ? step("repair_summary") : recoverOrSettle(facts);
+      if (facts.lifecycle !== "running")
+        return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(
+        summaryLoopOpen(facts) ? step("repair_summary") : recoverOrSettle(facts),
+      );
     case "repair_summary":
     case "recover_summary":
-      if (facts.lifecycle !== "running") return finish(facts);
-      return recoverOrSettle(facts);
+      if (facts.lifecycle !== "running")
+        return ((pinnedReturn: ReviewStep) => pinnedReturn)(finish(facts));
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(recoverOrSettle(facts));
     case "terminal_tick":
     case "finalize_deadline":
     case "failure_notice":
     case "settle_summary":
     case "deterministic_summary":
     case "done":
-      return step("done");
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(step("done"));
     default: {
       const exhaustive: never = last;
-      return exhaustive;
+      return ((pinnedReturn: ReviewStep) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function briefOrAfter(facts: ReviewStepFacts): ReviewStep {
-  return !facts.briefSubmitted && !facts.sessionRetired && facts.hasSession
-    ? step("repair_brief")
-    : afterAbortCheck(facts);
+function briefOrAfter(facts: ReviewStepFacts) {
+  return ((pinnedReturn: ReviewStep) => pinnedReturn)(
+    !facts.briefSubmitted && !facts.sessionRetired && facts.hasSession
+      ? step("repair_brief")
+      : afterAbortCheck(facts),
+  );
 }

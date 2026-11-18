@@ -150,28 +150,29 @@ export function reviewArtifactInvalid(reason: string): never {
   });
 }
 
-export function encodeReviewArtifact(value: unknown): string {
-  return JSON.stringify(value, (_key, entry: unknown) => {
-    if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
-      return Object.fromEntries(
-        Object.entries(entry).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-      );
-    }
-    return entry;
-  });
+export function encodeReviewArtifact(value: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    JSON.stringify(value, (_key, entry: unknown) => {
+      if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+        return Object.fromEntries(
+          Object.entries(entry).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+        );
+      }
+      return entry;
+    }),
+  );
 }
 
-export function reviewArtifactHash(envelope: ReviewArtifactEnvelope): string {
-  return createHash("sha256").update(encodeReviewArtifact(envelope), "utf8").digest("hex");
+export function reviewArtifactHash(envelope: ReviewArtifactEnvelope) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    createHash("sha256").update(encodeReviewArtifact(envelope), "utf8").digest("hex"),
+  );
 }
 
-export function createReviewArtifactBinding(
-  identity: ReviewArtifactIdentity,
-  inputDigest: string,
-): ReviewArtifactBinding {
+export function createReviewArtifactBinding(identity: ReviewArtifactIdentity, inputDigest: string) {
   const parsed = v.safeParse(identitySchema, identity);
   if (!parsed.success || !v.is(hashSchema, inputDigest)) reviewArtifactInvalid("artifact_identity");
-  return {
+  return ((pinnedReturn: ReviewArtifactBinding) => pinnedReturn)({
     ...parsed.output,
     inputFingerprint: createHash("sha256")
       .update(
@@ -183,7 +184,7 @@ export function createReviewArtifactBinding(
         }),
       )
       .digest("hex"),
-  };
+  });
 }
 
 function logicalIdentity(artifact: ReviewArtifactEnvelope["artifact"]) {
@@ -216,31 +217,42 @@ function logicalIdentity(artifact: ReviewArtifactEnvelope["artifact"]) {
   }
 }
 
-function redactStructuredOutput(value: unknown): unknown {
-  return JSON.parse(
-    JSON.stringify(value, (_key, entry: unknown) =>
-      typeof entry === "string" ? redactReviewText(entry) : entry,
+function redactStructuredOutput(value: unknown) {
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    JSON.parse(
+      JSON.stringify(value, (_key, entry: unknown) =>
+        typeof entry === "string" ? redactReviewText(entry) : entry,
+      ),
     ),
   );
 }
 
-function boundUnreadPaths(paths: readonly string[]): string[] {
-  return persistedOpenedPaths(paths).slice(0, UNREAD_COVERAGE_PATH_LIMIT);
+function boundUnreadPaths(paths: readonly string[]) {
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    persistedOpenedPaths(paths).slice(0, UNREAD_COVERAGE_PATH_LIMIT),
+  );
 }
 
 type ArtifactCanonical = NonNullable<
   Extract<ReviewArtifact, { kind: "publication_prepared" }>["canonical"]
 >;
 
-function boundPartialCoverage<T extends { readonly paths?: readonly string[] }>(coverage: T): T {
-  if (coverage.paths == null) return coverage;
-  return { ...coverage, paths: boundUnreadPaths(coverage.paths) };
+function boundPartialCoverage<T extends { readonly paths?: readonly string[] }>(coverage: T) {
+  if (coverage.paths == null) return ((pinnedReturn: T) => pinnedReturn)(coverage);
+  return ((pinnedReturn: T) => pinnedReturn)({
+    ...coverage,
+    paths: boundUnreadPaths(coverage.paths),
+  });
 }
 
-function sanitizeCanonical(canonical: ArtifactCanonical): ArtifactCanonical {
+function sanitizeCanonical(canonical: ArtifactCanonical) {
   if (canonical.kind === "summary") {
-    if (canonical.coverage.kind !== "partial") return canonical;
-    return { ...canonical, coverage: boundPartialCoverage(canonical.coverage) };
+    if (canonical.coverage.kind !== "partial")
+      return ((pinnedReturn: ArtifactCanonical) => pinnedReturn)(canonical);
+    return ((pinnedReturn: ArtifactCanonical) => pinnedReturn)({
+      ...canonical,
+      coverage: boundPartialCoverage(canonical.coverage),
+    });
   }
   const coverage = canonical.coverage;
   const openedPaths =
@@ -248,42 +260,52 @@ function sanitizeCanonical(canonical: ArtifactCanonical): ArtifactCanonical {
       ? canonical.openedPaths
       : persistedOpenedPaths(canonical.openedPaths);
   if (coverage == null || coverage.kind !== "partial") {
-    if (openedPaths === canonical.openedPaths) return canonical;
-    return { ...canonical, openedPaths };
+    if (openedPaths === canonical.openedPaths)
+      return ((pinnedReturn: ArtifactCanonical) => pinnedReturn)(canonical);
+    return ((pinnedReturn: ArtifactCanonical) => pinnedReturn)({ ...canonical, openedPaths });
   }
-  return {
+  return ((pinnedReturn: ArtifactCanonical) => pinnedReturn)({
     ...canonical,
     coverage: boundPartialCoverage(coverage),
     ...(openedPaths == null ? {} : { openedPaths }),
-  };
+  });
 }
 
-function sanitizeArtifact(artifact: ReviewArtifact): ReviewArtifact {
+function sanitizeArtifact(artifact: ReviewArtifact) {
   switch (artifact.kind) {
     case "brief":
     case "report":
-      return artifact.openedPaths == null
-        ? artifact
-        : { ...artifact, openedPaths: persistedOpenedPaths(artifact.openedPaths) };
+      return ((pinnedReturn: ReviewArtifact) => pinnedReturn)(
+        artifact.openedPaths == null
+          ? artifact
+          : { ...artifact, openedPaths: persistedOpenedPaths(artifact.openedPaths) },
+      );
     case "opened_paths":
-      return { ...artifact, paths: persistedOpenedPaths(artifact.paths) };
+      return ((pinnedReturn: ReviewArtifact) => pinnedReturn)({
+        ...artifact,
+        paths: persistedOpenedPaths(artifact.paths),
+      });
     case "publication_prepared":
-      return artifact.canonical == null
-        ? artifact
-        : { ...artifact, canonical: sanitizeCanonical(artifact.canonical) };
+      return ((pinnedReturn: ReviewArtifact) => pinnedReturn)(
+        artifact.canonical == null
+          ? artifact
+          : { ...artifact, canonical: sanitizeCanonical(artifact.canonical) },
+      );
     case "final_summary":
-      return artifact.inputs == null
-        ? artifact
-        : { ...artifact, inputs: sanitizeCanonical(artifact.inputs) };
+      return ((pinnedReturn: ReviewArtifact) => pinnedReturn)(
+        artifact.inputs == null
+          ? artifact
+          : { ...artifact, inputs: sanitizeCanonical(artifact.inputs) },
+      );
     default:
-      return artifact;
+      return ((pinnedReturn: ReviewArtifact) => pinnedReturn)(artifact);
   }
 }
 
 export function createReviewArtifactEnvelope(
   binding: ReviewArtifactBinding,
   artifact: ReviewArtifact,
-): ReviewArtifactEnvelope {
+) {
   const parsed = v.safeParse(artifactSchema, sanitizeArtifact(artifact));
   if (!parsed.success || !v.is(bindingSchema, binding)) reviewArtifactInvalid("artifact_schema");
   const artifactValue = parsed.output;
@@ -318,7 +340,7 @@ export function createReviewArtifactEnvelope(
       break;
     default: {
       const exhaustive: never = artifactValue;
-      return exhaustive;
+      return ((pinnedReturn: ReviewArtifactEnvelope) => pinnedReturn)(exhaustive);
     }
   }
   const redacted = v.safeParse(artifactSchema, output);
@@ -331,17 +353,20 @@ export function createReviewArtifactEnvelope(
     artifact: redacted.output,
   });
   if (!envelope.success) reviewArtifactInvalid("artifact_schema");
-  return envelope.output;
+  return ((pinnedReturn: ReviewArtifactEnvelope) => pinnedReturn)(envelope.output);
 }
 
-export function parseReviewArtifactEnvelope(value: unknown): ReviewArtifactEnvelope | null {
+export function parseReviewArtifactEnvelope(value: unknown) {
   const parsed = v.safeParse(envelopeSchema, value);
-  if (!parsed.success) return null;
+  if (!parsed.success) return ((pinnedReturn: ReviewArtifactEnvelope | null) => pinnedReturn)(null);
   try {
     const rebuilt = createReviewArtifactEnvelope(parsed.output.binding, parsed.output.artifact);
-    return encodeReviewArtifact(rebuilt) === encodeReviewArtifact(parsed.output) ? rebuilt : null;
+    return ((pinnedReturn: ReviewArtifactEnvelope | null) => pinnedReturn)(
+      encodeReviewArtifact(rebuilt) === encodeReviewArtifact(parsed.output) ? rebuilt : null,
+    );
   } catch (error) {
-    if (error instanceof AppError && error.code === "publish_store.invalid_detail") return null;
+    if (error instanceof AppError && error.code === "publish_store.invalid_detail")
+      return ((pinnedReturn: ReviewArtifactEnvelope | null) => pinnedReturn)(null);
     throw error;
   }
 }

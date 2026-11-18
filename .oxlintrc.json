@@ -1,13 +1,26 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc", "vitest"],
-  "jsPlugins": ["./scripts/lint/pr-agent.mjs"],
+  "jsPlugins": [
+    "./scripts/lint/pr-agent.mjs",
+    { "name": "landmines-testing", "specifier": "@interfere/landmines/testing" },
+    { "name": "landmines-style", "specifier": "@interfere/landmines/style" },
+    { "name": "landmines-structure", "specifier": "@interfere/landmines/structure" },
+    { "name": "landmines-types", "specifier": "@interfere/landmines/types" }
+  ],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"
   },
   "rules": {
     "pr-agent/no-comments": "error",
+    "landmines-testing/no-fixed-sleep": "error",
+    "landmines-testing/no-flake-masking": "error",
+    "landmines-testing/no-unsignaled-poll": "error",
+    "landmines-testing/strict-msw": "error",
+    "landmines-style/no-comments": "error",
+    "landmines-structure/package-exports": "error",
+    "landmines-types/no-explicit-return-types": "error",
     "pr-agent/prompt-layout": "error",
     "pr-agent/prompt-imports": "error",
     "pr-agent/prompt-sinks": "error",

@@ -5,8 +5,8 @@ import { type Config, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../../settings/index.t
 import type { AgentRunnerTurn } from "../providers/interface.ts";
 import type { PiSession } from "./types.ts";
 
-export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
-  return {
+export function assistantFromText(cfg: Config, text: string, provider: string) {
+  return ((pinnedReturn: AssistantMessage) => pinnedReturn)({
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
     api: cfg.models.api,
@@ -22,7 +22,7 @@ export function assistantFromText(cfg: Config, text: string, provider: string): 
     },
     stopReason: "stop",
     timestamp: Date.now(),
-  };
+  });
 }
 
 export type SubmitOnlySend = (
@@ -44,8 +44,10 @@ export async function runSubmitOnlyRound(
   session: PiSession,
   prompt: string,
   send: SubmitOnlySend = defaultSubmitOnlySend,
-): Promise<string> {
-  return (await send(session, prompt, { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS })).text;
+) {
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(
+    (await send(session, prompt, { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS })).text,
+  );
 }
 
 export type StructuredAgentPhase<TName extends string> = {
@@ -57,7 +59,7 @@ export async function runStructuredAgentLoop<TName extends string>(params: {
   readonly phases: readonly StructuredAgentPhase<TName>[];
   readonly shouldContinue: () => boolean;
   readonly onPhaseEnter?: (phase: TName) => void;
-}): Promise<void> {
+}) {
   for (const phase of params.phases) {
     if (!params.shouldContinue()) break;
     params.onPhaseEnter?.(phase.name);
@@ -72,7 +74,7 @@ export async function runValidationRepairLoop(params: {
   readonly clearValidationError: () => void;
   readonly restoreValidationError?: (error: string) => void;
   readonly repair: (validationError: string) => Promise<void>;
-}): Promise<void> {
+}) {
   for (let repair = 0; repair < params.rounds && params.shouldContinue(); repair++) {
     const validationError = params.getValidationError();
     if (!validationError) break;
@@ -103,7 +105,7 @@ export async function runFeatureAgent<P>(
     readonly session: Parameters<typeof createFeaturePiSession>[0];
     readonly createSession?: typeof createFeaturePiSession;
   },
-): Promise<{ readonly lastText: string }> {
+) {
   const session = await (rt.createSession ?? createFeaturePiSession)(rt.session);
   let lastText = "";
   const repair = () =>
@@ -150,7 +152,9 @@ export async function runFeatureAgent<P>(
         { name: "validation_repair", run: repair },
       ],
     });
-    return { lastText };
+    return ((
+      pinnedReturn: { readonly lastText: string } | Promise<{ readonly lastText: string }>,
+    ) => pinnedReturn)({ lastText });
   } finally {
     await session.dispose();
   }

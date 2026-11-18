@@ -56,36 +56,38 @@ type StatementSpan = {
   readonly end: number;
 };
 
-export function injectLastExpressionReturn(code: string): string {
-  if (code.trim().length === 0) return "return undefined";
+export function injectLastExpressionReturn(code: string) {
+  if (code.trim().length === 0) return ((pinnedReturn: string) => pinnedReturn)("return undefined");
   const span = lastTopLevelStatementSpan(code);
-  if (span === null) return code;
+  if (span === null) return ((pinnedReturn: string) => pinnedReturn)(code);
   const prefix = code.slice(0, span.start);
   const body = code.slice(span.start, span.end);
   const suffix = code.slice(span.end);
-  if (STATEMENT_START.test(body)) return code;
-  return `${prefix}return ${body}${suffix}`;
+  if (STATEMENT_START.test(body)) return ((pinnedReturn: string) => pinnedReturn)(code);
+  return ((pinnedReturn: string) => pinnedReturn)(`${prefix}return ${body}${suffix}`);
 }
 
-function isIdentifierChar(c: string): boolean {
-  return /[A-Za-z0-9_$]/.test(c);
+function isIdentifierChar(c: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(/[A-Za-z0-9_$]/.test(c));
 }
 
-function readWord(code: string, index: number): string {
+function readWord(code: string, index: number) {
   let end = index;
   while (end < code.length && isIdentifierChar(code[end] ?? "")) {
     end += 1;
   }
-  return code.slice(index, end);
+  return ((pinnedReturn: string) => pinnedReturn)(code.slice(index, end));
 }
 
-function canStartStatement(code: string, index: number): boolean {
+function canStartStatement(code: string, index: number) {
   const c = code[index];
   if (c === "." || c === "," || c === ")" || c === "]" || c === "}" || c === ":" || c === ";") {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   const word = readWord(code, index);
-  return word !== "else" && word !== "catch" && word !== "finally";
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    word !== "else" && word !== "catch" && word !== "finally",
+  );
 }
 
 const EXPRESSION_CONTINUATION_CHARS = new Set([
@@ -106,14 +108,18 @@ const EXPRESSION_CONTINUATION_CHARS = new Set([
 
 const EXPRESSION_CONTINUATION_WORDS = new Set(["in", "instanceof"]);
 
-function continuesExpression(code: string, index: number): boolean {
+function continuesExpression(code: string, index: number) {
   const c = code[index];
-  if (c != null && EXPRESSION_CONTINUATION_CHARS.has(c)) return true;
-  if (c === "+" || c === "-") return code[index + 1] !== c;
-  return EXPRESSION_CONTINUATION_WORDS.has(readWord(code, index));
+  if (c != null && EXPRESSION_CONTINUATION_CHARS.has(c))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (c === "+" || c === "-")
+    return ((pinnedReturn: boolean) => pinnedReturn)(code[index + 1] !== c);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    EXPRESSION_CONTINUATION_WORDS.has(readWord(code, index)),
+  );
 }
 
-function lastTopLevelStatementSpan(code: string): StatementSpan | null {
+function lastTopLevelStatementSpan(code: string) {
   let depth = 0;
   let currentStart: number | null = null;
   let lastTokenEnd = 0;
@@ -263,7 +269,10 @@ function lastTopLevelStatementSpan(code: string): StatementSpan | null {
     lastEndsExpression = false;
   }
   if (currentStart !== null) {
-    return { start: currentStart, end: lastTokenEnd };
+    return ((pinnedReturn: StatementSpan | null) => pinnedReturn)({
+      start: currentStart,
+      end: lastTokenEnd,
+    });
   }
-  return lastSpan;
+  return ((pinnedReturn: StatementSpan | null) => pinnedReturn)(lastSpan);
 }

@@ -20,12 +20,12 @@ export type SubmitVerificationState = {
   payload: VerificationPayload | null;
 };
 
-export function createSubmitVerificationState(): SubmitVerificationState {
-  return {
+export function createSubmitVerificationState() {
+  return ((pinnedReturn: SubmitVerificationState) => pinnedReturn)({
     submitted: false,
     lastValidationError: null,
     payload: null,
-  };
+  });
 }
 
 const SUBMIT_VERIFICATION_PARAMETERS = toToolParameters(VerificationPayloadSchema);
@@ -37,10 +37,7 @@ export function buildSubmitVerificationTool(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly pushedShas: readonly string[];
   readonly submitState: SubmitVerificationState;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+}) {
   const piTool: PiTool = {
     name: "submitVerification",
     description:
@@ -95,5 +92,8 @@ export function buildSubmitVerificationTool(params: {
     return { ok: true };
   };
 
-  return { piTool, executor };
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
+  }) => pinnedReturn)({ piTool, executor });
 }

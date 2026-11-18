@@ -12,10 +12,10 @@ describe("workspace path containment", () => {
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
-  async function tempRoot(prefix: string): Promise<string> {
+  async function tempRoot(prefix: string) {
     const root = await mkdtemp(join(tmpdir(), prefix));
     roots.push(root);
-    return root;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
   }
 
   it("allows ordinary files inside the root", async () => {

@@ -46,22 +46,24 @@ type Identity = {
   readonly title: string;
 };
 
-export function candidateFindingId(params: { readonly specialist: string } & Identity): FindingId {
-  return derivedFindingId([
-    params.specialist,
-    params.file,
-    String(params.startLine),
-    String(params.endLine),
-    params.title,
-  ]);
+export function candidateFindingId(params: { readonly specialist: string } & Identity) {
+  return ((pinnedReturn: FindingId) => pinnedReturn)(
+    derivedFindingId([
+      params.specialist,
+      params.file,
+      String(params.startLine),
+      String(params.endLine),
+      params.title,
+    ]),
+  );
 }
 
 export function awaitingCandidates(
   specialist: SpecialistId,
   report: SpecialistReport | null,
   ledger: FindingLedger,
-): readonly AwaitingCandidate[] {
-  if (report == null) return [];
+) {
+  if (report == null) return ((pinnedReturn: readonly AwaitingCandidate[]) => pinnedReturn)([]);
   const seen = new Set<string>();
   const awaiting: AwaitingCandidate[] = [];
   for (const finding of report.findings) {
@@ -77,7 +79,7 @@ export function awaitingCandidates(
       title: finding.title,
     });
   }
-  return awaiting;
+  return ((pinnedReturn: readonly AwaitingCandidate[]) => pinnedReturn)(awaiting);
 }
 
 export function dispositionMismatch(params: {
@@ -86,21 +88,28 @@ export function dispositionMismatch(params: {
   readonly ledger: FindingLedger;
   readonly findings: readonly Identity[];
   readonly dispositions: readonly JudgmentDisposition[];
-}): string | undefined {
+}) {
   const awaiting = awaitingCandidates(params.specialist, params.report, params.ledger);
   const expected = new Set<string>(awaiting.map((candidate) => candidate.candidateId));
   const seen = new Set<string>();
   for (const disposition of params.dispositions) {
     if (seen.has(disposition.candidateId)) {
-      return `disposition candidate ${disposition.candidateId} is repeated`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `disposition candidate ${disposition.candidateId} is repeated`,
+      );
     }
     seen.add(disposition.candidateId);
     if (!expected.has(disposition.candidateId)) {
-      return `disposition candidate ${disposition.candidateId} is not awaiting judgment`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `disposition candidate ${disposition.candidateId} is not awaiting judgment`,
+      );
     }
   }
   for (const candidateId of expected) {
-    if (!seen.has(candidateId)) return `disposition missing for candidate ${candidateId}`;
+    if (!seen.has(candidateId))
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `disposition missing for candidate ${candidateId}`,
+      );
   }
   const accepted = new Set(
     params.dispositions
@@ -114,15 +123,19 @@ export function dispositionMismatch(params: {
   );
   for (const candidateId of published) {
     if (!accepted.has(candidateId)) {
-      return `published finding ${candidateId} has no accepted disposition`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `published finding ${candidateId} has no accepted disposition`,
+      );
     }
   }
   for (const candidateId of accepted) {
     if (!published.has(candidateId)) {
-      return `accepted disposition ${candidateId} is not in the published batch`;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(
+        `accepted disposition ${candidateId} is not in the published batch`,
+      );
     }
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 export function storedDispositions(params: {
@@ -130,42 +143,44 @@ export function storedDispositions(params: {
   readonly dispositions: readonly JudgmentDisposition[];
   readonly awaiting: readonly AwaitingCandidate[];
   readonly ledger: FindingLedger;
-}): readonly StoredDisposition[] {
-  return params.dispositions.map((disposition) => {
-    const note = dispositionNote(disposition.note);
-    const id =
-      disposition.verdict === "rejected"
-        ? disposition.candidateId
-        : mintedId(params.specialist, disposition.candidateId, params.awaiting, params.ledger);
-    return {
-      id,
-      verdict: disposition.verdict,
-      reason: disposition.reason,
-      ...(note != null ? { note } : {}),
-    };
-  });
+}) {
+  return ((pinnedReturn: readonly StoredDisposition[]) => pinnedReturn)(
+    params.dispositions.map((disposition) => {
+      const note = dispositionNote(disposition.note);
+      const id =
+        disposition.verdict === "rejected"
+          ? disposition.candidateId
+          : mintedId(params.specialist, disposition.candidateId, params.awaiting, params.ledger);
+      return {
+        id,
+        verdict: disposition.verdict,
+        reason: disposition.reason,
+        ...(note != null ? { note } : {}),
+      };
+    }),
+  );
 }
 
-export function dispositionNote(note: string | undefined): string | undefined {
-  if (note == null) return undefined;
+export function dispositionNote(note: string | undefined) {
+  if (note == null) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const redacted = redactReviewText(note);
-  if (redacted !== note) return undefined;
+  if (redacted !== note) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const capped = redacted.slice(0, REVIEW_DISPOSITION_NOTE_MAX_CHARS);
-  return capped.length === 0 ? undefined : capped;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    capped.length === 0 ? undefined : capped,
+  );
 }
 
-function alreadyJudged(
-  specialist: SpecialistId,
-  finding: Identity,
-  ledger: FindingLedger,
-): boolean {
-  return ledger.accepted.some(
-    (entry) =>
-      entry.source === specialist &&
-      entry.placement.finding.file === finding.file &&
-      entry.placement.finding.startLine === finding.startLine &&
-      entry.placement.finding.endLine === finding.endLine &&
-      entry.placement.finding.title === finding.title,
+function alreadyJudged(specialist: SpecialistId, finding: Identity, ledger: FindingLedger) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    ledger.accepted.some(
+      (entry) =>
+        entry.source === specialist &&
+        entry.placement.finding.file === finding.file &&
+        entry.placement.finding.startLine === finding.startLine &&
+        entry.placement.finding.endLine === finding.endLine &&
+        entry.placement.finding.title === finding.title,
+    ),
   );
 }
 
@@ -174,24 +189,24 @@ function mintedId(
   candidateId: string,
   awaiting: readonly AwaitingCandidate[],
   ledger: FindingLedger,
-): string {
+) {
   const candidate = awaiting.find((entry) => entry.candidateId === candidateId);
-  if (candidate == null) return candidateId;
+  if (candidate == null) return ((pinnedReturn: string) => pinnedReturn)(candidateId);
   const accepted = ledger.accepted.find(
     (entry) => entry.source === specialist && sameIdentity(entry.placement.finding, candidate),
   );
-  if (accepted != null) return accepted.findingId;
+  if (accepted != null) return ((pinnedReturn: string) => pinnedReturn)(accepted.findingId);
   const reaffirmed = ledger.reaffirmed.find(
     (entry) => entry.source === specialist && sameIdentity(entry.placement.finding, candidate),
   );
-  return reaffirmed?.id ?? candidateId;
+  return ((pinnedReturn: string) => pinnedReturn)(reaffirmed?.id ?? candidateId);
 }
 
-function sameIdentity(finding: ReviewFinding, candidate: Identity): boolean {
-  return (
+function sameIdentity(finding: ReviewFinding, candidate: Identity) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     finding.file === candidate.file &&
-    finding.startLine === candidate.startLine &&
-    finding.endLine === candidate.endLine &&
-    finding.title === candidate.title
+      finding.startLine === candidate.startLine &&
+      finding.endLine === candidate.endLine &&
+      finding.title === candidate.title,
   );
 }

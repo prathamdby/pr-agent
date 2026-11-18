@@ -43,24 +43,26 @@ export type ReviewRunSetup = {
   readonly bindReviewThreads: (source: ReviewThreadSource) => void;
 };
 
-function serializeToolOutput(result: unknown): string {
-  if (typeof result === "string") return result;
+function serializeToolOutput(result: unknown) {
+  if (typeof result === "string") return ((pinnedReturn: string) => pinnedReturn)(result);
   try {
-    return JSON.stringify(result, null, 2) ?? String(result);
+    return ((pinnedReturn: string) => pinnedReturn)(
+      JSON.stringify(result, null, 2) ?? String(result),
+    );
   } catch {
-    return String(result);
+    return ((pinnedReturn: string) => pinnedReturn)(String(result));
   }
 }
 
-function wrapReviewToolExecutors(
-  executors: Record<string, AgentRunnerToolExecutor>,
-): Record<string, AgentRunnerToolExecutor> {
-  return Object.fromEntries(
-    Object.entries(executors).map(([name, executor]) => [
-      name,
-      async (args, ctx?) =>
-        wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args, ctx))),
-    ]),
+function wrapReviewToolExecutors(executors: Record<string, AgentRunnerToolExecutor>) {
+  return ((pinnedReturn: Record<string, AgentRunnerToolExecutor>) => pinnedReturn)(
+    Object.fromEntries(
+      Object.entries(executors).map(([name, executor]) => [
+        name,
+        async (args, ctx?) =>
+          wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args, ctx))),
+      ]),
+    ),
   );
 }
 
@@ -93,16 +95,18 @@ function buildOrchestratorUserContent(params: {
   readonly headSha: string;
   readonly userSupplement?: string;
   readonly trustedContext?: string;
-}): string {
-  return [
-    `Target repository: ${params.owner}/${params.repo}`,
-    `Pull request #: ${params.prNumber}`,
-    `Head commit SHA: ${params.headSha}`,
-    params.userSupplement
-      ? `\n${wrapUntrustedBlock("user_supplement", params.userSupplement)}\n`
-      : "",
-    params.trustedContext ? `\n${params.trustedContext}\n` : "",
-  ].join("\n");
+}) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `Target repository: ${params.owner}/${params.repo}`,
+      `Pull request #: ${params.prNumber}`,
+      `Head commit SHA: ${params.headSha}`,
+      params.userSupplement
+        ? `\n${wrapUntrustedBlock("user_supplement", params.userSupplement)}\n`
+        : "",
+      params.trustedContext ? `\n${params.trustedContext}\n` : "",
+    ].join("\n"),
+  );
 }
 
 export function ledgerForFindingSource(
@@ -111,9 +115,10 @@ export function ledgerForFindingSource(
     readonly orchestrator: EvidenceLedger;
     readonly specialists: Readonly<Record<SpecialistId, EvidenceLedger>>;
   },
-): EvidenceLedger {
-  if (source === "review") return ledgers.orchestrator;
-  return ledgers.specialists[source];
+) {
+  if (source === "review")
+    return ((pinnedReturn: EvidenceLedger) => pinnedReturn)(ledgers.orchestrator);
+  return ((pinnedReturn: EvidenceLedger) => pinnedReturn)(ledgers.specialists[source]);
 }
 
 export function buildReviewRunSetup(params: {
@@ -127,7 +132,7 @@ export function buildReviewRunSetup(params: {
   trustedContext?: string;
   workspace: LocalPrWorkspace;
   workItemId?: string;
-}): ReviewRunSetup {
+}) {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
@@ -155,7 +160,7 @@ export function buildReviewRunSetup(params: {
     headSha,
   });
 
-  return {
+  return ((pinnedReturn: ReviewRunSetup) => pinnedReturn)({
     orchestratorUserContent: buildOrchestratorUserContent({
       owner,
       repo,
@@ -191,5 +196,5 @@ export function buildReviewRunSetup(params: {
     bindReviewThreads(source) {
       reviewThreadSource.current = source;
     },
-  };
+  });
 }

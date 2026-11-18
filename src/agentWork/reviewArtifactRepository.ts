@@ -193,9 +193,9 @@ export function openReviewArtifactStore(
   pool: Pool,
   binding: ReviewArtifactBinding,
   leaseEpoch: number | null,
-): ReviewArtifactStore {
+) {
   const identity: ReviewArtifactBinding = { ...binding };
-  return {
+  return ((pinnedReturn: ReviewArtifactStore) => pinnedReturn)({
     async load(logicalKey) {
       const row = await artifactRow(pool, identity.workItemId, logicalKey);
       const envelope = row ? decodeArtifact(row, identity) : null;
@@ -284,5 +284,5 @@ export function openReviewArtifactStore(
         return "stored";
       });
     },
-  };
+  });
 }

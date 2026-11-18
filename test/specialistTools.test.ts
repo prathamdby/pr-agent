@@ -8,13 +8,15 @@ import {
   buildSubmitFindingsReportPiTool,
 } from "../src/review/orchestrator/specialistTools.ts";
 
-function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
-  return JSON.stringify(
-    piTools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    })),
+function specialistToolDefinitionsJson(piTools: readonly PiTool[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    JSON.stringify(
+      piTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      })),
+    ),
   );
 }
 

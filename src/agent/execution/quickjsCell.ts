@@ -62,88 +62,115 @@ export type QuickJsCellResult = QuickJsCellSuccess | QuickJsCellFailure;
 
 let wasmModule: Promise<QuickJSWASMModule> | undefined;
 
-function loadWasm(): Promise<QuickJSWASMModule> {
+function loadWasm() {
   wasmModule ??= newQuickJSWASMModuleFromVariant(RELEASE_SYNC);
-  return wasmModule;
+  return ((pinnedReturn: Promise<QuickJSWASMModule>) => pinnedReturn)(wasmModule);
 }
 
-function dumpError(vm: QuickJSContext, handle: QuickJSHandle): { name?: string; message: string } {
+function dumpError(vm: QuickJSContext, handle: QuickJSHandle) {
   const dumped: unknown = vm.dump(handle);
-  if (typeof dumped === "string") return { message: dumped };
+  if (typeof dumped === "string")
+    return ((pinnedReturn: { name?: string; message: string }) => pinnedReturn)({
+      message: dumped,
+    });
   if (typeof dumped === "number" || typeof dumped === "boolean") {
-    return { message: String(dumped) };
+    return ((pinnedReturn: { name?: string; message: string }) => pinnedReturn)({
+      message: String(dumped),
+    });
   }
   if (dumped && typeof dumped === "object") {
     const row = dumped as { name?: unknown; message?: unknown };
     const message = typeof row.message === "string" ? row.message : JSON.stringify(dumped);
-    return {
+    return ((pinnedReturn: { name?: string; message: string }) => pinnedReturn)({
       name: typeof row.name === "string" ? row.name : undefined,
       message: message ?? "unknown error",
-    };
+    });
   }
-  return { message: "unknown error" };
+  return ((pinnedReturn: { name?: string; message: string }) => pinnedReturn)({
+    message: "unknown error",
+  });
 }
 
-function mapGuestFailure(error: { name?: string; message: string }): {
-  code: CodeModeErrorCode;
-  message: string;
-  reason?: CodeModeCapReason;
-} {
+function mapGuestFailure(error: { name?: string; message: string }) {
   const message = error.message;
   const lower = message.toLowerCase();
   if (/interrupted/i.test(lower) || error.name === "InternalError") {
-    return {
+    return ((pinnedReturn: {
+      code: CodeModeErrorCode;
+      message: string;
+      reason?: CodeModeCapReason;
+    }) => pinnedReturn)({
       code: "EXECUTION_BUDGET_EXCEEDED",
       message: "Execution interrupt budget exceeded",
       reason: "guest_cpu",
-    };
+    });
   }
   if (/out of memory|memory limit|stack overflow/i.test(lower)) {
-    return { code: "LIMIT_EXCEEDED", message };
+    return ((pinnedReturn: {
+      code: CodeModeErrorCode;
+      message: string;
+      reason?: CodeModeCapReason;
+    }) => pinnedReturn)({ code: "LIMIT_EXCEEDED", message });
   }
   if (/LIMIT_EXCEEDED/.test(message)) {
-    return { code: "LIMIT_EXCEEDED", message, reason: "allocation" };
+    return ((pinnedReturn: {
+      code: CodeModeErrorCode;
+      message: string;
+      reason?: CodeModeCapReason;
+    }) => pinnedReturn)({ code: "LIMIT_EXCEEDED", message, reason: "allocation" });
   }
   if (/ACCESS_DENIED|FILE_NOT_FOUND|SEARCH_TRUNCATED|TOOL_INPUT_INVALID|UNKNOWN:/.test(message)) {
-    return { code: "TOOL_FAILURE", message };
+    return ((pinnedReturn: {
+      code: CodeModeErrorCode;
+      message: string;
+      reason?: CodeModeCapReason;
+    }) => pinnedReturn)({ code: "TOOL_FAILURE", message });
   }
   if (error.name === "SyntaxError") {
-    return { code: "SYNTAX_ERROR", message };
+    return ((pinnedReturn: {
+      code: CodeModeErrorCode;
+      message: string;
+      reason?: CodeModeCapReason;
+    }) => pinnedReturn)({ code: "SYNTAX_ERROR", message });
   }
-  return { code: "EXECUTION_ERROR", message };
+  return ((pinnedReturn: {
+    code: CodeModeErrorCode;
+    message: string;
+    reason?: CodeModeCapReason;
+  }) => pinnedReturn)({ code: "EXECUTION_ERROR", message });
 }
 
-function jsonToHandle(vm: QuickJSContext, value: unknown): QuickJSHandle {
+function jsonToHandle(vm: QuickJSContext, value: unknown) {
   const json = JSON.stringify(value);
-  if (json == null) return vm.null;
+  if (json == null) return ((pinnedReturn: QuickJSHandle) => pinnedReturn)(vm.null);
   const result = vm.evalCode(`(${json})`);
   if (result.error) {
     const dumped = dumpError(vm, result.error);
     result.error.dispose();
     throw new CodeModeHostHalt("EXECUTION_ERROR", dumped.message);
   }
-  return result.value;
+  return ((pinnedReturn: QuickJSHandle) => pinnedReturn)(result.value);
 }
 
-function haltFromInterrupt(reason: "abort" | "cpu" | "timeout"): CodeModeHostHalt {
+function haltFromInterrupt(reason: "abort" | "cpu" | "timeout") {
   if (reason === "cpu") {
-    return new CodeModeHostHalt(
-      "EXECUTION_BUDGET_EXCEEDED",
-      "Execution interrupt budget exceeded",
-      {
+    return ((pinnedReturn: CodeModeHostHalt) => pinnedReturn)(
+      new CodeModeHostHalt("EXECUTION_BUDGET_EXCEEDED", "Execution interrupt budget exceeded", {
         reason: "guest_cpu",
-      },
+      }),
     );
   }
   if (reason === "timeout") {
-    return new CodeModeHostHalt("TIMEOUT", `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`, {
-      reason: "cell_wall",
-    });
+    return ((pinnedReturn: CodeModeHostHalt) => pinnedReturn)(
+      new CodeModeHostHalt("TIMEOUT", `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`, {
+        reason: "cell_wall",
+      }),
+    );
   }
-  return hostCancelHalt();
+  return ((pinnedReturn: CodeModeHostHalt) => pinnedReturn)(hostCancelHalt());
 }
 
-function installLimits(vm: QuickJSContext): void {
+function installLimits(vm: QuickJSContext) {
   const prelude = `
     (function () {
       const originalRepeat = String.prototype.repeat;
@@ -187,14 +214,14 @@ type CpuMeter = {
   reason: () => "abort" | "cpu" | "timeout" | null;
 };
 
-function createCpuMeter(params: QuickJsCellParams): CpuMeter {
+function createCpuMeter(params: QuickJsCellParams) {
   const cellDeadline = Date.now() + CODE_MODE_TIMEOUT_MS;
   let cpuUsed = 0;
   let sliceStart = Date.now();
   let hostDepth = 0;
   let checks = 0;
   let reason: "abort" | "cpu" | "timeout" | null = null;
-  return {
+  return ((pinnedReturn: CpuMeter) => pinnedReturn)({
     interrupt() {
       if (reason) return true;
       if (params.signal.aborted || !params.isCurrent()) {
@@ -229,7 +256,7 @@ function createCpuMeter(params: QuickJsCellParams): CpuMeter {
     reason() {
       return reason;
     },
-  };
+  });
 }
 
 function installHostTools(
@@ -239,7 +266,7 @@ function installHostTools(
   meter: CpuMeter,
   deferreds: QuickJSDeferredPromise[],
   onHostHalt: (error: CodeModeHostHalt) => void,
-): void {
+) {
   const toolsHandle = vm.newObject();
   for (const name of params.capabilityNames) {
     const fn = vm.newFunction(name, (argsHandle) => {
@@ -297,7 +324,7 @@ async function pumpUntilSettled(
   params: QuickJsCellParams,
   meter: CpuMeter,
   hostHalt: { current: CodeModeHostHalt | null },
-): Promise<unknown> {
+) {
   const native = vm.resolvePromise(promiseHandle);
   while (true) {
     if (hostHalt.current) throw hostHalt.current;
@@ -339,7 +366,7 @@ async function pumpUntilSettled(
     }
     const output = vm.dump(finished.value);
     finished.value.dispose();
-    return output;
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(output);
   }
 }
 
@@ -348,8 +375,8 @@ function failResult(error: {
   message: string;
   line?: number;
   reason?: CodeModeCapReason;
-}): QuickJsCellFailure {
-  return {
+}) {
+  return ((pinnedReturn: QuickJsCellFailure) => pinnedReturn)({
     ok: false,
     error: {
       code: error.code,
@@ -357,23 +384,27 @@ function failResult(error: {
       ...(error.line != null ? { line: error.line } : {}),
       ...(error.reason != null ? { reason: error.reason } : {}),
     },
-  };
+  });
 }
 
-export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJsCellResult> {
+export async function runQuickJsCell(params: QuickJsCellParams) {
   if (utf8ByteLength(params.code) > CODE_MODE_MAX_SOURCE_BYTES) {
-    return failResult({
-      code: "LIMIT_EXCEEDED",
-      message: `Source exceeds ${CODE_MODE_MAX_SOURCE_BYTES} bytes`,
-      reason: "source_bytes",
-    });
+    return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+      failResult({
+        code: "LIMIT_EXCEEDED",
+        message: `Source exceeds ${CODE_MODE_MAX_SOURCE_BYTES} bytes`,
+        reason: "source_bytes",
+      }),
+    );
   }
   if (utf8ByteLength(params.state) > CODE_MODE_STATE_MAX_BYTES) {
-    return failResult({
-      code: "LIMIT_EXCEEDED",
-      message: `Explicit state exceeds ${CODE_MODE_STATE_MAX_BYTES} bytes`,
-      reason: "state_bytes",
-    });
+    return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+      failResult({
+        code: "LIMIT_EXCEEDED",
+        message: `Explicit state exceeds ${CODE_MODE_STATE_MAX_BYTES} bytes`,
+        reason: "state_bytes",
+      }),
+    );
   }
   const QuickJS = await loadWasm();
   const runtime = QuickJS.newRuntime();
@@ -397,13 +428,20 @@ export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJs
     evaluated = vm.evalCode(wrapped, "cell.js");
     const interruptReason = meter.reason();
     if (interruptReason) {
-      return failResult(haltFromInterrupt(interruptReason));
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult(haltFromInterrupt(interruptReason)),
+      );
     }
-    if (hostHalt.current) return failResult(hostHalt.current);
+    if (hostHalt.current)
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult(hostHalt.current),
+      );
     if (evaluated.error) {
       const dumped = dumpError(vm, evaluated.error);
       const mapped = mapGuestFailure(dumped);
-      return failResult(mapped);
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult(mapped),
+      );
     }
     const output = await pumpUntilSettled(runtime, vm, evaluated.value, params, meter, hostHalt);
     const stateProp = vm.getProp(vm.global, "state");
@@ -411,22 +449,37 @@ export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJs
     stateProp.dispose();
     const stagedState = asJsonValue(stateDump);
     if (typeof stagedState !== "object" || stagedState === null || Array.isArray(stagedState)) {
-      return failResult({
-        code: "LIMIT_EXCEEDED",
-        message: "Explicit state must remain a JSON object",
-      });
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult({
+          code: "LIMIT_EXCEEDED",
+          message: "Explicit state must remain a JSON object",
+        }),
+      );
     }
-    return { ok: true, output, stagedState };
+    return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)({
+      ok: true,
+      output,
+      stagedState,
+    });
   } catch (error) {
-    if (isCodeModeHostHalt(error)) return failResult(error);
+    if (isCodeModeHostHalt(error))
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult(error),
+      );
     if (params.signal.aborted) {
-      return failResult(hostCancelHalt());
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult(hostCancelHalt()),
+      );
     }
     const message = errorMessage(error);
     if (/LIMIT_EXCEEDED/.test(message)) {
-      return failResult({ code: "LIMIT_EXCEEDED", message });
+      return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+        failResult({ code: "LIMIT_EXCEEDED", message }),
+      );
     }
-    return failResult({ code: "EXECUTION_ERROR", message });
+    return ((pinnedReturn: QuickJsCellResult | Promise<QuickJsCellResult>) => pinnedReturn)(
+      failResult({ code: "EXECUTION_ERROR", message }),
+    );
   } finally {
     runtime.removeInterruptHandler();
     for (const deferred of deferreds) {

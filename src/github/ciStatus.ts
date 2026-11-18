@@ -19,7 +19,7 @@ async function listCheckRunsForHead(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<CheckRunsForHeadResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const checkPage = { page: 0, truncated: false };
   const runs = await octokit.paginate(
@@ -36,25 +36,27 @@ async function listCheckRunsForHead(
   );
   const truncated = checkPage.truncated;
 
-  return {
-    truncated,
-    checkRuns: runs
-      .filter((run) => run.head_sha === headSha)
-      .map((run) => ({
-        id: run.id,
-        name: run.name,
-        externalId: run.external_id ?? null,
-        appId: run.app?.id ?? null,
-        status: run.status,
-        conclusion: run.conclusion ?? null,
-        htmlUrl: run.html_url ?? null,
-        outputTitle: run.output?.title ?? null,
-        outputSummary: run.output?.summary ?? null,
-        outputText: run.output?.text ?? null,
-        startedAt: run.started_at ?? null,
-        completedAt: run.completed_at ?? null,
-      })),
-  };
+  return ((pinnedReturn: CheckRunsForHeadResult | Promise<CheckRunsForHeadResult>) => pinnedReturn)(
+    {
+      truncated,
+      checkRuns: runs
+        .filter((run) => run.head_sha === headSha)
+        .map((run) => ({
+          id: run.id,
+          name: run.name,
+          externalId: run.external_id ?? null,
+          appId: run.app?.id ?? null,
+          status: run.status,
+          conclusion: run.conclusion ?? null,
+          htmlUrl: run.html_url ?? null,
+          outputTitle: run.output?.title ?? null,
+          outputSummary: run.output?.summary ?? null,
+          outputText: run.output?.text ?? null,
+          startedAt: run.started_at ?? null,
+          completedAt: run.completed_at ?? null,
+        })),
+    },
+  );
 }
 
 export async function listPullsForHead(
@@ -63,7 +65,7 @@ export async function listPullsForHead(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<readonly { readonly number: number }[]> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const pullPage = { page: 0, truncated: false };
   const pulls = await octokit.paginate(
@@ -71,7 +73,11 @@ export async function listPullsForHead(
     { owner, repo, commit_sha: headSha, per_page: 100 },
     (response, done) => stopPaginatedPage(pullPage, response.data, 100, 2, done),
   );
-  return pulls.map((pull) => ({ number: pull.number }));
+  return ((
+    pinnedReturn:
+      | readonly { readonly number: number }[]
+      | Promise<readonly { readonly number: number }[]>,
+  ) => pinnedReturn)(pulls.map((pull) => ({ number: pull.number })));
 }
 
 export async function listLegacyCommitStatusesForHeadDetailed(
@@ -80,7 +86,7 @@ export async function listLegacyCommitStatusesForHeadDetailed(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<{ readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const { items, truncated } = await paginateOctokitPagesWithMeta({
     perPage: CHECK_RUNS_PAGE_SIZE,
@@ -96,7 +102,11 @@ export async function listLegacyCommitStatusesForHeadDetailed(
       return data.statuses;
     },
   });
-  return {
+  return ((
+    pinnedReturn:
+      | { readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }
+      | Promise<{ readonly legacyStatuses: CiLegacyStatus[]; readonly truncated: boolean }>,
+  ) => pinnedReturn)({
     truncated,
     legacyStatuses: items.map((status) => ({
       context: status.context,
@@ -106,7 +116,7 @@ export async function listLegacyCommitStatusesForHeadDetailed(
       updatedAt: status.updated_at ?? null,
       createdAt: status.created_at ?? null,
     })),
-  };
+  });
 }
 
 export type CiStatusSourceResult = {
@@ -131,23 +141,43 @@ export async function readCiStatusSources(params: {
   readonly headSha: string;
   readonly expiresAtTs?: number;
   readonly capabilityPolicy?: ReviewCapabilityPolicy;
-}): Promise<CiStatusSourcesResult> {
+}) {
   const read = async <T>(
     operation: "checksRead" | "statusesRead",
     fetch: () => Promise<{ readonly items: T[]; readonly complete: boolean }>,
-  ): Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }> => {
+  ) => {
     const access = params.capabilityPolicy?.access(operation) ?? "available";
-    if (access === "denied") return { items: [], source: { access, complete: false } };
+    if (access === "denied")
+      return ((
+        pinnedReturn:
+          | { readonly items: T[]; readonly source: CiStatusSourceResult }
+          | Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }>,
+      ) => pinnedReturn)({ items: [], source: { access, complete: false } });
     try {
       const result = await fetch();
-      return { items: result.items, source: { access: "available", complete: result.complete } };
+      return ((
+        pinnedReturn:
+          | { readonly items: T[]; readonly source: CiStatusSourceResult }
+          | Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }>,
+      ) => pinnedReturn)({
+        items: result.items,
+        source: { access: "available", complete: result.complete },
+      });
     } catch (error) {
       if (isConfirmedCapabilityDenial(error)) {
         await params.capabilityPolicy?.deny(operation);
-        return { items: [], source: { access: "denied", complete: false } };
+        return ((
+          pinnedReturn:
+            | { readonly items: T[]; readonly source: CiStatusSourceResult }
+            | Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }>,
+        ) => pinnedReturn)({ items: [], source: { access: "denied", complete: false } });
       }
       if (classifyGithubError(error) === "rate_limit") throw error;
-      return { items: [], source: { access: "unknown", complete: false } };
+      return ((
+        pinnedReturn:
+          | { readonly items: T[]; readonly source: CiStatusSourceResult }
+          | Promise<{ readonly items: T[]; readonly source: CiStatusSourceResult }>,
+      ) => pinnedReturn)({ items: [], source: { access: "unknown", complete: false } });
     }
   };
   const checks = await read("checksRead", async () => {
@@ -170,11 +200,11 @@ export async function readCiStatusSources(params: {
     );
     return { items: result.legacyStatuses, complete: !result.truncated };
   });
-  return {
+  return ((pinnedReturn: CiStatusSourcesResult | Promise<CiStatusSourcesResult>) => pinnedReturn)({
     checkRuns: checks.items,
     legacyStatuses: statuses.items,
     checkRunsComplete: checks.source.complete,
     legacyStatusesComplete: statuses.source.complete,
     sources: { checks: checks.source, statuses: statuses.source },
-  };
+  });
 }

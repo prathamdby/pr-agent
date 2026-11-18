@@ -68,7 +68,7 @@ async function listConversationCommentsForPr(
   repo: string,
   prNumber: number,
   expiresAtTs?: number,
-): Promise<ListConversationCommentsResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const commentPage = { page: 0, truncated: false };
   const rows = await octokit.paginate(
@@ -83,7 +83,9 @@ async function listConversationCommentsForPr(
         done,
       ),
   );
-  return {
+  return ((
+    pinnedReturn: ListConversationCommentsResult | Promise<ListConversationCommentsResult>,
+  ) => pinnedReturn)({
     comments: rows.map((comment) => ({
       id: comment.id,
       inReplyToId:
@@ -94,7 +96,7 @@ async function listConversationCommentsForPr(
       body: comment.body ?? "",
     })),
     truncated: commentPage.truncated,
-  };
+  });
 }
 
 async function listPushedCommitsForPr(
@@ -130,7 +132,7 @@ async function listReviewCommentsForPr(
   repo: string,
   prNumber: number,
   expiresAtTs?: number,
-): Promise<ListReviewCommentsResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const reviewCommentPage = { page: 0, truncated: false };
   const rows = await octokit.paginate(
@@ -146,7 +148,8 @@ async function listReviewCommentsForPr(
       ),
   );
   const stoppedAtCap = reviewCommentPage.truncated;
-  return {
+  return ((pinnedReturn: ListReviewCommentsResult | Promise<ListReviewCommentsResult>) =>
+    pinnedReturn)({
     comments: rows.map((comment) => ({
       id: comment.id,
       inReplyToId: comment.in_reply_to_id ?? null,
@@ -164,7 +167,7 @@ async function listReviewCommentsForPr(
       htmlUrl: comment.html_url,
     })),
     truncated: stoppedAtCap,
-  };
+  });
 }
 
 async function listPullRequestReviewsForPr(
@@ -173,7 +176,7 @@ async function listPullRequestReviewsForPr(
   repo: string,
   prNumber: number,
   expiresAtTs?: number,
-): Promise<readonly PrReview[]> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const reviewPage = { page: 0, truncated: false };
   const reviews = await octokit.paginate(
@@ -188,15 +191,17 @@ async function listPullRequestReviewsForPr(
         done,
       ),
   );
-  return reviews.map((review) => ({
-    id: review.id,
-    userId: review.user?.id ?? null,
-    authorLogin: review.user?.login ?? null,
-    body: review.body ?? null,
-    commitId: review.commit_id ?? null,
-    htmlUrl: review.html_url,
-    state: prReviewState(review.state),
-  }));
+  return ((pinnedReturn: readonly PrReview[] | Promise<readonly PrReview[]>) => pinnedReturn)(
+    reviews.map((review) => ({
+      id: review.id,
+      userId: review.user?.id ?? null,
+      authorLogin: review.user?.login ?? null,
+      body: review.body ?? null,
+      commitId: review.commit_id ?? null,
+      htmlUrl: review.html_url,
+      state: prReviewState(review.state),
+    })),
+  );
 }
 
 const REVIEW_CHECK_RUN_NAME = "PR Agent Review";
@@ -301,7 +306,7 @@ async function safeReaction(
   target: AcknowledgementTarget,
   content: GithubReactionContent = GITHUB_REACTION_EYES,
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await reactionEndpoints(octokit, owner, repo, target).create(content);
 }
@@ -312,9 +317,10 @@ async function listLifecycleReactions(
   repo: string,
   target: AcknowledgementTarget,
   expiresAtTs?: number,
-): Promise<readonly ListedReaction[]> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
-  return reactionEndpoints(octokit, owner, repo, target).list();
+  return ((pinnedReturn: readonly ListedReaction[] | Promise<readonly ListedReaction[]>) =>
+    pinnedReturn)(reactionEndpoints(octokit, owner, repo, target).list());
 }
 
 async function deleteReaction(
@@ -324,7 +330,7 @@ async function deleteReaction(
   target: AcknowledgementTarget,
   reactionId: number,
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await reactionEndpoints(octokit, owner, repo, target).delete(reactionId);
 }
@@ -337,7 +343,7 @@ async function setLifecycleReaction(
   content: GithubReactionContent,
   botUserId: number | undefined,
   expiresAtTs?: number,
-): Promise<void> {
+) {
   if (botUserId == null) {
     await safeReaction(token, owner, repo, target, content, expiresAtTs);
     return;
@@ -367,7 +373,7 @@ async function reactOnAckTargets(
   botUserId: number | undefined,
   expiresAtTs?: number,
   strict = false,
-): Promise<void> {
+) {
   await Promise.all(
     targets.map(async (target) => {
       try {
@@ -405,7 +411,7 @@ async function postSlashReply(
   target: ReplyTarget,
   body: string,
   expiresAtTs?: number,
-): Promise<{ commentId: number }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   if (target.kind === "inlineReviewThread") {
     const { data } = await octokit.rest.pulls.createReplyForReviewComment({
@@ -415,7 +421,9 @@ async function postSlashReply(
       comment_id: target.inReplyToCommentId,
       body,
     });
-    return { commentId: data.id };
+    return ((pinnedReturn: { commentId: number } | Promise<{ commentId: number }>) => pinnedReturn)(
+      { commentId: data.id },
+    );
   }
   const { data } = await octokit.rest.issues.createComment({
     owner,
@@ -423,7 +431,9 @@ async function postSlashReply(
     issue_number: target.prNumber,
     body,
   });
-  return { commentId: data.id };
+  return ((pinnedReturn: { commentId: number } | Promise<{ commentId: number }>) => pinnedReturn)({
+    commentId: data.id,
+  });
 }
 
 async function getPullRequestHead(
@@ -432,14 +442,18 @@ async function getPullRequestHead(
   repo: string,
   prNumber: number,
   expiresAtTs?: number,
-): Promise<{ headSha: string; pullRequest: PullRequestForFileList }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.pulls.get({
     owner,
     repo,
     pull_number: prNumber,
   });
-  return { headSha: data.head.sha, pullRequest: data };
+  return ((
+    pinnedReturn:
+      | { headSha: string; pullRequest: PullRequestForFileList }
+      | Promise<{ headSha: string; pullRequest: PullRequestForFileList }>,
+  ) => pinnedReturn)({ headSha: data.head.sha, pullRequest: data });
 }
 
 async function createGithubCheckRunOrRecoverDuplicate(
@@ -450,19 +464,25 @@ async function createGithubCheckRunOrRecoverDuplicate(
   externalId: string,
   summary: string,
   expiresAtTs: number,
-): Promise<{ id: number; url: string | null }> {
+) {
   try {
-    return await createReviewCheckRun(
-      token,
-      owner,
-      repo,
-      {
-        name: REVIEW_CHECK_RUN_NAME,
-        headSha,
-        externalId,
-        summary,
-      },
-      expiresAtTs,
+    return ((
+      pinnedReturn:
+        | { id: number; url: string | null }
+        | Promise<{ id: number; url: string | null }>,
+    ) => pinnedReturn)(
+      await createReviewCheckRun(
+        token,
+        owner,
+        repo,
+        {
+          name: REVIEW_CHECK_RUN_NAME,
+          headSha,
+          externalId,
+          summary,
+        },
+        expiresAtTs,
+      ),
     );
   } catch (createError) {
     if (!isDuplicateCheckRunCreationError(createError)) throw createError;
@@ -476,31 +496,50 @@ async function createGithubCheckRunOrRecoverDuplicate(
       expiresAtTs,
     );
     if (duplicate == null) throw createError;
-    return duplicate;
+    return ((
+      pinnedReturn:
+        | { id: number; url: string | null }
+        | Promise<{ id: number; url: string | null }>,
+    ) => pinnedReturn)(duplicate);
   }
 }
 
-export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
+export function createPrSurfaceImpl(params: CreatePrSurfaceParams) {
   const { cfg, installationId, owner, repo, prNumber } = params;
   let installation: InstallationToken | undefined = params.installation;
   let botUserId: number | undefined;
   let botIdentityLoaded = false;
 
-  async function ensureAuth(): Promise<{ token: string; expiresAtTs: number }> {
+  async function ensureAuth() {
     if (params.tokenResolver) {
       installation = await params.tokenResolver();
-      return { token: installation.token, expiresAtTs: installation.expiresAtTs };
+      return ((
+        pinnedReturn:
+          | { token: string; expiresAtTs: number }
+          | Promise<{ token: string; expiresAtTs: number }>,
+      ) => pinnedReturn)({ token: installation.token, expiresAtTs: installation.expiresAtTs });
     }
     if (installation != null && !isInstallationTokenNearExpiry(installation.expiresAtTs)) {
-      return { token: installation.token, expiresAtTs: installation.expiresAtTs };
+      return ((
+        pinnedReturn:
+          | { token: string; expiresAtTs: number }
+          | Promise<{ token: string; expiresAtTs: number }>,
+      ) => pinnedReturn)({ token: installation.token, expiresAtTs: installation.expiresAtTs });
     }
     const fresh = await mintInstallationToken(cfg, installationId);
     installation = fresh;
-    return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+    return ((
+      pinnedReturn:
+        | { token: string; expiresAtTs: number }
+        | Promise<{ token: string; expiresAtTs: number }>,
+    ) => pinnedReturn)({ token: fresh.token, expiresAtTs: fresh.expiresAtTs });
   }
 
-  async function ensureBotUserId(): Promise<number | undefined> {
-    if (botIdentityLoaded) return botUserId;
+  async function ensureBotUserId() {
+    if (botIdentityLoaded)
+      return ((pinnedReturn: (number | undefined) | Promise<number | undefined>) => pinnedReturn)(
+        botUserId,
+      );
     try {
       const bot = await getAppBotIdentity(cfg);
       botUserId = bot.userId;
@@ -514,7 +553,9 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       });
       botUserId = undefined;
     }
-    return botUserId;
+    return ((pinnedReturn: (number | undefined) | Promise<number | undefined>) => pinnedReturn)(
+      botUserId,
+    );
   }
 
   const surface = {
@@ -844,12 +885,12 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     },
   } satisfies PrSurface;
   const policy = params.capabilities;
-  if (!policy) return surface;
+  if (!policy) return ((pinnedReturn: PrSurface) => pinnedReturn)(surface);
   function guard<Args extends unknown[], Result>(
     operation: InstallationOperation,
     original: (...args: Args) => Promise<Result>,
-  ): (...args: Args) => Promise<Result> {
-    return async (...args) => {
+  ) {
+    return ((pinnedReturn: (...args: Args) => Promise<Result>) => pinnedReturn)(async (...args) => {
       if (policy?.access(operation) === "denied") {
         throw new AppError({
           domain: "github",
@@ -871,9 +912,9 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
           cause: error,
         });
       }
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: PrSurface) => pinnedReturn)({
     ...surface,
     getHead: guard("pullRequestsRead", surface.getHead.bind(surface)),
     getHeadSha: guard("pullRequestsRead", surface.getHeadSha.bind(surface)),
@@ -919,5 +960,5 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     editReviewComment: guard("reviewWrite", surface.editReviewComment.bind(surface)),
     updatePullRequest: guard("reviewWrite", surface.updatePullRequest.bind(surface)),
     listPushedCommits: guard("pullRequestsRead", surface.listPushedCommits.bind(surface)),
-  };
+  });
 }

@@ -178,7 +178,7 @@ function makePrSurface(
     startReviewCheck?: PrSurface["startReviewCheck"];
     finishReviewCheck?: PrSurface["finishReviewCheck"];
   } = {},
-): PrSurface {
+) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   vi.spyOn(surface, "startReviewCheck").mockImplementation(
     overrides.startReviewCheck ??
@@ -187,7 +187,7 @@ function makePrSurface(
   vi.spyOn(surface, "finishReviewCheck").mockImplementation(
     overrides.finishReviewCheck ?? (async () => undefined),
   );
-  return surface;
+  return ((pinnedReturn: PrSurface) => pinnedReturn)(surface);
 }
 
 function startParams(prSurface = makePrSurface()) {

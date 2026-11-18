@@ -43,9 +43,7 @@ export function prepareReviewPayloadForPublish(params: {
   headSha?: string;
   checkoutCoverage?: CheckoutCoverage;
   isPathInCheckout?: (path: string) => boolean;
-}):
-  | { ok: true; prepared: PreparedReviewPayload }
-  | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
+}) {
   const minConfidence = params.reviewMinConfidence ?? 1;
   const confidenceFiltered = params.payload.findings.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,
@@ -69,20 +67,28 @@ export function prepareReviewPayloadForPublish(params: {
     enforceInlineAnchorValidation: params.enforceInlineAnchorValidation,
   });
   if (!validation.ok) {
-    return {
+    return ((
+      pinnedReturn:
+        | { ok: true; prepared: PreparedReviewPayload }
+        | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] },
+    ) => pinnedReturn)({
       ok: false,
       error: validation.message,
       anchorFailures: validation.anchorFailures,
-    };
+    });
   }
 
   const payload = redactReviewPayloadSecrets(candidate);
   if (payload.findings.length !== candidate.findings.length) {
-    return {
+    return ((
+      pinnedReturn:
+        | { ok: true; prepared: PreparedReviewPayload }
+        | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] },
+    ) => pinnedReturn)({
       ok: false,
       error: "Review payload redaction changed finding count",
       anchorFailures: [],
-    };
+    });
   }
   const redactedFindingsByOriginal = new Map<ReviewFinding, ReviewFinding>();
   for (const [index, finding] of candidate.findings.entries()) {
@@ -107,10 +113,14 @@ export function prepareReviewPayloadForPublish(params: {
     }
     return { ...placement, finding };
   });
-  return {
+  return ((
+    pinnedReturn:
+      | { ok: true; prepared: PreparedReviewPayload }
+      | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] },
+  ) => pinnedReturn)({
     ok: true,
     prepared: { payload, placements },
-  };
+  });
 }
 
 export type PlacementIdentity = Pick<
@@ -125,23 +135,31 @@ export function prepareFindingsForPublish(params: {
   identify?: (placement: InlinePlacement) => PlacementIdentity | undefined;
   maxInlineComments?: number;
   findingIdScope?: readonly string[];
-}): PreparedFindingTargets {
+}) {
   const plannedPlacements =
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
   const occurrences = new Map<string, number>();
-  const planned = plannedPlacements.map((placement): IdentifiedInlinePlacement => {
+  const planned = plannedPlacements.map((placement) => {
     const placementKey = reviewFindingPlacementKey(placement.finding);
     const occurrence = occurrences.get(placementKey) ?? 0;
     occurrences.set(placementKey, occurrence + 1);
     const identity = params.identify?.(placement);
-    if (identity != null) return { ...placement, ...identity };
-    if (params.findingIdScope == null) return { ...placement, findingId: mintFindingId() };
-    return {
+    if (identity != null)
+      return ((pinnedReturn: IdentifiedInlinePlacement) => pinnedReturn)({
+        ...placement,
+        ...identity,
+      });
+    if (params.findingIdScope == null)
+      return ((pinnedReturn: IdentifiedInlinePlacement) => pinnedReturn)({
+        ...placement,
+        findingId: mintFindingId(),
+      });
+    return ((pinnedReturn: IdentifiedInlinePlacement) => pinnedReturn)({
       ...placement,
       findingId: derivedFindingId([...params.findingIdScope, placementKey, String(occurrence)]),
-    };
+    });
   });
   const inlineCap = applyInlineCommentCap(
     planned,
@@ -149,7 +167,7 @@ export function prepareFindingsForPublish(params: {
   );
   const placements = inlineCap.placements;
 
-  return {
+  return ((pinnedReturn: PreparedFindingTargets) => pinnedReturn)({
     planned,
     placements,
     inline: placements.filter((placement) => placement.inlinePosted),
@@ -160,5 +178,5 @@ export function prepareFindingsForPublish(params: {
         (placement) => isInlineSeverity(placement.finding.severity) && placement.inlineLine == null,
       ).length,
     },
-  };
+  });
 }

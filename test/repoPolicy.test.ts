@@ -21,22 +21,22 @@ import {
   type RepoPolicyRule,
 } from "../src/review/repoPolicy.ts";
 
-async function policyFixture(files: Record<string, string>): Promise<string> {
+async function policyFixture(files: Record<string, string>) {
   const root = await mkdtemp(join(tmpdir(), "repo-policy-mdc-"));
   const dir = join(root, ".pr-agent");
   await mkdir(dir);
   for (const [name, content] of Object.entries(files)) {
     await writeFile(join(dir, name), content, "utf8");
   }
-  return root;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
 }
 
-function policyBodyIsComplete(body: string): boolean {
+function policyBodyIsComplete(body: string) {
   const trimmed = body.trimEnd();
-  return trimmed.endsWith(".") || trimmed.endsWith(")");
+  return ((pinnedReturn: boolean) => pinnedReturn)(trimmed.endsWith(".") || trimmed.endsWith(")"));
 }
 
-function policyBodyIsBalanced(body: string): boolean {
+function policyBodyIsBalanced(body: string) {
   let inCode = false;
   let depth = 0;
   for (let index = 0; index < body.length; index += 1) {
@@ -56,13 +56,13 @@ function policyBodyIsBalanced(body: string): boolean {
     }
     if (char === ")") {
       depth -= 1;
-      if (depth < 0) return false;
+      if (depth < 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);
     }
   }
-  return !inCode && depth === 0;
+  return ((pinnedReturn: boolean) => pinnedReturn)(!inCode && depth === 0);
 }
 
-function globMatchesTrackedFile(glob: string, trackedFiles: readonly string[]): boolean {
+function globMatchesTrackedFile(glob: string, trackedFiles: readonly string[]) {
   const rule: RepoPolicyRule = {
     filename: "glob.mdc",
     relativePath: ".pr-agent/glob.mdc",
@@ -70,13 +70,17 @@ function globMatchesTrackedFile(glob: string, trackedFiles: readonly string[]): 
     globs: [glob],
     body: "Glob coverage.",
   };
-  return trackedFiles.some((file) => ruleConsidersFile(rule, file));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    trackedFiles.some((file) => ruleConsidersFile(rule, file)),
+  );
 }
 
-function trackedRepoFiles(): string[] {
-  return execFileSync("git", ["ls-files"], { encoding: "utf8" })
-    .split("\n")
-    .filter((path) => path.length > 0);
+function trackedRepoFiles() {
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    execFileSync("git", ["ls-files"], { encoding: "utf8" })
+      .split("\n")
+      .filter((path) => path.length > 0),
+  );
 }
 
 describe("loadRepoPolicy", () => {

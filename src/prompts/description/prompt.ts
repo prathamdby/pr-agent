@@ -130,17 +130,19 @@ export const descriptionSystemPrompt = [
   descriptionReviewMapGuidance,
 ].join("\n");
 
-export function formatDescriptionTitleHardRule(): string {
-  return [
-    "Hard rule (title):",
-    "Write an imperative sentence-case title.",
-    "No conventional type prefix (feat:, fix:, etc.).",
-    "No trailing period.",
-    `At most ${DESCRIPTION_TITLE_MAX_LENGTH} characters.`,
-  ].join(" ");
+export function formatDescriptionTitleHardRule() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "Hard rule (title):",
+      "Write an imperative sentence-case title.",
+      "No conventional type prefix (feat:, fix:, etc.).",
+      "No trailing period.",
+      `At most ${DESCRIPTION_TITLE_MAX_LENGTH} characters.`,
+    ].join(" "),
+  );
 }
 
-export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
+export function technicalDepthRule(depth: DescriptionTechnicalDepth) {
   const rules: Record<DescriptionTechnicalDepth, string> = {
     what_why: "Cover what changed and why it matters for reviewers.",
     what_why_risk:
@@ -148,7 +150,7 @@ export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
     what_why_how:
       "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
   };
-  return rules[depth];
+  return ((pinnedReturn: string) => pinnedReturn)(rules[depth]);
 }
 
 type DescriptionBodyRuleInput = Pick<
@@ -156,27 +158,31 @@ type DescriptionBodyRuleInput = Pick<
   "bodyScale" | "bulletMin" | "bulletMax" | "maxWordsPerBullet" | "technicalDepth"
 >;
 
-function formatDescriptionBodyHardRule(policy: DescriptionBodyRuleInput): string {
-  return [
-    `Hard rule (body scale: ${policy.bodyScale}):`,
-    `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as theme summaries.`,
-    `Each bullet is one short sentence of at most ${policy.maxWordsPerBullet} words.`,
-    technicalDepthRule(policy.technicalDepth),
-    "Use the fewest bullets in the range that cover the themes, and put structural shape in visuals[] rather than long prose.",
-    visualsHardRule(policy),
-  ].join(" ");
+function formatDescriptionBodyHardRule(policy: DescriptionBodyRuleInput) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `Hard rule (body scale: ${policy.bodyScale}):`,
+      `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as theme summaries.`,
+      `Each bullet is one short sentence of at most ${policy.maxWordsPerBullet} words.`,
+      technicalDepthRule(policy.technicalDepth),
+      "Use the fewest bullets in the range that cover the themes, and put structural shape in visuals[] rather than long prose.",
+      visualsHardRule(policy),
+    ].join(" "),
+  );
 }
 
 type DescriptionVisualsRuleInput = Pick<DescriptionWritingPolicy, "bodyScale">;
 
-function visualsHardRule(policy: DescriptionVisualsRuleInput): string {
+function visualsHardRule(policy: DescriptionVisualsRuleInput) {
   const tierHint =
     policy.bodyScale === "S"
       ? "Emit the smallest useful set; stop at one or two views once the proved shape is clear."
       : policy.bodyScale === "M"
         ? "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear."
         : "Emit one view per distinct helpful proved category. Add a second view only when the first leaves a boundary unclear. Then add further views when one fence leaves a contract, data path, or module boundary unclear.";
-  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Leave visuals out only when the inspected diff has no sketchable shape (pure copy, rename-only, or structure-free docs).`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `Hard rule (visuals): lean on visuals[]. ${tierHint} Leave visuals out only when the inspected diff has no sketchable shape (pure copy, rename-only, or structure-free docs).`,
+  );
 }
 
 export function buildDescriptionUserContent(params: {
@@ -189,7 +195,7 @@ export function buildDescriptionUserContent(params: {
   totalChanges: number;
   truncated: boolean;
   userSupplement?: string;
-}): string {
+}) {
   const {
     owner,
     repo,
@@ -202,21 +208,23 @@ export function buildDescriptionUserContent(params: {
     userSupplement,
   } = params;
 
-  return [
-    `Target repository: ${owner}/${repo}`,
-    `Pull request #: ${prNumber}`,
-    `Head commit SHA: ${headSha}`,
-    userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
-    "",
-    "Trusted context (description writing policy):",
-    `- Technical depth: ${policy.technicalDepth}`,
-    `- Changed files: ${fileCount}`,
-    `- Total line changes (additions + deletions): ${totalChanges}`,
-    `- Change set truncated: ${truncated ? "yes" : "no"}`,
-    formatDescriptionTitleHardRule(),
-    formatDescriptionBodyHardRule(policy),
-    `Hard rule (map mode): ${policy.mapMode}.`,
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `Target repository: ${owner}/${repo}`,
+      `Pull request #: ${prNumber}`,
+      `Head commit SHA: ${headSha}`,
+      userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
+      "",
+      "Trusted context (description writing policy):",
+      `- Technical depth: ${policy.technicalDepth}`,
+      `- Changed files: ${fileCount}`,
+      `- Total line changes (additions + deletions): ${totalChanges}`,
+      `- Change set truncated: ${truncated ? "yes" : "no"}`,
+      formatDescriptionTitleHardRule(),
+      formatDescriptionBodyHardRule(policy),
+      `Hard rule (map mode): ${policy.mapMode}.`,
+    ].join("\n"),
+  );
 }
 
 export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
@@ -235,10 +243,12 @@ export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
 export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
   "Your last reply was text only. Call submitDescription now with a complete DescriptionPayload.";
 
-export function renderDescriptionRepairPrompt(validationError: string): string {
-  return [
-    validationError,
-    "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
-    `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
-  ].join("\n\n");
+export function renderDescriptionRepairPrompt(validationError: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      validationError,
+      "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
+      `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
+    ].join("\n\n"),
+  );
 }

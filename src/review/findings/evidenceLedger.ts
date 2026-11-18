@@ -41,34 +41,37 @@ export type EvidenceRead = {
 
 export const OPENED_PATH_MAX_CHARS = 4096;
 
-export function normalizeEvidencePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+export function normalizeEvidencePath(path: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(path.replace(/\\/g, "/").replace(/^\.\//, ""));
 }
 
-export function persistedOpenedPath(path: string): string | undefined {
+export function persistedOpenedPath(path: string) {
   const persisted = redactReviewText(normalizeEvidencePath(path)).slice(0, OPENED_PATH_MAX_CHARS);
-  return persisted.length === 0 ? undefined : persisted;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    persisted.length === 0 ? undefined : persisted,
+  );
 }
 
-export function persistedOpenedPaths(paths: readonly string[]): string[] {
+export function persistedOpenedPaths(paths: readonly string[]) {
   const next: string[] = [];
   for (const path of paths) {
     const persisted = persistedOpenedPath(path);
     if (persisted != null) next.push(persisted);
   }
-  return next;
+  return ((pinnedReturn: string[]) => pinnedReturn)(next);
 }
 
-export function hashNormalizedLineText(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+export function hashNormalizedLineText(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(createHash("sha256").update(text).digest("hex"));
 }
 
 export function segmentsExcluding(
   startLine: number,
   endLine: number,
   excluded?: readonly number[],
-): [number, number][] {
-  if (!excluded || excluded.length === 0) return [[startLine, endLine]];
+) {
+  if (!excluded || excluded.length === 0)
+    return ((pinnedReturn: [number, number][]) => pinnedReturn)([[startLine, endLine]]);
   const sorted = [...new Set(excluded)]
     .filter((line) => line >= startLine && line <= endLine)
     .toSorted((a, b) => a - b);
@@ -79,10 +82,10 @@ export function segmentsExcluding(
     cur = line + 1;
   }
   if (cur <= endLine) segments.push([cur, endLine]);
-  return segments;
+  return ((pinnedReturn: [number, number][]) => pinnedReturn)(segments);
 }
 
-export function recordDeliveredFileRead(ledger: EvidenceLedger, params: DeliveredFileRead): void {
+export function recordDeliveredFileRead(ledger: EvidenceLedger, params: DeliveredFileRead) {
   if (params.content.length === 0 || params.startLine <= 0 || params.endLine <= 0) return;
   const lines = params.content.replace(/\r\n/g, "\n").split("\n");
   for (const [startLine, endLine] of segmentsExcluding(
@@ -122,10 +125,10 @@ export async function revalidateEvidenceDescriptors(
   ledger: EvidenceLedger,
   descriptors: readonly unknown[],
   read: (descriptor: EvidenceDescriptor) => Promise<DeliveredFileRead | null>,
-): Promise<boolean> {
+) {
   const parsed = v.safeParse(v.array(evidenceDescriptorSchema), descriptors);
   if (!parsed.success || parsed.output.some((entry) => entry.headSha !== ledger.headSha))
-    return false;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   const staged = createEvidenceLedger(ledger.headSha);
   for (const descriptor of parsed.output) {
     const fresh = await read(descriptor);
@@ -139,7 +142,7 @@ export async function revalidateEvidenceDescriptors(
       (fresh.clampedLines?.some((line) => line >= fresh.startLine && line <= fresh.endLine) ??
         false)
     )
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     const lines = fresh.content.replace(/\r\n/g, "\n").split("\n");
     const count = descriptor.endLine - descriptor.startLine + 1;
     if (
@@ -147,11 +150,11 @@ export async function revalidateEvidenceDescriptors(
       (lines.length > count && !(lines.length === count + 1 && lines.at(-1) === "")) ||
       hashNormalizedLineText(lines.slice(0, count).join("\n")) !== descriptor.contentHash
     )
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     recordDeliveredFileRead(staged, fresh);
   }
   for (const { recordedAt: _recordedAt, ...entry } of staged.snapshot()) ledger.record(entry);
-  return true;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
 }
 
 function lineRangeCovers(
@@ -159,8 +162,10 @@ function lineRangeCovers(
   evidenceEnd: number,
   findingStart: number,
   findingEnd: number,
-): boolean {
-  return evidenceStart <= findingStart && evidenceEnd >= findingEnd;
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    evidenceStart <= findingStart && evidenceEnd >= findingEnd,
+  );
 }
 
 export type EvidenceLedger = {
@@ -173,11 +178,11 @@ export type EvidenceLedger = {
   snapshot: () => readonly EvidenceRead[];
 };
 
-export function createEvidenceLedger(headSha: string): EvidenceLedger {
+export function createEvidenceLedger(headSha: string) {
   const reads: EvidenceRead[] = [];
   const opened = new Set<string>();
 
-  return {
+  return ((pinnedReturn: EvidenceLedger) => pinnedReturn)({
     headSha,
     record(read) {
       const path = normalizeEvidencePath(read.path);
@@ -210,14 +215,14 @@ export function createEvidenceLedger(headSha: string): EvidenceLedger {
     snapshot() {
       return [...reads];
     },
-  };
+  });
 }
 
 export function unreadChangedPaths(params: {
   readonly ledgers: readonly EvidenceLedger[];
   readonly changedFiles: readonly { readonly path: string; readonly status: string }[];
   readonly isPathInCheckout: (path: string) => boolean;
-}): readonly string[] {
+}) {
   const unread: string[] = [];
   for (const file of params.changedFiles) {
     if (file.status === "deleted") continue;
@@ -226,18 +231,20 @@ export function unreadChangedPaths(params: {
     if (params.ledgers.some((ledger) => ledger.hasOpened(path))) continue;
     unread.push(path);
   }
-  return unread;
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(unread);
 }
 
 const UNREAD_CHANGED_FILES_LABEL = "Unread changed files:";
 
-export function unreadChangedFilesNote(paths: readonly string[]): string {
+export function unreadChangedFilesNote(paths: readonly string[]) {
   const shown = paths.slice(0, 3).map((path) => redactReviewText(path));
   const rest = paths.length - shown.length;
   const more = rest > 0 ? ` (+${rest} more)` : "";
-  return `${UNREAD_CHANGED_FILES_LABEL} ${shown.join(", ")}${more}.`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${UNREAD_CHANGED_FILES_LABEL} ${shown.join(", ")}${more}.`,
+  );
 }
 
-export function noteListsUnreadFiles(note: string): boolean {
-  return note.includes(UNREAD_CHANGED_FILES_LABEL);
+export function noteListsUnreadFiles(note: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(note.includes(UNREAD_CHANGED_FILES_LABEL));
 }

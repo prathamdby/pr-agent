@@ -28,36 +28,64 @@ import { errorMessage } from "../../errors/errorMessage.ts";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
 
-export function executionOutcomeFromResult(result: CodeModeResult): {
-  readonly outcome: ExecutionOutcome;
-  readonly errorCode?: string;
-  readonly terminationReason: string;
-} {
+export function executionOutcomeFromResult(result: CodeModeResult) {
   if (result.ok) {
-    return { outcome: "success", terminationReason: "success" };
+    return ((pinnedReturn: {
+      readonly outcome: ExecutionOutcome;
+      readonly errorCode?: string;
+      readonly terminationReason: string;
+    }) => pinnedReturn)({ outcome: "success", terminationReason: "success" });
   }
   const code = result.error.code;
   if (code === "CANCELLED") {
-    return { outcome: "cancelled", errorCode: "cancelled", terminationReason: "host_cancel" };
+    return ((pinnedReturn: {
+      readonly outcome: ExecutionOutcome;
+      readonly errorCode?: string;
+      readonly terminationReason: string;
+    }) => pinnedReturn)({
+      outcome: "cancelled",
+      errorCode: "cancelled",
+      terminationReason: "host_cancel",
+    });
   }
   if (code === "TIMEOUT") {
-    return { outcome: "budget", errorCode: "timeout", terminationReason: "timeout" };
+    return ((pinnedReturn: {
+      readonly outcome: ExecutionOutcome;
+      readonly errorCode?: string;
+      readonly terminationReason: string;
+    }) => pinnedReturn)({ outcome: "budget", errorCode: "timeout", terminationReason: "timeout" });
   }
   if (code === "EXECUTION_BUDGET_EXCEEDED") {
-    return {
+    return ((pinnedReturn: {
+      readonly outcome: ExecutionOutcome;
+      readonly errorCode?: string;
+      readonly terminationReason: string;
+    }) => pinnedReturn)({
       outcome: "budget",
       errorCode: "execution_budget_exceeded",
       terminationReason: "budget",
-    };
+    });
   }
   if (code === "LIMIT_EXCEEDED") {
-    return { outcome: "budget", errorCode: "limit_exceeded", terminationReason: "limit" };
+    return ((pinnedReturn: {
+      readonly outcome: ExecutionOutcome;
+      readonly errorCode?: string;
+      readonly terminationReason: string;
+    }) => pinnedReturn)({
+      outcome: "budget",
+      errorCode: "limit_exceeded",
+      terminationReason: "limit",
+    });
   }
-  return {
+  return ((pinnedReturn: {
+    readonly outcome: ExecutionOutcome;
+    readonly errorCode?: string;
+    readonly terminationReason: string;
+  }) => pinnedReturn)({
     outcome: "execution_failure",
     errorCode: code.toLowerCase(),
     terminationReason: code.toLowerCase(),
-  };
+  });
 }
 
 function emitExecutionResult(
@@ -74,7 +102,7 @@ function emitExecutionResult(
     readonly completedHostCalls: number;
     readonly transferredBytes: number;
   },
-): void {
+) {
   if (!params.emit || !params.role || !params.provider || !params.model) return;
   const classified = executionOutcomeFromResult(result);
   const outputBytes = result.ok
@@ -96,20 +124,21 @@ function emitExecutionResult(
   });
 }
 
-function boundExecuteOutput(output: unknown): {
-  readonly output: unknown;
-  readonly warnings?: ReadonlyArray<string>;
-} {
+function boundExecuteOutput(output: unknown) {
   const bounded = boundJsonValue(output, {
     maxTransferBytes: CODE_MODE_MAX_OUTPUT_BYTES,
   });
   if (bounded.truncation == null) {
-    return { output: bounded.value };
+    return ((pinnedReturn: {
+      readonly output: unknown;
+      readonly warnings?: ReadonlyArray<string>;
+    }) => pinnedReturn)({ output: bounded.value });
   }
-  return {
+  return ((pinnedReturn: { readonly output: unknown; readonly warnings?: ReadonlyArray<string> }) =>
+    pinnedReturn)({
     output: toGuestCapabilityResult(bounded.value, bounded.truncation),
     warnings: [`output truncated (${bounded.truncation.reason})`],
-  };
+  });
 }
 
 export async function runCodeModeScript(params: {
@@ -125,18 +154,18 @@ export async function runCodeModeScript(params: {
   readonly session?: ExecutionSessionStore;
   readonly evidenceLedger?: EvidenceLedger;
   readonly headSha?: string;
-}): Promise<CodeModeResult> {
+}) {
   const startedAt = Date.now();
   const session = params.session ?? createExecutionSessionStore();
   const hostAborted = () => params.signal?.aborted === true;
-  const finish = (result: CodeModeResult): CodeModeResult => {
+  const finish = (result: CodeModeResult) => {
     emitExecutionResult(params, result, {
       durationMs: Date.now() - startedAt,
       admittedHostCalls: bridge.admittedHostCalls,
       completedHostCalls: bridge.completedHostCalls,
       transferredBytes: bridge.transferredBytes,
     });
-    return result;
+    return ((pinnedReturn: CodeModeResult) => pinnedReturn)(result);
   };
 
   const bridge = createCodeModeCapabilityBridge({
@@ -154,11 +183,13 @@ export async function runCodeModeScript(params: {
   if (hostAborted()) {
     session.closeAdmission();
     session.invalidate();
-    return finish({
-      ok: false,
-      error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
-      toolCalls: [],
-    });
+    return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+      finish({
+        ok: false,
+        error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
+        toolCalls: [],
+      }),
+    );
   }
 
   session.reopenAdmission();
@@ -194,41 +225,51 @@ export async function runCodeModeScript(params: {
       const toolCalls = bridge.toolCalls;
       if (!cell.ok) {
         if (hostAborted()) {
-          return finish({
-            ok: false,
-            error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
-            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
-          });
+          return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+            finish({
+              ok: false,
+              error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
+              toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+            }),
+          );
         }
         recordCodeModeCapHit(cell.error.reason);
-        return finish({
-          ok: false,
-          error: cell.error,
-          toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
-        });
+        return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+          finish({
+            ok: false,
+            error: cell.error,
+            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+          }),
+        );
       }
       const committed = session.commit(generation, revision, cell.stagedState);
       if (!committed) {
         if (hostAborted()) {
-          return finish({
-            ok: false,
-            error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
-            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
-          });
+          return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+            finish({
+              ok: false,
+              error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
+              toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+            }),
+          );
         }
-        return finish({
-          ok: false,
-          error: { code: "EXECUTION_ERROR", message: "Code Mode session state conflict" },
-          toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
-        });
+        return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+          finish({
+            ok: false,
+            error: { code: "EXECUTION_ERROR", message: "Code Mode session state conflict" },
+            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+          }),
+        );
       }
       const boundedOutput = boundExecuteOutput(cell.output);
-      return finish({
-        ok: true,
-        output: boundedOutput.output,
-        toolCalls,
-        ...(boundedOutput.warnings ? { warnings: boundedOutput.warnings } : {}),
-      });
+      return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+        finish({
+          ok: true,
+          output: boundedOutput.output,
+          toolCalls,
+          ...(boundedOutput.warnings ? { warnings: boundedOutput.warnings } : {}),
+        }),
+      );
     } finally {
       lease.release();
     }
@@ -236,43 +277,49 @@ export async function runCodeModeScript(params: {
     const toolCalls = bridge.toolCalls.map(({ tool, status }) => ({ tool, status }));
     if (isCodeModeHostHalt(error)) {
       recordCodeModeCapHit(error.reason);
-      return finish({
-        ok: false,
-        error: {
-          code: error.code,
-          message: error.message,
-          ...(error.line != null ? { line: error.line } : {}),
-          ...(error.reason != null ? { reason: error.reason } : {}),
-        },
-        toolCalls,
-      });
+      return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+        finish({
+          ok: false,
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.line != null ? { line: error.line } : {}),
+            ...(error.reason != null ? { reason: error.reason } : {}),
+          },
+          toolCalls,
+        }),
+      );
     }
     if (signal.aborted) {
       const cancelled = hostAborted();
       if (!cancelled) recordCodeModeCapHit("cell_wall");
-      return finish({
-        ok: false,
-        error: cancelled
-          ? { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE }
-          : {
-              code: "TIMEOUT",
-              message: `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
-              reason: "cell_wall" as const,
-            },
-        toolCalls,
-      });
+      return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+        finish({
+          ok: false,
+          error: cancelled
+            ? { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE }
+            : {
+                code: "TIMEOUT",
+                message: `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
+                reason: "cell_wall" as const,
+              },
+          toolCalls,
+        }),
+      );
     }
     const message = errorMessage(error);
     const isToolFailure =
       /ACCESS_DENIED|FILE_NOT_FOUND|SEARCH_TRUNCATED|TOOL_INPUT_INVALID|codemode\./.test(message);
-    return finish({
-      ok: false,
-      error: {
-        code: isToolFailure ? "TOOL_FAILURE" : "EXECUTION_ERROR",
-        message,
-      },
-      toolCalls,
-    });
+    return ((pinnedReturn: CodeModeResult | Promise<CodeModeResult>) => pinnedReturn)(
+      finish({
+        ok: false,
+        error: {
+          code: isToolFailure ? "TOOL_FAILURE" : "EXECUTION_ERROR",
+          message,
+        },
+        toolCalls,
+      }),
+    );
   } finally {
     signal.removeEventListener("abort", onAbort);
   }

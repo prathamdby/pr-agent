@@ -9,14 +9,16 @@ import { SPECIALIST_SYSTEM_PROMPTS } from "../orchestrator/specialistRun.ts";
 import { orchestratorSystemPrompt } from "../../prompts/orchestrator/prompt.ts";
 import { encodeReviewArtifact, REVIEW_CONTRACT_VERSION } from "./reviewArtifacts.ts";
 
-export function reviewRecoveryBaseSha(pullRequest: unknown): string | null {
+export function reviewRecoveryBaseSha(pullRequest: unknown) {
   const parsed = v.safeParse(
     v.object({
       base: v.object({ sha: v.pipe(v.string(), v.regex(/^[0-9a-f]{40,64}$/)) }),
     }),
     pullRequest,
   );
-  return parsed.success ? parsed.output.base.sha : null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    parsed.success ? parsed.output.base.sha : null,
+  );
 }
 
 export async function reviewRecoveryModelApis(cfg: Config, escalation?: EscalationPlan) {
@@ -30,22 +32,29 @@ export async function reviewRecoveryModelApis(cfg: Config, escalation?: Escalati
   const selected = new Map<string, Promise<string>>();
   return Object.fromEntries(
     await Promise.all(
-      Object.entries(assignments).map(
-        async ([role, assignment]): Promise<readonly [string, string | null]> => {
-          if (!assignment) return [role, null];
-          const key = `${assignment.provider}/${assignment.model}`;
-          let api = selected.get(key);
-          if (!api) {
-            api = assertPiModelSelection({
-              modelsJsonPath: cfg.models.jsonPath,
-              piProvider: assignment.provider,
-              piModel: assignment.model,
-            });
-            selected.set(key, api);
-          }
-          return [role, await api];
-        },
-      ),
+      Object.entries(assignments).map(async ([role, assignment]) => {
+        if (!assignment)
+          return ((
+            pinnedReturn:
+              | readonly [string, string | null]
+              | Promise<readonly [string, string | null]>,
+          ) => pinnedReturn)([role, null]);
+        const key = `${assignment.provider}/${assignment.model}`;
+        let api = selected.get(key);
+        if (!api) {
+          api = assertPiModelSelection({
+            modelsJsonPath: cfg.models.jsonPath,
+            piProvider: assignment.provider,
+            piModel: assignment.model,
+          });
+          selected.set(key, api);
+        }
+        return ((
+          pinnedReturn:
+            | readonly [string, string | null]
+            | Promise<readonly [string, string | null]>,
+        ) => pinnedReturn)([role, await api]);
+      }),
     ),
   );
 }

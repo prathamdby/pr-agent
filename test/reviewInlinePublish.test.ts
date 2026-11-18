@@ -6,8 +6,8 @@ import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacemen
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import type { PrSurface } from "../src/github/prSurface.ts";
 
-function finding(severity: ReviewFinding["severity"], file: string, line: number): ReviewFinding {
-  return {
+function finding(severity: ReviewFinding["severity"], file: string, line: number) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity,
     file,
     startLine: line,
@@ -15,17 +15,21 @@ function finding(severity: ReviewFinding["severity"], file: string, line: number
     title: `${severity} issue`,
     detail: "detail",
     fixPrompt: "fix",
-  };
+  });
 }
 
-function placement(f: ReviewFinding): InlinePlacement {
-  return { finding: f, inlineLine: f.startLine, inlinePosted: true };
+function placement(f: ReviewFinding) {
+  return ((pinnedReturn: InlinePlacement) => pinnedReturn)({
+    finding: f,
+    inlineLine: f.startLine,
+    inlinePosted: true,
+  });
 }
 
-function surfaceWithPublish(publishImpl: PrSurface["publishThreadBatch"]): PrSurface {
+function surfaceWithPublish(publishImpl: PrSurface["publishThreadBatch"]) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   vi.spyOn(surface, "publishThreadBatch").mockImplementation(publishImpl);
-  return surface;
+  return ((pinnedReturn: PrSurface) => pinnedReturn)(surface);
 }
 
 describe("publishInlineReviewComments", () => {

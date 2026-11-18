@@ -156,11 +156,12 @@ it("renders one concise optional-capability notice without changing review outpu
 });
 
 function createLockedPool() {
-  const query = vi.fn(
-    async (
-      _sql: string,
-      _values?: unknown[],
-    ): Promise<{ rows: { locked: boolean; unlocked?: boolean }[] }> => ({
+  const query = vi.fn(async (_sql: string, _values?: unknown[]) =>
+    ((
+      pinnedReturn:
+        | { rows: { locked: boolean; unlocked?: boolean }[] }
+        | Promise<{ rows: { locked: boolean; unlocked?: boolean }[] }>,
+    ) => pinnedReturn)({
       rows: [{ locked: true, unlocked: true }],
     }),
   );

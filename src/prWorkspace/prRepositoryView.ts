@@ -54,13 +54,13 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
-function cancelReleaseTimer(entry: CacheEntry): void {
+function cancelReleaseTimer(entry: CacheEntry) {
   if (!entry.releaseTimer) return;
   clearTimeout(entry.releaseTimer);
   entry.releaseTimer = null;
 }
 
-function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+function unrefTimer(timer: ReturnType<typeof setTimeout>) {
   if (typeof timer === "object" && "unref" in timer) {
     timer.unref();
   }
@@ -71,17 +71,19 @@ function cacheKey(
     PreparePrRepositoryViewParams,
     "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb" | "baseSha"
   >,
-): string {
+) {
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
   const base = params.baseSha ?? "base:missing";
-  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}:${base}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}:${base}`,
+  );
 }
 
 async function resolveCanonicalFileList(
   params: PreparePrRepositoryViewParams,
   token: string,
   expiresAtTs: number,
-): Promise<ListPullRequestFilesResult> {
+) {
   if (params.prFiles) {
     assertPullRequestFilesHeadSha(params.prFiles, params.headSha);
   }
@@ -98,12 +100,11 @@ async function resolveCanonicalFileList(
     expiresAtTs,
   );
   assertPullRequestFilesHeadSha(fileList, params.headSha);
-  return fileList;
+  return ((pinnedReturn: ListPullRequestFilesResult | Promise<ListPullRequestFilesResult>) =>
+    pinnedReturn)(fileList);
 }
 
-async function prepareUncached(
-  params: PreparePrRepositoryViewParams,
-): Promise<CachedPrRepositoryView> {
+async function prepareUncached(params: PreparePrRepositoryViewParams) {
   const { token, expiresAtTs } = await params.gitCredentialAuth();
   const prFiles = await resolveCanonicalFileList(params, token, expiresAtTs);
   const workspace = await prepareLocalPrWorkspace({
@@ -116,19 +117,20 @@ async function prepareUncached(
     repositorySizeKb: params.repositorySizeKb,
     baseSha: params.baseSha,
   });
-  return {
-    workspace,
-    preflight: buildReviewPreflightMetadataFromWorkspace(workspace),
-    agentCwd: workspace.agentCwd,
-    cleanup: () => workspace.cleanup(),
-  };
+  return ((pinnedReturn: CachedPrRepositoryView | Promise<CachedPrRepositoryView>) => pinnedReturn)(
+    {
+      workspace,
+      preflight: buildReviewPreflightMetadataFromWorkspace(workspace),
+      agentCwd: workspace.agentCwd,
+      cleanup: () => workspace.cleanup(),
+    },
+  );
 }
 
-async function prepareEntry(
-  entry: CacheEntry,
-  params: PreparePrRepositoryViewParams,
-): Promise<CachedPrRepositoryView> {
-  if (entry.view) return entry.view;
+async function prepareEntry(entry: CacheEntry, params: PreparePrRepositoryViewParams) {
+  if (entry.view)
+    return ((pinnedReturn: CachedPrRepositoryView | Promise<CachedPrRepositoryView>) =>
+      pinnedReturn)(entry.view);
   if (!entry.prepare) {
     entry.prepare = prepareUncached(params)
       .then((view) => {
@@ -140,12 +142,12 @@ async function prepareEntry(
         throw e;
       });
   }
-  return entry.prepare;
+  return ((pinnedReturn: CachedPrRepositoryView | Promise<CachedPrRepositoryView>) => pinnedReturn)(
+    entry.prepare,
+  );
 }
 
-async function acquirePrRepositoryView(
-  params: PreparePrRepositoryViewParams,
-): Promise<PrRepositoryView> {
+async function acquirePrRepositoryView(params: PreparePrRepositoryViewParams) {
   const key = cacheKey(params);
   let entry = cache.get(key);
   if (!entry) {
@@ -157,12 +159,12 @@ async function acquirePrRepositoryView(
   const reused = entry.view != null || entry.prepare != null;
   try {
     const view = await prepareEntry(entry, params);
-    return {
+    return ((pinnedReturn: PrRepositoryView | Promise<PrRepositoryView>) => pinnedReturn)({
       workspace: view.workspace,
       preflight: view.preflight,
       agentCwd: view.agentCwd,
       reused,
-    };
+    });
   } catch (e) {
     await releasePrRepositoryView(params);
     throw e;
@@ -174,7 +176,7 @@ async function releasePrRepositoryView(
     PreparePrRepositoryViewParams,
     "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb" | "baseSha"
   >,
-): Promise<void> {
+) {
   const key = cacheKey(params);
   const entry = cache.get(key);
   if (!entry) return;
@@ -208,10 +210,10 @@ async function releasePrRepositoryView(
 export async function withPrRepositoryView<T>(
   params: PreparePrRepositoryViewParams,
   fn: (view: PrRepositoryView) => Promise<T>,
-): Promise<T> {
+) {
   const view = await acquirePrRepositoryView(params);
   try {
-    return await fn(view);
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await fn(view));
   } finally {
     await releasePrRepositoryView(params);
   }

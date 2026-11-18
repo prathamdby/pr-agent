@@ -340,15 +340,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function recordedHash(value: unknown, id: string): unknown {
+function recordedHash(value: unknown, id: string) {
   if (!isRecord(value)) {
-    return undefined;
+    return ((pinnedReturn: unknown) => pinnedReturn)(undefined);
   }
   const entry = value[id];
   if (!isRecord(entry)) {
-    return undefined;
+    return ((pinnedReturn: unknown) => pinnedReturn)(undefined);
   }
-  return entry.hash;
+  return ((pinnedReturn: unknown) => pinnedReturn)(entry.hash);
 }
 
 describe("content revision stamp", () => {

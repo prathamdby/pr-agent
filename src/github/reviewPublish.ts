@@ -32,7 +32,7 @@ export async function findReviewCheckRunByName(
   name: string,
   externalId: string,
   expiresAtTs?: number,
-): Promise<{ id: number; url: string | null } | null> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const checkPage = { page: 0, truncated: false };
   const runs = await octokit.paginate(
@@ -61,9 +61,18 @@ export async function findReviewCheckRunByName(
     (check) =>
       check.name === name && check.head_sha === headSha && check.external_id === externalId,
   );
-  if (matches.length !== 1) return null;
+  if (matches.length !== 1)
+    return ((
+      pinnedReturn:
+        | ({ id: number; url: string | null } | null)
+        | Promise<{ id: number; url: string | null } | null>,
+    ) => pinnedReturn)(null);
   const run = matches[0];
-  return { id: run.id, url: run.html_url ?? null };
+  return ((
+    pinnedReturn:
+      | ({ id: number; url: string | null } | null)
+      | Promise<{ id: number; url: string | null } | null>,
+  ) => pinnedReturn)({ id: run.id, url: run.html_url ?? null });
 }
 
 export async function createReviewCheckRun(
@@ -77,7 +86,7 @@ export async function createReviewCheckRun(
     summary: string;
   },
   expiresAtTs?: number,
-): Promise<{ id: number; url: string | null }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.checks.create({
     owner,
@@ -92,7 +101,9 @@ export async function createReviewCheckRun(
       summary: params.summary,
     },
   });
-  return { id: data.id, url: data.html_url ?? null };
+  return ((
+    pinnedReturn: { id: number; url: string | null } | Promise<{ id: number; url: string | null }>,
+  ) => pinnedReturn)({ id: data.id, url: data.html_url ?? null });
 }
 
 export async function updateReviewCheckRun(
@@ -108,7 +119,7 @@ export async function updateReviewCheckRun(
     detailsUrl?: string;
   },
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.checks.update({
     owner,
@@ -138,7 +149,7 @@ export async function createPullRequestReviewWithComments(
     commitId?: string;
   },
   expiresAtTs?: number,
-): Promise<{ id: number; url: string }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.pulls.createReview({
     owner,
@@ -149,7 +160,8 @@ export async function createPullRequestReviewWithComments(
     comments: params.comments,
     commit_id: params.commitId,
   });
-  return { id: data.id, url: data.html_url };
+  return ((pinnedReturn: { id: number; url: string } | Promise<{ id: number; url: string }>) =>
+    pinnedReturn)({ id: data.id, url: data.html_url });
 }
 
 export async function dismissPullRequestReview(
@@ -162,7 +174,7 @@ export async function dismissPullRequestReview(
     readonly message: string;
   },
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.pulls.dismissReview({
     owner,
@@ -185,7 +197,7 @@ export async function getIssueCommentIfSentinel(
   commentId: number,
   sentinel: string,
   expiresAtTs?: number,
-): Promise<IssueCommentRef | null> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
     const { data } = await octokit.rest.issues.getComment({
@@ -193,11 +205,16 @@ export async function getIssueCommentIfSentinel(
       repo,
       comment_id: commentId,
     });
-    if (!(data.body ?? "").startsWith(sentinel)) return null;
-    return { id: data.id, url: data.html_url };
+    if (!(data.body ?? "").startsWith(sentinel))
+      return ((pinnedReturn: (IssueCommentRef | null) | Promise<IssueCommentRef | null>) =>
+        pinnedReturn)(null);
+    return ((pinnedReturn: (IssueCommentRef | null) | Promise<IssueCommentRef | null>) =>
+      pinnedReturn)({ id: data.id, url: data.html_url });
   } catch (e: unknown) {
     const status = httpStatus(e);
-    if (status === 404) return null;
+    if (status === 404)
+      return ((pinnedReturn: (IssueCommentRef | null) | Promise<IssueCommentRef | null>) =>
+        pinnedReturn)(null);
     throw e;
   }
 }
@@ -211,7 +228,7 @@ export async function findIssueCommentBySentinel(
   issueNumber: number,
   sentinel: string,
   expiresAtTs?: number,
-): Promise<IssueCommentWithBody | null> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   let lastMatch: IssueCommentWithBody | null = null;
 
@@ -236,7 +253,8 @@ export async function findIssueCommentBySentinel(
     }
   }
 
-  return lastMatch;
+  return ((pinnedReturn: (IssueCommentWithBody | null) | Promise<IssueCommentWithBody | null>) =>
+    pinnedReturn)(lastMatch);
 }
 
 export async function resolveVerifiedSummaryCommentRef(
@@ -247,7 +265,7 @@ export async function resolveVerifiedSummaryCommentRef(
   sentinel: string,
   hintCommentId?: number | null,
   expiresAtTs?: number,
-): Promise<ResolvedSummaryCommentRef | null> {
+) {
   if (hintCommentId != null) {
     const verified = await getIssueCommentIfSentinel(
       token,
@@ -257,7 +275,12 @@ export async function resolveVerifiedSummaryCommentRef(
       sentinel,
       expiresAtTs,
     );
-    if (verified) return { ...verified, source: "hint" };
+    if (verified)
+      return ((
+        pinnedReturn:
+          | (ResolvedSummaryCommentRef | null)
+          | Promise<ResolvedSummaryCommentRef | null>,
+      ) => pinnedReturn)({ ...verified, source: "hint" });
   }
   const found = await findIssueCommentBySentinel(
     token,
@@ -267,7 +290,9 @@ export async function resolveVerifiedSummaryCommentRef(
     sentinel,
     expiresAtTs,
   );
-  return found ? { ...found, source: "scan" } : null;
+  return ((
+    pinnedReturn: (ResolvedSummaryCommentRef | null) | Promise<ResolvedSummaryCommentRef | null>,
+  ) => pinnedReturn)(found ? { ...found, source: "scan" } : null);
 }
 
 async function createIssueComment(
@@ -277,7 +302,7 @@ async function createIssueComment(
   issueNumber: number,
   body: string,
   expiresAtTs?: number,
-): Promise<{ id: number; url: string }> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.issues.createComment({
     owner,
@@ -285,7 +310,8 @@ async function createIssueComment(
     issue_number: issueNumber,
     body,
   });
-  return { id: data.id, url: data.html_url };
+  return ((pinnedReturn: { id: number; url: string } | Promise<{ id: number; url: string }>) =>
+    pinnedReturn)({ id: data.id, url: data.html_url });
 }
 
 export async function updateIssueComment(
@@ -295,7 +321,7 @@ export async function updateIssueComment(
   commentId: number,
   body: string,
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.issues.updateComment({
     owner,
@@ -314,16 +340,20 @@ export async function upsertReviewSummaryComment(
   sentinel: string = REVIEW_SUMMARY_SENTINEL,
   knownExisting?: IssueCommentRef | null,
   expiresAtTs?: number,
-): Promise<{ id: number; updated: boolean }> {
+) {
   const existing =
     knownExisting ??
     (await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel, expiresAtTs));
   if (existing) {
     await updateIssueComment(token, owner, repo, existing.id, body, expiresAtTs);
-    return { id: existing.id, updated: true };
+    return ((
+      pinnedReturn: { id: number; updated: boolean } | Promise<{ id: number; updated: boolean }>,
+    ) => pinnedReturn)({ id: existing.id, updated: true });
   }
   const created = await createIssueComment(token, owner, repo, prNumber, body, expiresAtTs);
-  return { id: created.id, updated: false };
+  return ((
+    pinnedReturn: { id: number; updated: boolean } | Promise<{ id: number; updated: boolean }>,
+  ) => pinnedReturn)({ id: created.id, updated: false });
 }
 
 export async function listPullRequestLabels(
@@ -332,7 +362,7 @@ export async function listPullRequestLabels(
   repo: string,
   pullNumber: number,
   expiresAtTs?: number,
-): Promise<string[]> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   const labelPage = { page: 0, truncated: false };
   const labels = await octokit.paginate(
@@ -347,7 +377,7 @@ export async function listPullRequestLabels(
         done,
       ),
   );
-  return labels.map((l) => l.name);
+  return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)(labels.map((l) => l.name));
 }
 
 export async function setPullRequestLabels(
@@ -357,7 +387,7 @@ export async function setPullRequestLabels(
   pullNumber: number,
   labels: string[],
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.issues.setLabels({
     owner,
@@ -378,7 +408,7 @@ export async function setReviewCommitStatus(
     targetUrl?: string;
   },
   expiresAtTs?: number,
-): Promise<void> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.repos.createCommitStatus({
     owner,

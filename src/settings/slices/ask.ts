@@ -31,7 +31,7 @@ export type AskSlice = {
   readonly providerReservationTokens: number;
 };
 
-export function readAskSlice(): AskSlice {
+export function readAskSlice() {
   const askActorMaxOutstanding = readPositiveInteger(
     ENV.ASK_ACTOR_MAX_OUTSTANDING,
     DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
@@ -90,7 +90,7 @@ export function readAskSlice(): AskSlice {
     });
   }
 
-  return {
+  return ((pinnedReturn: AskSlice) => pinnedReturn)({
     actorMaxOutstanding: askActorMaxOutstanding,
     repositoryMaxOutstanding: askRepositoryMaxOutstanding,
     installationMaxOutstanding: askInstallationMaxOutstanding,
@@ -103,5 +103,5 @@ export function readAskSlice(): AskSlice {
     providerBudgetTokens: askProviderBudgetTokens,
     providerBudgetWindowSeconds: askProviderBudgetWindowSeconds,
     providerReservationTokens: askProviderReservationTokens,
-  };
+  });
 }

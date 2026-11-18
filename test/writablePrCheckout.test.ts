@@ -47,11 +47,9 @@ import { spillTextToSessionFile } from "../src/agent/tools/readWorkspaceTextFile
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.ts";
 
 const execFile = promisify(execFileCb);
-const TEST_TIMEOUT_MS = 20_000;
-
-async function git(cwd: string, args: readonly string[]): Promise<string> {
+async function git(cwd: string, args: readonly string[]) {
   const { stdout } = await execFile("git", args, { cwd });
-  return stdout.trim();
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(stdout.trim());
 }
 
 async function makeRemote() {
@@ -76,138 +74,126 @@ afterEach(() => {
 });
 
 describe("writable PR checkout", () => {
-  it(
-    "commits one validated fix and pushes without force",
-    async () => {
-      const { root, remote, headSha } = await makeRemote();
-      try {
-        await withWritablePrCheckout(
-          {
-            owner: "owner",
-            repo: "repo",
-            headRef: "main",
-            headSha,
-            installationToken: "unused",
-            botIdentity: { userId: 123, login: "pr-agent[bot]" },
-            remoteUrlOverride: remote,
-          },
-          async (checkout) => {
-            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
-            const result = await checkout.commit({
-              files: ["src.txt"],
-              subject: "fix: add missing line",
-            });
-            expect(result.diff).toContain("+two");
-            expect(checkout.listCommittedShas()).toEqual([result.sha]);
-            await checkout.push();
-          },
-        );
+  it("commits one validated fix and pushes without force", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+          const result = await checkout.commit({
+            files: ["src.txt"],
+            subject: "fix: add missing line",
+          });
+          expect(result.diff).toContain("+two");
+          expect(checkout.listCommittedShas()).toEqual([result.sha]);
+          await checkout.push();
+        },
+      );
 
-        const clone = join(root, "clone");
-        await git(root, ["clone", "--branch", "main", remote, clone]);
-        expect(await readFile(join(clone, "src.txt"), "utf8")).toContain("two");
-        const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
-        const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
-        const message = await git(clone, ["log", "-1", "--format=%B"]);
-        expect(author).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
-        expect(committer).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
-        expect(message).not.toContain("Co-authored-by:");
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+      const clone = join(root, "clone");
+      await git(root, ["clone", "--branch", "main", remote, clone]);
+      expect(await readFile(join(clone, "src.txt"), "utf8")).toContain("two");
+      const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
+      const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
+      const message = await git(clone, ["log", "-1", "--format=%B"]);
+      expect(author).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
+      expect(committer).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
+      expect(message).not.toContain("Co-authored-by:");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-  it(
-    "runs final commit and push guards at the writable side-effect boundaries",
-    async () => {
-      const { root, remote, headSha } = await makeRemote();
-      const calls: string[] = [];
-      try {
-        await withWritablePrCheckout(
-          {
-            owner: "owner",
-            repo: "repo",
-            headRef: "main",
-            headSha,
-            installationToken: "unused",
-            botIdentity: { userId: 123, login: "pr-agent[bot]" },
-            remoteUrlOverride: remote,
-            beforeCommit: async () => {
-              calls.push("before-commit");
-            },
-            beforePush: async () => {
-              calls.push("before-push");
-            },
+  it("runs final commit and push guards at the writable side-effect boundaries", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    const calls: string[] = [];
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+          beforeCommit: async () => {
+            calls.push("before-commit");
           },
-          async (checkout) => {
-            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
-            await checkout.commit({ files: ["src.txt"], subject: "fix: add missing line" });
-            await checkout.push();
+          beforePush: async () => {
+            calls.push("before-push");
           },
-        );
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+          await checkout.commit({ files: ["src.txt"], subject: "fix: add missing line" });
+          await checkout.push();
+        },
+      );
 
-        expect(calls).toEqual(["before-commit", "before-push"]);
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+      expect(calls).toEqual(["before-commit", "before-push"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-  it(
-    "attributes human triggerer as author/committer with App Co-authored-by",
-    async () => {
-      const { root, remote, headSha } = await makeRemote();
-      const botIdentity = { userId: 123, login: "pr-agent[bot]" };
-      const human = { name: "Alice", email: githubNoreplyEmail(42, "alice") };
-      try {
-        await withWritablePrCheckout(
-          {
-            owner: "owner",
-            repo: "repo",
-            headRef: "main",
-            headSha,
-            installationToken: "unused",
+  it("attributes human triggerer as author/committer with App Co-authored-by", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    const botIdentity = { userId: 123, login: "pr-agent[bot]" };
+    const human = { name: "Alice", email: githubNoreplyEmail(42, "alice") };
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity,
+          commitAttribution: buildTriageCommitAttribution({
             botIdentity,
-            commitAttribution: buildTriageCommitAttribution({
-              botIdentity,
-              triggerer: human,
-            }),
-            remoteUrlOverride: remote,
-          },
-          async (checkout) => {
-            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
-            await checkout.commit({
-              files: ["src.txt"],
-              subject: "fix: add missing line",
-              body: ["- Add missing line"],
-            });
-            await checkout.push();
-          },
-        );
-
-        const clone = join(root, "clone");
-        await git(root, ["clone", "--branch", "main", remote, clone]);
-        const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
-        const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
-        const message = await git(clone, ["log", "-1", "--format=%B"]);
-        expect(author).toBe(`Alice <${human.email}>`);
-        expect(committer).toBe(`Alice <${human.email}>`);
-        expect(message).toContain("- Add missing line");
-        expect(message).toContain(
-          formatCoAuthoredByTrailer({
-            name: "pr-agent[bot]",
-            email: githubNoreplyEmail(123, "pr-agent[bot]"),
+            triggerer: human,
           }),
-        );
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+          await checkout.commit({
+            files: ["src.txt"],
+            subject: "fix: add missing line",
+            body: ["- Add missing line"],
+          });
+          await checkout.push();
+        },
+      );
+
+      const clone = join(root, "clone");
+      await git(root, ["clone", "--branch", "main", remote, clone]);
+      const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
+      const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
+      const message = await git(clone, ["log", "-1", "--format=%B"]);
+      expect(author).toBe(`Alice <${human.email}>`);
+      expect(committer).toBe(`Alice <${human.email}>`);
+      expect(message).toContain("- Add missing line");
+      expect(message).toContain(
+        formatCoAuthoredByTrailer({
+          name: "pr-agent[bot]",
+          email: githubNoreplyEmail(123, "pr-agent[bot]"),
+        }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("rejects bad subjects, oversized bodies, and uses -n", () => {
     expect(() => buildCommitCommandArgs({ files: ["x"], subject: "fix(scope): nope" })).toThrow();
@@ -433,45 +419,41 @@ describe("writable PR checkout", () => {
     ).toBeNull();
   });
 
-  it(
-    "surfaces non-fast-forward pushes as StaleHeadPushError",
-    async () => {
-      const { root, repo, remote, headSha } = await makeRemote();
-      try {
-        await expect(
-          withWritablePrCheckout(
-            {
-              owner: "owner",
-              repo: "repo",
-              headRef: "main",
-              headSha,
-              installationToken: "unused",
-              botIdentity: { userId: 123, login: "pr-agent[bot]" },
-              remoteUrlOverride: remote,
-            },
-            async (checkout) => {
-              await writeFile(join(repo, "other.txt"), "other\n");
-              await git(repo, ["add", "."]);
-              await git(repo, ["commit", "-m", "human"]);
-              await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+  it("surfaces non-fast-forward pushes as StaleHeadPushError", async () => {
+    const { root, repo, remote, headSha } = await makeRemote();
+    try {
+      await expect(
+        withWritablePrCheckout(
+          {
+            owner: "owner",
+            repo: "repo",
+            headRef: "main",
+            headSha,
+            installationToken: "unused",
+            botIdentity: { userId: 123, login: "pr-agent[bot]" },
+            remoteUrlOverride: remote,
+          },
+          async (checkout) => {
+            await writeFile(join(repo, "other.txt"), "other\n");
+            await git(repo, ["add", "."]);
+            await git(repo, ["commit", "-m", "human"]);
+            await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
 
-              await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
-              await checkout.commit({ files: ["src.txt"], subject: "fix: add missing line" });
-              await checkout.push();
-            },
-          ),
-        ).rejects.toSatisfy((error: unknown) => {
-          expect(error).toBeInstanceOf(StaleHeadPushError);
-          expect(error).toBeInstanceOf(AppError);
-          expect((error as StaleHeadPushError).code).toBe("triage.stale_head_push");
-          return true;
-        });
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+            await checkout.commit({ files: ["src.txt"], subject: "fix: add missing line" });
+            await checkout.push();
+          },
+        ),
+      ).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(StaleHeadPushError);
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as StaleHeadPushError).code).toBe("triage.stale_head_push");
+        return true;
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("rejects invalid headSha with pr_workspace.invalid_sha and field context", async () => {
     await expect(
@@ -494,53 +476,49 @@ describe("writable PR checkout", () => {
     });
   });
 
-  it(
-    "rejects unsafe paths and resets index after oversized staged diff",
-    async () => {
-      const { root, remote, headSha } = await makeRemote();
-      try {
-        await withWritablePrCheckout(
-          {
-            owner: "owner",
-            repo: "repo",
-            headRef: "main",
-            headSha,
-            installationToken: "unused",
-            botIdentity: { userId: 123, login: "pr-agent[bot]" },
-            remoteUrlOverride: remote,
-          },
-          async (checkout) => {
-            await expect(
-              checkout.commit({ files: ["../escape"], subject: "fix: guard path" }),
-            ).rejects.toThrow(/traversal/);
-            await writeFile(join(checkout.dir, ".env"), "SECRET=1\n");
-            await expect(
-              checkout.commit({ files: [".env"], subject: "fix: guard path" }),
-            ).rejects.toThrow(/sensitive/);
+  it("rejects unsafe paths and resets index after oversized staged diff", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await expect(
+            checkout.commit({ files: ["../escape"], subject: "fix: guard path" }),
+          ).rejects.toThrow(/traversal/);
+          await writeFile(join(checkout.dir, ".env"), "SECRET=1\n");
+          await expect(
+            checkout.commit({ files: [".env"], subject: "fix: guard path" }),
+          ).rejects.toThrow(/sensitive/);
 
-            await writeFile(
-              join(checkout.dir, "src.txt"),
-              Array.from({ length: 205 }, (_, index) => `line ${index}`).join("\n"),
-            );
-            await expect(
-              checkout.commit({ files: ["src.txt"], subject: "fix: expand file" }),
-            ).rejects.toThrow(/not minimal/);
+          await writeFile(
+            join(checkout.dir, "src.txt"),
+            Array.from({ length: 205 }, (_, index) => `line ${index}`).join("\n"),
+          );
+          await expect(
+            checkout.commit({ files: ["src.txt"], subject: "fix: expand file" }),
+          ).rejects.toThrow(/not minimal/);
 
-            await writeFile(join(checkout.dir, "other.txt"), "small\n");
-            const result = await checkout.commit({
-              files: ["other.txt"],
-              subject: "fix: add small file",
-            });
-            expect(result.diff).toContain("other.txt");
-            expect(result.diff).not.toContain("line 204");
-          },
-        );
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+          await writeFile(join(checkout.dir, "other.txt"), "small\n");
+          const result = await checkout.commit({
+            files: ["other.txt"],
+            subject: "fix: add small file",
+          });
+          expect(result.diff).toContain("other.txt");
+          expect(result.diff).not.toContain("line 204");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("releases root and credential files after injected credential-setup failure", async () => {
     credentialHooks.failAfterWrite = true;
@@ -605,46 +583,42 @@ describe("writable PR checkout", () => {
     }
   });
 
-  it(
-    "strips attacker-controlled symlinks before exposing the checkout",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "writable-checkout-symlink-"));
-      const repo = join(root, "repo");
-      const remote = join(root, "remote.git");
-      try {
-        await git(root, ["init", repo]);
-        await git(repo, ["config", "user.email", "test@example.com"]);
-        await git(repo, ["config", "user.name", "Test"]);
-        await writeFile(join(repo, "src.txt"), "one\n");
-        await symlink("/etc/passwd", join(repo, "leak.md"));
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "base with symlink"]);
-        await git(root, ["init", "--bare", remote]);
-        await git(repo, ["remote", "add", "origin", remote]);
-        await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
-        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+  it("strips attacker-controlled symlinks before exposing the checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "writable-checkout-symlink-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await symlink("/etc/passwd", join(repo, "leak.md"));
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "base with symlink"]);
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
 
-        await withWritablePrCheckout(
-          {
-            owner: "owner",
-            repo: "repo",
-            headRef: "main",
-            headSha,
-            installationToken: "unused",
-            botIdentity: { userId: 123, login: "pr-agent[bot]" },
-            remoteUrlOverride: remote,
-          },
-          async (checkout) => {
-            await expect(lstat(join(checkout.dir, "leak.md"))).rejects.toMatchObject({
-              code: "ENOENT",
-            });
-            expect(await readFile(join(checkout.dir, "src.txt"), "utf8")).toContain("one");
-          },
-        );
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await expect(lstat(join(checkout.dir, "leak.md"))).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+          expect(await readFile(join(checkout.dir, "src.txt"), "utf8")).toContain("one");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -82,18 +82,17 @@ function persistedCoverage(coverage: ReviewCoverage) {
   };
 }
 
-function actionLineCoverage(
-  coverage: Exclude<ReviewCoverage, { readonly kind: "none" }>,
-): ReviewActionLineCoverage {
-  if (coverage.kind === "full") return { kind: "full", failed: [] };
-  return {
+function actionLineCoverage(coverage: Exclude<ReviewCoverage, { readonly kind: "none" }>) {
+  if (coverage.kind === "full")
+    return ((pinnedReturn: ReviewActionLineCoverage) => pinnedReturn)({ kind: "full", failed: [] });
+  return ((pinnedReturn: ReviewActionLineCoverage) => pinnedReturn)({
     kind: "partial",
     failed: coverage.failed ?? [],
     ...((coverage.paths?.length ?? 0) > 0 ? { unread: true as const } : {}),
     ...(coverage.unjudged != null && coverage.unjudged.length > 0
       ? { unjudged: [...coverage.unjudged] }
       : {}),
-  };
+  });
 }
 
 export async function publishReviewSummaryOnly(
@@ -105,14 +104,15 @@ export async function publishReviewSummaryOnly(
     readonly staleReview?: boolean;
     readonly recoveryDecision?: RecoveryDecision;
   },
-): Promise<PublishSummaryOnlyResult> {
+) {
   if (requestedInput.recoveryDecision == null) {
     session.recovery?.throwIfPublicationUnresolved("publish_summary_failed");
   } else if (
     requestedInput.recoveryDecision.settled?.artifact.kind === "publication_settled" &&
     requestedInput.recoveryDecision.settled.artifact.outcome === "stopped"
   ) {
-    return { kind: "stopped", reason: "superseded" };
+    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+      pinnedReturn)({ kind: "stopped", reason: "superseded" });
   }
   const retained = session.recovery?.canReuseSummary()
     ? await session.recovery.load("final-summary")
@@ -168,7 +168,7 @@ export async function publishReviewSummaryOnly(
       pr: session.ctx.prNumber,
     });
   }
-  const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
+  const finishPublished = (summaryCommentId: number) => {
     if (session.agentEvents) {
       emitWorkSpan(
         session.agentEvents,
@@ -181,7 +181,11 @@ export async function publishReviewSummaryOnly(
         }),
       );
     }
-    return { kind: "published", summaryCommentId, check };
+    return ((pinnedReturn: PublishSummaryOnlyResult) => pinnedReturn)({
+      kind: "published",
+      summaryCommentId,
+      check,
+    });
   };
   const { owner, repo, prNumber, headSha } = session.ctx;
   const mode = session.mode;
@@ -253,7 +257,9 @@ export async function publishReviewSummaryOnly(
   });
 
   const stopReason = await session.stopReason();
-  if (stopReason != null) return { kind: "stopped", reason: stopReason };
+  if (stopReason != null)
+    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+      pinnedReturn)({ kind: "stopped", reason: stopReason });
 
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
   if (session.shouldLinkToSummary) {
@@ -425,7 +431,9 @@ export async function publishReviewSummaryOnly(
     prNumber,
   });
 
-  if (!labelsAvailable) return finishPublished(summary.id);
+  if (!labelsAvailable)
+    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+      pinnedReturn)(finishPublished(summary.id));
   if (currentLabels instanceof Error) {
     logWarn("review_labels_fetch_failed", {
       mode,
@@ -434,7 +442,8 @@ export async function publishReviewSummaryOnly(
       pr: prNumber,
       message: currentLabels.message,
     });
-    return finishPublished(summary.id);
+    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+      pinnedReturn)(finishPublished(summary.id));
   }
   if (!Array.isArray(currentLabels)) {
     logWarn("review_labels_fetch_failed", {
@@ -444,7 +453,8 @@ export async function publishReviewSummaryOnly(
       pr: prNumber,
       message: `listPullRequestLabels returned non-array: ${String(currentLabels)}`,
     });
-    return finishPublished(summary.id);
+    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+      pinnedReturn)(finishPublished(summary.id));
   }
 
   const wantsCategoryLabel = dominantReviewCategory(input.payload.findings) != null;
@@ -507,7 +517,8 @@ export async function publishReviewSummaryOnly(
     }
   }
 
-  return finishPublished(summary.id);
+  return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
+    pinnedReturn)(finishPublished(summary.id));
 }
 
 type PublishedReviewComment = {
@@ -519,24 +530,27 @@ type PublishedReviewComment = {
 
 function publishedReviewComments(
   comments: readonly Pick<PrReviewComment, "path" | "line" | "id" | "htmlUrl">[],
-): PublishedReviewComment[] {
-  return comments
-    .flatMap((comment) =>
-      comment.path == null || comment.line == null
-        ? []
-        : [{ path: comment.path, line: comment.line, id: comment.id, url: comment.htmlUrl }],
-    )
-    .toSorted((a, b) => a.id - b.id);
+) {
+  return ((pinnedReturn: PublishedReviewComment[]) => pinnedReturn)(
+    comments
+      .flatMap((comment) =>
+        comment.path == null || comment.line == null
+          ? []
+          : [{ path: comment.path, line: comment.line, id: comment.id, url: comment.htmlUrl }],
+      )
+      .toSorted((a, b) => a.id - b.id),
+  );
 }
 
-function reviewCommentAnchorKey(path: string, line: number): string {
-  return `${path}:${line}`;
+function reviewCommentAnchorKey(path: string, line: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${path}:${line}`);
 }
 
-function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
-  if (accepted.kind !== "summary_only") return accepted.placement;
+function summaryPlacement(accepted: AcceptedPlacement) {
+  if (accepted.kind !== "summary_only")
+    return ((pinnedReturn: SummaryPlacement) => pinnedReturn)(accepted.placement);
   const { finding } = accepted.placement;
-  return {
+  return ((pinnedReturn: SummaryPlacement) => pinnedReturn)({
     ...accepted.placement,
     findingRow: {
       id: accepted.findingId,
@@ -547,13 +561,14 @@ function summaryPlacement(accepted: AcceptedPlacement): SummaryPlacement {
       title: finding.title,
       ...(accepted.reopens != null ? { reopens: accepted.reopens } : {}),
     },
-  };
+  });
 }
 
-function reaffirmedSummaryPlacement(entry: ReaffirmedFinding): SummaryPlacement {
-  if (entry.heldBy !== "summary") return entry.placement;
+function reaffirmedSummaryPlacement(entry: ReaffirmedFinding) {
+  if (entry.heldBy !== "summary")
+    return ((pinnedReturn: SummaryPlacement) => pinnedReturn)(entry.placement);
   const { finding } = entry.placement;
-  return {
+  return ((pinnedReturn: SummaryPlacement) => pinnedReturn)({
     ...entry.placement,
     findingRow: {
       id: entry.id,
@@ -563,13 +578,13 @@ function reaffirmedSummaryPlacement(entry: ReaffirmedFinding): SummaryPlacement 
       line: finding.startLine,
       title: finding.title,
     },
-  };
+  });
 }
 
 function enrichPlacementsWithInlineCommentUrls(
   placements: readonly SummaryPlacement[],
   comments: readonly PublishedReviewComment[],
-): SummaryPlacement[] {
+) {
   const commentsByAnchor = new Map<string, PublishedReviewComment[]>();
   for (const comment of comments) {
     const key = reviewCommentAnchorKey(comment.path, comment.line);
@@ -580,15 +595,17 @@ function enrichPlacementsWithInlineCommentUrls(
 
   const anchorUseIndex = new Map<string, number>();
 
-  return placements.map((placement) => {
-    if (!placement.inlinePosted || placement.inlineLine == null) return placement;
-    const key = reviewCommentAnchorKey(placement.finding.file, placement.inlineLine);
-    const bucket = commentsByAnchor.get(key);
-    if (!bucket || bucket.length === 0) return placement;
-    const index = anchorUseIndex.get(key) ?? 0;
-    const comment = bucket[index];
-    if (!comment) return placement;
-    anchorUseIndex.set(key, index + 1);
-    return { ...placement, inlineCommentUrl: comment.url };
-  });
+  return ((pinnedReturn: SummaryPlacement[]) => pinnedReturn)(
+    placements.map((placement) => {
+      if (!placement.inlinePosted || placement.inlineLine == null) return placement;
+      const key = reviewCommentAnchorKey(placement.finding.file, placement.inlineLine);
+      const bucket = commentsByAnchor.get(key);
+      if (!bucket || bucket.length === 0) return placement;
+      const index = anchorUseIndex.get(key) ?? 0;
+      const comment = bucket[index];
+      if (!comment) return placement;
+      anchorUseIndex.set(key, index + 1);
+      return { ...placement, inlineCommentUrl: comment.url };
+    }),
+  );
 }

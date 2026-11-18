@@ -170,52 +170,58 @@ const boss = {
 
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
-): AgentWorkItem {
-  return makeReviewWorkItem({ status: "queued", ...overrides });
+) {
+  return ((pinnedReturn: AgentWorkItem) => pinnedReturn)(
+    makeReviewWorkItem({ status: "queued", ...overrides }),
+  );
 }
 
-function mockFetchedItem(item: AgentWorkItem | null): void {
+function mockFetchedItem(item: AgentWorkItem | null) {
   vi.mocked(repo.getWorkItem).mockResolvedValue(item);
   vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
   vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
-function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: string }> {
-  return {
+function makeJob(retryCount = 0, retryLimit = 3) {
+  return ((pinnedReturn: JobWithMetadata<{ workItemId: string }>) => pinnedReturn)({
     id: "job-1",
     data: { workItemId: "wi-1" },
     retryCount,
     retryLimit,
     signal: new AbortController().signal,
-  } as unknown as JobWithMetadata<{ workItemId: string }>;
+  } as unknown as JobWithMetadata<{ workItemId: string }>);
 }
 
-function completedResult(degradation?: readonly string[]): DurableExecutionResult {
-  return degradation ? { kind: "completed", degradation } : { kind: "completed" };
+function completedResult(degradation?: readonly string[]) {
+  return ((pinnedReturn: DurableExecutionResult) => pinnedReturn)(
+    degradation ? { kind: "completed", degradation } : { kind: "completed" },
+  );
 }
 
 function runReviewWorkItem(
   overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
-): Promise<void> {
-  return runDurableWorkItem({
-    contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
-    cfg,
-    pool,
-    boss,
-    job: makeJob(),
-    type: "review",
-    prActorLease: { queue: "agent-work-review" },
-    resolveHeadSha: async () => ({ headSha: "x" }),
-    runtime: createDurableRuntime({
-      installationSurface,
-      transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+) {
+  return ((pinnedReturn: Promise<void>) => pinnedReturn)(
+    runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "review",
+      prActorLease: { queue: "agent-work-review" },
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+      }),
+      ...overrides,
+      execute: async (item, env) => {
+        await env.beginAttempt();
+        return overrides.execute(item, env);
+      },
     }),
-    ...overrides,
-    execute: async (item, env) => {
-      await env.beginAttempt();
-      return overrides.execute(item, env);
-    },
-  });
+  );
 }
 
 function defaultMocks() {
@@ -267,7 +273,7 @@ function defaultMocks() {
   });
 }
 
-async function expectNoFurtherLeaseRenewal(): Promise<void> {
+async function expectNoFurtherLeaseRenewal() {
   const renewals = vi.mocked(prActorLease.renewPrActorLease).mock.calls.length;
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(prActorLease.renewPrActorLease).toHaveBeenCalledTimes(renewals);

@@ -40,8 +40,8 @@ const layoutRule: RepoPolicyRule = {
   body: "Layout.",
 };
 
-function findingAt(file: string, line: number, title = `Finding ${line}`): ReviewFinding {
-  return {
+function findingAt(file: string, line: number, title = `Finding ${line}`) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file,
     startLine: line,
@@ -50,7 +50,7 @@ function findingAt(file: string, line: number, title = `Finding ${line}`): Revie
     detail: `Detail at ${file}:${line}.`,
     fixPrompt: "Do not send this to the judge.",
     suggestedCode: "secret-suggested",
-  };
+  });
 }
 
 function loadedPolicy(rules: readonly RepoPolicyRule[]) {

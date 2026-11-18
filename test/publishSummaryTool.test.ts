@@ -50,8 +50,8 @@ vi.mock("../src/review/publish/publishSummaryOnly.ts", async (importOriginal) =>
   };
 });
 
-function finding(line: number, severity: ReviewFinding["severity"] = "P1"): ReviewFinding {
-  return {
+function finding(line: number, severity: ReviewFinding["severity"] = "P1") {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity,
     file: "src/a.ts",
     startLine: line,
@@ -61,35 +61,35 @@ function finding(line: number, severity: ReviewFinding["severity"] = "P1"): Revi
     fixPrompt: `Original fix ${line}.`,
     confidence: 4,
     category: "bug",
-  };
+  });
 }
 
 function accepted(
   findingId: string,
   item: ReviewFinding,
   kind: AcceptedPlacement["kind"] = "posted",
-): AcceptedPlacement {
+) {
   const placement = {
     finding: item,
     inlineLine: kind === "summary_only" ? null : item.startLine,
     inlinePosted: kind !== "summary_only",
   };
   if (kind === "summary_only") {
-    return {
+    return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
       kind,
       source: "correctness",
       placement,
       findingId: legacyFindingId(findingId),
       reason: "anchor",
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
     kind,
     source: "correctness",
     placement,
     findingId: legacyFindingId(findingId),
     reviewId: item.startLine,
-  };
+  });
 }
 
 function summaryInput(

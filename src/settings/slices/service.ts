@@ -56,29 +56,31 @@ export type LoggingSlice = {
   readonly redact: boolean;
 };
 
-export function readRuntimeSlice(): RuntimeSlice {
+export function readRuntimeSlice() {
   const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
   const databaseUrl = requireEnv(ENV.DATABASE_URL);
   const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
-  return { port, databaseUrl, role };
+  return ((pinnedReturn: RuntimeSlice) => pinnedReturn)({ port, databaseUrl, role });
 }
 
-export function readAgentEventsSlice(): AgentEventsSlice {
-  return {
+export function readAgentEventsSlice() {
+  return ((pinnedReturn: AgentEventsSlice) => pinnedReturn)({
     enabled: readStrictBoolean(ENV.AGENT_EVENTS_ENABLED, DEFAULT_AGENT_EVENTS_ENABLED),
     retentionSeconds: readNonNegativeNumber(
       ENV.AGENT_EVENTS_RETENTION_SECONDS,
       DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
     ),
-  };
+  });
 }
 
-export function readCodeModeSlice(): CodeModeSlice {
-  return { executorKind: import.meta.url.endsWith(".js") ? "worker_threads" : "in_process" };
+export function readCodeModeSlice() {
+  return ((pinnedReturn: CodeModeSlice) => pinnedReturn)({
+    executorKind: import.meta.url.endsWith(".js") ? "worker_threads" : "in_process",
+  });
 }
 
-export function readReviewSlice(): ReviewSlice {
-  return {
+export function readReviewSlice() {
+  return ((pinnedReturn: ReviewSlice) => pinnedReturn)({
     testsEvidence: readStrictBoolean(ENV.REVIEW_TESTS_EVIDENCE, false),
     checkFailSeverity: readEnum(
       ENV.REVIEW_CHECK_FAIL_SEVERITY,
@@ -91,20 +93,20 @@ export function readReviewSlice(): ReviewSlice {
     ),
     maxInlineComments: MAX_INLINE_REVIEW_COMMENTS,
     maxThreadPublishCalls: MAX_THREAD_PUBLISH_CALLS,
-  };
+  });
 }
 
-export function readPosthogSlice(): PosthogSlice {
-  return {
+export function readPosthogSlice() {
+  return ((pinnedReturn: PosthogSlice) => pinnedReturn)({
     projectToken: optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN),
     host: optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim(),
-  };
+  });
 }
 
-export function readLoggingSlice(): LoggingSlice {
-  return {
+export function readLoggingSlice() {
+  return ((pinnedReturn: LoggingSlice) => pinnedReturn)({
     level: readEnum(ENV.LOG_LEVEL, ["debug", "info", "warn", "error"] as const, DEFAULT_LOG_LEVEL),
     pretty: readStrictBoolean(ENV.LOG_PRETTY, !isProductionNodeEnv()),
     redact: readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT),
-  };
+  });
 }

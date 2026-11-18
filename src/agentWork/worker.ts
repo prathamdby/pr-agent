@@ -65,14 +65,16 @@ function registerPlainQueue<T>(
   options: Parameters<PgBoss["work"]>[1],
   dispatch: (job: Job<T>) => Promise<void>,
   correlation: (data: T) => JobCorrelation = () => ({}),
-): Promise<unknown> {
-  return boss.work<T>(queue, options, async ([job]) => {
-    await executions.track(() =>
-      runWithOperationLogger(workerJobMeta(queue, correlation(job.data), job.id), () =>
-        dispatch(job),
-      ),
-    );
-  });
+) {
+  return ((pinnedReturn: Promise<unknown>) => pinnedReturn)(
+    boss.work<T>(queue, options, async ([job]) => {
+      await executions.track(() =>
+        runWithOperationLogger(workerJobMeta(queue, correlation(job.data), job.id), () =>
+          dispatch(job),
+        ),
+      );
+    }),
+  );
 }
 
 type MetadataWorkOptions = WorkOptions & { includeMetadata: true };
@@ -83,25 +85,27 @@ function registerMetadataQueue<T extends JobCorrelation>(
   queue: string,
   options: Omit<WorkOptions, "includeMetadata">,
   dispatch: (job: JobWithMetadata<T>) => Promise<void>,
-): Promise<unknown> {
+) {
   const workOptions = { ...options, includeMetadata: true } satisfies MetadataWorkOptions;
-  return boss.work<T, void, MetadataWorkOptions>(queue, workOptions, async ([job]) => {
-    await executions.track(() =>
-      runWithOperationLogger(workerJobMeta(queue, job.data, job.id), () =>
-        executions.track(() => dispatch(job), { durable: true }),
-      ),
-    );
+  return ((pinnedReturn: Promise<unknown>) => pinnedReturn)(
+    boss.work<T, void, MetadataWorkOptions>(queue, workOptions, async ([job]) => {
+      await executions.track(() =>
+        runWithOperationLogger(workerJobMeta(queue, job.data, job.id), () =>
+          executions.track(() => dispatch(job), { durable: true }),
+        ),
+      );
+    }),
+  );
+}
+
+export function retentionQueueWorkOptions() {
+  return ((pinnedReturn: Parameters<PgBoss["work"]>[1]) => pinnedReturn)({
+    localConcurrency: 1,
+    pollingIntervalSeconds: RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   });
 }
 
-export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
-  return {
-    localConcurrency: 1,
-    pollingIntervalSeconds: RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
-  };
-}
-
-export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
+export async function stopWorkerConsumers(boss: PgBoss) {
   await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
 }
 
@@ -189,7 +193,7 @@ export const AgentWorkerLive = (
             verificationConcurrency: cfg.concurrency.verification,
           });
 
-          const runDiagnostics = async (now: Date): Promise<void> => {
+          const runDiagnostics = async (now: Date) => {
             const report = await collectQueueDiagnostics({
               boss,
               pool,

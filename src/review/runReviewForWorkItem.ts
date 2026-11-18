@@ -120,16 +120,16 @@ type LightweightPhaseResult =
   | { readonly done: true; readonly result: DurableExecutionResult }
   | { readonly done: false; readonly prefetchedPrFiles: ListPullRequestFilesResult | undefined };
 
-function reviewRunTimingFromJob(job: JobWithMetadata<{ workItemId: string }>): ReviewRunTiming {
+function reviewRunTimingFromJob(job: JobWithMetadata<{ workItemId: string }>) {
   const startedOnMs = job.startedOn.getTime();
   const returnByMs = startedOnMs + job.expireInSeconds * 1000 * 0.8;
   const modelStopAtMs = Math.max(startedOnMs, returnByMs - REVIEW_FINALIZATION_WINDOW_MS);
-  return {
+  return ((pinnedReturn: ReviewRunTiming) => pinnedReturn)({
     returnByMs,
     modelStopAtMs,
     remainingModelMs: (now = Date.now()) => Math.max(0, modelStopAtMs - now),
     remainingTotalMs: (now = Date.now()) => Math.max(0, returnByMs - now),
-  };
+  });
 }
 
 function reviewRunGate(args: {
@@ -140,10 +140,10 @@ function reviewRunGate(args: {
   readonly prSurface: PrSurface;
   readonly publishAbortState: { staleHead?: boolean };
   readonly staleHeadAtPublish: { value: boolean };
-}): ReviewRunGate {
+}) {
   const deadlineReached = () =>
     Date.now() >= args.timing.modelStopAtMs || Date.now() >= args.timing.returnByMs;
-  return {
+  return ((pinnedReturn: ReviewRunGate) => pinnedReturn)({
     check: async () => {
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
       if (await shouldSkipWork(args.pool, args.item)) {
@@ -164,7 +164,7 @@ function reviewRunGate(args: {
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
       return { kind: "continue" };
     },
-  };
+  });
 }
 
 async function scheduleStaleHeadReplacement(args: {
@@ -173,7 +173,7 @@ async function scheduleStaleHeadReplacement(args: {
   readonly item: ReviewWorkItem;
   readonly leaseEpoch: number | null;
   readonly beforeBuild?: () => Promise<void>;
-}): Promise<StaleReviewRescheduleResult | undefined> {
+}) {
   if (args.leaseEpoch == null) {
     throw new AppError({
       domain: "agent_work",
@@ -183,12 +183,20 @@ async function scheduleStaleHeadReplacement(args: {
     });
   }
   if (await shouldSkipWork(args.pool, args.item)) {
-    return undefined;
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | undefined)
+        | Promise<StaleReviewRescheduleResult | undefined>,
+    ) => pinnedReturn)(undefined);
   }
   await args.beforeBuild?.();
-  return (
+  return ((
+    pinnedReturn:
+      | (StaleReviewRescheduleResult | undefined)
+      | Promise<StaleReviewRescheduleResult | undefined>,
+  ) => pinnedReturn)(
     (await tryBuildStaleReviewRescheduleResult(args.pool, args.item, args.leaseEpoch, args.boss)) ??
-    undefined
+      undefined,
   );
 }
 
@@ -201,37 +209,47 @@ async function handleStaleHeadReschedule(args: {
   readonly prSurface: PrSurface;
   readonly leaseEpoch: number | null;
   readonly commitStatusEnabled: boolean;
-}): Promise<StaleReviewRescheduleResult | undefined> {
+}) {
   const { pool, item, reviewLens, payload, prSurface, leaseEpoch, commitStatusEnabled } = args;
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
     payload.staleHeadReplacement === undefined
   ) {
-    return undefined;
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | undefined)
+        | Promise<StaleReviewRescheduleResult | undefined>,
+    ) => pinnedReturn)(undefined);
   }
-  return scheduleStaleHeadReplacement({
-    pool,
-    boss: args.boss,
-    item,
-    leaseEpoch,
-    beforeBuild: async () => {
-      await reviewVerdict({
-        pool,
-        prSurface,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        workItemId: item.id,
-        resourceKey: item.resourceKey,
-        reviewLens,
-        headSha: item.headSha,
-        leaseEpoch,
-        commitStatusEnabled,
-        summaryCommentId: null,
-      }).close({ kind: "stale_head" });
-    },
-  });
+  return ((
+    pinnedReturn:
+      | (StaleReviewRescheduleResult | undefined)
+      | Promise<StaleReviewRescheduleResult | undefined>,
+  ) => pinnedReturn)(
+    scheduleStaleHeadReplacement({
+      pool,
+      boss: args.boss,
+      item,
+      leaseEpoch,
+      beforeBuild: async () => {
+        await reviewVerdict({
+          pool,
+          prSurface,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens,
+          headSha: item.headSha,
+          leaseEpoch,
+          commitStatusEnabled,
+          summaryCommentId: null,
+        }).close({ kind: "stale_head" });
+      },
+    }),
+  );
 }
 
 async function closeStoredReviewVerdict(args: {
@@ -243,7 +261,7 @@ async function closeStoredReviewVerdict(args: {
   readonly commitStatusEnabled: boolean;
   readonly outcome: OwnVerdictOutcome;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
-}): Promise<void> {
+}) {
   const {
     pool,
     item,
@@ -301,7 +319,7 @@ async function runLightweightCompletionOrSkip(args: {
   readonly commitStatusEnabled: boolean;
   readonly profile: ReviewProfileSession;
   readonly beginAttempt: DurableExecutionContext["beginAttempt"];
-}): Promise<LightweightPhaseResult> {
+}) {
   const {
     cfg,
     pool,
@@ -315,7 +333,8 @@ async function runLightweightCompletionOrSkip(args: {
     commitStatusEnabled,
   } = args;
   if (payload.source !== "auto") {
-    return { done: false, prefetchedPrFiles: undefined };
+    return ((pinnedReturn: LightweightPhaseResult | Promise<LightweightPhaseResult>) =>
+      pinnedReturn)({ done: false, prefetchedPrFiles: undefined });
   }
   const prefetchedPrFiles = await recordReviewPhaseSpan("preflight", () =>
     prSurface.listChangedFiles(
@@ -352,7 +371,8 @@ async function runLightweightCompletionOrSkip(args: {
         }),
     });
     if (reschedule) {
-      return { done: true, result: reschedule };
+      return ((pinnedReturn: LightweightPhaseResult | Promise<LightweightPhaseResult>) =>
+        pinnedReturn)({ done: true, result: reschedule });
     }
   }
   assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
@@ -369,7 +389,8 @@ async function runLightweightCompletionOrSkip(args: {
     checkFailSeverity: cfg.review.checkFailSeverity,
   });
   if (!lightweightResult.handled) {
-    return { done: false, prefetchedPrFiles };
+    return ((pinnedReturn: LightweightPhaseResult | Promise<LightweightPhaseResult>) =>
+      pinnedReturn)({ done: false, prefetchedPrFiles });
   }
   logInfo("review_lightweight_completion", {
     owner: item.owner,
@@ -410,7 +431,9 @@ async function runLightweightCompletionOrSkip(args: {
         }
       : { kind: "cancelled", summary: "Review was cancelled before lightweight completion." },
   );
-  return { done: true, result: { kind: "completed" } };
+  return ((pinnedReturn: LightweightPhaseResult | Promise<LightweightPhaseResult>) => pinnedReturn)(
+    { done: true, result: { kind: "completed" } },
+  );
 }
 
 async function buildPriorInlineFeedbackPromise(args: {
@@ -419,7 +442,7 @@ async function buildPriorInlineFeedbackPromise(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly prSurface: PrSurface;
-}): Promise<SettledPriorInlineFeedback> {
+}) {
   const { cfg, item, reviewLens, prSurface } = args;
   const logPriorFeedbackError = (error: unknown) => {
     logWarn("prior_inline_feedback_fetch_failed", {
@@ -432,7 +455,8 @@ async function buildPriorInlineFeedbackPromise(args: {
   };
   try {
     const bot = await args.getBotIdentity();
-    return {
+    return ((pinnedReturn: SettledPriorInlineFeedback | Promise<SettledPriorInlineFeedback>) =>
+      pinnedReturn)({
       ok: true,
       value: await fetchPriorInlineFeedbackBlockForReview({
         prSurface,
@@ -441,10 +465,11 @@ async function buildPriorInlineFeedbackPromise(args: {
         maintainerDecisionAssociations: cfg.associations.maintainerDecision,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
-    };
+    });
   } catch (error: unknown) {
     logPriorFeedbackError(error);
-    return { ok: false, error };
+    return ((pinnedReturn: SettledPriorInlineFeedback | Promise<SettledPriorInlineFeedback>) =>
+      pinnedReturn)({ ok: false, error });
   }
 }
 
@@ -466,10 +491,10 @@ function createReviewProfileSession(args: {
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly getClaim: () => ReviewWorkClaim | undefined;
-}): ReviewProfileSession {
+}) {
   let pending: ReviewProfileRecord | undefined;
   let captured: Extract<WorkCompletion, { kind: "review-profile" }> | undefined;
-  return {
+  return ((pinnedReturn: ReviewProfileSession) => pinnedReturn)({
     record(record) {
       if (pending || captured) return;
       pending = record;
@@ -524,7 +549,7 @@ function createReviewProfileSession(args: {
       }
       return captured;
     },
-  };
+  });
 }
 
 async function handleReviewPublishResult(args: {
@@ -537,7 +562,7 @@ async function handleReviewPublishResult(args: {
   readonly result: ReviewRunResult;
   readonly profile: ReviewProfileSession;
   readonly policyUnavailable: boolean;
-}): Promise<DurableExecutionResult> {
+}) {
   const { pool, item, reviewLens, prSurface, leaseEpoch, commitStatusEnabled, result } = args;
   const snapshot = snapshotReviewRunMetrics();
   const outcome = reviewWorkOutcome({
@@ -629,8 +654,12 @@ async function handleReviewPublishResult(args: {
   const degradation: ReviewDegradationReason[] = [];
   if (!(result.published || result.publishSuperseded)) degradation.push("publish_not_completed");
   if (result.published && args.policyUnavailable) degradation.push("repo_policy_unavailable");
-  if (degradation.length === 0) return { kind: "completed" };
-  return { kind: "completed", degradation };
+  if (degradation.length === 0)
+    return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+      pinnedReturn)({ kind: "completed" });
+  return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) => pinnedReturn)(
+    { kind: "completed", degradation },
+  );
 }
 
 async function assembleTrustedReviewContext(args: {
@@ -726,7 +755,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly signal: AbortSignal;
   readonly profile: ReviewProfileSession;
   readonly escalation?: EscalationPlan;
-}): Promise<DurableExecutionResult> {
+}) {
   const {
     createSession,
     cfg,
@@ -955,21 +984,25 @@ async function runFullReviewAgainstRepositoryView(args: {
           });
         },
       });
-      if (reschedule) return reschedule;
+      if (reschedule)
+        return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+          pinnedReturn)(reschedule);
     }
   }
 
-  return handleReviewPublishResult({
-    pool,
-    item,
-    reviewLens,
-    prSurface,
-    leaseEpoch,
-    commitStatusEnabled,
-    result,
-    profile,
-    policyUnavailable: repositoryView.workspace.policySnapshot.kind === "unavailable",
-  });
+  return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) => pinnedReturn)(
+    handleReviewPublishResult({
+      pool,
+      item,
+      reviewLens,
+      prSurface,
+      leaseEpoch,
+      commitStatusEnabled,
+      result,
+      profile,
+      policyUnavailable: repositoryView.workspace.policySnapshot.kind === "unavailable",
+    }),
+  );
 }
 
 async function runClaimedReview(args: {
@@ -984,7 +1017,7 @@ async function runClaimedReview(args: {
   readonly payload: ReviewWorkPayload;
   readonly env: DurableExecutionContext;
   readonly profile: ReviewProfileSession;
-}): Promise<DurableExecutionResult> {
+}) {
   const { job, cfg, pool, boss, item, reviewLens, payload, env, profile } = args;
   const commitStatusEnabled = cfg.features.commitStatus;
   const staleHeadResult = await handleStaleHeadReschedule({
@@ -997,7 +1030,9 @@ async function runClaimedReview(args: {
     leaseEpoch: env.leaseEpoch,
     commitStatusEnabled,
   });
-  if (staleHeadResult) return staleHeadResult;
+  if (staleHeadResult)
+    return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+      pinnedReturn)(staleHeadResult);
 
   const publishContext = await recordReviewPhaseSpan("db-read", () =>
     loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
@@ -1063,7 +1098,8 @@ async function runClaimedReview(args: {
           message: errorMessage(error),
         });
       }
-      return { kind: "completed" };
+      return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+        pinnedReturn)({ kind: "completed" });
     }
   }
 
@@ -1097,7 +1133,9 @@ async function runClaimedReview(args: {
     commitStatusEnabled,
     profile,
   });
-  if (lightweight.done) return lightweight.result;
+  if (lightweight.done)
+    return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+      pinnedReturn)(lightweight.result);
 
   const priorInlineFeedback = buildPriorInlineFeedbackPromise({
     getBotIdentity: args.getBotIdentity,
@@ -1114,40 +1152,42 @@ async function runClaimedReview(args: {
     workItemId: item.id,
     onOpened: () => recordReviewMetric({ kind: "rate_limit_circuit_opened" }),
   });
-  return runWithRateLimitCircuit(rateLimitCircuit, () =>
-    env.withAdmittedRepositoryView(
-      {
-        repositorySizeKb: payload.repositorySizeKb,
-        ...(lightweight.prefetchedPrFiles !== undefined
-          ? { prFiles: lightweight.prefetchedPrFiles }
-          : {}),
-        baseSha: reviewRecoveryBaseSha(env.pullRequest) ?? undefined,
-      },
-      async (repositoryView) =>
-        runFullReviewAgainstRepositoryView({
-          createSession: args.createSession,
-          env,
-          job,
-          cfg,
-          pool,
-          boss,
-          item,
-          reviewLens,
-          payload,
-          prSurface,
-          headSha,
-          pullRequest: env.pullRequest,
-          publishContext,
-          publishAbortState,
-          staleHeadAtPublish,
-          priorInlineFeedback,
-          repositoryView,
-          leaseEpoch: env.leaseEpoch,
-          commitStatusEnabled,
-          signal: env.signal,
-          profile,
-          escalation: env.escalation,
-        }),
+  return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) => pinnedReturn)(
+    runWithRateLimitCircuit(rateLimitCircuit, () =>
+      env.withAdmittedRepositoryView(
+        {
+          repositorySizeKb: payload.repositorySizeKb,
+          ...(lightweight.prefetchedPrFiles !== undefined
+            ? { prFiles: lightweight.prefetchedPrFiles }
+            : {}),
+          baseSha: reviewRecoveryBaseSha(env.pullRequest) ?? undefined,
+        },
+        async (repositoryView) =>
+          runFullReviewAgainstRepositoryView({
+            createSession: args.createSession,
+            env,
+            job,
+            cfg,
+            pool,
+            boss,
+            item,
+            reviewLens,
+            payload,
+            prSurface,
+            headSha,
+            pullRequest: env.pullRequest,
+            publishContext,
+            publishAbortState,
+            staleHeadAtPublish,
+            priorInlineFeedback,
+            repositoryView,
+            leaseEpoch: env.leaseEpoch,
+            commitStatusEnabled,
+            signal: env.signal,
+            profile,
+            escalation: env.escalation,
+          }),
+      ),
     ),
   );
 }
@@ -1164,7 +1204,7 @@ export async function runReviewForWorkItem(
   item: ReviewWorkItem,
   env: DurableExecutionContext,
   deps: ReviewRunDependencies,
-): Promise<DurableExecutionResult> {
+) {
   const { cfg, pool, boss } = deps;
   const reviewLens = item.reviewLens;
   const payload = item.payload;
@@ -1195,7 +1235,9 @@ export async function runReviewForWorkItem(
   });
   const completion = profile.capture();
   const finished = result.kind === "completed" && completion ? { ...result, completion } : result;
-  if (result.kind !== "completed") return finished;
+  if (result.kind !== "completed")
+    return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) =>
+      pinnedReturn)(finished);
   const followUp = await schedulePushFollowUp({
     pool,
     item,
@@ -1207,12 +1249,16 @@ export async function runReviewForWorkItem(
     pullRequestClosed: pullRequestClosed(env.pullRequest),
     boss,
   });
-  return followUp ?? finished;
+  return ((pinnedReturn: DurableExecutionResult | Promise<DurableExecutionResult>) => pinnedReturn)(
+    followUp ?? finished,
+  );
 }
 
-function pullRequestClosed(pullRequest: PullRequestForFileList | undefined): boolean {
-  if (pullRequest == null) return false;
-  return pullRequest.merged === true || pullRequest.state === "closed";
+function pullRequestClosed(pullRequest: PullRequestForFileList | undefined) {
+  if (pullRequest == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    pullRequest.merged === true || pullRequest.state === "closed",
+  );
 }
 
 type ReviewWorkClaim = {
@@ -1227,8 +1273,8 @@ function reviewProfileFields(input: {
   readonly model: string;
   readonly reviewLens: string;
   readonly source: "auto" | "slash";
-}): ReviewProfileFields {
-  return {
+}) {
+  return ((pinnedReturn: ReviewProfileFields) => pinnedReturn)({
     model: input.model,
     provider: input.provider,
     reviewLens: input.reviewLens,
@@ -1241,5 +1287,5 @@ function reviewProfileFields(input: {
           specialistError: input.snapshot.specialistOutcomes?.error ?? 0,
         }
       : {}),
-  };
+  });
 }

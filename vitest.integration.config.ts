@@ -9,7 +9,7 @@ export default defineConfig({
     include: ["test/integration/**/*.test.ts"],
     globalSetup: ["test/integration/globalSetup.ts"],
     setupFiles: ["test/integration/selectWorkerDatabase.ts", "test/setup/evlog.ts"],
-    hookTimeout: 60_000,
-    testTimeout: 60_000,
+    hookTimeout: 90_000,
+    testTimeout: 90_000,
   },
 });

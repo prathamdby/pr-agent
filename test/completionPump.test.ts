@@ -11,16 +11,20 @@ type Deferred<T> = {
   readonly resolve: (value: T) => void;
 };
 
-function deferred<T>(): Deferred<T> {
+function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
-  return { promise, resolve };
+  return ((pinnedReturn: Deferred<T>) => pinnedReturn)({ promise, resolve });
 }
 
-function emptyOutcome(specialist: SpecialistId): SpecialistOutcome {
-  return { kind: "empty", specialist, durationMs: 1 };
+function emptyOutcome(specialist: SpecialistId) {
+  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
+    kind: "empty",
+    specialist,
+    durationMs: 1,
+  });
 }
 
 describe("pumpSpecialistCompletions", () => {

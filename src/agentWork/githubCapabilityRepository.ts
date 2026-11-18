@@ -33,28 +33,30 @@ type SourceRow = {
   unknown_read_count: number;
 };
 
-export async function nextGithubCapabilityObservationGeneration(
-  db: Pool | PoolClient,
-): Promise<string> {
+export async function nextGithubCapabilityObservationGeneration(db: Pool | PoolClient) {
   const result = await db.query<{ generation: string }>(
     "SELECT nextval('github_capability_observation_generation_seq')::text AS generation",
   );
-  return result.rows[0].generation;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(result.rows[0].generation);
 }
 
 export async function loadGithubCapabilityObservation(
   db: Pool | PoolClient,
   scope: GithubRepositoryScope,
-): Promise<GithubCapabilityObservation | null> {
+) {
   const result = await db.query<{ generation: string; capabilities: GithubCapabilities }>(
     `SELECT generation, capabilities FROM github_repository_capabilities
       WHERE installation_id = $1 AND owner = $2 AND repo = $3`,
     [scope.installationId, scope.owner, scope.repo],
   );
   const row = result.rows[0];
-  return row == null
-    ? null
-    : { generation: Number(row.generation), capabilities: row.capabilities };
+  return ((
+    pinnedReturn:
+      | (GithubCapabilityObservation | null)
+      | Promise<GithubCapabilityObservation | null>,
+  ) => pinnedReturn)(
+    row == null ? null : { generation: Number(row.generation), capabilities: row.capabilities },
+  );
 }
 
 export async function saveGithubCapabilityObservation(
@@ -62,7 +64,7 @@ export async function saveGithubCapabilityObservation(
   input: GithubRepositoryScope & {
     readonly observation: GithubCapabilityObservation | InstallationCapabilities;
   },
-): Promise<boolean> {
+) {
   const observation: GithubCapabilityObservation =
     "availability" in input.observation
       ? {
@@ -101,7 +103,7 @@ export async function saveGithubCapabilityObservation(
     );
     if (saved.rowCount === 0) {
       await client.query("COMMIT");
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     }
     const row = saved.rows[0];
     await fanoutObservation(client, input, {
@@ -109,7 +111,7 @@ export async function saveGithubCapabilityObservation(
       capabilities: row.capabilities,
     });
     await client.query("COMMIT");
-    return true;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -124,7 +126,7 @@ export async function recordGithubCapabilityDenial(
     readonly generation: string | number;
     readonly operation: InstallationOperation;
   },
-): Promise<boolean> {
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -145,7 +147,7 @@ export async function recordGithubCapabilityDenial(
       });
     }
     await client.query("COMMIT");
-    return row != null;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(row != null);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -158,7 +160,7 @@ async function fanoutObservation(
   client: PoolClient,
   input: GithubRepositoryScope,
   observation: GithubCapabilityObservation,
-): Promise<void> {
+) {
   const heads = await client.query<{ head_sha: string }>(
     `SELECT h.head_sha FROM pr_head_ci_state h
         WHERE h.owner = $2 AND h.repo = $3
@@ -177,7 +179,7 @@ async function syncSources(
   client: PoolClient,
   scope: GithubHeadScope,
   observation: GithubCapabilityObservation | null,
-): Promise<void> {
+) {
   const generation = observation?.generation ?? 0;
   let changed = false;
   let reopened = false;
@@ -218,10 +220,7 @@ async function syncSources(
   }
 }
 
-export async function loadGithubCiSourceAvailability(
-  pool: Pool,
-  scope: GithubHeadScope,
-): Promise<GithubCiSourceAvailability> {
+export async function loadGithubCiSourceAvailability(pool: Pool, scope: GithubHeadScope) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -248,11 +247,12 @@ export async function loadGithubCiSourceAvailability(
         unknownReadCount: row?.unknown_read_count ?? 0,
       };
     };
-    return {
+    return ((pinnedReturn: GithubCiSourceAvailability | Promise<GithubCiSourceAvailability>) =>
+      pinnedReturn)({
       checks: sourceState("checks"),
       statuses: sourceState("statuses"),
       generation: observation?.generation ?? 0,
-    };
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -269,7 +269,7 @@ export async function recordGithubCiSourceRead(
     readonly access: CiSourceAccess;
     readonly complete: boolean;
   },
-): Promise<boolean> {
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -313,7 +313,7 @@ export async function recordGithubCiSourceRead(
       );
     }
     await client.query("COMMIT");
-    return changed;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(changed);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -325,7 +325,7 @@ export async function recordGithubCiSourceRead(
 export async function changeGithubPreflightFailureCount(
   pool: Pool,
   input: { readonly workItemId: string; readonly leaseEpoch: number; readonly reset?: boolean },
-): Promise<number | null> {
+) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -352,7 +352,7 @@ export async function changeGithubPreflightFailureCount(
       },
     );
     await client.query("COMMIT");
-    return count;
+    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(count);
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -361,10 +361,7 @@ export async function changeGithubPreflightFailureCount(
   }
 }
 
-export async function deleteExpiredGithubCapabilities(
-  pool: Pool,
-  retentionSeconds: number,
-): Promise<number> {
+export async function deleteExpiredGithubCapabilities(pool: Pool, retentionSeconds: number) {
   const result = await pool.query(
     `DELETE FROM github_repository_capabilities WHERE (installation_id, owner, repo) IN (
       SELECT c.installation_id, c.owner, c.repo FROM github_repository_capabilities c
@@ -375,5 +372,5 @@ export async function deleteExpiredGithubCapabilities(
     )`,
     [retentionSeconds, RETENTION_DELETE_BATCH_SIZE],
   );
-  return result.rowCount ?? 0;
+  return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(result.rowCount ?? 0);
 }

@@ -5,24 +5,28 @@ import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.ts";
 import type { PriorInlineFeedbackThread } from "../../review/run/reviewPriorFeedback.ts";
 import { escapeTablePlainCell } from "../../github/markdownFormat.ts";
 
-export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {
+export function formatReviewPathProfileBlock(profile: ReviewPathProfile) {
   if (profile.riskCategories.length === 0) {
-    return [
+    return ((pinnedReturn: string) => pinnedReturn)(
+      [
+        "Trusted context (path profile):",
+        `- Changed files: ${profile.changedFiles.length}`,
+        "- No high-risk path categories detected in the file list.",
+        "- Prioritize changed application code before docs and tests.",
+      ].join("\n"),
+    );
+  }
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
       "Trusted context (path profile):",
       `- Changed files: ${profile.changedFiles.length}`,
-      "- No high-risk path categories detected in the file list.",
-      "- Prioritize changed application code before docs and tests.",
-    ].join("\n");
-  }
-  return [
-    "Trusted context (path profile):",
-    `- Changed files: ${profile.changedFiles.length}`,
-    `- Risk categories present: ${profile.riskCategories.join(", ")}`,
-    "- Investigate auth, migration, config, and security paths before lower-risk files.",
-  ].join("\n");
+      `- Risk categories present: ${profile.riskCategories.join(", ")}`,
+      "- Investigate auth, migration, config, and security paths before lower-risk files.",
+    ].join("\n"),
+  );
 }
 
-export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
+export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget) {
   const lines = [
     "Trusted context (review budget tier):",
     `- Tier: ${budget.tier}`,
@@ -37,10 +41,10 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
       "- Large PR: prioritize investigation order (auth, migrations, security first), but report every evidenced P0–P2 found across the full diff.",
     );
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-export function formatCheckoutCoverageBlock(coverage: CheckoutCoverage): string {
+export function formatCheckoutCoverageBlock(coverage: CheckoutCoverage) {
   const modeLabel =
     coverage.mode === "sparse"
       ? `sparse (${coverage.pathsInCheckout} paths on disk)`
@@ -61,18 +65,19 @@ export function formatCheckoutCoverageBlock(coverage: CheckoutCoverage): string 
   if (coverage.warning) {
     lines.push(`- Warning: ${coverage.warning}`);
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-export function formatSymbolIndexStatusLine(status: SymbolIndexStatus): string {
-  if (!status.available) return "Symbol index: unavailable.";
-  return `Symbol index: built for ${status.symbolCount} symbols.`;
+export function formatSymbolIndexStatusLine(status: SymbolIndexStatus) {
+  if (!status.available)
+    return ((pinnedReturn: string) => pinnedReturn)("Symbol index: unavailable.");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `Symbol index: built for ${status.symbolCount} symbols.`,
+  );
 }
 
-export function formatPriorInlineFeedbackBlock(
-  threads: readonly PriorInlineFeedbackThread[],
-): string {
-  if (threads.length === 0) return "";
+export function formatPriorInlineFeedbackBlock(threads: readonly PriorInlineFeedbackThread[]) {
+  if (threads.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
 
   const lines = [
     "## Prior inline review feedback (trusted context)",
@@ -98,5 +103,5 @@ export function formatPriorInlineFeedbackBlock(
     lines.push(`  - Thread: ${escapeTablePlainCell(thread.threadUrl)}`);
   }
 
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }

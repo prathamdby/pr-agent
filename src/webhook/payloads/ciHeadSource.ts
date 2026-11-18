@@ -30,14 +30,14 @@ export function toCiHeadSource(input: {
   readonly repository: { readonly owner: { readonly login: string }; readonly name: string };
   readonly headSha: string;
   readonly pullRequests?: readonly CiHeadPullRequest[] | null;
-}): CiHeadSource {
-  return {
+}) {
+  return ((pinnedReturn: CiHeadSource) => pinnedReturn)({
     installationId: input.installation.id,
     owner: input.repository.owner.login,
     repo: input.repository.name,
     headSha: input.headSha,
     pullRequests: input.pullRequests ?? [],
-  };
+  });
 }
 
 export function toCiHeadSourceFromCompletedRun(input: {
@@ -47,18 +47,22 @@ export function toCiHeadSourceFromCompletedRun(input: {
     readonly head_sha: string;
     readonly pull_requests?: readonly CiHeadPullRequest[] | null;
   };
-}): CiHeadSource {
-  return toCiHeadSource({
-    installation: input.installation,
-    repository: input.repository,
-    headSha: input.run.head_sha,
-    pullRequests: input.run.pull_requests,
-  });
+}) {
+  return ((pinnedReturn: CiHeadSource) => pinnedReturn)(
+    toCiHeadSource({
+      installation: input.installation,
+      repository: input.repository,
+      headSha: input.run.head_sha,
+      pullRequests: input.run.pull_requests,
+    }),
+  );
 }
 
 export function prNumbersForCiHead(
   headSha: string,
   pullRequests: readonly { readonly number: number; readonly head: { readonly sha: string } }[],
-): number[] {
-  return [...new Set(pullRequests.filter((pr) => pr.head.sha === headSha).map((pr) => pr.number))];
+) {
+  return ((pinnedReturn: number[]) => pinnedReturn)([
+    ...new Set(pullRequests.filter((pr) => pr.head.sha === headSha).map((pr) => pr.number)),
+  ]);
 }

@@ -9,47 +9,86 @@ export type ParsedTriageCommand =
   | { readonly kind: "bulk"; readonly excludeThreadRootCommentIds: readonly number[] }
   | { readonly kind: "invalid"; readonly reason: "unknown_subcommand" | "invalid_exclude" };
 
-export function parseSlashCommand(body: string): string | null {
+export function parseSlashCommand(body: string) {
   const first = firstNonEmptyLine(body);
   const m = first.match(SLASH_COMMAND_RE);
-  return m?.[1] ?? null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(m?.[1] ?? null);
 }
 
-export function isReviewForceCommand(body: string): boolean {
-  return REVIEW_FORCE_RE.test(firstNonEmptyLine(body));
+export function isReviewForceCommand(body: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(REVIEW_FORCE_RE.test(firstNonEmptyLine(body)));
 }
 
-export function parseTriageCommand(body: string): ParsedTriageCommand | null {
-  if (parseSlashCommand(body) !== "triage") return null;
+export function parseTriageCommand(body: string) {
+  if (parseSlashCommand(body) !== "triage")
+    return ((pinnedReturn: ParsedTriageCommand | null) => pinnedReturn)(null);
   const first = firstNonEmptyLine(body);
-  if (TRIAGE_PREVIEW_RE.test(first)) return { kind: "preview" };
-  if (TRIAGE_BULK_RE.test(first)) return parseTriageBulkCommand(first);
+  if (TRIAGE_PREVIEW_RE.test(first))
+    return ((pinnedReturn: ParsedTriageCommand | null) => pinnedReturn)({ kind: "preview" });
+  if (TRIAGE_BULK_RE.test(first))
+    return ((pinnedReturn: ParsedTriageCommand | null) => pinnedReturn)(
+      parseTriageBulkCommand(first),
+    );
   const rest = first.replace(/^\/triage(?:\s+|$)/, "").trim();
-  if (rest.length === 0) return { kind: "apply" };
-  return { kind: "invalid", reason: "unknown_subcommand" };
+  if (rest.length === 0)
+    return ((pinnedReturn: ParsedTriageCommand | null) => pinnedReturn)({ kind: "apply" });
+  return ((pinnedReturn: ParsedTriageCommand | null) => pinnedReturn)({
+    kind: "invalid",
+    reason: "unknown_subcommand",
+  });
 }
 
-function parseTriageBulkCommand(first: string): ParsedTriageCommand {
+function parseTriageBulkCommand(first: string) {
   const rest = first.replace(/^\/triage\s+all(?:\s+|$)/, "").trim();
-  if (rest.length === 0) return { kind: "bulk", excludeThreadRootCommentIds: [] };
-  if (!rest.startsWith("exclude")) return { kind: "invalid", reason: "unknown_subcommand" };
+  if (rest.length === 0)
+    return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+      kind: "bulk",
+      excludeThreadRootCommentIds: [],
+    });
+  if (!rest.startsWith("exclude"))
+    return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
   if (rest !== "exclude" && !rest.startsWith("exclude ") && !rest.startsWith("exclude\t")) {
-    return { kind: "invalid", reason: "unknown_subcommand" };
+    return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
   }
   const idsPart = rest.slice("exclude".length).trim();
-  if (idsPart.length === 0) return { kind: "invalid", reason: "invalid_exclude" };
+  if (idsPart.length === 0)
+    return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
   const tokens = idsPart.split(/[,\s]+/).filter((token) => token.length > 0);
   const ids: number[] = [];
   for (const token of tokens) {
-    if (!/^[1-9][0-9]*$/.test(token)) return { kind: "invalid", reason: "invalid_exclude" };
+    if (!/^[1-9][0-9]*$/.test(token))
+      return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+        kind: "invalid",
+        reason: "invalid_exclude",
+      });
     const id = Number(token);
-    if (!Number.isSafeInteger(id)) return { kind: "invalid", reason: "invalid_exclude" };
+    if (!Number.isSafeInteger(id))
+      return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+        kind: "invalid",
+        reason: "invalid_exclude",
+      });
     ids.push(id);
   }
-  if (ids.length === 0) return { kind: "invalid", reason: "invalid_exclude" };
-  return { kind: "bulk", excludeThreadRootCommentIds: ids };
+  if (ids.length === 0)
+    return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
+  return ((pinnedReturn: ParsedTriageCommand) => pinnedReturn)({
+    kind: "bulk",
+    excludeThreadRootCommentIds: ids,
+  });
 }
 
-export function firstNonEmptyLine(text: string): string {
-  return text.match(/^.*\S.*$/m)?.[0] ?? "";
+export function firstNonEmptyLine(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.match(/^.*\S.*$/m)?.[0] ?? "");
 }

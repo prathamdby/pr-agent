@@ -40,23 +40,23 @@ export function createRateLimitCircuit(params: {
   readonly threshold?: number;
   readonly onOpened?: (kind: RateLimitFailureClass) => void;
   readonly now?: () => number;
-}): RateLimitCircuit {
+}) {
   const threshold = params.threshold ?? RATE_LIMIT_CIRCUIT_THRESHOLD;
   const now = params.now ?? (() => Date.now());
   let consecutive = 0;
   let open = false;
   let openUntilMs: number | null = null;
 
-  function clearExpiredSharedOpen(): boolean {
-    if (!open || openUntilMs == null) return open;
-    if (now() < openUntilMs) return true;
+  function clearExpiredSharedOpen() {
+    if (!open || openUntilMs == null) return ((pinnedReturn: boolean) => pinnedReturn)(open);
+    if (now() < openUntilMs) return ((pinnedReturn: boolean) => pinnedReturn)(true);
     open = false;
     openUntilMs = null;
     consecutive = 0;
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
 
-  return {
+  return ((pinnedReturn: RateLimitCircuit) => pinnedReturn)({
     installationId: params.installationId,
     consecutiveFailures: () => consecutive,
     isOpen: () => clearExpiredSharedOpen(),
@@ -83,18 +83,18 @@ export function createRateLimitCircuit(params: {
       openUntilMs = untilMs;
       consecutive = threshold;
     },
-  };
+  });
 }
 
-export function runWithRateLimitCircuit<T>(circuit: RateLimitCircuit, fn: () => T): T {
-  return circuitStore.run(circuit, fn);
+export function runWithRateLimitCircuit<T>(circuit: RateLimitCircuit, fn: () => T) {
+  return ((pinnedReturn: T) => pinnedReturn)(circuitStore.run(circuit, fn));
 }
 
-export function getActiveRateLimitCircuit(): RateLimitCircuit | undefined {
-  return circuitStore.getStore();
+export function getActiveRateLimitCircuit() {
+  return ((pinnedReturn: RateLimitCircuit | undefined) => pinnedReturn)(circuitStore.getStore());
 }
 
-export function noteRateLimitRetryExhausted(kind: RateLimitFailureClass): void {
+export function noteRateLimitRetryExhausted(kind: RateLimitFailureClass) {
   const circuit = getActiveRateLimitCircuit();
   if (!circuit) return;
   const opened = circuit.recordFailure(kind);
@@ -106,21 +106,22 @@ export function noteRateLimitRetryExhausted(kind: RateLimitFailureClass): void {
   });
 }
 
-export function noteGithubRequestSuccess(): void {
+export function noteGithubRequestSuccess() {
   getActiveRateLimitCircuit()?.recordSuccess();
 }
 
-export function shouldShortCircuitGithubTool(toolName: string): boolean {
+export function shouldShortCircuitGithubTool(toolName: string) {
   const circuit = getActiveRateLimitCircuit();
-  if (!circuit?.isOpen()) return false;
-  if (!GITHUB_API_TOOL_NAMES.has(toolName)) return false;
-  if (ESSENTIAL_GITHUB_TOOL_NAMES.has(toolName)) return false;
-  return true;
+  if (!circuit?.isOpen()) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (!GITHUB_API_TOOL_NAMES.has(toolName)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (ESSENTIAL_GITHUB_TOOL_NAMES.has(toolName))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 export function wrapExecutorsWithRateLimitCircuit(
   executors: Record<string, AgentRunnerToolExecutor>,
-): Record<string, AgentRunnerToolExecutor> {
+) {
   const wrapped: Record<string, AgentRunnerToolExecutor> = {
     ...executors,
   };
@@ -133,5 +134,5 @@ export function wrapExecutorsWithRateLimitCircuit(
       return executor(args, ctx);
     };
   }
-  return wrapped;
+  return ((pinnedReturn: Record<string, AgentRunnerToolExecutor>) => pinnedReturn)(wrapped);
 }

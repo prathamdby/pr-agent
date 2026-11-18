@@ -6,32 +6,38 @@ import type {
   ThreadBatchReview,
 } from "./prSurfaceTypes.ts";
 
-export function prReviewState(value: unknown): PrReviewState {
+export function prReviewState(value: unknown) {
   switch (value) {
     case "APPROVED":
     case "CHANGES_REQUESTED":
     case "COMMENTED":
     case "DISMISSED":
     case "PENDING":
-      return value;
+      return ((pinnedReturn: PrReviewState) => pinnedReturn)(value);
     default:
-      return "COMMENTED";
+      return ((pinnedReturn: PrReviewState) => pinnedReturn)("COMMENTED");
   }
 }
 
-export function prReviewStateFromEvent(
-  event: ThreadBatchReview["event"],
-): Exclude<PrReviewState, "DISMISSED" | "PENDING"> {
+export function prReviewStateFromEvent(event: ThreadBatchReview["event"]) {
   switch (event) {
     case "APPROVE":
-      return "APPROVED";
+      return ((pinnedReturn: Exclude<PrReviewState, "DISMISSED" | "PENDING">) => pinnedReturn)(
+        "APPROVED",
+      );
     case "REQUEST_CHANGES":
-      return "CHANGES_REQUESTED";
+      return ((pinnedReturn: Exclude<PrReviewState, "DISMISSED" | "PENDING">) => pinnedReturn)(
+        "CHANGES_REQUESTED",
+      );
     case "COMMENT":
-      return "COMMENTED";
+      return ((pinnedReturn: Exclude<PrReviewState, "DISMISSED" | "PENDING">) => pinnedReturn)(
+        "COMMENTED",
+      );
     default: {
       const _exhaustive: never = event;
-      return _exhaustive;
+      return ((pinnedReturn: Exclude<PrReviewState, "DISMISSED" | "PENDING">) => pinnedReturn)(
+        _exhaustive,
+      );
     }
   }
 }
@@ -40,7 +46,7 @@ export function findCommentIdByMarker<T extends PrConversationComment>(
   comments: readonly T[],
   marker: string,
   predicate?: (comment: T) => boolean,
-): number | null {
+) {
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index];
     if (
@@ -48,17 +54,17 @@ export function findCommentIdByMarker<T extends PrConversationComment>(
       comment.body.includes(marker) &&
       (predicate == null || predicate(comment))
     ) {
-      return comment.id;
+      return ((pinnedReturn: number | null) => pinnedReturn)(comment.id);
     }
   }
-  return null;
+  return ((pinnedReturn: number | null) => pinnedReturn)(null);
 }
 
 export async function findPublishedThreadBatch(
   surface: Pick<PrSurface, "getBotLogin" | "listPullRequestReviews">,
   marker: string,
   commitId?: string,
-): Promise<PublishedBatch | null> {
+) {
   const botLogin = await surface.getBotLogin();
   const reviews = await surface.listPullRequestReviews();
   for (let index = reviews.length - 1; index >= 0; index -= 1) {
@@ -70,8 +76,11 @@ export async function findPublishedThreadBatch(
       review.body.includes(marker) &&
       (commitId == null || review.commitId === commitId)
     ) {
-      return { reviewId: review.id, reviewUrl: review.htmlUrl };
+      return ((pinnedReturn: (PublishedBatch | null) | Promise<PublishedBatch | null>) =>
+        pinnedReturn)({ reviewId: review.id, reviewUrl: review.htmlUrl });
     }
   }
-  return null;
+  return ((pinnedReturn: (PublishedBatch | null) | Promise<PublishedBatch | null>) => pinnedReturn)(
+    null,
+  );
 }

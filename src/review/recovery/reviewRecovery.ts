@@ -24,8 +24,8 @@ export type RecoveryDecision = {
   readonly settled: ReviewArtifactEnvelope | null;
 };
 
-export function snapshotFindingLedger(ledger: FindingLedger): FindingLedgerSnapshot {
-  return {
+export function snapshotFindingLedger(ledger: FindingLedger) {
+  return ((pinnedReturn: FindingLedgerSnapshot) => pinnedReturn)({
     accepted: ledger.accepted.map((entry) => ({ ...entry, placement: { ...entry.placement } })),
     reaffirmed: ledger.reaffirmed.map((entry) => ({ ...entry, placement: { ...entry.placement } })),
     suppressedDismissedCount: ledger.suppressedDismissedCount,
@@ -33,20 +33,23 @@ export function snapshotFindingLedger(ledger: FindingLedger): FindingLedgerSnaps
     postedInlineCount: ledger.postedInlineCount,
     threadCallCount: ledger.threadCallCount,
     threadBudgetExhausted: ledger.threadBudgetExhausted,
-  };
+  });
 }
 
 export type PublicationSettlement =
   | { readonly outcome: "accepted" | "recovered"; readonly githubId?: number }
   | { readonly outcome: "stopped" };
 
-function publicationSettlement(
-  githubIdOrSettlement?: number | PublicationSettlement,
-): PublicationSettlement {
+function publicationSettlement(githubIdOrSettlement?: number | PublicationSettlement) {
   if (typeof githubIdOrSettlement === "number") {
-    return { outcome: "accepted", githubId: githubIdOrSettlement };
+    return ((pinnedReturn: PublicationSettlement) => pinnedReturn)({
+      outcome: "accepted",
+      githubId: githubIdOrSettlement,
+    });
   }
-  return githubIdOrSettlement ?? { outcome: "accepted" };
+  return ((pinnedReturn: PublicationSettlement) => pinnedReturn)(
+    githubIdOrSettlement ?? { outcome: "accepted" },
+  );
 }
 
 export type ReviewRecovery = ReturnType<typeof openReviewRecovery>;
@@ -63,23 +66,30 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
   let storageFailure: unknown;
   let unresolvedPublication: unknown;
   let pendingDecision: RecoveryDecision | null = null;
-  const guarded = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const guarded = async <T>(operation: () => Promise<T>) => {
     try {
-      return await operation();
+      return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await operation());
     } catch (error) {
       storageFailure = error;
       throw error;
     }
   };
-  const save = async (artifact: ReviewArtifact): Promise<ReviewArtifactEnvelope | null> => {
-    if (!caching) return null;
+  const save = async (artifact: ReviewArtifact) => {
+    if (!caching)
+      return ((
+        pinnedReturn: (ReviewArtifactEnvelope | null) | Promise<ReviewArtifactEnvelope | null>,
+      ) => pinnedReturn)(null);
     const envelope = createReviewArtifactEnvelope(binding, artifact);
     const result = await guarded(() => store.save(envelope));
     if (result === "capacity" || result === "incompatible") {
       caching = false;
-      return null;
+      return ((
+        pinnedReturn: (ReviewArtifactEnvelope | null) | Promise<ReviewArtifactEnvelope | null>,
+      ) => pinnedReturn)(null);
     }
-    return envelope;
+    return ((
+      pinnedReturn: (ReviewArtifactEnvelope | null) | Promise<ReviewArtifactEnvelope | null>,
+    ) => pinnedReturn)(envelope);
   };
   const dependenciesFor = async (canonical: CanonicalReviewDecision) => {
     const keys = [
@@ -162,7 +172,7 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
       judgmentDegraded = value;
     },
     getJudgmentDegraded: () => judgmentDegraded,
-    async decisions(): Promise<RecoveryDecision[]> {
+    async decisions() {
       pendingDecision = null;
       const decisions: RecoveryDecision[] = [];
       for (let sequence = 0; sequence <= 100_000; sequence++) {
@@ -199,7 +209,9 @@ export function openReviewRecovery(binding: ReviewArtifactBinding, store: Review
           break;
         }
       }
-      return decisions;
+      return ((pinnedReturn: RecoveryDecision[] | Promise<RecoveryDecision[]>) => pinnedReturn)(
+        decisions,
+      );
     },
     async prepare(
       payload: ReviewPayload,
@@ -300,7 +312,7 @@ export async function settleRejectedPublication(
   recovery: ReviewRecovery | null | undefined,
   decision: RecoveryDecision | null,
   error: unknown,
-): Promise<void> {
+) {
   if (recovery == null || decision == null) return;
   try {
     await recovery.settle(decision, { outcome: "stopped" });

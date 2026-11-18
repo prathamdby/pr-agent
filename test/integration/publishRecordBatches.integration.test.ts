@@ -269,6 +269,40 @@ Math.random = () => 0;
 const [dir, stage] = process.argv.slice(2);
 const input = JSON.parse(await readFile(join(dir, "input.json"), "utf8"));
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const hookQuery = (owner) => {
+  if (!owner?.query || owner.query.reportsHooked) return;
+  const original = owner.query.bind(owner);
+  owner.query = (...args) => {
+    const pending = original(...args);
+    const statement = args[0];
+    const text = typeof statement === "string" ? statement : statement?.text ?? "";
+    const values = args[1];
+    if (
+      text.includes("INSERT INTO review_run_artifacts") &&
+      Array.isArray(values) &&
+      values[3] === "report"
+    ) {
+      void Promise.resolve(pending).then(() => process.send?.({ kind: "artifact" }));
+    }
+    return pending;
+  };
+  owner.query.reportsHooked = true;
+};
+hookQuery(pool);
+const connect = pool.connect.bind(pool);
+pool.connect = (...args) => {
+  const callback = args.at(-1);
+  if (typeof callback === "function") {
+    return connect(...args.slice(0, -1), (error, client, release) => {
+      if (client) hookQuery(client);
+      return callback(error, client, release);
+    });
+  }
+  return Promise.resolve(connect(...args)).then((client) => {
+    hookQuery(client);
+    return client;
+  });
+};
 let effects = { inlineCalls: 0, batches: [], comments: [], upserts: [] };
 try { effects = JSON.parse(await readFile(join(dir, "remote.json"), "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
 const persistEffects = () => writeFile(join(dir, "remote.json"), JSON.stringify(effects, null, 2));
@@ -471,6 +505,14 @@ try {
       child.stderr?.on("data", (data: Buffer) => {
         output += data.toString();
       });
+      let reports = 0;
+      const reportsStored = (() => {
+        let resolve!: () => void;
+        const promise = new Promise<void>((done) => {
+          resolve = done;
+        });
+        return { promise, resolve };
+      })();
       const message = new Promise<Record<string, unknown>>((resolve, reject) => {
         const timer = setTimeout(() => {
           child.kill("SIGKILL");
@@ -478,6 +520,11 @@ try {
         }, 30_000);
         child.on("message", (value: unknown) => {
           if (!isRecord(value)) return;
+          if (value.kind === "artifact") {
+            reports += 1;
+            if (reports >= 4) reportsStored.resolve();
+            return;
+          }
           clearTimeout(timer);
           resolve(value);
         });
@@ -488,7 +535,7 @@ try {
             reject(new Error(`Proof child exited ${code}: ${output}`));
         });
       });
-      return { child, message, output: () => output };
+      return { child, message, output: () => output, reportsStored: reportsStored.promise };
     };
     const stop = (child: ReturnType<typeof fork>) =>
       new Promise<void>((resolve) => {
@@ -541,14 +588,7 @@ try {
         );
         expect(boundary.kind).toBe("boundary");
         expect(boundary.sourceEntry).toBe(sourceEntry);
-        for (let poll = 0; poll < 200; poll++) {
-          const { rows } = await pool.query<{ count: number }>(
-            "SELECT count(*)::int AS count FROM review_run_artifacts WHERE work_item_id = $1 AND kind = 'report'",
-            [id],
-          );
-          if (rows[0]?.count === 4) break;
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
+        await initial.reportsStored;
         const before = await pool.query<{
           logical_key: string;
           payload_hash: string;
@@ -710,7 +750,7 @@ try {
         await pool.query("DELETE FROM agent_work_items WHERE id = $1", [id]);
       }
     }
-  }, 90_000);
+  });
 
   describe("bounded private review artifacts", () => {
     const brief = {
@@ -3504,10 +3544,12 @@ try {
         });
       }
       const mutate = vi.fn(async () => ({ commentId: 90 }));
-      const recover = vi.fn(
-        async (): Promise<
-          { kind: "absent" } | { kind: "reconciled"; value: { commentId: number } }
-        > => ({ kind: "absent" }),
+      const recover = vi.fn(async () =>
+        ((
+          pinnedReturn:
+            | ({ kind: "absent" } | { kind: "reconciled"; value: { commentId: number } })
+            | Promise<{ kind: "absent" } | { kind: "reconciled"; value: { commentId: number } }>,
+        ) => pinnedReturn)({ kind: "absent" }),
       );
       const params = {
         client: pool,

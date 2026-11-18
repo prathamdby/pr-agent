@@ -32,7 +32,7 @@ export function buildCiContextUserMessage(params: {
   readonly checkNames: readonly string[];
   readonly failingNames: readonly string[];
   readonly condensedLogs: string;
-}): string {
+}) {
   const facts = [
     `status: ${params.status}`,
     `checks: ${params.checkNames.length > 0 ? params.checkNames.join(", ") : "(none)"}`,
@@ -42,5 +42,5 @@ export function buildCiContextUserMessage(params: {
     params.condensedLogs.trim().length > 0 ? params.condensedLogs : "(no logs available)",
   ].join("\n");
 
-  return wrapUntrustedBlock("ci_context", facts);
+  return ((pinnedReturn: string) => pinnedReturn)(wrapUntrustedBlock("ci_context", facts));
 }

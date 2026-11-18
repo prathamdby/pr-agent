@@ -19,8 +19,8 @@ import {
 import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.ts";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
-function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
-  return {
+function makeFinding(severity: ReviewFinding["severity"], title: string) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity,
     file: "x.ts",
     startLine: 1,
@@ -28,7 +28,7 @@ function makeFinding(severity: ReviewFinding["severity"], title: string): Review
     title,
     detail: "d",
     fixPrompt: "fix",
-  };
+  });
 }
 
 describe("severity helpers", () => {

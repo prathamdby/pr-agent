@@ -68,37 +68,40 @@ type CheckoutRecorder = {
 
 const checkoutTelemetryByError = new WeakMap<object, WorkspaceCheckoutTelemetry>();
 
-function checkoutTelemetrySnapshot(recorder: CheckoutRecorder): WorkspaceCheckoutTelemetry {
-  return {
+function checkoutTelemetrySnapshot(recorder: CheckoutRecorder) {
+  return ((pinnedReturn: WorkspaceCheckoutTelemetry) => pinnedReturn)({
     mode: recorder.mode,
     fallbackReason: recorder.fallbackReason,
     fetchAttempts: [...recorder.fetchAttempts],
-  };
+  });
 }
 
-export function workspaceCheckoutTelemetryFromError(
-  error: unknown,
-): WorkspaceCheckoutTelemetry | undefined {
-  return typeof error === "object" && error !== null
-    ? checkoutTelemetryByError.get(error)
-    : undefined;
+export function workspaceCheckoutTelemetryFromError(error: unknown) {
+  return ((pinnedReturn: WorkspaceCheckoutTelemetry | undefined) => pinnedReturn)(
+    typeof error === "object" && error !== null ? checkoutTelemetryByError.get(error) : undefined,
+  );
 }
 
-function sparseFallbackReason(error: unknown): WorkspaceFallbackReason | null {
-  if (!isAppError(error)) return null;
-  if (error.context.spawnErrorCode != null || error.context.cleanup === "failed") return null;
-  if (error.code === "pr_workspace.fetch_timeout") return "fetch_timeout";
-  if (error.code !== "pr_workspace.git_failed") return null;
+function sparseFallbackReason(error: unknown) {
+  if (!isAppError(error))
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
+  if (error.context.spawnErrorCode != null || error.context.cleanup === "failed")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
+  if (error.code === "pr_workspace.fetch_timeout")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)("fetch_timeout");
+  if (error.code !== "pr_workspace.git_failed")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
   const failureKind = workspaceGitFailureKind(error);
-  if (failureKind === "git") return "git_failed";
+  if (failureKind === "git")
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)("git_failed");
   if (failureKind === "timeout" && error.context.timeoutSource === "git_low_speed") {
-    return "git_low_speed";
+    return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)("git_low_speed");
   }
-  return null;
+  return ((pinnedReturn: WorkspaceFallbackReason | null) => pinnedReturn)(null);
 }
 
-function fetchAttemptContext(attempt: WorkspaceFetchAttempt): Record<string, unknown> {
-  return {
+function fetchAttemptContext(attempt: WorkspaceFetchAttempt) {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     checkoutMode: attempt.checkoutMode,
     errorCode: attempt.errorCode,
     failureKind: attempt.failureKind,
@@ -108,24 +111,26 @@ function fetchAttemptContext(attempt: WorkspaceFetchAttempt): Record<string, unk
     killed: attempt.killed,
     elapsedMs: attempt.elapsedMs,
     stderr: attempt.stderr,
-  };
+  });
 }
 
-function withFallbackContext(error: unknown, fullAttempt: WorkspaceFetchAttempt): unknown {
-  if (!isAppError(error)) return error;
+function withFallbackContext(error: unknown, fullAttempt: WorkspaceFetchAttempt) {
+  if (!isAppError(error)) return ((pinnedReturn: unknown) => pinnedReturn)(error);
   const kind =
     error.code === "pr_workspace.fetch_timeout"
       ? "fetch_timeout"
       : error.code === "pr_workspace.git_failed"
         ? "git_failed"
         : null;
-  if (kind == null) return error;
-  return new AppError({
-    domain: "pr_workspace",
-    kind,
-    message: error.message,
-    context: { ...error.context, fallback: fetchAttemptContext(fullAttempt) },
-  });
+  if (kind == null) return ((pinnedReturn: unknown) => pinnedReturn)(error);
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    new AppError({
+      domain: "pr_workspace",
+      kind,
+      message: error.message,
+      context: { ...error.context, fallback: fetchAttemptContext(fullAttempt) },
+    }),
+  );
 }
 
 export type LocalPrWorkspace = {
@@ -151,7 +156,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly baseSha?: string;
 };
 
-export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
+export async function stripWorkspaceSymlinks(dir: string) {
   const entries = await readdir(dir, { withFileTypes: true });
   for (let i = 0; i < entries.length; i += LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY) {
     await Promise.all(
@@ -170,14 +175,14 @@ export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
   }
 }
 
-function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
+function mapGithubStatus(file: PullRequestFileEntry) {
   const status = file.status;
   if (status === "renamed" || status === "copied") {
-    return {
+    return ((pinnedReturn: LocalPrChangedFile) => pinnedReturn)({
       path: file.filename,
       status,
       ...(file.previousFilename ? { oldPath: file.previousFilename } : {}),
-    };
+    });
   }
   const mapped: ChangedFileStatus =
     status === "added"
@@ -187,22 +192,25 @@ function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
         : status === "modified" || status === "changed"
           ? "modified"
           : "other";
-  return { path: file.filename, status: mapped };
+  return ((pinnedReturn: LocalPrChangedFile) => pinnedReturn)({
+    path: file.filename,
+    status: mapped,
+  });
 }
 
-export function selectLocalPrWorkspaceCheckoutMode(
-  repositorySizeKb?: number,
-): LocalPrWorkspaceCheckoutMode {
-  return repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
-    ? "sparse"
-    : "full";
+export function selectLocalPrWorkspaceCheckoutMode(repositorySizeKb?: number) {
+  return ((pinnedReturn: LocalPrWorkspaceCheckoutMode) => pinnedReturn)(
+    repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
+      ? "sparse"
+      : "full",
+  );
 }
 
 async function enforceMaxFetchBytes(
   git: (args: readonly string[], timeoutMs?: number) => Promise<{ stdout: string }>,
   maxFetchBytes: number,
   timeoutMs: number,
-): Promise<void> {
+) {
   const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
   const objectStoreBytes = gitCountObjectsStoreBytes(countObjectsOut);
   if (objectStoreBytes > maxFetchBytes) {
@@ -215,7 +223,7 @@ async function enforceMaxFetchBytes(
   }
 }
 
-async function prepareCheckedOutTree(dir: string, prefix = ""): Promise<Set<string>> {
+async function prepareCheckedOutTree(dir: string, prefix = "") {
   const paths = new Set<string>();
   const entries = await readdir(dir, { withFileTypes: true });
 
@@ -241,23 +249,25 @@ async function prepareCheckedOutTree(dir: string, prefix = ""): Promise<Set<stri
     );
   }
   await chmod(dir, 0o555);
-  return paths;
+  return ((pinnedReturn: Set<string> | Promise<Set<string>>) => pinnedReturn)(paths);
 }
 
-function sparseCheckoutPattern(path: string): string {
-  return `/${path.replace(/\\/g, "/").replace(/[\\*?[]/g, "\\$&")}`;
+function sparseCheckoutPattern(path: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `/${path.replace(/\\/g, "/").replace(/[\\*?[]/g, "\\$&")}`,
+  );
 }
 
-function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): string {
+function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]) {
   const paths = changedFiles
     .filter((file) => file.status !== "deleted")
     .map((file) => sparseCheckoutPattern(file.path));
-  return paths.length > 0 ? `${paths.join("\n")}\n` : "";
+  return ((pinnedReturn: string) => pinnedReturn)(paths.length > 0 ? `${paths.join("\n")}\n` : "");
 }
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-async function cleanupStalePiAgentDirs(staleAgeSeconds: number): Promise<void> {
+async function cleanupStalePiAgentDirs(staleAgeSeconds: number) {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
@@ -271,7 +281,7 @@ async function cleanupStalePiAgentDirs(staleAgeSeconds: number): Promise<void> {
   }
 }
 
-async function cleanupStaleReadSpillFiles(staleAgeSeconds: number): Promise<void> {
+async function cleanupStaleReadSpillFiles(staleAgeSeconds: number) {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.startsWith(READ_SPILL_FILENAME_PREFIX)) continue;
@@ -287,16 +297,14 @@ async function cleanupStaleReadSpillFiles(staleAgeSeconds: number): Promise<void
 
 export async function cleanupStaleLocalPrWorkspaces(
   options: { readonly staleAgeSeconds?: number } = {},
-): Promise<void> {
+) {
   const staleAgeSeconds = options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS;
   await cleanupStalePiAgentDirs(staleAgeSeconds);
   await cleanupStaleReadSpillFiles(staleAgeSeconds);
   await sweepStaleOwnedWorkspaces({ staleAgeSeconds });
 }
 
-export async function prepareLocalPrWorkspace(
-  params: PrepareLocalPrWorkspaceParams,
-): Promise<LocalPrWorkspace> {
+export async function prepareLocalPrWorkspace(params: PrepareLocalPrWorkspaceParams) {
   const { owner, repo, headSha, installationToken } = params;
   assertGitRepoPart(owner, "owner");
   assertGitRepoPart(repo, "repo");
@@ -320,7 +328,9 @@ export async function prepareLocalPrWorkspace(
     fetchAttempts: [],
   };
   try {
-    return await finishLocalPrWorkspace(params, resource, recorder);
+    return ((pinnedReturn: LocalPrWorkspace | Promise<LocalPrWorkspace>) => pinnedReturn)(
+      await finishLocalPrWorkspace(params, resource, recorder),
+    );
   } catch (error) {
     if (typeof error === "object" && error !== null) {
       checkoutTelemetryByError.set(error, checkoutTelemetrySnapshot(recorder));
@@ -334,7 +344,7 @@ async function finishLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
   resource: WorkspaceResource,
   recorder: CheckoutRecorder,
-): Promise<LocalPrWorkspace> {
+) {
   const { owner, repo, prNumber, headSha, prFiles } = params;
   const rootDir = resource.rootDir;
   const credentials = resource.credentials;
@@ -482,10 +492,13 @@ async function finishLocalPrWorkspace(
 
   let symbolIndex: SymbolIndex | null = null;
 
-  async function readIndexableFile(path: string): Promise<string | null> {
+  async function readIndexableFile(path: string) {
     const normalized = path.replace(/\\/g, "/");
-    if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized)) return null;
-    return readRepositorySource(agentCwd, normalized, LOCAL_WORKSPACE_MAX_FILE_BYTES);
+    if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized))
+      return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
+      readRepositorySource(agentCwd, normalized, LOCAL_WORKSPACE_MAX_FILE_BYTES),
+    );
   }
 
   try {
@@ -533,7 +546,7 @@ async function finishLocalPrWorkspace(
       warning: prFiles.warning,
     },
   });
-  return {
+  return ((pinnedReturn: LocalPrWorkspace | Promise<LocalPrWorkspace>) => pinnedReturn)({
     rootDir,
     privateGitDir,
     agentCwd,
@@ -544,5 +557,5 @@ async function finishLocalPrWorkspace(
       readerResource.dispose();
       await resource.release();
     },
-  };
+  });
 }

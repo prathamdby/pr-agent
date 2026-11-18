@@ -35,27 +35,28 @@ const { storage, useLogger: useLoggerFromStorage } = createLoggerStorage(
   "evlog: call initEvlog() at boot and run handlers inside runWithOperationLogger()",
 );
 
-function isLevelEnabled(level: WideEventLevel): boolean {
-  return LEVEL_RANK[level] >= LEVEL_RANK[globalMinLevel];
+function isLevelEnabled(level: WideEventLevel) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(LEVEL_RANK[level] >= LEVEL_RANK[globalMinLevel]);
 }
 
-export function tryUseLogger(): RequestLogger | undefined {
+export function tryUseLogger() {
   try {
-    return useLoggerFromStorage();
+    return ((pinnedReturn: RequestLogger | undefined) => pinnedReturn)(useLoggerFromStorage());
   } catch {
-    return undefined;
+    return ((pinnedReturn: RequestLogger | undefined) => pinnedReturn)(undefined);
   }
 }
 
-function eventsArray(logger: RequestLogger): Array<Record<string, unknown>> {
+function eventsArray(logger: RequestLogger) {
   const existing: unknown = logger.getContext().events;
-  if (Array.isArray(existing) && existing.every(isRecord)) return existing;
+  if (Array.isArray(existing) && existing.every(isRecord))
+    return ((pinnedReturn: Array<Record<string, unknown>>) => pinnedReturn)(existing);
   const events: Array<Record<string, unknown>> = [];
   logger.set({ events });
-  return events;
+  return ((pinnedReturn: Array<Record<string, unknown>>) => pinnedReturn)(events);
 }
 
-function filterEventsInPlace(logger: RequestLogger): void {
+function filterEventsInPlace(logger: RequestLogger) {
   const events = eventsArray(logger);
   let write = 0;
   for (const entry of events) {
@@ -76,7 +77,7 @@ export function recordEvent(
   event: string,
   fields?: Record<string, unknown>,
   level: WideEventLevel = "info",
-): void {
+) {
   if (!isLevelEnabled(level)) return;
 
   const events = eventsArray(logger);
@@ -101,7 +102,7 @@ function recordOrGlobal(
   globalFn: (payload: Record<string, unknown>) => void,
   event: string,
   meta?: Record<string, unknown>,
-): void {
+) {
   const safeMeta = sanitizeTelemetryRecord(meta);
   const logger = tryUseLogger();
   if (logger) {
@@ -116,49 +117,48 @@ function recordOrGlobal(
   }
 }
 
-export function logDebug(event: string, meta?: Record<string, unknown>): void {
+export function logDebug(event: string, meta?: Record<string, unknown>) {
   recordOrGlobal("debug", (p) => globalLog.debug(p), event, meta);
 }
 
-export function logInfo(event: string, meta?: Record<string, unknown>): void {
+export function logInfo(event: string, meta?: Record<string, unknown>) {
   recordOrGlobal("info", (p) => globalLog.info(p), event, meta);
 }
 
-export function logWarn(event: string, meta?: Record<string, unknown>): void {
+export function logWarn(event: string, meta?: Record<string, unknown>) {
   recordOrGlobal("warn", (p) => globalLog.warn(p), event, meta);
 }
 
-function analyticsDistinctIdFromMeta(meta?: Record<string, unknown>): string {
-  if (meta == null) return "server";
+function analyticsDistinctIdFromMeta(meta?: Record<string, unknown>) {
+  if (meta == null) return ((pinnedReturn: string) => pinnedReturn)("server");
   if (typeof meta.analyticsDistinctId === "string" && meta.analyticsDistinctId.length > 0) {
-    return meta.analyticsDistinctId;
+    return ((pinnedReturn: string) => pinnedReturn)(meta.analyticsDistinctId);
   }
   if (typeof meta.installationId === "number") {
-    return `installation:${meta.installationId}`;
+    return ((pinnedReturn: string) => pinnedReturn)(`installation:${meta.installationId}`);
   }
   if (typeof meta.installationId === "string" && meta.installationId.length > 0) {
-    return `installation:${meta.installationId}`;
+    return ((pinnedReturn: string) => pinnedReturn)(`installation:${meta.installationId}`);
   }
-  return "server";
+  return ((pinnedReturn: string) => pinnedReturn)("server");
 }
 
-function errorFromLogErrorArgs(
-  event: string,
-  meta?: Record<string, unknown>,
-  error?: unknown,
-): Error {
-  if (error !== undefined) return sanitizeErrorForTelemetry(error);
+function errorFromLogErrorArgs(event: string, meta?: Record<string, unknown>, error?: unknown) {
+  if (error !== undefined)
+    return ((pinnedReturn: Error) => pinnedReturn)(sanitizeErrorForTelemetry(error));
   if (typeof meta?.message === "string" && meta.message.length > 0) {
-    return sanitizeErrorForTelemetry(new Error(meta.message));
+    return ((pinnedReturn: Error) => pinnedReturn)(
+      sanitizeErrorForTelemetry(new Error(meta.message)),
+    );
   }
-  return sanitizeErrorForTelemetry(new Error(event));
+  return ((pinnedReturn: Error) => pinnedReturn)(sanitizeErrorForTelemetry(new Error(event)));
 }
 
 function forwardLogErrorToAnalytics(
   event: string,
   meta?: Record<string, unknown>,
   error?: unknown,
-): void {
+) {
   if (!isAnalyticsEnabled()) return;
 
   const properties: Record<string, unknown> = { event };
@@ -177,7 +177,7 @@ function forwardLogErrorToAnalytics(
   );
 }
 
-export function logError(event: string, meta?: Record<string, unknown>, error?: unknown): void {
+export function logError(event: string, meta?: Record<string, unknown>, error?: unknown) {
   const skipAnalyticsException = meta?.skipAnalyticsException === true;
   const rest = meta == null ? undefined : { ...meta };
   if (rest && "skipAnalyticsException" in rest) delete rest.skipAnalyticsException;
@@ -202,7 +202,7 @@ export function initEvlog(
     pretty?: boolean;
     redact?: boolean;
   },
-): void {
+) {
   globalMinLevel = logLevel;
   globalMaxWideEvents = options?.maxWideEvents ?? DEFAULT_MAX_WIDE_EVENTS;
 
@@ -220,7 +220,7 @@ export function initEvlog(
   });
 }
 
-export function createOperationLogger(meta: OperationLoggerMeta): AuditableLogger {
+export function createOperationLogger(meta: OperationLoggerMeta) {
   const logger = withAuditMethods(
     createRequestLogger({
       method: meta.method,
@@ -232,13 +232,10 @@ export function createOperationLogger(meta: OperationLoggerMeta): AuditableLogge
     const safeContext = sanitizeTelemetryRecord(meta.context);
     if (safeContext !== undefined) logger.set(safeContext);
   }
-  return logger;
+  return ((pinnedReturn: AuditableLogger) => pinnedReturn)(logger);
 }
 
-async function emitPrepared(
-  logger: RequestLogger,
-  overrides?: Record<string, unknown>,
-): Promise<void> {
+async function emitPrepared(logger: RequestLogger, overrides?: Record<string, unknown>) {
   const context = logger.getContext();
   const safeContext = sanitizeTelemetryRecord(context);
   if (safeContext !== undefined && safeContext !== context) logger.set(safeContext);
@@ -247,28 +244,27 @@ async function emitPrepared(
   await Promise.resolve(logger.emit(overrides));
 }
 
-export async function runWithOperationLogger<T>(
-  meta: OperationLoggerMeta,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function runWithOperationLogger<T>(meta: OperationLoggerMeta, fn: () => Promise<T>) {
   const opLog = createOperationLogger(meta);
-  return storage.run(opLog, async () => {
-    try {
-      return await fn();
-    } catch (e) {
-      opLog.error(sanitizeErrorForTelemetry(e));
-      throw e;
-    } finally {
+  return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(
+    storage.run(opLog, async () => {
       try {
-        await emitPrepared(opLog);
-      } catch {}
-    }
-  });
+        return await fn();
+      } catch (e) {
+        opLog.error(sanitizeErrorForTelemetry(e));
+        throw e;
+      } finally {
+        try {
+          await emitPrepared(opLog);
+        } catch {}
+      }
+    }),
+  );
 }
 
 export async function emitOperationLogger(
   logger: RequestLogger,
   overrides?: Record<string, unknown>,
-): Promise<void> {
+) {
   await emitPrepared(logger, overrides);
 }

@@ -5,36 +5,42 @@ import {
 } from "./requireDatabase.ts";
 import { quoteDatabaseIdent, workerDatabaseNames } from "./workerDatabases.ts";
 
-export default async function globalSetup(): Promise<() => Promise<void>> {
+export default async function globalSetup() {
   await assertIntegrationDatabaseReady();
   const adminUrl = process.env.DATABASE_URL;
   if (typeof adminUrl !== "string" || adminUrl.length === 0) {
-    return async () => {};
+    return ((pinnedReturn: (() => Promise<void>) | Promise<() => Promise<void>>) => pinnedReturn)(
+      async () => {},
+    );
   }
   if (allowIntegrationSkipWithoutDatabase() && !(await databaseAcceptsConnections(adminUrl))) {
-    return async () => {};
+    return ((pinnedReturn: (() => Promise<void>) | Promise<() => Promise<void>>) => pinnedReturn)(
+      async () => {},
+    );
   }
 
   const names = workerDatabaseNames(adminUrl);
   await recreateWorkerDatabases(adminUrl, names);
-  return async () => {
-    await dropWorkerDatabases(adminUrl, names);
-  };
+  return ((pinnedReturn: (() => Promise<void>) | Promise<() => Promise<void>>) => pinnedReturn)(
+    async () => {
+      await dropWorkerDatabases(adminUrl, names);
+    },
+  );
 }
 
-async function databaseAcceptsConnections(connectionString: string): Promise<boolean> {
+async function databaseAcceptsConnections(connectionString: string) {
   const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 2_000 });
   try {
     await pool.query("SELECT 1");
-    return true;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   } catch {
-    return false;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   } finally {
     await pool.end();
   }
 }
 
-async function recreateWorkerDatabases(adminUrl: string, names: readonly string[]): Promise<void> {
+async function recreateWorkerDatabases(adminUrl: string, names: readonly string[]) {
   const pool = new Pool({ connectionString: adminUrl, max: 1 });
   try {
     for (const name of names) {
@@ -47,7 +53,7 @@ async function recreateWorkerDatabases(adminUrl: string, names: readonly string[
   }
 }
 
-async function dropWorkerDatabases(adminUrl: string, names: readonly string[]): Promise<void> {
+async function dropWorkerDatabases(adminUrl: string, names: readonly string[]) {
   const pool = new Pool({ connectionString: adminUrl, max: 1 });
   try {
     for (const name of names) {

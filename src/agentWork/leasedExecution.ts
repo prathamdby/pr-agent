@@ -45,7 +45,7 @@ export function startLeaseRenewal(
   workItemId: string,
   leaseEpoch: number,
   onLost: () => void,
-): () => void {
+) {
   const timer = setInterval(() => {
     void renewPrActorLease(pool, {
       ...key,
@@ -77,7 +77,7 @@ export function startLeaseRenewal(
     );
   }, cfg.queue.prActorLeaseRenewalIntervalSeconds * 1000);
   timer.unref();
-  return () => clearInterval(timer);
+  return ((pinnedReturn: () => void) => pinnedReturn)(() => clearInterval(timer));
 }
 
 export function startCancelObserve(params: {
@@ -85,11 +85,11 @@ export function startCancelObserve(params: {
   readonly workItemId: string;
   readonly leaseEpoch: number;
   readonly abort: (reason: "cancellation_observed" | "lease_lost") => void;
-}): () => void {
+}) {
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
-  const tick = async (): Promise<void> => {
+  const tick = async () => {
     if (stopped) return;
     try {
       const [skip, held] = await Promise.all([
@@ -115,19 +115,19 @@ export function startCancelObserve(params: {
     void tick();
   }, REVIEW_CANCEL_POLL_INTERVAL_MS);
   timer.unref();
-  return () => {
+  return ((pinnedReturn: () => void) => pinnedReturn)(() => {
     stopped = true;
     if (timer) clearInterval(timer);
-  };
+  });
 }
 
-export function isPostgresDeadlockError(error: unknown): boolean {
-  return (
+export function isPostgresDeadlockError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code === "40P01"
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      error.code === "40P01",
   );
 }
 
@@ -150,53 +150,60 @@ export async function acquireAndClaimWorkItem(params: {
   readonly priority?: number;
   readonly seededLiveHop: boolean;
   readonly transact?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
-}): Promise<AtomicClaimResult> {
+}) {
   const transact = params.transact ?? ((fn) => inTransaction(params.pool, fn));
-  const attempt = async (): Promise<AtomicClaimResult> =>
-    transact(async (client) => {
-      const acquisition = await acquirePrActorLease(client, {
-        ...params.leaseKey,
-        workItemId: params.core.id,
-        holderId: leaseHolderId,
-        ttlSeconds: params.ttlSeconds,
-      });
-      if (!acquisition.acquired) {
-        if (!params.seededLiveHop) {
-          await armLeaseWatchdogHop(params.boss, {
-            queue: params.queue,
-            data: { workItemId: params.core.id },
-            singletonKey: params.core.id,
-            priority: params.priority,
-            groupId: installationGroupId(params.core.installationId),
-            workItemId: params.core.id,
-            onSendFailure: "throw",
-          });
+  const attempt = async () =>
+    ((pinnedReturn: AtomicClaimResult | Promise<AtomicClaimResult>) => pinnedReturn)(
+      transact(async (client) => {
+        const acquisition = await acquirePrActorLease(client, {
+          ...params.leaseKey,
+          workItemId: params.core.id,
+          holderId: leaseHolderId,
+          ttlSeconds: params.ttlSeconds,
+        });
+        if (!acquisition.acquired) {
+          if (!params.seededLiveHop) {
+            await armLeaseWatchdogHop(params.boss, {
+              queue: params.queue,
+              data: { workItemId: params.core.id },
+              singletonKey: params.core.id,
+              priority: params.priority,
+              groupId: installationGroupId(params.core.installationId),
+              workItemId: params.core.id,
+              onSendFailure: "throw",
+            });
+          }
+          return acquisition;
         }
-        return acquisition;
-      }
-      let claimed: WorkClaim | null;
-      try {
-        claimed = await claimWorkForExecution(client, params.core.id, acquisition.leaseEpoch);
-      } catch (error) {
-        await releasePrActorLease(client, {
-          ...params.leaseKey,
-          leaseEpoch: acquisition.leaseEpoch,
-        });
-        throw error;
-      }
-      if (!claimed) {
-        await releasePrActorLease(client, {
-          ...params.leaseKey,
-          leaseEpoch: acquisition.leaseEpoch,
-        });
-        return null;
-      }
-      return { ...acquisition, claimed };
-    });
+        let claimed: WorkClaim | null;
+        try {
+          claimed = await claimWorkForExecution(client, params.core.id, acquisition.leaseEpoch);
+        } catch (error) {
+          await releasePrActorLease(client, {
+            ...params.leaseKey,
+            leaseEpoch: acquisition.leaseEpoch,
+          });
+          throw error;
+        }
+        if (!claimed) {
+          await releasePrActorLease(client, {
+            ...params.leaseKey,
+            leaseEpoch: acquisition.leaseEpoch,
+          });
+          return null;
+        }
+        return { ...acquisition, claimed };
+      }),
+    );
   try {
-    return await attempt();
+    return ((pinnedReturn: AtomicClaimResult | Promise<AtomicClaimResult>) => pinnedReturn)(
+      await attempt(),
+    );
   } catch (error) {
-    if (isPostgresDeadlockError(error)) return attempt();
+    if (isPostgresDeadlockError(error))
+      return ((pinnedReturn: AtomicClaimResult | Promise<AtomicClaimResult>) => pinnedReturn)(
+        attempt(),
+      );
     throw error;
   }
 }
@@ -208,8 +215,8 @@ export function createLeaseMutationBoundary(params: {
   readonly leaseEpoch: number;
   readonly signal: AbortSignal;
   readonly checkCancellation?: boolean;
-}): PrSurfaceMutationBoundary {
-  async function assertNotCancelled(operationKey: string): Promise<void> {
+}) {
+  async function assertNotCancelled(operationKey: string) {
     if (
       params.checkCancellation !== false &&
       (await shouldSkipWork(params.pool, { id: params.workItemId }))
@@ -223,7 +230,7 @@ export function createLeaseMutationBoundary(params: {
     }
   }
 
-  return {
+  return ((pinnedReturn: PrSurfaceMutationBoundary) => pinnedReturn)({
     signal: params.signal,
     confirmLeaseHeld: () =>
       assertPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch),
@@ -257,7 +264,7 @@ export function createLeaseMutationBoundary(params: {
         },
       });
     },
-  };
+  });
 }
 
 export type LeasedExecutionRuntime = {
@@ -302,9 +309,7 @@ export type LeasedExecution = {
   release(): Promise<void>;
 };
 
-export async function openLeasedExecution(
-  params: OpenLeasedExecutionParams,
-): Promise<LeasedExecution | undefined> {
+export async function openLeasedExecution(params: OpenLeasedExecutionParams) {
   const { cfg, pool, boss, job, type, core, runtime } = params;
   const jobSignal = job.signal;
   let leaseEpoch: number | null = null;
@@ -323,7 +328,9 @@ export async function openLeasedExecution(
         workItemId: core.id,
         status: core.status,
       });
-      return undefined;
+      return ((
+        pinnedReturn: (LeasedExecution | undefined) | Promise<LeasedExecution | undefined>,
+      ) => pinnedReturn)(undefined);
     }
     const key: PrActorLeaseKey = { resourceKey: core.resourceKey, workType: type };
     let seededLiveHop = false;
@@ -356,7 +363,10 @@ export async function openLeasedExecution(
       seededLiveHop,
       transact: (fn) => runtime.transaction(pool, fn),
     });
-    if (atomic == null) return undefined;
+    if (atomic == null)
+      return ((
+        pinnedReturn: (LeasedExecution | undefined) | Promise<LeasedExecution | undefined>,
+      ) => pinnedReturn)(undefined);
     if (!atomic.acquired) {
       logInfo("pr_actor_lease_unavailable", {
         type,
@@ -365,7 +375,9 @@ export async function openLeasedExecution(
         heldByWorkItemId: atomic.heldByWorkItemId,
         leaseEpoch: atomic.leaseEpoch,
       });
-      return undefined;
+      return ((
+        pinnedReturn: (LeasedExecution | undefined) | Promise<LeasedExecution | undefined>,
+      ) => pinnedReturn)(undefined);
     }
     const epoch = atomic.leaseEpoch;
     leaseKey = key;
@@ -387,14 +399,19 @@ export async function openLeasedExecution(
     });
   } else {
     const claimed = await claimWorkForExecution(pool, core.id);
-    if (!claimed) return undefined;
+    if (!claimed)
+      return ((
+        pinnedReturn: (LeasedExecution | undefined) | Promise<LeasedExecution | undefined>,
+      ) => pinnedReturn)(undefined);
     claim = claimed;
   }
 
-  const owns = async (): Promise<boolean> =>
-    leaseEpoch == null || (await isPrActorLeaseHeld(pool, core.id, leaseEpoch));
+  const owns = async () =>
+    ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+      leaseEpoch == null || (await isPrActorLeaseHeld(pool, core.id, leaseEpoch)),
+    );
 
-  const requireLeaseEpoch = (itemId: string): number => {
+  const requireLeaseEpoch = (itemId: string) => {
     if (leaseEpoch == null) {
       throw new AppError({
         domain: "agent_work",
@@ -403,10 +420,11 @@ export async function openLeasedExecution(
         context: { workItemId: itemId },
       });
     }
-    return leaseEpoch;
+    return ((pinnedReturn: number) => pinnedReturn)(leaseEpoch);
   };
 
-  return {
+  return ((pinnedReturn: (LeasedExecution | undefined) | Promise<LeasedExecution | undefined>) =>
+    pinnedReturn)({
     leaseEpoch,
     claim,
     signal,
@@ -490,5 +508,5 @@ export async function openLeasedExecution(
         });
       }
     },
-  };
+  });
 }

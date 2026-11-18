@@ -6,7 +6,7 @@ export async function pumpSpecialistCompletions(args: {
   readonly pending: ReadonlyMap<SpecialistId, Promise<SpecialistOutcome>>;
   readonly onOutcome: (outcome: SpecialistOutcome) => Promise<void>;
   readonly shouldContinue: () => boolean;
-}): Promise<SpecialistOutcome[]> {
+}) {
   const completed: SpecialistOutcome[] = [];
   let notifyCompletion: (() => void) | undefined;
 
@@ -39,10 +39,13 @@ export async function pumpSpecialistCompletions(args: {
       });
   }
 
-  async function takeCompleted(): Promise<SpecialistOutcome> {
+  async function takeCompleted() {
     while (true) {
       const outcome = completed.shift();
-      if (outcome !== undefined) return outcome;
+      if (outcome !== undefined)
+        return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(
+          outcome,
+        );
       await new Promise<void>((resolve) => {
         notifyCompletion = resolve;
       });
@@ -74,5 +77,7 @@ export async function pumpSpecialistCompletions(args: {
     }
   }
 
-  return outcomes;
+  return ((pinnedReturn: SpecialistOutcome[] | Promise<SpecialistOutcome[]>) => pinnedReturn)(
+    outcomes,
+  );
 }

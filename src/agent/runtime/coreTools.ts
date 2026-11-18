@@ -22,40 +22,44 @@ const TERMINAL_SUBMIT_TOOLS: ReadonlySet<string> = new Set([
   "submitVerification",
 ]);
 
-function toolResultToText(result: unknown): string {
-  if (result === undefined) return "";
-  return typeof result === "string" ? result : JSON.stringify(result);
+function toolResultToText(result: unknown) {
+  if (result === undefined) return ((pinnedReturn: string) => pinnedReturn)("");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    typeof result === "string" ? result : JSON.stringify(result),
+  );
 }
 
-function toolResultSize(result: unknown): { resultBytes: number; resultCharacters: number } {
+function toolResultSize(result: unknown) {
   const text = toolResultToText(result);
-  return {
+  return ((pinnedReturn: { resultBytes: number; resultCharacters: number }) => pinnedReturn)({
     resultCharacters: text.length,
     resultBytes: Buffer.byteLength(text, "utf8"),
-  };
+  });
 }
 
-function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
+function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]) {
   try {
     recordReviewMetric(event);
   } catch {}
 }
 
-function asToolArgs(args: unknown): Record<string, unknown> {
+function asToolArgs(args: unknown) {
   if (isRecord(args)) {
-    return args;
+    return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(args);
   }
-  return {};
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({});
 }
 
-function isAcceptedTerminalResult(result: unknown): boolean {
-  if (!isRecord(result)) return false;
-  return result.accepted === true || result.ok === true;
+function isAcceptedTerminalResult(result: unknown) {
+  if (!isRecord(result)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(result.accepted === true || result.ok === true);
 }
 
-function isRejectedTerminalResult(result: unknown): boolean {
-  if (!isRecord(result)) return false;
-  return (result.accepted === false || result.ok === false) && typeof result.error === "string";
+function isRejectedTerminalResult(result: unknown) {
+  if (!isRecord(result)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    (result.accepted === false || result.ok === false) && typeof result.error === "string",
+  );
 }
 
 export type ToolCallTrace = {
@@ -73,9 +77,9 @@ export function toCoreTool(
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
   trace?: ToolCallTrace,
-): AgentTool {
+) {
   const executionMode = toolExecutionMode(tool.name);
-  return {
+  return ((pinnedReturn: AgentTool) => pinnedReturn)({
     name: tool.name,
     label: tool.name,
     description: tool.description,
@@ -151,7 +155,7 @@ export function toCoreTool(
         throw error;
       }
     },
-  };
+  });
 }
 
 export function toCoreTools(
@@ -160,8 +164,10 @@ export function toCoreTools(
   hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
   trace?: ToolCallTrace,
-): AgentTool[] {
-  return tools.map((tool) =>
-    toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool, trace),
+) {
+  return ((pinnedReturn: AgentTool[]) => pinnedReturn)(
+    tools.map((tool) =>
+      toCoreTool(tool, executors[tool.name], hostSignal, refreshBeforeTool, trace),
+    ),
   );
 }

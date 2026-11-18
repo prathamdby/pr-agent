@@ -22,8 +22,9 @@ export function toIntakeCommand(
   headers: WebhookHeaders,
   event: ParsedGithubEvent,
   bot?: BotIdentity,
-): IntakeCommand | { readonly kind: "auth_required" } {
-  const ignored = (decision: string): IntakeCommand => ({ kind: "ignored", headers, decision });
+) {
+  const ignored = (decision: string) =>
+    ((pinnedReturn: IntakeCommand) => pinnedReturn)({ kind: "ignored", headers, decision });
   const authorize = (id: number, association: string | null | undefined, type?: string) => {
     if (type?.toLowerCase() === "bot") return ignored(IGNORED_BOT_SLASH_COMMAND);
     if (bot == null) return { kind: "auth_required" } as const;
@@ -35,10 +36,12 @@ export function toIntakeCommand(
   };
   switch (event.name) {
     case "ignored":
-      return ignored(`ignored_event_${headers.event || "missing"}`);
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+        ignored(`ignored_event_${headers.event || "missing"}`),
+      );
     case "pull_request": {
       const data = event.data;
-      return {
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "pull_request",
         headers,
         ref: {
@@ -68,13 +71,15 @@ export function toIntakeCommand(
                 }
               : undefined,
         },
-      };
+      });
     }
     case "workflow_run_started":
       if (cfg.features.review !== "approval") {
-        return ignored(IGNORED_REVIEW_APPROVAL_NOT_ENABLED);
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored(IGNORED_REVIEW_APPROVAL_NOT_ENABLED),
+        );
       }
-      return {
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "review_approved",
         headers,
         signal: {
@@ -88,10 +93,12 @@ export function toIntakeCommand(
             event.data.workflow_run.pull_requests,
           ),
         },
-      };
+      });
     case "pull_request_review": {
       if (cfg.features.review !== "approval") {
-        return ignored(IGNORED_REVIEW_APPROVAL_NOT_ENABLED);
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored(IGNORED_REVIEW_APPROVAL_NOT_ENABLED),
+        );
       }
       const data = event.data;
       const gate = authorize(
@@ -99,8 +106,11 @@ export function toIntakeCommand(
         data.review.author_association,
         data.review.user.type,
       );
-      if ("kind" in gate) return gate;
-      return {
+      if ("kind" in gate)
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          gate,
+        );
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "review_approved",
         headers,
         signal: {
@@ -114,7 +124,7 @@ export function toIntakeCommand(
             repositorySizeKb: data.repository.size,
           },
         },
-      };
+      });
     }
     case "issue_comment":
     case "pull_request_review_comment": {
@@ -122,9 +132,14 @@ export function toIntakeCommand(
       const body = data.comment.body ?? "";
       const slash = parseSlashCommand(body);
       const gate = authorize(data.comment.user.id, data.comment.author_association);
-      if ("kind" in gate) return gate;
+      if ("kind" in gate)
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          gate,
+        );
       if (!slash && !commentMentionsBot(body, gate.login)) {
-        return ignored("ignored_no_slash_command");
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored("ignored_no_slash_command"),
+        );
       }
       const command = slash ?? "ask";
       const fields: Pick<SlashCommandInput, "prNumber" | "replyTarget" | "codeAnchor"> =
@@ -142,7 +157,7 @@ export function toIntakeCommand(
               },
               codeAnchor: codeAnchorFromReviewComment(event.data.comment),
             };
-      return {
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "slash",
         input: {
           headers,
@@ -168,7 +183,7 @@ export function toIntakeCommand(
             : {}),
           ...(command === "ask" ? { botLogin: gate.login } : {}),
         },
-      };
+      });
     }
     case "workflow_run":
     case "check_suite": {
@@ -181,13 +196,15 @@ export function toIntakeCommand(
           { app_id: event.data.check_suite.app?.id ?? null, external_id: null },
         )
       )
-        return ignored("ignored_own_check_suite");
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored("ignored_own_check_suite"),
+        );
       const source = toCiHeadSourceFromCompletedRun({
         installation: data.installation,
         repository: data.repository,
         run,
       });
-      return {
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "ci_refresh",
         headers,
         data: {
@@ -197,7 +214,7 @@ export function toIntakeCommand(
           headSha: source.headSha,
           prNumbers: prNumbersForCiHead(source.headSha, source.pullRequests),
         },
-      };
+      });
     }
     case "check_run": {
       const data = event.data;
@@ -208,8 +225,10 @@ export function toIntakeCommand(
           { app_id: run.app?.id ?? null, external_id: run.external_id ?? null },
         )
       )
-        return ignored("ignored_own_check_run");
-      return {
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored("ignored_own_check_run"),
+        );
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "ci_state",
         headers,
         data: {
@@ -229,12 +248,15 @@ export function toIntakeCommand(
             observed_at: observedAtFromGithub(run.completed_at, run.started_at),
           },
         },
-      };
+      });
     }
     case "status": {
       const data = event.data;
-      if (data.context === OWN_COMMIT_STATUS_CONTEXT) return ignored("ignored_own_commit_status");
-      return {
+      if (data.context === OWN_COMMIT_STATUS_CONTEXT)
+        return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+          ignored("ignored_own_commit_status"),
+        );
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)({
         kind: "ci_state",
         headers,
         data: {
@@ -254,10 +276,12 @@ export function toIntakeCommand(
             observed_at: observedAtFromGithub(data.updated_at, data.created_at),
           },
         },
-      };
+      });
     }
     default:
       event satisfies never;
-      return ignored(`ignored_unhandled_${headers.event || "missing"}`);
+      return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) => pinnedReturn)(
+        ignored(`ignored_unhandled_${headers.event || "missing"}`),
+      );
   }
 }

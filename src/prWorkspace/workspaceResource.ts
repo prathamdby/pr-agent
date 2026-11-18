@@ -12,7 +12,7 @@ import {
   type GitCredentialFiles,
 } from "./gitCredentials.ts";
 
-export function assertGitSha(value: string, field: string): void {
+export function assertGitSha(value: string, field: string) {
   if (!/^[0-9a-f]{40}$/i.test(value)) {
     throw new AppError({
       domain: "pr_workspace",
@@ -23,7 +23,7 @@ export function assertGitSha(value: string, field: string): void {
   }
 }
 
-export function assertGitRepoPart(value: string, field: string): void {
+export function assertGitRepoPart(value: string, field: string) {
   if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new AppError({
       domain: "pr_workspace",
@@ -34,11 +34,7 @@ export function assertGitRepoPart(value: string, field: string): void {
   }
 }
 
-export async function ensureWorkspaceFreeSpace(
-  dir: string,
-  minBytes: number,
-  message: string,
-): Promise<void> {
+export async function ensureWorkspaceFreeSpace(dir: string, minBytes: number, message: string) {
   const fs = await statfs(dir);
   const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
   if (freeBytes < BigInt(minBytes)) {
@@ -56,7 +52,7 @@ export async function ensureWorkspaceFreeSpaceAfterSweep(
   minBytes: number,
   message: string,
   sweep: () => Promise<void>,
-): Promise<void> {
+) {
   try {
     await ensureWorkspaceFreeSpace(dir, minBytes, message);
   } catch (error) {
@@ -68,7 +64,7 @@ export async function ensureWorkspaceFreeSpaceAfterSweep(
   }
 }
 
-export function gitCountObjectsStoreBytes(countObjectsOutput: string): number {
+export function gitCountObjectsStoreBytes(countObjectsOutput: string) {
   let sizeKiB = 0;
   let sizePackKiB = 0;
   for (const line of countObjectsOutput.split("\n")) {
@@ -80,7 +76,7 @@ export function gitCountObjectsStoreBytes(countObjectsOutput: string): number {
     if (key === "size") sizeKiB = value;
     if (key === "size-pack") sizePackKiB = value;
   }
-  return (sizeKiB + sizePackKiB) * 1024;
+  return ((pinnedReturn: number) => pinnedReturn)((sizeKiB + sizePackKiB) * 1024);
 }
 
 export const READONLY_WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
@@ -123,18 +119,20 @@ type SweepStaleOwnedWorkspacesOptions = {
 
 const liveWorkspaceRoots = new Set<string>();
 
-function ownerHeartbeatIntervalMs(staleAgeSeconds: number): number {
+function ownerHeartbeatIntervalMs(staleAgeSeconds: number) {
   const staleMs = staleAgeSeconds * 1000;
-  return Math.min(30_000, Math.max(1_000, Math.floor(staleMs / 12)));
+  return ((pinnedReturn: number) => pinnedReturn)(
+    Math.min(30_000, Math.max(1_000, Math.floor(staleMs / 12))),
+  );
 }
 
-function isWorkspaceOwnerPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+function isWorkspaceOwnerPidAlive(pid: number) {
+  if (!Number.isInteger(pid) || pid <= 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);
   try {
     process.kill(pid, 0);
-    return true;
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   } catch {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
 }
 
@@ -142,29 +140,31 @@ function isWorkspaceRootPrefix(value: string): value is WorkspaceRootPrefix {
   return WORKSPACE_ROOT_PREFIXES.some((prefix) => prefix === value);
 }
 
-function ownerMarkerPath(rootDir: string): string {
-  return join(rootDir, WORKSPACE_OWNER_MARKER_NAME);
+function ownerMarkerPath(rootDir: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(join(rootDir, WORKSPACE_OWNER_MARKER_NAME));
 }
 
-async function writeWorkspaceOwnerMarker(
-  rootDir: string,
-  marker: WorkspaceOwnerMarker,
-): Promise<void> {
+async function writeWorkspaceOwnerMarker(rootDir: string, marker: WorkspaceOwnerMarker) {
   const target = ownerMarkerPath(rootDir);
   const temp = `${target}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(marker)}\n`, { mode: 0o600 });
   await rename(temp, target);
 }
 
-async function readWorkspaceOwnerMarker(rootDir: string): Promise<WorkspaceOwnerMarker | null> {
+async function readWorkspaceOwnerMarker(rootDir: string) {
   const raw = await readFile(ownerMarkerPath(rootDir), "utf8").catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
   });
-  if (raw == null) return null;
+  if (raw == null)
+    return ((pinnedReturn: (WorkspaceOwnerMarker | null) | Promise<WorkspaceOwnerMarker | null>) =>
+      pinnedReturn)(null);
   try {
     const value: unknown = JSON.parse(raw);
-    if (!isPlainObject(value)) return null;
+    if (!isPlainObject(value))
+      return ((
+        pinnedReturn: (WorkspaceOwnerMarker | null) | Promise<WorkspaceOwnerMarker | null>,
+      ) => pinnedReturn)(null);
     const pid = value.pid;
     const heartbeatAtMs = value.heartbeatAtMs;
     if (
@@ -174,11 +174,15 @@ async function readWorkspaceOwnerMarker(rootDir: string): Promise<WorkspaceOwner
       typeof heartbeatAtMs !== "number" ||
       !Number.isFinite(heartbeatAtMs)
     ) {
-      return null;
+      return ((
+        pinnedReturn: (WorkspaceOwnerMarker | null) | Promise<WorkspaceOwnerMarker | null>,
+      ) => pinnedReturn)(null);
     }
-    return { pid, heartbeatAtMs };
+    return ((pinnedReturn: (WorkspaceOwnerMarker | null) | Promise<WorkspaceOwnerMarker | null>) =>
+      pinnedReturn)({ pid, heartbeatAtMs });
   } catch {
-    return null;
+    return ((pinnedReturn: (WorkspaceOwnerMarker | null) | Promise<WorkspaceOwnerMarker | null>) =>
+      pinnedReturn)(null);
   }
 }
 
@@ -187,18 +191,19 @@ function isLiveWorkspaceOwnerMarker(
   nowMs: number,
   staleAgeMs: number,
   isPidAlive: (pid: number) => boolean,
-): boolean {
-  if (marker == null) return false;
-  if (nowMs - marker.heartbeatAtMs <= staleAgeMs) return true;
-  return isPidAlive(marker.pid);
+) {
+  if (marker == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (nowMs - marker.heartbeatAtMs <= staleAgeMs)
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(isPidAlive(marker.pid));
 }
 
-async function removeWorkspaceRoot(rootDir: string): Promise<void> {
+async function removeWorkspaceRoot(rootDir: string) {
   await makeDirectoriesWritable(rootDir);
   await rm(rootDir, { recursive: true, force: true });
 }
 
-async function removeCredentialFiles(rootDir: string): Promise<void> {
+async function removeCredentialFiles(rootDir: string) {
   await rm(join(rootDir, GIT_ASKPASS_NAME), { force: true }).catch(() => undefined);
   await rm(join(rootDir, GIT_TOKEN_FILE_NAME), { force: true }).catch(() => undefined);
 }
@@ -210,9 +215,7 @@ export async function statIfPresent(path: string) {
   });
 }
 
-export async function allocateWorkspaceResource(
-  params: AllocateWorkspaceResourceParams,
-): Promise<WorkspaceResource> {
+export async function allocateWorkspaceResource(params: AllocateWorkspaceResourceParams) {
   if (!isWorkspaceRootPrefix(params.prefix)) {
     throw new AppError({
       domain: "pr_workspace",
@@ -234,13 +237,13 @@ export async function allocateWorkspaceResource(
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let credentials: GitCredentialFiles | undefined;
 
-  const stopHeartbeat = (): void => {
+  const stopHeartbeat = () => {
     if (heartbeat == null) return;
     clearInterval(heartbeat);
     heartbeat = null;
   };
 
-  const release = async (): Promise<void> => {
+  const release = async () => {
     if (released) return;
     released = true;
     stopHeartbeat();
@@ -254,7 +257,7 @@ export async function allocateWorkspaceResource(
     await removeRoot(rootDir).catch(() => undefined);
   };
 
-  const writeHeartbeat = async (): Promise<void> => {
+  const writeHeartbeat = async () => {
     if (released) return;
     await writeWorkspaceOwnerMarker(rootDir, {
       pid: process.pid,
@@ -273,20 +276,18 @@ export async function allocateWorkspaceResource(
     }, heartbeatIntervalMs);
     heartbeat.unref();
     credentials = await createCredentials(rootDir, params.installationToken);
-    return {
+    return ((pinnedReturn: WorkspaceResource | Promise<WorkspaceResource>) => pinnedReturn)({
       rootDir,
       credentials,
       release,
-    };
+    });
   } catch (error) {
     await release();
     throw error;
   }
 }
 
-export async function sweepStaleOwnedWorkspaces(
-  options: SweepStaleOwnedWorkspacesOptions = {},
-): Promise<void> {
+export async function sweepStaleOwnedWorkspaces(options: SweepStaleOwnedWorkspacesOptions = {}) {
   const nowMs = options.nowMs ?? Date.now();
   const isPidAlive = options.isPidAlive ?? isWorkspaceOwnerPidAlive;
   const staleAgeMs = (options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS) * 1000;

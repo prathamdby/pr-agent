@@ -168,10 +168,12 @@ export type ReviewCoverage =
 
 export function decidingCoverageReason(
   coverage: Extract<ReviewCoverage, { readonly kind: "partial" }>,
-): "unjudged" | "specialists" | "unread" {
-  if ((coverage.unjudged?.length ?? 0) > 0) return "unjudged";
-  if ((coverage.failed?.length ?? 0) > 0) return "specialists";
-  return "unread";
+) {
+  if ((coverage.unjudged?.length ?? 0) > 0)
+    return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("unjudged");
+  if ((coverage.failed?.length ?? 0) > 0)
+    return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("specialists");
+  return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("unread");
 }
 
 export function createFindingLedger(initial?: {
@@ -182,8 +184,8 @@ export function createFindingLedger(initial?: {
   readonly postedInlineCount?: number;
   readonly threadCallCount?: number;
   readonly threadBudgetExhausted?: boolean;
-}): FindingLedger {
-  return {
+}) {
+  return ((pinnedReturn: FindingLedger) => pinnedReturn)({
     accepted: [...(initial?.accepted ?? [])],
     reaffirmed: [...(initial?.reaffirmed ?? [])],
     suppressedDismissedCount: initial?.suppressedDismissedCount ?? 0,
@@ -191,14 +193,11 @@ export function createFindingLedger(initial?: {
     postedInlineCount: initial?.postedInlineCount ?? 0,
     threadCallCount: initial?.threadCallCount ?? 0,
     threadBudgetExhausted: initial?.threadBudgetExhausted ?? false,
-  };
+  });
 }
 
-export function applyFindingLedgerDelta(
-  ledger: FindingLedger,
-  delta: FindingLedgerDelta,
-): FindingLedger {
-  return {
+export function applyFindingLedgerDelta(ledger: FindingLedger, delta: FindingLedgerDelta) {
+  return ((pinnedReturn: FindingLedger) => pinnedReturn)({
     accepted: [...ledger.accepted, ...delta.accepted],
     reaffirmed: [...ledger.reaffirmed, ...delta.reaffirmed],
     suppressedDismissedCount: ledger.suppressedDismissedCount + delta.suppressedDismissedCount,
@@ -206,29 +205,31 @@ export function applyFindingLedgerDelta(
     postedInlineCount: ledger.postedInlineCount + delta.postedInlineCount,
     threadCallCount: ledger.threadCallCount + delta.threadCallCount,
     threadBudgetExhausted: ledger.threadBudgetExhausted || delta.threadBudgetExhausted,
-  };
-}
-
-export function carriedReaffirmedFindings(ledger: FindingLedger): ReaffirmedFinding[] {
-  const seen = new Set<FindingId>(ledger.accepted.map((accepted) => accepted.findingId));
-  return ledger.reaffirmed.filter((entry) => {
-    if (entry.heldBy === "run" || seen.has(entry.id)) return false;
-    seen.add(entry.id);
-    return true;
   });
 }
 
-export function ledgerFindings(ledger: FindingLedger): InlinePlacement["finding"][] {
-  return [
-    ...ledger.accepted.map((accepted) => accepted.placement.finding),
-    ...carriedReaffirmedFindings(ledger).map((entry) => entry.placement.finding),
-  ];
+export function carriedReaffirmedFindings(ledger: FindingLedger) {
+  const seen = new Set<FindingId>(ledger.accepted.map((accepted) => accepted.findingId));
+  return ((pinnedReturn: ReaffirmedFinding[]) => pinnedReturn)(
+    ledger.reaffirmed.filter((entry) => {
+      if (entry.heldBy === "run" || seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    }),
+  );
 }
 
-export function countAcceptedForSource(ledger: FindingLedger, source: FindingSource): number {
-  return (
+export function ledgerFindings(ledger: FindingLedger) {
+  return ((pinnedReturn: InlinePlacement["finding"][]) => pinnedReturn)([
+    ...ledger.accepted.map((accepted) => accepted.placement.finding),
+    ...carriedReaffirmedFindings(ledger).map((entry) => entry.placement.finding),
+  ]);
+}
+
+export function countAcceptedForSource(ledger: FindingLedger, source: FindingSource) {
+  return ((pinnedReturn: number) => pinnedReturn)(
     ledger.accepted.filter((placement) => placement.source === source).length +
-    ledger.reaffirmed.filter((entry) => entry.source === source).length
+      ledger.reaffirmed.filter((entry) => entry.source === source).length,
   );
 }
 
@@ -236,10 +237,10 @@ export function specialistDonePhase(
   ledgerBefore: FindingLedger,
   ledgerAfter: FindingLedger,
   source: SpecialistId,
-): Extract<SpecialistRunPhase, { phase: "done" }> {
-  return {
+) {
+  return ((pinnedReturn: Extract<SpecialistRunPhase, { phase: "done" }>) => pinnedReturn)({
     phase: "done",
     findingsAccepted:
       countAcceptedForSource(ledgerAfter, source) - countAcceptedForSource(ledgerBefore, source),
-  };
+  });
 }

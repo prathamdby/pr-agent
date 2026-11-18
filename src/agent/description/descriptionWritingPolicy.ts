@@ -65,41 +65,41 @@ const BODY_SCALE_SPEC: Record<DescriptionBodyScale, BodyScaleSpec> = {
   },
 };
 
-export function resolveDescriptionBodyScale(input: DescriptionSizeInput): DescriptionBodyScale {
-  if (input.truncated) return "L";
+export function resolveDescriptionBodyScale(input: DescriptionSizeInput) {
+  if (input.truncated) return ((pinnedReturn: DescriptionBodyScale) => pinnedReturn)("L");
   if (
     input.fileCount <= DESCRIPTION_MAP_OMIT_MAX_FILES &&
     input.totalChanges < DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES
   ) {
-    return "S";
+    return ((pinnedReturn: DescriptionBodyScale) => pinnedReturn)("S");
   }
   if (
     input.fileCount <= DESCRIPTION_BODY_M_MAX_FILES &&
     input.totalChanges < DESCRIPTION_BODY_M_MAX_LINE_CHANGES
   ) {
-    return "M";
+    return ((pinnedReturn: DescriptionBodyScale) => pinnedReturn)("M");
   }
-  return "L";
+  return ((pinnedReturn: DescriptionBodyScale) => pinnedReturn)("L");
 }
 
-function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
-  return bodyScale === "S" ? "omit" : "read_first";
+function mapModeForBodyScale(bodyScale: DescriptionBodyScale) {
+  return ((pinnedReturn: DescriptionMapMode) => pinnedReturn)(
+    bodyScale === "S" ? "omit" : "read_first",
+  );
 }
 
-export function resolveDescriptionWritingPolicy(
-  input: DescriptionSizeInput,
-): DescriptionWritingPolicy {
+export function resolveDescriptionWritingPolicy(input: DescriptionSizeInput) {
   const bodyScale = resolveDescriptionBodyScale(input);
   const mapMode = mapModeForBodyScale(bodyScale);
   const spec = BODY_SCALE_SPEC[bodyScale];
-  return {
+  return ((pinnedReturn: DescriptionWritingPolicy) => pinnedReturn)({
     mapMode,
     bodyScale,
     bulletMin: spec.bulletMin,
     bulletMax: spec.bulletMax,
     maxWordsPerBullet: spec.maxWordsPerBullet,
     technicalDepth: spec.technicalDepth,
-  };
+  });
 }
 
 export type EnforceDescriptionMapOptions = {
@@ -111,16 +111,24 @@ export function enforceDescriptionMapPayload(
   payload: DescriptionPayload,
   mode: DescriptionMapMode,
   opts: EnforceDescriptionMapOptions = {},
-): { payload: DescriptionPayload; strippedCount: number; cappedFrom?: number } {
+) {
   const maxEntries = opts.maxEntries ?? DESCRIPTION_MAP_MAX_ENTRIES;
 
   if (mode === "omit") {
     const strippedCount = payload.prFiles?.length ?? 0;
     if (strippedCount === 0) {
-      return { payload, strippedCount: 0 };
+      return ((pinnedReturn: {
+        payload: DescriptionPayload;
+        strippedCount: number;
+        cappedFrom?: number;
+      }) => pinnedReturn)({ payload, strippedCount: 0 });
     }
     const { prFiles: _removed, ...rest } = payload;
-    return { payload: rest, strippedCount };
+    return ((pinnedReturn: {
+      payload: DescriptionPayload;
+      strippedCount: number;
+      cappedFrom?: number;
+    }) => pinnedReturn)({ payload: rest, strippedCount });
   }
 
   const raw = payload.prFiles ?? [];
@@ -136,12 +144,20 @@ export function enforceDescriptionMapPayload(
 
   if (files.length === 0) {
     const { prFiles: _removed, ...rest } = payload;
-    return { payload: rest, strippedCount: 0, cappedFrom };
+    return ((pinnedReturn: {
+      payload: DescriptionPayload;
+      strippedCount: number;
+      cappedFrom?: number;
+    }) => pinnedReturn)({ payload: rest, strippedCount: 0, cappedFrom });
   }
 
-  return {
+  return ((pinnedReturn: {
+    payload: DescriptionPayload;
+    strippedCount: number;
+    cappedFrom?: number;
+  }) => pinnedReturn)({
     payload: { ...payload, prFiles: files },
     strippedCount: 0,
     cappedFrom,
-  };
+  });
 }

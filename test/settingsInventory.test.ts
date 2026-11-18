@@ -8,7 +8,7 @@ const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
 const LOCK_PATH = path.join(process.cwd(), "package-lock.json");
 const PACKAGE_JSON_PATH = path.join(process.cwd(), "package.json");
 
-function parseEnvExampleKeys(content: string): string[] {
+function parseEnvExampleKeys(content: string) {
   const keys: string[] = [];
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
@@ -17,7 +17,7 @@ function parseEnvExampleKeys(content: string): string[] {
     if (eq <= 0) continue;
     keys.push(trimmed.slice(0, eq).trim());
   }
-  return keys;
+  return ((pinnedReturn: string[]) => pinnedReturn)(keys);
 }
 
 describe("settings inventory", () => {
@@ -89,7 +89,7 @@ describe("settings inventory", () => {
       }),
     );
     expect(config["min-release-age"]).toBe(7);
-    expect(config["min-release-age-exclude"]).toEqual(["@tanstack/redact"]);
+    expect(config["min-release-age-exclude"]).toEqual(["@tanstack/redact", "@interfere/landmines"]);
     expect(config["legacy-peer-deps"]).toBe(true);
     expect(config["ignore-scripts"]).toBe(true);
     expect(config["engine-strict"]).toBe(true);

@@ -5,9 +5,11 @@ export const STATUS_NO_FINDINGS = "✅ No findings";
 export const STATUS_FAILED = "⚠️ Failed";
 export const STATUS_NOT_JUDGED = "Not judged";
 
-export function statusFindings(count: number): string {
-  if (count <= 0) return STATUS_NO_FINDINGS;
-  return `✅ ${count} ${count === 1 ? "finding" : "findings"}`;
+export function statusFindings(count: number) {
+  if (count <= 0) return ((pinnedReturn: string) => pinnedReturn)(STATUS_NO_FINDINGS);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `✅ ${count} ${count === 1 ? "finding" : "findings"}`,
+  );
 }
 
 export const FINDING_INVENTORY_UNAVAILABLE_NOTE =
@@ -18,7 +20,9 @@ export const TERMINAL_REVIEW_BODY =
 
 export const TERMINAL_REVIEW_DISMISS_MESSAGE = "Superseded by a later review.";
 
-export function checkRunFindingsSummary(count: number): string {
-  if (count <= 0) return "No findings";
-  return `${count} ${count === 1 ? "finding" : "findings"}`;
+export function checkRunFindingsSummary(count: number) {
+  if (count <= 0) return ((pinnedReturn: string) => pinnedReturn)("No findings");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${count} ${count === 1 ? "finding" : "findings"}`,
+  );
 }

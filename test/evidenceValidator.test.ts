@@ -6,8 +6,8 @@ import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../src/settings/index.ts";
 import { createTestEvidenceLedger, seedEvidenceForFinding } from "./helpers/evidenceTestHelpers.ts";
 
-function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
-  return {
+function finding(overrides: Partial<ReviewFinding> = {}) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file: "src/a.ts",
     startLine: 4,
@@ -16,7 +16,7 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     detail: "Details.",
     fixPrompt: "Fix it.",
     ...overrides,
-  };
+  });
 }
 
 describe("assertFindingsHaveEvidence", () => {

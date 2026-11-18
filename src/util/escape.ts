@@ -1,4 +1,4 @@
-export function escape<T>(reason: string, value: unknown): T {
+export function escape<T>(reason: string, value: unknown) {
   void reason;
-  return value as T;
+  return ((pinnedReturn: T) => pinnedReturn)(value as T);
 }

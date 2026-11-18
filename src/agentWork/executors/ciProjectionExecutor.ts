@@ -88,7 +88,7 @@ async function resolvePrNumbers(params: {
   readonly headSha: string;
   readonly stored: unknown;
   readonly listPulls: () => Promise<readonly { readonly number: number }[]>;
-}): Promise<number[]> {
+}) {
   const stored = asPrNumbers(params.stored);
   const fromWork = await listPrNumbersForHeadFromWorkItems(
     params.pool,
@@ -97,9 +97,9 @@ async function resolvePrNumbers(params: {
     params.headSha,
   );
   const pulls = await params.listPulls();
-  return [
+  return ((pinnedReturn: number[] | Promise<number[]>) => pinnedReturn)([
     ...new Set([...stored, ...fromWork, ...pulls.map((pull) => pull.number).filter((n) => n > 0)]),
-  ];
+  ]);
 }
 
 async function reconcileOwnVerdicts(params: {
@@ -110,7 +110,7 @@ async function reconcileOwnVerdicts(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-}): Promise<void> {
+}) {
   const items = await listTerminalReviewsForHead(
     params.pool,
     params.owner,
@@ -145,38 +145,36 @@ async function reconcileOwnVerdicts(params: {
   }
 }
 
-async function verificationFailureActive(
-  pool: Pool,
-  resourceKey: string,
-  headSha: string,
-): Promise<boolean> {
+async function verificationFailureActive(pool: Pool, resourceKey: string, headSha: string) {
   const detail = await createPublishContext(pool, {
     resourceKey: resourceKey,
     reviewLens: VERIFICATION_PUBLISH_LENS,
   }).latest("verification_failure");
-  if (detail == null) return false;
-  if (detail.active === false) return false;
-  return detail.headSha === headSha;
+  if (detail == null) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  if (detail.active === false)
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(detail.headSha === headSha);
 }
 
-function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): string | null {
+function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean) {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
     sourceAvailability: row.sourceAvailability,
   });
-  if (!shouldRenderCiSummaryRow(rendered.summary)) return null;
+  if (!shouldRenderCiSummaryRow(rendered.summary))
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
   let cell = renderCiSummaryCell(rendered.summary, row.headSha, rendered.version);
   if (injectFailure)
     cell = injectVerificationFailureIntoCiCell(cell, renderVerificationFailureBlock());
-  return cell;
+  return ((pinnedReturn: string | null) => pinnedReturn)(cell);
 }
 
-function projectedActionPhrase(row: PrHeadCiStateRow): string {
+function projectedActionPhrase(row: PrHeadCiStateRow) {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
     sourceAvailability: row.sourceAvailability,
   });
-  return formatReviewActionLineCiStatus(rendered.summary);
+  return ((pinnedReturn: string) => pinnedReturn)(formatReviewActionLineCiStatus(rendered.summary));
 }
 
 async function patchTriageRollupComments(params: {
@@ -188,7 +186,7 @@ async function patchTriageRollupComments(params: {
   readonly headSha: string;
   readonly version: number;
   readonly rollup: PrHeadCiStateRow["rollup"];
-}): Promise<"updated" | "current" | "retry"> {
+}) {
   const nextMarker = renderCiRollupMarker(params.headSha, params.version, params.rollup);
   const targets = params.comments.filter((comment) =>
     comment.body.startsWith(TRIAGE_SUMMARY_SENTINEL),
@@ -213,21 +211,24 @@ async function patchTriageRollupComments(params: {
         commentId: comment.id,
         message: errorMessage(error),
       });
-      return "retry";
+      return ((
+        pinnedReturn: ("updated" | "current" | "retry") | Promise<"updated" | "current" | "retry">,
+      ) => pinnedReturn)("retry");
     }
   }
-  return updated ? "updated" : "current";
+  return ((
+    pinnedReturn: ("updated" | "current" | "retry") | Promise<"updated" | "current" | "retry">,
+  ) => pinnedReturn)(updated ? "updated" : "current");
 }
 
-function findHeadSummaryComments(
-  comments: readonly PrConversationComment[],
-  headSha: string,
-): PrConversationComment[] {
-  return comments.filter((comment) => {
-    if (!SUMMARY_SENTINELS.some((sentinel) => comment.body.startsWith(sentinel))) return false;
-    const meta = parseReviewMetaFromCommentBody(comment.body);
-    return meta?.headSha === headSha;
-  });
+function findHeadSummaryComments(comments: readonly PrConversationComment[], headSha: string) {
+  return ((pinnedReturn: PrConversationComment[]) => pinnedReturn)(
+    comments.filter((comment) => {
+      if (!SUMMARY_SENTINELS.some((sentinel) => comment.body.startsWith(sentinel))) return false;
+      const meta = parseReviewMetaFromCommentBody(comment.body);
+      return meta?.headSha === headSha;
+    }),
+  );
 }
 
 async function findSupersededSummaryComment(params: {
@@ -235,18 +236,38 @@ async function findSupersededSummaryComment(params: {
   readonly prSurface: PrSurface;
   readonly comments: readonly PrConversationComment[];
   readonly headSha: string;
-}): Promise<PrConversationComment | "retry" | null> {
+}) {
   const latest = params.comments
     .filter((comment) => SUMMARY_SENTINELS.some((sentinel) => comment.body.startsWith(sentinel)))
     .at(-1);
-  if (latest == null) return null;
+  if (latest == null)
+    return ((
+      pinnedReturn:
+        | (PrConversationComment | "retry" | null)
+        | Promise<PrConversationComment | "retry" | null>,
+    ) => pinnedReturn)(null);
   const meta = parseReviewMetaFromCommentBody(latest.body);
-  if (meta == null || meta.headSha === params.headSha) return null;
+  if (meta == null || meta.headSha === params.headSha)
+    return ((
+      pinnedReturn:
+        | (PrConversationComment | "retry" | null)
+        | Promise<PrConversationComment | "retry" | null>,
+    ) => pinnedReturn)(null);
 
   const workItemId = parseProgressRevisionState(latest.body)?.workItemId;
-  if (workItemId == null) return null;
+  if (workItemId == null)
+    return ((
+      pinnedReturn:
+        | (PrConversationComment | "retry" | null)
+        | Promise<PrConversationComment | "retry" | null>,
+    ) => pinnedReturn)(null);
   const owner = await getWorkItemCore(params.pool, workItemId);
-  if (owner == null || asTerminalOwnCheckStatus(owner.status) == null) return null;
+  if (owner == null || asTerminalOwnCheckStatus(owner.status) == null)
+    return ((
+      pinnedReturn:
+        | (PrConversationComment | "retry" | null)
+        | Promise<PrConversationComment | "retry" | null>,
+    ) => pinnedReturn)(null);
 
   let prHead: string;
   try {
@@ -257,17 +278,29 @@ async function findSupersededSummaryComment(params: {
       commentId: latest.id,
       message: errorMessage(error),
     });
-    return "retry";
+    return ((
+      pinnedReturn:
+        | (PrConversationComment | "retry" | null)
+        | Promise<PrConversationComment | "retry" | null>,
+    ) => pinnedReturn)("retry");
   }
-  return prHead === params.headSha ? latest : null;
+  return ((
+    pinnedReturn:
+      | (PrConversationComment | "retry" | null)
+      | Promise<PrConversationComment | "retry" | null>,
+  ) => pinnedReturn)(prHead === params.headSha ? latest : null);
 }
 
-function aggregatePrResults(results: readonly CiProjectionPrResult[]): CiProjectionPrResult {
-  if (results.some((result) => result === "retry")) return "retry";
-  if (results.some((result) => result === "updated")) return "updated";
-  if (results.length > 0 && results.every((result) => result === "irrelevant")) return "irrelevant";
-  if (results.some((result) => result === "current")) return "current";
-  return "irrelevant";
+function aggregatePrResults(results: readonly CiProjectionPrResult[]) {
+  if (results.some((result) => result === "retry"))
+    return ((pinnedReturn: CiProjectionPrResult) => pinnedReturn)("retry");
+  if (results.some((result) => result === "updated"))
+    return ((pinnedReturn: CiProjectionPrResult) => pinnedReturn)("updated");
+  if (results.length > 0 && results.every((result) => result === "irrelevant"))
+    return ((pinnedReturn: CiProjectionPrResult) => pinnedReturn)("irrelevant");
+  if (results.some((result) => result === "current"))
+    return ((pinnedReturn: CiProjectionPrResult) => pinnedReturn)("current");
+  return ((pinnedReturn: CiProjectionPrResult) => pinnedReturn)("irrelevant");
 }
 
 async function projectOnePr(params: {
@@ -278,7 +311,7 @@ async function projectOnePr(params: {
   readonly row: PrHeadCiStateRow;
   readonly prNumber: number;
   readonly prSurface: PrSurface;
-}): Promise<CiProjectionPrResult> {
+}) {
   const resourceKey = prResourceKey(params.data.owner, params.data.repo, params.prNumber);
   const newest = await newestHeadShaForResource(params.pool, resourceKey);
   const staleHead = newest != null && newest !== params.data.headSha;
@@ -322,7 +355,9 @@ async function projectOnePr(params: {
       pr: params.prNumber,
       message: errorMessage(error),
     });
-    return "retry";
+    return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+      "retry",
+    );
   }
 
   const triageResult = await patchTriageRollupComments({
@@ -335,14 +370,20 @@ async function projectOnePr(params: {
     version: params.row.version,
     rollup: params.row.rollup,
   });
-  if (triageResult === "retry") return "retry";
+  if (triageResult === "retry")
+    return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+      "retry",
+    );
 
   const noGateResult = staleHead
     ? "irrelevant"
     : triageResult === "updated"
       ? "updated"
       : "current";
-  if (nextCell == null) return noGateResult;
+  if (nextCell == null)
+    return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+      noGateResult,
+    );
 
   let targets = staleHead ? [] : findHeadSummaryComments(comments, params.data.headSha);
   let supersededHead = false;
@@ -353,8 +394,14 @@ async function projectOnePr(params: {
       comments,
       headSha: params.data.headSha,
     });
-    if (superseded === "retry") return "retry";
-    if (superseded == null) return noGateResult;
+    if (superseded === "retry")
+      return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+        "retry",
+      );
+    if (superseded == null)
+      return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+        noGateResult,
+      );
     targets = [superseded];
     supersededHead = true;
   }
@@ -399,7 +446,9 @@ async function projectOnePr(params: {
         commentId: comment.id,
         message: errorMessage(error),
       });
-      return "retry";
+      return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+        "retry",
+      );
     }
     if (latest == null) continue;
     const secondRevision = parseProgressRevisionState(latest.body);
@@ -413,7 +462,9 @@ async function projectOnePr(params: {
         pr: params.prNumber,
         commentId: comment.id,
       });
-      return "retry";
+      return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+        "retry",
+      );
     }
 
     const writeApply = applyCiProjectionBodyUpdate(
@@ -438,7 +489,9 @@ async function projectOnePr(params: {
         commentId: comment.id,
         message: errorMessage(error),
       });
-      return "retry";
+      return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+        "retry",
+      );
     }
 
     sawUpdate = true;
@@ -467,16 +520,24 @@ async function projectOnePr(params: {
     });
   }
 
-  if (sawUpdate) return "updated";
-  if (sawCurrent) return "current";
-  return "irrelevant";
+  if (sawUpdate)
+    return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+      "updated",
+    );
+  if (sawCurrent)
+    return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+      "current",
+    );
+  return ((pinnedReturn: CiProjectionPrResult | Promise<CiProjectionPrResult>) => pinnedReturn)(
+    "irrelevant",
+  );
 }
 
 function captureListingRollupChange(
   data: CiProjectionJobData,
   previousRollup: PrHeadCiStateRow["rollup"],
   row: PrHeadCiStateRow,
-): void {
+) {
   if (previousRollup === row.rollup) return;
   captureCiStateChanged({
     installationId: data.installationId,
@@ -499,9 +560,11 @@ async function applyGithubCiListingIfNeeded(params: {
   readonly probeSurface: PrSurface;
   readonly createSurface: CiProjectionSurfaceFactory;
   readonly availability?: GithubCiSourceAvailability;
-}): Promise<PrHeadCiStateRow | null> {
+}) {
   const phase = headCiListingPhase(params.row);
-  if (phase === "none") return params.row;
+  if (phase === "none")
+    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+      pinnedReturn)(params.row);
 
   const surface =
     params.prNumbers.length > 0
@@ -519,7 +582,8 @@ async function applyGithubCiListingIfNeeded(params: {
         headSha: params.data.headSha,
         message,
       });
-      return null;
+      return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+        pinnedReturn)(null);
     }
     logWarn("ci_projection_pending_refresh_failed", {
       owner: params.data.owner,
@@ -531,7 +595,8 @@ async function applyGithubCiListingIfNeeded(params: {
       kind: "after",
       seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
     });
-    return params.row;
+    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+      pinnedReturn)(params.row);
   }
 
   const listing = {
@@ -555,7 +620,9 @@ async function applyGithubCiListingIfNeeded(params: {
     captureListingRollupChange(params.data, refreshed.previousRollup, refreshed.row);
     listedRow = refreshed.row;
   }
-  if (params.availability == null) return listedRow;
+  if (params.availability == null)
+    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+      pinnedReturn)(listedRow);
   for (const source of ["checks", "statuses"] as const) {
     const detail = snapshot.sources?.[source];
     await recordGithubCiSourceRead(params.pool, {
@@ -589,21 +656,22 @@ async function applyGithubCiListingIfNeeded(params: {
       seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
     });
   }
-  return scopedRow;
+  return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+    pinnedReturn)(scopedRow);
 }
 
 function withSourceAvailability(
   row: PrHeadCiStateRow,
   sourceAvailability: GithubCiSourceAvailability,
-): PrHeadCiStateRow {
-  return {
+) {
+  return ((pinnedReturn: PrHeadCiStateRow) => pinnedReturn)({
     ...row,
     sourceAvailability,
     rollup:
       !ciSourcesComplete(sourceAvailability) && (row.rollup === "passing" || row.rollup === "none")
         ? "unknown"
         : row.rollup,
-  };
+  });
 }
 
 export async function executeCiProjectionJob(
@@ -615,7 +683,7 @@ export async function executeCiProjectionJob(
     readonly createSurface?: CiProjectionSurfaceFactory;
     readonly author?: CiSummaryAuthor;
   },
-): Promise<void> {
+) {
   if (await isSharedRateLimitCircuitOpen(pool, data.installationId)) {
     const circuit = await getSharedRateLimitCircuit(pool, data.installationId);
     const openUntil = circuit?.openUntil.getTime() ?? Date.now() + 60_000;

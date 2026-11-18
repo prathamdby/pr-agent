@@ -95,9 +95,9 @@ const baseTestConfig: Config = {
   logging: { level: "error", pretty: false, redact: true },
 };
 
-export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
+export function makeTestConfig(overrides: TestConfigOverrides = {}) {
   const base = baseTestConfig;
-  return {
+  return ((pinnedReturn: Config) => pinnedReturn)({
     runtime: { ...base.runtime, ...overrides.runtime },
     github: { ...base.github, ...overrides.github },
     webhook: { ...base.webhook, ...overrides.webhook },
@@ -118,5 +118,5 @@ export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
     retention: { ...base.retention, ...overrides.retention },
     posthog: { ...base.posthog, ...overrides.posthog },
     logging: { ...base.logging, ...overrides.logging },
-  };
+  });
 }

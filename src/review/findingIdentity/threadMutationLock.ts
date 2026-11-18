@@ -7,12 +7,9 @@ import { POSTGRES_LOCK_TIMEOUT_MS } from "../../settings/index.ts";
 
 export type ThreadMutationLock = <T>(apply: () => Promise<T>) => Promise<T>;
 
-export function threadMutationLock(
-  pool: Pool | undefined,
-  resourceKey: string,
-): ThreadMutationLock {
-  if (pool == null) return (apply) => apply();
-  return (apply) =>
+export function threadMutationLock(pool: Pool | undefined, resourceKey: string) {
+  if (pool == null) return ((pinnedReturn: ThreadMutationLock) => pinnedReturn)((apply) => apply());
+  return ((pinnedReturn: ThreadMutationLock) => pinnedReturn)((apply) =>
     withSessionLock(
       pool,
       { kind: "thread_mutation", resourceKey },
@@ -47,5 +44,6 @@ export function threadMutationLock(
         },
       },
       () => apply(),
-    );
+    ),
+  );
 }

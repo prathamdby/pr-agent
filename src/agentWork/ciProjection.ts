@@ -19,47 +19,60 @@ export async function loadRenderableHeadCi(
   repo: string,
   headSha: string,
   installationId?: number,
-): Promise<RenderableHeadCi> {
+) {
   const sourceAvailability =
     installationId == null
       ? undefined
       : await loadGithubCiSourceAvailability(pool, { installationId, owner, repo, headSha });
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
-  if (row == null) return waitingCiSummary(0);
+  if (row == null)
+    return ((pinnedReturn: RenderableHeadCi | Promise<RenderableHeadCi>) => pinnedReturn)(
+      waitingCiSummary(0),
+    );
   if (
     headCiNeedsSeed(row) &&
     sourceAvailability?.checks.access !== "denied" &&
     sourceAvailability?.statuses.access !== "denied"
   )
-    return waitingCiSummary(row.version);
-  return ciSummaryFromFacts(row.checks, row.version, row.authored, {
-    checkRunsComplete: headCiFactsAreComplete(row.rollup),
-    sourceAvailability,
-  });
+    return ((pinnedReturn: RenderableHeadCi | Promise<RenderableHeadCi>) => pinnedReturn)(
+      waitingCiSummary(row.version),
+    );
+  return ((pinnedReturn: RenderableHeadCi | Promise<RenderableHeadCi>) => pinnedReturn)(
+    ciSummaryFromFacts(row.checks, row.version, row.authored, {
+      checkRunsComplete: headCiFactsAreComplete(row.rollup),
+      sourceAvailability,
+    }),
+  );
 }
 
-function isHeadCiSeedPullRequestAction(action: string): boolean {
-  return action !== "closed" && AUTOMATED_PR_ACTIONS.has(action);
+function isHeadCiSeedPullRequestAction(action: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    action !== "closed" && AUTOMATED_PR_ACTIONS.has(action),
+  );
 }
 
-export function isHeadCiSeedPullRequest(action: string, headSha: string): boolean {
-  return isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA;
+export function isHeadCiSeedPullRequest(action: string, headSha: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA,
+  );
 }
 
 export function shouldSeedHeadCiFromPullRequest(
   action: string,
   headSha: string,
   row: Pick<PrHeadCiStateRow, "seededAt"> | null,
-): boolean {
-  return isHeadCiSeedPullRequest(action, headSha) && headCiNeedsSeed(row);
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isHeadCiSeedPullRequest(action, headSha) && headCiNeedsSeed(row),
+  );
 }
 
 export function ciProjectionDue(
   row: Pick<PrHeadCiStateRow, "seededAt" | "version"> | null,
   renderedVersion: number,
-): boolean {
-  if (headCiNeedsSeed(row)) return true;
-  return row != null && row.version > renderedVersion;
+) {
+  if (headCiNeedsSeed(row)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(row != null && row.version > renderedVersion);
 }
 
 const CI_PROJECTION_DEBOUNCE_SECONDS = 5;
@@ -68,7 +81,7 @@ type CiProjectionPayload = CiProjectionJobData & {
   readonly correlations?: readonly JobCorrelation[];
 };
 
-function ciProjectionCorrelations(data: CiProjectionPayload): JobCorrelation[] {
+function ciProjectionCorrelations(data: CiProjectionPayload) {
   const correlations = new Map<string, JobCorrelation>();
   for (const identity of [...(data.correlations ?? []), data]) {
     const correlation: JobCorrelation = {
@@ -79,7 +92,7 @@ function ciProjectionCorrelations(data: CiProjectionPayload): JobCorrelation[] {
       correlations.set(JSON.stringify(correlation), correlation);
     }
   }
-  return [...correlations.values()];
+  return ((pinnedReturn: JobCorrelation[]) => pinnedReturn)([...correlations.values()]);
 }
 
 async function mergeCiProjectionCorrelations(
@@ -87,7 +100,7 @@ async function mergeCiProjectionCorrelations(
   data: CiProjectionJobData,
   singletonKey: string,
   correlations: readonly JobCorrelation[],
-): Promise<void> {
+) {
   const { rows } = await client.query<{ id: string }>(
     `UPDATE pgboss.job
         SET data = jsonb_set(data, '{correlations}', (
@@ -150,12 +163,18 @@ export async function requestHeadCiProjection(
   boss: PgBoss | undefined,
   head: Omit<CiProjectionJobData, "kind">,
   schedule: HeadCiProjectionSchedule,
-): Promise<HeadCiProjectionResult> {
-  if (boss == null) return "skipped";
+) {
+  if (boss == null)
+    return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+      pinnedReturn)("skipped");
   if (schedule.kind === "when_due") {
-    if (head.installationId <= 0) return "skipped";
+    if (head.installationId <= 0)
+      return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+        pinnedReturn)("skipped");
     const row = await loadPrHeadCiState(schedule.pool, head.owner, head.repo, head.headSha);
-    if (!ciProjectionDue(row, schedule.renderedVersion)) return "skipped";
+    if (!ciProjectionDue(row, schedule.renderedVersion))
+      return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+        pinnedReturn)("skipped");
   }
   const data: CiProjectionJobData = { kind: "ci_projection", ...head };
   const singletonKey = `${data.owner}/${data.repo}:${data.headSha}`;
@@ -170,7 +189,8 @@ export async function requestHeadCiProjection(
       priority: 40,
       group,
     });
-    return jobId == null ? "already_present" : "enqueued";
+    return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+      pinnedReturn)(jobId == null ? "already_present" : "enqueued");
   }
 
   if (schedule.kind === "intake") {
@@ -183,11 +203,14 @@ export async function requestHeadCiProjection(
       CI_PROJECTION_DEBOUNCE_SECONDS,
       singletonKey,
     );
-    if (jobId != null) return "enqueued";
+    if (jobId != null)
+      return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+        pinnedReturn)("enqueued");
     if (correlations.length > 0) {
       await mergeCiProjectionCorrelations(schedule.client, data, singletonKey, correlations);
     }
-    return "already_present";
+    return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) =>
+      pinnedReturn)("already_present");
   }
 
   const jobId = await boss.sendDebounced(
@@ -197,5 +220,7 @@ export async function requestHeadCiProjection(
     CI_PROJECTION_DEBOUNCE_SECONDS,
     singletonKey,
   );
-  return jobId == null ? "already_present" : "enqueued";
+  return ((pinnedReturn: HeadCiProjectionResult | Promise<HeadCiProjectionResult>) => pinnedReturn)(
+    jobId == null ? "already_present" : "enqueued",
+  );
 }

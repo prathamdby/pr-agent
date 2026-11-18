@@ -21,11 +21,11 @@ type CommitDetail = {
   readonly diff: string;
 };
 
-function shortSha(sha: string): string {
-  return sha.slice(0, 7);
+function shortSha(sha: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(sha.slice(0, 7));
 }
 
-function diffStat(diff: string): string {
+function diffStat(diff: string) {
   const files = new Set<string>();
   let additions = 0;
   let deletions = 0;
@@ -40,27 +40,33 @@ function diffStat(diff: string): string {
       deletions++;
     }
   }
-  return `${files.size} files, +${additions} -${deletions}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${files.size} files, +${additions} -${deletions}`,
+  );
 }
 
-function verdictText(verdict: TriageVerdict): string {
+function verdictText(verdict: TriageVerdict) {
   switch (verdict.verdict) {
     case "fixed":
-      return `Fixed ${renderTableCode(shortSha(verdict.commitSha))}`;
+      return ((pinnedReturn: string) => pinnedReturn)(
+        `Fixed ${renderTableCode(shortSha(verdict.commitSha))}`,
+      );
     case "already-resolved":
-      return "Already resolved";
+      return ((pinnedReturn: string) => pinnedReturn)("Already resolved");
     case "skipped":
-      return `Skipped: ${escapeTableCellContent(verdict.reason)}`;
+      return ((pinnedReturn: string) => pinnedReturn)(
+        `Skipped: ${escapeTableCellContent(verdict.reason)}`,
+      );
     case "dismissed":
-      return "Dismissed";
+      return ((pinnedReturn: string) => pinnedReturn)("Dismissed");
     default: {
       const exhaustive: never = verdict;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function countVerdicts(payload: TriagePayload, previouslyResolvedCount: number): string {
+function countVerdicts(payload: TriagePayload, previouslyResolvedCount: number) {
   const counts = new Map<string, number>([
     ["fixed", 0],
     ["already-resolved", 0],
@@ -70,13 +76,15 @@ function countVerdicts(payload: TriagePayload, previouslyResolvedCount: number):
   for (const verdict of payload.verdicts) {
     counts.set(verdict.verdict, (counts.get(verdict.verdict) ?? 0) + 1);
   }
-  return [
-    `${counts.get("fixed")} Fixed`,
-    `${counts.get("already-resolved")} Already resolved`,
-    `${counts.get("skipped")} Skipped`,
-    `${counts.get("dismissed")} Dismissed`,
-    `${previouslyResolvedCount} Previously resolved`,
-  ].join(" · ");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `${counts.get("fixed")} Fixed`,
+      `${counts.get("already-resolved")} Already resolved`,
+      `${counts.get("skipped")} Skipped`,
+      `${counts.get("dismissed")} Dismissed`,
+      `${previouslyResolvedCount} Previously resolved`,
+    ].join(" · "),
+  );
 }
 
 export function classifyTriageBulkOutcome(params: {
@@ -86,21 +94,24 @@ export function classifyTriageBulkOutcome(params: {
   readonly excluded: boolean;
   readonly notInPreview: boolean;
   readonly pushed: boolean;
-}): TriageBulkOutcome {
-  if (params.excluded || params.notInPreview) return "skipped";
-  if (params.commitError) return "failed";
-  if (params.verdict == null) return "failed";
+}) {
+  if (params.excluded || params.notInPreview)
+    return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)("skipped");
+  if (params.commitError) return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)("failed");
+  if (params.verdict == null) return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)("failed");
   switch (params.verdict.verdict) {
     case "fixed":
-      if (!params.hasCommit) return "failed";
-      return params.pushed ? "applied" : "failed";
+      if (!params.hasCommit) return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)("failed");
+      return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)(
+        params.pushed ? "applied" : "failed",
+      );
     case "already-resolved":
     case "skipped":
     case "dismissed":
-      return "skipped";
+      return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)("skipped");
     default: {
       const exhaustive: never = params.verdict;
-      return exhaustive;
+      return ((pinnedReturn: TriageBulkOutcome) => pinnedReturn)(exhaustive);
     }
   }
 }
@@ -113,7 +124,7 @@ export function classifyTriageBulkOutcomes(params: {
   readonly excludedIds: ReadonlySet<number>;
   readonly notInPreviewIds: ReadonlySet<number>;
   readonly pushed: boolean;
-}): Map<number, TriageBulkOutcome> {
+}) {
   const verdictById = new Map(
     params.payload.verdicts.map((verdict) => [verdict.threadRootCommentId, verdict]),
   );
@@ -132,7 +143,7 @@ export function classifyTriageBulkOutcomes(params: {
       }),
     );
   }
-  return outcomes;
+  return ((pinnedReturn: Map<number, TriageBulkOutcome>) => pinnedReturn)(outcomes);
 }
 
 export function renderTriagePreview(params: {
@@ -141,7 +152,7 @@ export function renderTriagePreview(params: {
   readonly hunks: readonly TriagePreviewHunk[];
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
-}): string {
+}) {
   const hunkById = new Map(params.hunks.map((hunk) => [hunk.threadRootCommentId, hunk]));
   const lines = [
     TRIAGE_PREVIEW_SENTINEL,
@@ -172,7 +183,7 @@ export function renderTriagePreview(params: {
     }
     lines.push(hunk.subject, "", "```diff", hunk.diff.replace(/```/g, ""), "```", "");
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 export function renderTriageReport(params: {
@@ -190,7 +201,7 @@ export function renderTriageReport(params: {
     readonly version: number;
     readonly rollup: CiRollup;
   };
-}): string {
+}) {
   const verdictById = new Map(
     params.payload.verdicts.map((verdict) => [verdict.threadRootCommentId, verdict]),
   );
@@ -263,5 +274,5 @@ export function renderTriageReport(params: {
     }
   }
 
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }

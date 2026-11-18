@@ -151,6 +151,13 @@ describe("in-flight handler settle", () => {
     const holdScope = new Promise<void>((resolve) => {
       releaseScope = resolve;
     });
+    const reachedHold = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     const disposed = Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
@@ -158,12 +165,13 @@ describe("in-flight handler settle", () => {
           yield* Effect.promise(async () => {
             void executions.track(() => handler);
           });
+          reachedHold.resolve();
           yield* Effect.promise(() => holdScope);
         }).pipe(Effect.provide(AgentWorkExecutionsLive(makeTestConfig()))),
       ),
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await reachedHold.promise;
     const started = Date.now();
     releaseScope();
     await disposed;
@@ -171,7 +179,7 @@ describe("in-flight handler settle", () => {
     expect(elapsed).toBeGreaterThanOrEqual(4_500);
     expect(elapsed).toBeLessThan(7_000);
     releaseHandler();
-  }, 15_000);
+  });
 
   it("keeps waiting for handlers tracked after settle reads the set", async () => {
     const tracker = createExecutionTracker();

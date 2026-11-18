@@ -75,12 +75,12 @@ export type ReviewPublishSessionInput = {
   readonly policyAlert?: string;
 };
 
-export function createReviewPublishSession(input: ReviewPublishSessionInput): ReviewPublishSession {
+export function createReviewPublishSession(input: ReviewPublishSessionInput) {
   const coordination = input.recordPublishStep?.summaryCommentCoordination;
   const verdictPool = input.pool ?? coordination?.pool;
   const verdictWorkItemId = input.verdictWorkItemId ?? coordination?.workItemId;
   const verdictResourceKey = input.verdictResourceKey ?? coordination?.resourceKey;
-  return {
+  return ((pinnedReturn: ReviewPublishSession) => pinnedReturn)({
     recovery: input.recovery,
     cfg: input.cfg,
     ctx: input.ctx,
@@ -113,5 +113,5 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput): Re
       if (!((await input.shouldAbortPublish?.()) ?? false)) return undefined;
       return input.publishAbortState?.staleHead === true ? "stale_head" : "superseded";
     },
-  };
+  });
 }

@@ -11,24 +11,22 @@ export type ReviewPreflightMetadata = {
 
 export function buildReviewPreflightMetadataFromPullRequestFiles(
   prFiles: ListPullRequestFilesResult,
-): ReviewPreflightMetadata {
+) {
   const files = prFiles.files.map((file) => ({ filename: file.filename }));
-  return {
+  return ((pinnedReturn: ReviewPreflightMetadata) => pinnedReturn)({
     files,
     truncated: prFiles.truncated,
     fileCount: files.length,
     totalChanges: prFiles.totalChanges,
-  };
+  });
 }
 
-export function buildReviewPreflightMetadataFromWorkspace(
-  workspace: LocalPrWorkspace,
-): ReviewPreflightMetadata {
+export function buildReviewPreflightMetadataFromWorkspace(workspace: LocalPrWorkspace) {
   const files = workspace.reader.changedFiles.map((file) => ({ filename: file.path }));
-  return {
+  return ((pinnedReturn: ReviewPreflightMetadata) => pinnedReturn)({
     files,
     truncated: workspace.reader.stats.truncated,
     fileCount: workspace.reader.stats.fileCount,
     totalChanges: workspace.reader.stats.totalChanges,
-  };
+  });
 }

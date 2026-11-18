@@ -1,16 +1,21 @@
-export function httpStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
+export function httpStatus(error: unknown) {
+  if (typeof error !== "object" || error === null)
+    return ((pinnedReturn: number | undefined) => pinnedReturn)(undefined);
   const status = (error as { status?: unknown }).status;
-  if (typeof status === "number") return status;
+  if (typeof status === "number")
+    return ((pinnedReturn: number | undefined) => pinnedReturn)(status);
   const response = (error as { response?: unknown }).response;
-  if (typeof response !== "object" || response === null) return undefined;
+  if (typeof response !== "object" || response === null)
+    return ((pinnedReturn: number | undefined) => pinnedReturn)(undefined);
   const responseStatus = (response as { status?: unknown }).status;
-  return typeof responseStatus === "number" ? responseStatus : undefined;
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(
+    typeof responseStatus === "number" ? responseStatus : undefined,
+  );
 }
 
-export function allowlistedHttpStatus(status: number | undefined): number | undefined {
+export function allowlistedHttpStatus(status: number | undefined) {
   if (status == null || !Number.isInteger(status) || status < 100 || status > 599) {
-    return undefined;
+    return ((pinnedReturn: number | undefined) => pinnedReturn)(undefined);
   }
-  return status;
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(status);
 }

@@ -762,7 +762,7 @@ describe("createPiSession seam", () => {
   it("does not import createAgentSession or coding-agent from feature harness paths", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
-    async function walk(dir: string): Promise<string[]> {
+    async function walk(dir: string) {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       const files: string[] = [];
       for (const entry of entries) {
@@ -774,7 +774,7 @@ describe("createPiSession seam", () => {
           files.push(full);
         }
       }
-      return files;
+      return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)(files);
     }
     const featureFiles = [
       ...(await walk("src/review")),
