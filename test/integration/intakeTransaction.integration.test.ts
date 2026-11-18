@@ -40,6 +40,7 @@ import type {
   CiProjectionJobData,
   PrRef,
   QueueConfig,
+  VerificationJobData,
   WebhookHeaders,
 } from "../../src/agentWork/types.ts";
 import { prResourceKey } from "../../src/agentWork/types.ts";
@@ -83,6 +84,7 @@ import {
   REVIEW_SUMMARY_SENTINEL,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
+  DEFERRED_HEAD_SHA,
 } from "../../src/settings/index.ts";
 import { hasDatabase, integrationPool } from "./db.ts";
 import type { AskJobData } from "../../src/agentWork/types.ts";
@@ -618,6 +620,65 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       );
     },
   );
+
+  it("keeps one deferred verification item for a reply, a duplicate, and an active run", async () => {
+    const ref = makePrRef();
+    const cfg = makeTestConfig({
+      features: {
+        ...intakeCfg.features,
+        review: "manual",
+        describe: "off",
+        verification: "auto",
+      },
+    });
+    const command = {
+      kind: "verification_reply" as const,
+      headers: headers("created", randomUUID()),
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      prNumber: ref.prNumber,
+    };
+    const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    await runDelivery(pool, boss, cfg, command, intakeLog());
+    await runDelivery(pool, boss, cfg, command, intakeLog());
+    const rows = (
+      await pool.query<{ id: string; head_sha: string; source: string; status: string }>(
+        `SELECT id, head_sha, source, status
+           FROM agent_work_items
+          WHERE resource_key = $1 AND type = 'verification'`,
+        [resourceKey],
+      )
+    ).rows;
+    expect(rows).toEqual([
+      {
+        id: expect.any(String),
+        head_sha: DEFERRED_HEAD_SHA,
+        source: "auto",
+        status: "queued",
+      },
+    ]);
+    const jobsFor = async (workItemId: string) =>
+      (await boss.findJobs<VerificationJobData>(VERIFICATION_QUEUE, {})).filter(
+        (job) => job.data.workItemId === workItemId,
+      );
+    expect(await jobsFor(rows[0].id)).toHaveLength(1);
+    await runDelivery(
+      pool,
+      boss,
+      cfg,
+      { ...command, headers: headers("created", randomUUID()) },
+      intakeLog(),
+    );
+    const afterActive = (
+      await pool.query<{ id: string }>(
+        `SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'verification'`,
+        [resourceKey],
+      )
+    ).rows;
+    expect(afterActive).toEqual([{ id: rows[0].id }]);
+    expect(await jobsFor(rows[0].id)).toHaveLength(1);
+  });
 
   it("HTTP timeout waits for actual delivery rollback and publishes no transactional events", async () => {
     const ref = makePrRef();
