@@ -270,7 +270,7 @@ const [dir, stage] = process.argv.slice(2);
 const input = JSON.parse(await readFile(join(dir, "input.json"), "utf8"));
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const hookQuery = (owner) => {
-  if (owner.query.reportsHooked) return;
+  if (!owner?.query || owner.query.reportsHooked) return;
   const original = owner.query.bind(owner);
   owner.query = (...args) => {
     const pending = original(...args);
@@ -290,11 +290,19 @@ const hookQuery = (owner) => {
 };
 hookQuery(pool);
 const connect = pool.connect.bind(pool);
-pool.connect = (...args) =>
-  Promise.resolve(connect(...args)).then((client) => {
+pool.connect = (...args) => {
+  const callback = args.at(-1);
+  if (typeof callback === "function") {
+    return connect(...args.slice(0, -1), (error, client, release) => {
+      if (client) hookQuery(client);
+      return callback(error, client, release);
+    });
+  }
+  return Promise.resolve(connect(...args)).then((client) => {
     hookQuery(client);
     return client;
   });
+};
 let effects = { inlineCalls: 0, batches: [], comments: [], upserts: [] };
 try { effects = JSON.parse(await readFile(join(dir, "remote.json"), "utf8")); } catch (error) { if (error.code !== "ENOENT") throw error; }
 const persistEffects = () => writeFile(join(dir, "remote.json"), JSON.stringify(effects, null, 2));
