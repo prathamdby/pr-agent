@@ -49,7 +49,9 @@ reviews. The check run stays the merge gate.
    finding inventory and use the full review's finding lifecycle threshold.
    Zero blocking findings changes this app's standing `CHANGES_REQUESTED` to
    `APPROVE`; an open blocker changes its standing `APPROVED` to
-   `REQUEST_CHANGES`. Human-resolved threads count as resolved. Incomplete
+   `REQUEST_CHANGES`. An open same-id copy at or above the check threshold is
+   a blocker even when the oldest thread for that id is resolved or below the
+   threshold. Human-resolved threads count as resolved. Incomplete
    inventory without a known blocker, a matching verdict, or no standing app
    verdict publishes nothing. A queued or running full review takes precedence.
    Only approval requires a complete inventory; a known blocker in an

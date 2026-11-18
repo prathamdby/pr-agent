@@ -86,6 +86,7 @@ vi.mock("../src/agentWork/verificationThreadLedger.ts", async (importOriginal) =
   };
 });
 
+import { mintFindingId, renderFindingMarker } from "../src/review/findingIdentity/findingMarker.ts";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
 import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
@@ -567,6 +568,54 @@ describe("verification work definition", () => {
       }
       if (scenario === "already resolved shortcut")
         expect(mocks.runVerification).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { standing: "CHANGES_REQUESTED" as const, severity: "P1" as const, event: undefined },
+    { standing: "APPROVED" as const, severity: "P1" as const, event: "REQUEST_CHANGES" as const },
+    { standing: "CHANGES_REQUESTED" as const, severity: "P3" as const, event: "APPROVE" as const },
+  ])(
+    "counts an open same-id copy when the oldest thread is resolved ($severity, $standing)",
+    async ({ standing, severity, event }) => {
+      const findingId = mintFindingId();
+      const body = `${renderFindingMarker({ id: findingId, lens: "review", severity })}\n**${severity}** · **Bug**`;
+      seedBotFindingThreads([
+        findingThread(1, { titleSnippet: body, severity }),
+        findingThread(2, { titleSnippet: body, severity }),
+      ]);
+      configureVerificationThreads([
+        [1, { threadNodeId: "older", isResolved: true }],
+        [2, { threadNodeId: "newer", isResolved: false }],
+      ]);
+      const surface = fakeDurablePrSurface();
+      const controls = durablePrSurfaceControls();
+      const existingReviews = await surface.listPullRequestReviews();
+      controls.setPullRequestReviews([
+        ...existingReviews,
+        {
+          id: 20_000,
+          userId: 999,
+          authorLogin: "pr-agent[bot]",
+          body: "",
+          commitId: "old-head",
+          htmlUrl: "",
+          state: standing,
+        },
+      ]);
+
+      await runExecution();
+
+      expect(controls.threadBatches).toEqual(
+        event == null
+          ? []
+          : [
+              expect.objectContaining({
+                event,
+                commitId: "a".repeat(40),
+              }),
+            ],
+      );
     },
   );
 

@@ -117,6 +117,8 @@ Notes:
   refreshes this app's standing GitHub review only when the verdict changes.
   A fresh complete inventory with no blocking findings replaces `CHANGES_REQUESTED`
   with `APPROVE`; a reopened blocker replaces `APPROVED` with `REQUEST_CHANGES`.
+  An open same-id copy at or above the check threshold is a blocker even when
+  the oldest thread for that id is resolved or below the threshold.
   Matching verdicts, no standing app verdict, and incomplete inventory without
   a known blocker publish nothing. An incomplete thread read records
   `thread_resolution_degraded` and does not approve; a known blocker in that
