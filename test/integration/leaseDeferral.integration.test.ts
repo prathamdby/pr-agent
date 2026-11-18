@@ -72,11 +72,7 @@ type DeferredRow = {
   readonly priority: number;
 };
 
-async function deferredRows(
-  pool: Pool,
-  singletonKey: string,
-  queue: string = REVIEW_QUEUE,
-): Promise<readonly DeferredRow[]> {
+async function deferredRows(pool: Pool, singletonKey: string, queue: string = REVIEW_QUEUE) {
   const { rows } = await pool.query<DeferredRow>(
     `SELECT id::text AS id, state::text AS state, start_after, group_id,
             singleton_on, data, output, priority
@@ -85,7 +81,9 @@ async function deferredRows(
       ORDER BY created_on, id`,
     [queue, singletonKey],
   );
-  return rows;
+  return ((pinnedReturn: readonly DeferredRow[] | Promise<readonly DeferredRow[]>) => pinnedReturn)(
+    rows,
+  );
 }
 
 describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)", () => {

@@ -1,12 +1,12 @@
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
 import type { ReviewPayload } from "../reviewSchema.ts";
 
-export function redactReviewText(text: string): string {
-  return redactOutboundSecrets(text);
+export function redactReviewText(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(redactOutboundSecrets(text));
 }
 
-export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayload {
-  return {
+export function redactReviewPayloadSecrets(payload: ReviewPayload) {
+  return ((pinnedReturn: ReviewPayload) => pinnedReturn)({
     ...payload,
     followUps: payload.followUps.map((item) => redactReviewText(item)),
     mergeability: redactReviewText(payload.mergeability),
@@ -25,5 +25,5 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
         ? {}
         : { severityRationale: redactReviewText(finding.severityRationale) }),
     })),
-  };
+  });
 }

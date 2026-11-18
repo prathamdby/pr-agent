@@ -13,9 +13,7 @@ import {
 
 const LEGACY_REVIEW_EFFORT_LABEL = /^Review effort [1-5]\/5$/;
 
-export function dominantReviewCategory(
-  findings: readonly ReviewFinding[],
-): ReviewFindingCategory | undefined {
+export function dominantReviewCategory(findings: readonly ReviewFinding[]) {
   const counts = new Map<ReviewFindingCategory, number>();
   for (const finding of findings) {
     if (finding.category == null) continue;
@@ -30,54 +28,64 @@ export function dominantReviewCategory(
       best = category;
     }
   }
-  return bestCount > 0 ? best : undefined;
+  return ((pinnedReturn: ReviewFindingCategory | undefined) => pinnedReturn)(
+    bestCount > 0 ? best : undefined,
+  );
 }
 
-function categoryLabelForPayload(payload: ReviewPayload): string | undefined {
+function categoryLabelForPayload(payload: ReviewPayload) {
   const category = dominantReviewCategory(payload.findings);
-  return category == null ? undefined : `${LABEL_CATEGORY_PREFIX}${category}`;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    category == null ? undefined : `${LABEL_CATEGORY_PREFIX}${category}`,
+  );
 }
 
-export function hasManagedCategoryLabel(currentLabels: readonly string[]): boolean {
-  return currentLabels.some((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
+export function hasManagedCategoryLabel(currentLabels: readonly string[]) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    currentLabels.some((label) => label.startsWith(LABEL_CATEGORY_PREFIX)),
+  );
 }
 
-export function reviewSizeLabel(payload: ReviewPayload): string {
-  return `${LABEL_REVIEW_SIZE_PREFIX}${payload.size}`;
+export function reviewSizeLabel(payload: ReviewPayload) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${LABEL_REVIEW_SIZE_PREFIX}${payload.size}`);
 }
 
-function hasSecurityCategory(payload: ReviewPayload): boolean {
-  return payload.findings.some((finding) => finding.category === "security");
+function hasSecurityCategory(payload: ReviewPayload) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    payload.findings.some((finding) => finding.category === "security"),
+  );
 }
 
 export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
   opts: { size: boolean; security: boolean; category: boolean },
-): boolean {
+) {
   if (opts.size) {
     const sizeLabel = reviewSizeLabel(payload);
     const currentSizeLabels = currentLabels.filter((label) =>
       label.startsWith(LABEL_REVIEW_SIZE_PREFIX),
     );
-    if (currentSizeLabels.length !== 1 || currentSizeLabels[0] !== sizeLabel) return false;
+    if (currentSizeLabels.length !== 1 || currentSizeLabels[0] !== sizeLabel)
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   if (opts.security) {
     const wantsSecurity = hasSecurityCategory(payload);
-    if (currentLabels.includes(LABEL_SECURITY_CONCERN) !== wantsSecurity) return false;
+    if (currentLabels.includes(LABEL_SECURITY_CONCERN) !== wantsSecurity)
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   if (opts.category) {
     const wantsCategory = categoryLabelForPayload(payload);
     if (currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX)) !== wantsCategory)
-      return false;
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  return true;
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
   opts: { size: boolean; security: boolean; category: boolean },
-): string[] {
+) {
   const labels: string[] = [];
   if (opts.size) {
     labels.push(reviewSizeLabel(payload));
@@ -89,10 +97,10 @@ export function reviewLabelsFromPayload(
     const categoryLabel = categoryLabelForPayload(payload);
     if (categoryLabel != null) labels.push(categoryLabel);
   }
-  return labels;
+  return ((pinnedReturn: string[]) => pinnedReturn)(labels);
 }
 
-export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
+export function syncReviewLabels(currentLabels: string[], nextManaged: string[]) {
   const preserved = currentLabels.filter(
     (name) =>
       !REVIEW_SIZES.some((size) => name === `${LABEL_REVIEW_SIZE_PREFIX}${size}`) &&
@@ -100,5 +108,5 @@ export function syncReviewLabels(currentLabels: string[], nextManaged: string[])
       name !== LABEL_SECURITY_CONCERN &&
       !name.startsWith(LABEL_CATEGORY_PREFIX),
   );
-  return [...preserved, ...nextManaged];
+  return ((pinnedReturn: string[]) => pinnedReturn)([...preserved, ...nextManaged]);
 }

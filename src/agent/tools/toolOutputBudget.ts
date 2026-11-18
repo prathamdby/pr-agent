@@ -7,14 +7,14 @@ export type CappedTextOutput = {
   readonly truncationReason?: string;
 };
 
-export function capTextOutput(
-  text: string,
-  maxBytes: number,
-  truncationReason: string,
-): CappedTextOutput {
+export function capTextOutput(text: string, maxBytes: number, truncationReason: string) {
   const returnedBytes = Buffer.byteLength(text, "utf8");
   if (returnedBytes <= maxBytes) {
-    return { content: text, truncated: false, returnedBytes };
+    return ((pinnedReturn: CappedTextOutput) => pinnedReturn)({
+      content: text,
+      truncated: false,
+      returnedBytes,
+    });
   }
 
   const buf = Buffer.from(text, "utf8");
@@ -23,18 +23,19 @@ export function capTextOutput(
     end -= 1;
   }
   const content = buf.subarray(0, end).toString("utf8");
-  return {
+  return ((pinnedReturn: CappedTextOutput) => pinnedReturn)({
     content,
     truncated: true,
     returnedBytes: Buffer.byteLength(content, "utf8"),
     truncationReason,
-  };
+  });
 }
 
-export function shouldSpillToFile(bytes: number, threshold: number): boolean {
-  if (!Number.isFinite(bytes) || !Number.isFinite(threshold)) return false;
-  if (bytes < 0 || threshold < 0) return false;
-  return bytes > threshold;
+export function shouldSpillToFile(bytes: number, threshold: number) {
+  if (!Number.isFinite(bytes) || !Number.isFinite(threshold))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (bytes < 0 || threshold < 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(bytes > threshold);
 }
 
 export type FileReadWindowParams = {
@@ -55,7 +56,7 @@ export type FileReadOutput = {
   readonly note?: string;
 };
 
-function clampLongLinePrefix(line: string): string {
+function clampLongLinePrefix(line: string) {
   let keep = LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS;
   if (keep > 0 && keep < line.length) {
     const prev = line.charCodeAt(keep - 1);
@@ -64,12 +65,10 @@ function clampLongLinePrefix(line: string): string {
       keep -= 1;
     }
   }
-  return line.slice(0, keep);
+  return ((pinnedReturn: string) => pinnedReturn)(line.slice(0, keep));
 }
 
-function clampLongLines(
-  lines: readonly string[],
-): { readonly lines: string[]; readonly clampedLines: number[] } | null {
+function clampLongLines(lines: readonly string[]) {
   let clamped: string[] | null = null;
   const clampedLines: number[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -83,44 +82,58 @@ function clampLongLines(
       clampedLines.push(index + 1);
     }
   }
-  return clamped === null ? null : { lines: clamped, clampedLines };
+  return ((pinnedReturn: { readonly lines: string[]; readonly clampedLines: number[] } | null) =>
+    pinnedReturn)(clamped === null ? null : { lines: clamped, clampedLines });
 }
 
-function isMidLineByteCut(fullText: string, capped: CappedTextOutput): boolean {
-  if (!capped.truncated || capped.content.length === 0) return false;
-  if (capped.content.endsWith("\n")) return false;
-  return fullText[capped.content.length] !== "\n";
+function isMidLineByteCut(fullText: string, capped: CappedTextOutput) {
+  if (!capped.truncated || capped.content.length === 0)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (capped.content.endsWith("\n")) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(fullText[capped.content.length] !== "\n");
 }
 
-function mergeClampedLines(
-  prefixClamped: readonly number[],
-  byteCutLine: number | undefined,
-): readonly number[] {
-  if (byteCutLine === undefined) return prefixClamped;
-  if (prefixClamped.includes(byteCutLine)) return prefixClamped;
-  return [...prefixClamped, byteCutLine].toSorted((a, b) => a - b);
+function mergeClampedLines(prefixClamped: readonly number[], byteCutLine: number | undefined) {
+  if (byteCutLine === undefined)
+    return ((pinnedReturn: readonly number[]) => pinnedReturn)(prefixClamped);
+  if (prefixClamped.includes(byteCutLine))
+    return ((pinnedReturn: readonly number[]) => pinnedReturn)(prefixClamped);
+  return ((pinnedReturn: readonly number[]) => pinnedReturn)(
+    [...prefixClamped, byteCutLine].toSorted((a, b) => a - b),
+  );
 }
 
-function formatClampedLinesNote(clampedLines: readonly number[]): string {
+function formatClampedLinesNote(clampedLines: readonly number[]) {
   if (clampedLines.length === 1) {
     const line = clampedLines[0];
-    return `Line ${line} was clamped to a prefix; read with startLine ${line}, maxLines 1 to inspect the full line (up to the response byte budget).`;
+    return ((pinnedReturn: string) => pinnedReturn)(
+      `Line ${line} was clamped to a prefix; read with startLine ${line}, maxLines 1 to inspect the full line (up to the response byte budget).`,
+    );
   }
   const preview =
     clampedLines.length <= 10
       ? clampedLines.join(", ")
       : `${clampedLines.slice(0, 10).join(", ")} (+${clampedLines.length - 10} more)`;
-  return `Lines ${preview} were clamped to prefixes; read a specific line with startLine N, maxLines 1 to inspect the full line (up to the response byte budget).`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `Lines ${preview} were clamped to prefixes; read a specific line with startLine N, maxLines 1 to inspect the full line (up to the response byte budget).`,
+  );
 }
 
 export function readTextWithOutputBudget(
   text: string,
   maxResponseBytes: number,
   window?: FileReadWindowParams,
-): FileReadOutput {
+) {
   const size = Buffer.byteLength(text, "utf8");
   if (size === 0) {
-    return { content: "", size, startLine: 0, endLine: 0, truncated: false, returnedBytes: 0 };
+    return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
+      content: "",
+      size,
+      startLine: 0,
+      endLine: 0,
+      truncated: false,
+      returnedBytes: 0,
+    });
   }
   const hasLineWindow = window?.startLine != null || window?.maxLines != null;
   const lines = splitLines(text);
@@ -145,7 +158,7 @@ export function readTextWithOutputBudget(
       notes.push(formatClampedLinesNote(shownPrefixClamped));
     }
     const note = notes.length > 0 ? notes.join(" ") : undefined;
-    return {
+    return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
       content: capped.content,
       size,
       startLine: 1,
@@ -156,11 +169,11 @@ export function readTextWithOutputBudget(
       ...(clampedLines.length > 0 ? { clampedLines } : {}),
       ...(capped.truncated ? { resumeStartLine } : {}),
       ...(note !== undefined ? { note } : {}),
-    };
+    });
   }
 
   if (window.startLine != null && window.startLine > lines.length) {
-    return {
+    return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
       content: "",
       size,
       startLine: 0,
@@ -168,7 +181,7 @@ export function readTextWithOutputBudget(
       truncated: false,
       returnedBytes: 0,
       note: `startLine ${window.startLine} is beyond the end of the file (${lines.length} lines total). Retry with startLine <= ${lines.length}.`,
-    };
+    });
   }
   const singleLineRequest = window.maxLines === 1;
   const clamped = singleLineRequest ? null : clampLongLines(lines);
@@ -228,7 +241,7 @@ export function readTextWithOutputBudget(
   }
   const note = notes.length > 0 ? notes.join(" ") : undefined;
 
-  return {
+  return ((pinnedReturn: FileReadOutput) => pinnedReturn)({
     content: capped.content,
     size,
     startLine,
@@ -239,20 +252,20 @@ export function readTextWithOutputBudget(
     ...(clampedLines.length > 0 ? { clampedLines } : {}),
     ...(resumeStartLine !== undefined ? { resumeStartLine } : {}),
     ...(note !== undefined ? { note } : {}),
-  };
+  });
 }
 
-function splitLines(text: string): string[] {
-  if (text.length === 0) return [""];
+function splitLines(text: string) {
+  if (text.length === 0) return ((pinnedReturn: string[]) => pinnedReturn)([""]);
   const lines = text.split("\n");
   if (lines.length > 1 && lines.at(-1) === "") {
     lines.pop();
   }
-  return lines;
+  return ((pinnedReturn: string[]) => pinnedReturn)(lines);
 }
 
-function endLineForText(text: string): number {
-  if (text.length === 0) return 0;
+function endLineForText(text: string) {
+  if (text.length === 0) return ((pinnedReturn: number) => pinnedReturn)(0);
   let endLine = 1;
   let idx = text.indexOf("\n");
   while (idx !== -1) {
@@ -262,5 +275,5 @@ function endLineForText(text: string): number {
   if (text.endsWith("\n")) {
     endLine -= 1;
   }
-  return Math.max(1, endLine);
+  return ((pinnedReturn: number) => pinnedReturn)(Math.max(1, endLine));
 }

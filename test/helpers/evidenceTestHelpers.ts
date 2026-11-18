@@ -5,15 +5,15 @@ import {
 } from "../../src/review/findings/evidenceLedger.ts";
 import type { ReviewFinding } from "../../src/review/reviewSchema.ts";
 
-export function createTestEvidenceLedger(headSha = "abc1234"): EvidenceLedger {
-  return createEvidenceLedger(headSha);
+export function createTestEvidenceLedger(headSha = "abc1234") {
+  return ((pinnedReturn: EvidenceLedger) => pinnedReturn)(createEvidenceLedger(headSha));
 }
 
 export function seedEvidenceForFinding(
   ledger: EvidenceLedger,
   finding: Pick<ReviewFinding, "file" | "startLine" | "endLine">,
   content = "synthetic evidence slice",
-): void {
+) {
   ledger.record({
     path: finding.file,
     startLine: finding.startLine,
@@ -27,7 +27,7 @@ export function seedEvidenceForFinding(
 export function seedEvidenceForFindings(
   ledger: EvidenceLedger,
   findings: readonly Pick<ReviewFinding, "file" | "startLine" | "endLine">[],
-): void {
+) {
   for (const finding of findings) {
     seedEvidenceForFinding(ledger, finding);
   }

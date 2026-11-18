@@ -27,11 +27,11 @@ type StoredIntent = {
   updatedAtMs: number;
 };
 
-function rowKey(workItemId: string, operationKey: string): string {
-  return `${workItemId}\0${operationKey}`;
+function rowKey(workItemId: string, operationKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${workItemId}\0${operationKey}`);
 }
 
-function copyDetail(detail: Record<string, unknown>): Record<string, unknown> {
+function copyDetail(detail: Record<string, unknown>) {
   const copied: unknown = JSON.parse(JSON.stringify(detail));
   if (!isRecord(copied))
     throw new AppError({
@@ -39,11 +39,11 @@ function copyDetail(detail: Record<string, unknown>): Record<string, unknown> {
       kind: "invalid_detail",
       message: "Publication detail must serialize to a JSON object",
     });
-  return copied;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(copied);
 }
 
-function toRow(stored: StoredIntent): OperationIntentRow {
-  return {
+function toRow(stored: StoredIntent) {
+  return ((pinnedReturn: OperationIntentRow) => pinnedReturn)({
     id: stored.id,
     workItemId: stored.workItemId,
     operationKey: stored.operationKey,
@@ -52,19 +52,19 @@ function toRow(stored: StoredIntent): OperationIntentRow {
     publishRecordId: stored.publishRecordId,
     leaseEpoch: stored.leaseEpoch,
     detail: copyDetail(stored.detail),
-  };
+  });
 }
 
-export function createFakePublishStore(): PublishIntentStore {
+export function createFakePublishStore() {
   const rows = new Map<string, StoredIntent>();
   let clockMs = 1;
 
-  function nextClock(): number {
+  function nextClock() {
     clockMs += 1;
-    return clockMs;
+    return ((pinnedReturn: number) => pinnedReturn)(clockMs);
   }
 
-  return {
+  return ((pinnedReturn: PublishIntentStore) => pinnedReturn)({
     async getOperationIntent(_client, workItemId, operationKey) {
       const stored = rows.get(rowKey(workItemId, operationKey));
       return stored ? toRow(stored) : null;
@@ -228,12 +228,12 @@ export function createFakePublishStore(): PublishIntentStore {
         .toSorted((a, b) => a.createdAtMs - b.createdAtMs)
         .map(toRow);
     },
-  };
+  });
 }
 
 export function createFakePublishRecords(
   publishStepSpecs: typeof import("./publishOnce.ts").publishStepSpecs,
-): PublishRecordStore {
+) {
   const rows = new Map<
     string,
     {
@@ -246,7 +246,7 @@ export function createFakePublishRecords(
     }
   >();
   let clock = 0;
-  return {
+  return ((pinnedReturn: PublishRecordStore) => pinnedReturn)({
     completed: async (_client, workItemId, resourceKey, reviewLens, step) => {
       const detail = [...rows.values()].find(
         (row) =>
@@ -353,5 +353,5 @@ export function createFakePublishRecords(
         throw error;
       }
     },
-  };
+  });
 }

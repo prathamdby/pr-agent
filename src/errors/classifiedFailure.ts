@@ -53,24 +53,26 @@ export type ClassifyFailureHints = {
 
 const MAX_CAUSE_CHAIN = 5;
 
-function rawMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
+function rawMessage(error: unknown) {
+  if (error instanceof Error) return ((pinnedReturn: string) => pinnedReturn)(error.message);
+  if (typeof error === "string") return ((pinnedReturn: string) => pinnedReturn)(error);
   try {
-    return JSON.stringify(error) ?? String(error);
+    return ((pinnedReturn: string) => pinnedReturn)(JSON.stringify(error) ?? String(error));
   } catch {
-    return String(error);
+    return ((pinnedReturn: string) => pinnedReturn)(String(error));
   }
 }
 
-function collectCauseChain(error: unknown): string[] {
-  return walkErrors(error)
-    .slice(1)
-    .map((cause) => sanitizeLogMessage(rawMessage(cause)))
-    .filter((message) => message.length > 0);
+function collectCauseChain(error: unknown) {
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    walkErrors(error)
+      .slice(1)
+      .map((cause) => sanitizeLogMessage(rawMessage(cause)))
+      .filter((message) => message.length > 0),
+  );
 }
 
-function walkErrors(error: unknown): unknown[] {
+function walkErrors(error: unknown) {
   const out: unknown[] = [];
   let current: unknown = error;
   let depth = 0;
@@ -79,7 +81,7 @@ function walkErrors(error: unknown): unknown[] {
     current = current instanceof Error ? current.cause : undefined;
     depth += 1;
   }
-  return out;
+  return ((pinnedReturn: unknown[]) => pinnedReturn)(out);
 }
 
 type InternalErrorKind = Extract<ClassifiedErrorKind, "validation" | "publish">;
@@ -110,111 +112,143 @@ const WORKSPACE_GIT_ERROR_KIND: Readonly<Record<string, ClassifiedErrorKind>> = 
   git: "git",
 };
 
-function workspaceGitErrorKind(error: AppError): ClassifiedErrorKind | null {
+function workspaceGitErrorKind(error: AppError) {
   if (error.code !== "pr_workspace.fetch_timeout" && error.code !== "pr_workspace.git_failed") {
-    return null;
+    return ((pinnedReturn: ClassifiedErrorKind | null) => pinnedReturn)(null);
   }
   const fallback = error.code === "pr_workspace.fetch_timeout" ? "timeout" : "git";
   const failureKind = error.context.failureKind;
   if (typeof failureKind !== "string" || !Object.hasOwn(WORKSPACE_GIT_ERROR_KIND, failureKind)) {
-    return fallback;
+    return ((pinnedReturn: ClassifiedErrorKind | null) => pinnedReturn)(fallback);
   }
-  return WORKSPACE_GIT_ERROR_KIND[failureKind] ?? fallback;
+  return ((pinnedReturn: ClassifiedErrorKind | null) => pinnedReturn)(
+    WORKSPACE_GIT_ERROR_KIND[failureKind] ?? fallback,
+  );
 }
 
-function classifyFromErrorChain(error: unknown): {
-  domain: FailureDomain;
-  kind: ClassifiedErrorKind;
-} {
+function classifyFromErrorChain(error: unknown) {
   const nodes = walkErrors(error);
   for (const node of nodes) {
-    if (isCancelAbortError(node)) return { domain: "internal", kind: "cancelled" };
+    if (isCancelAbortError(node))
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: "internal", kind: "cancelled" },
+      );
     if (!isAppError(node)) continue;
     const workspaceGitKind = workspaceGitErrorKind(node);
-    if (workspaceGitKind != null) return { domain: "internal", kind: workspaceGitKind };
+    if (workspaceGitKind != null)
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: "internal", kind: workspaceGitKind },
+      );
     if (node.domain === "provider") {
-      return { domain: "provider", kind: classifyProviderError(node) };
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: "provider", kind: classifyProviderError(node) },
+      );
     }
     if (node.domain === "github") {
-      return { domain: "github", kind: classifyGithubError(node) };
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: "github", kind: classifyGithubError(node) },
+      );
     }
     const byKind: Partial<Record<string, InternalErrorKind>> | undefined =
       INTERNAL_ERROR_KIND[node.domain];
     const kind = byKind?.[node.kind];
     if (node.domain === "operation_intent" && kind != null) {
-      return { domain: "internal", kind };
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: "internal", kind },
+      );
     }
   }
   for (const node of nodes) {
     if (looksLikeGithubError(node)) {
       const kind = classifyGithubError(node);
-      if (kind !== "unknown") return { domain: "github", kind };
+      if (kind !== "unknown")
+        return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) =>
+          pinnedReturn)({ domain: "github", kind });
     }
   }
   for (const node of nodes) {
     const kind = classifyProviderError(node);
     if (kind !== "unknown") {
-      return { domain: isAppError(node) ? "internal" : "provider", kind };
+      return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)(
+        { domain: isAppError(node) ? "internal" : "provider", kind },
+      );
     }
   }
   const appError = nodes.find(isAppError);
   if (appError != null) {
     const byKind: Partial<Record<string, InternalErrorKind>> | undefined =
       INTERNAL_ERROR_KIND[appError.domain];
-    return { domain: "internal", kind: byKind?.[appError.kind] ?? "unknown" };
+    return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)({
+      domain: "internal",
+      kind: byKind?.[appError.kind] ?? "unknown",
+    });
   }
-  return { domain: "unknown", kind: "unknown" };
+  return ((pinnedReturn: { domain: FailureDomain; kind: ClassifiedErrorKind }) => pinnedReturn)({
+    domain: "unknown",
+    kind: "unknown",
+  });
 }
 
-export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): ClassifiedFailure {
+export function classifyFailure(error: unknown, hints?: ClassifyFailureHints) {
   if (hints?.lifecycle === "superseded") {
-    return finalize(error, "internal", "superseded", hints);
+    return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+      finalize(error, "internal", "superseded", hints),
+    );
   }
   if (hints?.lifecycle === "cancelled" || hints?.lifecycle === "stale_head") {
-    return finalize(error, "internal", "cancelled", hints);
+    return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+      finalize(error, "internal", "cancelled", hints),
+    );
   }
 
   if (hints?.domain === "github") {
-    return finalize(error, "github", classifyGithubError(error), hints);
+    return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+      finalize(error, "github", classifyGithubError(error), hints),
+    );
   }
   if (hints?.domain === "provider") {
     const kind = classifyProviderError(error);
-    return finalize(
-      error,
-      "provider",
-      kind === "unknown" && isAppError(error) ? classifyProviderError(rawMessage(error)) : kind,
-      hints,
+    return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+      finalize(
+        error,
+        "provider",
+        kind === "unknown" && isAppError(error) ? classifyProviderError(rawMessage(error)) : kind,
+        hints,
+      ),
     );
   }
   if (hints?.domain === "internal") {
     const fromChain = classifyFromErrorChain(error);
-    return finalize(
-      error,
-      "internal",
-      fromChain.domain === "internal" ? fromChain.kind : "unknown",
-      hints,
+    return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+      finalize(
+        error,
+        "internal",
+        fromChain.domain === "internal" ? fromChain.kind : "unknown",
+        hints,
+      ),
     );
   }
 
   const classified = classifyFromErrorChain(error);
-  return finalize(error, classified.domain, classified.kind, hints);
+  return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)(
+    finalize(error, classified.domain, classified.kind, hints),
+  );
 }
 
-function githubHttpFields(error: unknown): {
-  readonly httpStatus?: number;
-  readonly requestPath?: string;
-} {
+function githubHttpFields(error: unknown) {
   for (const node of walkErrors(error)) {
     if (!looksLikeGithubError(node)) continue;
     const status = allowlistedHttpStatus(httpStatus(node));
     const requestPath = githubRequestPath(node);
     if (status == null && requestPath == null) continue;
-    return {
+    return ((pinnedReturn: { readonly httpStatus?: number; readonly requestPath?: string }) =>
+      pinnedReturn)({
       ...(status != null ? { httpStatus: status } : {}),
       ...(requestPath != null ? { requestPath } : {}),
-    };
+    });
   }
-  return {};
+  return ((pinnedReturn: { readonly httpStatus?: number; readonly requestPath?: string }) =>
+    pinnedReturn)({});
 }
 
 function finalize(
@@ -222,10 +256,10 @@ function finalize(
   failureDomain: FailureDomain,
   errorKind: ClassifiedErrorKind,
   hints?: ClassifyFailureHints,
-): ClassifiedFailure {
+) {
   const causeChain = collectCauseChain(error);
   const githubFields = failureDomain === "github" ? githubHttpFields(error) : {};
-  return {
+  return ((pinnedReturn: ClassifiedFailure) => pinnedReturn)({
     failureDomain,
     errorKind,
     ...(isAppError(error) ? { errorCode: error.code } : {}),
@@ -237,7 +271,7 @@ function finalize(
     ...(causeChain.length > 0 ? { causeChain } : {}),
     ...(hints?.errorCount != null ? { errorCount: hints.errorCount } : {}),
     ...githubFields,
-  };
+  });
 }
 
 const POSTHOG_SAFE_PHASES = new Set([
@@ -260,9 +294,11 @@ const POSTHOG_SAFE_PHASES = new Set([
   "verification",
 ]);
 
-export function posthogSafePhase(phase: string | undefined): string | undefined {
-  if (phase == null) return undefined;
-  return POSTHOG_SAFE_PHASES.has(phase) ? phase : undefined;
+export function posthogSafePhase(phase: string | undefined) {
+  if (phase == null) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    POSTHOG_SAFE_PHASES.has(phase) ? phase : undefined,
+  );
 }
 
 const CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED = {
@@ -280,7 +316,7 @@ const CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED = {
   requestPath: false,
 } as const satisfies { readonly [K in keyof ClassifiedFailure]-?: boolean };
 
-export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string, unknown> {
+export function classifiedFailureLogFields(f: ClassifiedFailure) {
   const out: Record<string, unknown> = {};
   const fields = Object.keys(CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED).filter(
     (field): field is keyof typeof CLASSIFIED_FAILURE_LOG_FIELD_REQUIRED =>
@@ -292,5 +328,5 @@ export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string,
       out[field] = value;
     }
   }
-  return out;
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(out);
 }

@@ -64,7 +64,7 @@ type SubmissionState = {
 function emitSpecialistStage(
   params: RunSpecialistParams,
   input: Omit<Parameters<typeof specialistSpanFromContext>[0], "context" | "specialistId">,
-): void {
+) {
   if (!params.agentEvents) return;
   emitWorkSpan(
     params.agentEvents,
@@ -77,23 +77,27 @@ function emitSpecialistStage(
   );
 }
 
-function timeoutError(): AppError {
-  return new AppError({
-    domain: "review",
-    kind: "specialist_timeout",
-    message: "Specialist timeout deadline exceeded",
-  });
+function timeoutError() {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "review",
+      kind: "specialist_timeout",
+      message: "Specialist timeout deadline exceeded",
+    }),
+  );
 }
 
-function externalAbortError(): AppError {
-  return new AppError({
-    domain: "review",
-    kind: "specialist_aborted",
-    message: "Specialist run aborted by external signal",
-  });
+function externalAbortError() {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "review",
+      kind: "specialist_aborted",
+      message: "Specialist run aborted by external signal",
+    }),
+  );
 }
 
-function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): void {
+function assertCanContinue(params: RunSpecialistParams, deadlineMs: number) {
   if (params.signal?.aborted) throw externalAbortError();
   if (!params.shouldContinue()) {
     throw new AppError({
@@ -105,15 +109,13 @@ function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): voi
   if (Date.now() >= deadlineMs) throw timeoutError();
 }
 
-function canContinue(params: RunSpecialistParams, deadlineMs: number): boolean {
-  return !params.signal?.aborted && params.shouldContinue() && Date.now() < deadlineMs;
+function canContinue(params: RunSpecialistParams, deadlineMs: number) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    !params.signal?.aborted && params.shouldContinue() && Date.now() < deadlineMs,
+  );
 }
 
-async function waitBeforeStage(
-  delayMs: number,
-  params: RunSpecialistParams,
-  deadlineMs: number,
-): Promise<void> {
+async function waitBeforeStage(delayMs: number, params: RunSpecialistParams, deadlineMs: number) {
   assertCanContinue(params, deadlineMs);
   if (delayMs <= 0) return;
 
@@ -148,10 +150,7 @@ function buildSubmitTool(
     readonly agentEvents?: AgentEventsContext;
     readonly cfg: Config;
   },
-): {
-  readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
-  readonly executor: AgentRunnerToolExecutor;
-} {
+) {
   const piTool = buildSubmitFindingsReportPiTool();
   let evidenceFeedbackSent = false;
   const executor: AgentRunnerToolExecutor = async (args) => {
@@ -241,7 +240,10 @@ function buildSubmitTool(
     state.validationError = null;
     return { accepted: true };
   };
-  return { piTool, executor };
+  return ((pinnedReturn: {
+    readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
+    readonly executor: AgentRunnerToolExecutor;
+  }) => pinnedReturn)({ piTool, executor });
 }
 
 async function runWithinDeadline<T>(params: {
@@ -251,7 +253,7 @@ async function runWithinDeadline<T>(params: {
   readonly cancel?: () => Promise<void>;
   readonly deferCleanup?: () => Promise<void>;
   readonly onCleanupDeferred?: () => void;
-}): Promise<T> {
+}) {
   const remainingMs = params.deadlineMs - Date.now();
   if (remainingMs <= 0) throw timeoutError();
 
@@ -275,7 +277,8 @@ async function runWithinDeadline<T>(params: {
   );
   try {
     const result = await Promise.race([settled, cancelled]);
-    if (result.kind === "settled") return result.value;
+    if (result.kind === "settled")
+      return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(result.value);
     if (result.kind === "rejected") throw result.error;
     const cancel = params.cancel?.();
     if (cancel) void cancel.catch(() => undefined);
@@ -294,7 +297,7 @@ async function createSessionWithinDeadline(
   params: RunSpecialistParams,
   deadlineMs: number,
   submitTool: ReturnType<typeof buildSubmitTool>,
-): Promise<PiSession> {
+) {
   const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
   const creation = (params.createSession ?? createFeaturePiSession)({
     role: "specialist",
@@ -308,22 +311,21 @@ async function createSessionWithinDeadline(
     hostSignal: params.signal,
     sessionContext: params.agentEvents,
   });
-  return runWithinDeadline({
-    run: () => creation,
-    signal: params.signal,
-    deadlineMs,
-    deferCleanup: async () => {
-      const session = await creation;
-      await session.abort().catch(() => undefined);
-      await session.dispose().catch(() => undefined);
-    },
-  });
+  return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(
+    runWithinDeadline({
+      run: () => creation,
+      signal: params.signal,
+      deadlineMs,
+      deferCleanup: async () => {
+        const session = await creation;
+        await session.abort().catch(() => undefined);
+        await session.dispose().catch(() => undefined);
+      },
+    }),
+  );
 }
 
-async function runAttempt(
-  params: RunSpecialistParams,
-  deadlineMs: number,
-): Promise<SpecialistReport> {
+async function runAttempt(params: RunSpecialistParams, deadlineMs: number) {
   assertCanContinue(params, deadlineMs);
   const state: SubmissionState = { report: null, validationError: null };
   const submitTool = buildSubmitTool(
@@ -348,7 +350,7 @@ async function runAttempt(
     activeSession: PiSession,
     prompt: string,
     opts?: { readonly maxToolRounds?: number; readonly traceValidationRepair?: boolean },
-  ): Promise<AgentRunnerTurn> => {
+  ) => {
     const turn = await runWithinDeadline({
       run: () =>
         activeSession.send(prompt, {
@@ -365,7 +367,7 @@ async function runAttempt(
       },
     });
     recordAgentTurnMetrics(turn, { specialist: true });
-    return turn;
+    return ((pinnedReturn: AgentRunnerTurn | Promise<AgentRunnerTurn>) => pinnedReturn)(turn);
   };
 
   try {
@@ -407,7 +409,9 @@ async function runAttempt(
         message: state.validationError ?? "Specialist did not submit a valid report",
       });
     }
-    return state.report;
+    return ((pinnedReturn: SpecialistReport | Promise<SpecialistReport>) => pinnedReturn)(
+      state.report,
+    );
   } finally {
     if (!cleanupDeferred) await session.dispose();
   }
@@ -420,8 +424,8 @@ function failureOutcome(params: {
   readonly attempts: number;
   readonly classification: ProviderErrorKind;
   readonly cause: unknown;
-}): SpecialistOutcome {
-  return {
+}) {
+  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
     kind: "error",
     specialist: params.specialist,
     durationMs: Date.now() - params.startedAtMs,
@@ -437,25 +441,31 @@ function failureOutcome(params: {
       },
       cause: params.cause,
     }),
-  };
+  });
 }
 
-function failureFacts(
-  outcome: SpecialistOutcome,
-): Pick<
-  Parameters<typeof specialistSpanFromContext>[0],
-  "classification" | "attempts" | "deadlineHit"
-> {
-  if (outcome.kind !== "error") return {};
+function failureFacts(outcome: SpecialistOutcome) {
+  if (outcome.kind !== "error")
+    return ((
+      pinnedReturn: Pick<
+        Parameters<typeof specialistSpanFromContext>[0],
+        "classification" | "attempts" | "deadlineHit"
+      >,
+    ) => pinnedReturn)({});
   const { classification, attempts, deadlineHit } = outcome.error.context;
-  return {
+  return ((
+    pinnedReturn: Pick<
+      Parameters<typeof specialistSpanFromContext>[0],
+      "classification" | "attempts" | "deadlineHit"
+    >,
+  ) => pinnedReturn)({
     ...(typeof classification === "string" ? { classification } : {}),
     ...(typeof attempts === "number" ? { attempts } : {}),
     ...(typeof deadlineHit === "boolean" ? { deadlineHit } : {}),
-  };
+  });
 }
 
-async function runSpecialistOutcome(params: RunSpecialistParams): Promise<SpecialistOutcome> {
+async function runSpecialistOutcome(params: RunSpecialistParams) {
   const startedAtMs = Date.now();
   const deadlineMs = startedAtMs + params.timeoutMs;
   let attempts = 0;
@@ -473,14 +483,16 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
   } catch (error) {
     lastError = error;
     classification = classifyProviderError(error);
-    return failureOutcome({
-      specialist: params.specialist,
-      startedAtMs,
-      deadlineMs,
-      attempts,
-      classification,
-      cause: lastError,
-    });
+    return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(
+      failureOutcome({
+        specialist: params.specialist,
+        startedAtMs,
+        deadlineMs,
+        attempts,
+        classification,
+        cause: lastError,
+      }),
+    );
   }
 
   while (attempts < MAX_SESSION_ATTEMPTS) {
@@ -490,14 +502,19 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
       const report = await runAttempt(params, deadlineMs);
       const durationMs = Date.now() - startedAtMs;
       if (report.status === "no_findings") {
-        return { kind: "empty", specialist: params.specialist, durationMs, report };
+        return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)({
+          kind: "empty",
+          specialist: params.specialist,
+          durationMs,
+          report,
+        });
       }
-      return {
+      return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)({
         kind: "report",
         specialist: params.specialist,
         report: { ...report, status: "findings" },
         durationMs,
-      };
+      });
     } catch (error) {
       lastError = error;
       classification = classifyProviderError(error);
@@ -533,17 +550,19 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
     ordinaryRetryUsed = true;
   }
 
-  return failureOutcome({
-    specialist: params.specialist,
-    startedAtMs,
-    deadlineMs,
-    attempts,
-    classification,
-    cause: lastError,
-  });
+  return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(
+    failureOutcome({
+      specialist: params.specialist,
+      startedAtMs,
+      deadlineMs,
+      attempts,
+      classification,
+      cause: lastError,
+    }),
+  );
 }
 
-export async function runSpecialist(params: RunSpecialistParams): Promise<SpecialistOutcome> {
+export async function runSpecialist(params: RunSpecialistParams) {
   const outcome = await runSpecialistOutcome(params);
   if (outcome.kind !== "error") {
     await params.onValidatedReport?.(
@@ -559,7 +578,7 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
     ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
     ...failureFacts(outcome),
   });
-  return outcome;
+  return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(outcome);
 }
 
 export const SPECIALIST_SYSTEM_PROMPTS = {

@@ -266,7 +266,7 @@ describe("startPeriodicQueueDiagnostics", () => {
 
     expect(callbacks).toHaveLength(1);
     callbacks[0]?.();
-    await vi.waitFor(() => expect(tick).toHaveBeenCalledWith(now));
+    expect(tick).toHaveBeenCalledWith(now);
     loop.stop();
     expect(clearIntervalFn).toHaveBeenCalledWith(1);
     expect(logWarn).not.toHaveBeenCalled();

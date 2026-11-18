@@ -19,12 +19,13 @@ import {
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
 } from "../src/settings/index.ts";
 
-const basePayload = (prFiles?: DescriptionPayload["prFiles"]): DescriptionPayload => ({
-  title: "t",
-  type: ["Enhancement"],
-  description: "- Main",
-  ...(prFiles ? { prFiles } : {}),
-});
+const basePayload = (prFiles?: DescriptionPayload["prFiles"]) =>
+  ((pinnedReturn: DescriptionPayload) => pinnedReturn)({
+    title: "t",
+    type: ["Enhancement"],
+    description: "- Main",
+    ...(prFiles ? { prFiles } : {}),
+  });
 
 const mapEntry = (filename: string) => ({
   filename,

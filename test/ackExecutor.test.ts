@@ -174,8 +174,8 @@ import { AppError } from "../src/errors/appError.ts";
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
 
-function ackData(): AckJobData {
-  return {
+function ackData() {
+  return ((pinnedReturn: AckJobData) => pinnedReturn)({
     kind: "ack",
     installationId: 42,
     owner: "o",
@@ -186,7 +186,7 @@ function ackData(): AckJobData {
       { kind: "issueComment", commentId: 10 },
       { kind: "reviewComment", commentId: 20 },
     ],
-  };
+  });
 }
 
 describe("executeAckJob", () => {

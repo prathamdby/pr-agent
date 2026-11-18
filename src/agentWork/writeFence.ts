@@ -17,42 +17,52 @@ export type UnfencedSurface = { readonly kind: "unfenced"; readonly brand: typeo
 
 export type SurfaceFence = PrSurfaceMutationBoundary | UnfencedSurface;
 
-const unleasedWorkTypesHas = (type: string): boolean => unleasedWorkTypes.has(type);
+const unleasedWorkTypesHas = (type: string) =>
+  ((pinnedReturn: boolean) => pinnedReturn)(unleasedWorkTypes.has(type));
 
 function isWorkType(type: string): type is WorkType {
   return Object.prototype.hasOwnProperty.call(WORK_QUEUES, type);
 }
 
-export function leasedWorkQueues(): readonly string[] {
+export function leasedWorkQueues() {
   const queues: string[] = [];
   for (const type of Object.keys(WORK_QUEUES)) {
     if (!isWorkType(type) || unleasedWorkTypesHas(type)) continue;
     queues.push(WORK_QUEUES[type]);
   }
-  return queues;
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(queues);
 }
 
-export function leaseBinding(
-  type: WorkType,
-  queue: string,
-): { readonly prActorLease?: { readonly queue: string } } {
-  if (unleasedWorkTypesHas(type)) return {};
-  return { prActorLease: { queue } };
+export function leaseBinding(type: WorkType, queue: string) {
+  if (unleasedWorkTypesHas(type))
+    return ((pinnedReturn: { readonly prActorLease?: { readonly queue: string } }) => pinnedReturn)(
+      {},
+    );
+  return ((pinnedReturn: { readonly prActorLease?: { readonly queue: string } }) => pinnedReturn)({
+    prActorLease: { queue },
+  });
 }
 
-export function unleasedFence(): UnleasedFence {
-  return { kind: "unleased", brand: unleasedBrand };
+export function unleasedFence() {
+  return ((pinnedReturn: UnleasedFence) => pinnedReturn)({
+    kind: "unleased",
+    brand: unleasedBrand,
+  });
 }
 
-export function unfencedSurface(): UnfencedSurface {
-  return { kind: "unfenced", brand: unfencedBrand };
+export function unfencedSurface() {
+  return ((pinnedReturn: UnfencedSurface) => pinnedReturn)({
+    kind: "unfenced",
+    brand: unfencedBrand,
+  });
 }
 
 export function isUnfencedSurface(fence: SurfaceFence): fence is UnfencedSurface {
   return "kind" in fence && fence.kind === "unfenced";
 }
 
-export function fenceForEpoch(epoch: number | null | undefined): WriteFence {
-  if (typeof epoch === "number") return { kind: "lease", epoch };
-  return unleasedFence();
+export function fenceForEpoch(epoch: number | null | undefined) {
+  if (typeof epoch === "number")
+    return ((pinnedReturn: WriteFence) => pinnedReturn)({ kind: "lease", epoch });
+  return ((pinnedReturn: WriteFence) => pinnedReturn)(unleasedFence());
 }

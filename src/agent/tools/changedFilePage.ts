@@ -29,50 +29,60 @@ type PageToken = {
   readonly offset: number;
 };
 
-function encodeContinuation(head: string, offset: number): string {
+function encodeContinuation(head: string, offset: number) {
   const json = JSON.stringify({ v: 1, head: head.toLowerCase(), offset });
-  return `cf1.${Buffer.from(json, "utf8").toString("base64url")}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `cf1.${Buffer.from(json, "utf8").toString("base64url")}`,
+  );
 }
 
-function decodeContinuation(token: string): PageToken | null {
-  if (!token.startsWith("cf1.")) return null;
+function decodeContinuation(token: string) {
+  if (!token.startsWith("cf1.")) return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(token.slice("cf1.".length), "base64url").toString("utf8"));
   } catch {
-    return null;
+    return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
   }
-  if (!isRecord(parsed)) return null;
+  if (!isRecord(parsed)) return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
   const keys = Object.keys(parsed);
-  if (keys.length !== 3 || parsed.v !== 1) return null;
-  if (!keys.every((key) => key === "v" || key === "head" || key === "offset")) return null;
-  if (typeof parsed.head !== "string" || parsed.head.length === 0) return null;
+  if (keys.length !== 3 || parsed.v !== 1)
+    return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
+  if (!keys.every((key) => key === "v" || key === "head" || key === "offset"))
+    return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
+  if (typeof parsed.head !== "string" || parsed.head.length === 0)
+    return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
   if (typeof parsed.offset !== "number" || !Number.isInteger(parsed.offset) || parsed.offset < 0) {
-    return null;
+    return ((pinnedReturn: PageToken | null) => pinnedReturn)(null);
   }
-  return { head: parsed.head, offset: parsed.offset };
+  return ((pinnedReturn: PageToken | null) => pinnedReturn)({
+    head: parsed.head,
+    offset: parsed.offset,
+  });
 }
 
-function sameEntry(left: ChangedFileRecord, right: unknown): boolean {
-  if (!isRecord(right)) return false;
-  if (right.path !== left.path || right.status !== left.status) return false;
-  if (right.presentInCheckout !== left.presentInCheckout) return false;
-  return right.oldPath === left.oldPath;
+function sameEntry(left: ChangedFileRecord, right: unknown) {
+  if (!isRecord(right)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (right.path !== left.path || right.status !== left.status)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (right.presentInCheckout !== left.presentInCheckout)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(right.oldPath === left.oldPath);
 }
 
-function pageFits(page: ChangedFilePage): boolean {
+function pageFits(page: ChangedFilePage) {
   const bounded = boundJsonValue(page);
   if (
     bounded.truncation !== null ||
     !isRecord(bounded.value) ||
     !Array.isArray(bounded.value.files)
   ) {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   const files = bounded.value.files;
-  return (
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     files.length === page.files.length &&
-    page.files.every((file, index) => sameEntry(file, files[index]))
+      page.files.every((file, index) => sameEntry(file, files[index])),
   );
 }
 
@@ -85,17 +95,17 @@ function payloadFor(
   },
   start: number,
   count: number,
-): ChangedFilePage {
+) {
   const next =
     start + count < input.files.length ? encodeContinuation(input.headSha, start + count) : null;
-  return {
+  return ((pinnedReturn: ChangedFilePage) => pinnedReturn)({
     files: input.files.slice(start, start + count),
     total: input.files.length,
     truncated: input.truncated,
     headSha: input.headSha,
     continuation: next,
     ...(input.warning !== undefined ? { warning: input.warning } : {}),
-  };
+  });
 }
 
 export function pageChangedFiles(input: {
@@ -104,23 +114,37 @@ export function pageChangedFiles(input: {
   readonly truncated: boolean;
   readonly warning?: string;
   readonly continuation?: string;
-}): ChangedFilePageResult {
+}) {
   let start = 0;
   if (input.continuation !== undefined) {
     const token = decodeContinuation(input.continuation);
-    if (!token) return { ok: false, reason: "malformed" };
-    if (token.head !== input.headSha.toLowerCase()) return { ok: false, reason: "head_mismatch" };
+    if (!token)
+      return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({
+        ok: false,
+        reason: "malformed",
+      });
+    if (token.head !== input.headSha.toLowerCase())
+      return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({
+        ok: false,
+        reason: "head_mismatch",
+      });
     if (
       token.offset > input.files.length ||
       (token.offset === input.files.length && token.offset > 0)
     ) {
-      return { ok: false, reason: "offset" };
+      return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({
+        ok: false,
+        reason: "offset",
+      });
     }
     start = token.offset;
   }
 
   if (start === input.files.length) {
-    return { ok: true, page: payloadFor(input, start, 0) };
+    return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({
+      ok: true,
+      page: payloadFor(input, start, 0),
+    });
   }
 
   const limit = Math.min(CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH, input.files.length - start);
@@ -137,6 +161,10 @@ export function pageChangedFiles(input: {
       high = mid - 1;
     }
   }
-  if (!fitted) return { ok: false, reason: "undeliverable" };
-  return { ok: true, page: fitted };
+  if (!fitted)
+    return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({
+      ok: false,
+      reason: "undeliverable",
+    });
+  return ((pinnedReturn: ChangedFilePageResult) => pinnedReturn)({ ok: true, page: fitted });
 }

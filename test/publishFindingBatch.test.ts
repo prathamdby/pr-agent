@@ -113,14 +113,14 @@ const finding: ReviewFinding = {
   fixPrompt: "Guard the payload before dereferencing it.",
 };
 
-function findingAt(line: number): ReviewFinding {
-  return {
+function findingAt(line: number) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     ...finding,
     startLine: line,
     endLine: line,
     title: `Finding at line ${line}`,
     detail: `The code at line ${line} fails for the covered input.`,
-  };
+  });
 }
 
 const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
@@ -230,7 +230,7 @@ function batchContext(
   ledger: FindingLedger,
   recordPublishStep = vi.fn(async () => undefined),
   overrides: BatchOverrides = {},
-): [ReviewPublishSession, FindingBatchInput] {
+) {
   const {
     seedFindings,
     source,
@@ -266,7 +266,7 @@ function batchContext(
     recordPublishStep,
     ...sessionOverrides,
   });
-  return [
+  return ((pinnedReturn: [ReviewPublishSession, FindingBatchInput]) => pinnedReturn)([
     session,
     {
       source: source ?? "correctness",
@@ -281,7 +281,7 @@ function batchContext(
       ...(judged === undefined ? {} : { judged }),
       ...(coverageGapCeiling === undefined ? {} : { coverageGapCeiling }),
     },
-  ];
+  ]);
 }
 
 describe("publishFindingBatch", () => {

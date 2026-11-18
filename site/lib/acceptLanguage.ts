@@ -17,7 +17,9 @@ export const DEFAULT_PROGRAMMING_LANGUAGE = "typescript" satisfies ProgrammingLa
 export type ServableLanguages = readonly [ProgrammingLanguage, ...ProgrammingLanguage[]];
 
 const SPELLINGS = new Map<string, ProgrammingLanguage>([
-  ...PROGRAMMING_LANGUAGES.map((language): [string, ProgrammingLanguage] => [language, language]),
+  ...PROGRAMMING_LANGUAGES.map((language) =>
+    ((pinnedReturn: [string, ProgrammingLanguage]) => pinnedReturn)([language, language]),
+  ),
   ["golang", "go"],
   ["shell", "bash"],
 ]);
@@ -27,7 +29,7 @@ type Preference = {
   readonly index: number;
 };
 
-function preferences(header: string): Map<ProgrammingLanguage, Preference> {
+function preferences(header: string) {
   const asked = new Map<ProgrammingLanguage, Preference>();
   for (const [index, raw] of header.split(",").entries()) {
     const parts = raw.split(";");
@@ -41,19 +43,21 @@ function preferences(header: string): Map<ProgrammingLanguage, Preference> {
       asked.set(language, { q, index });
     }
   }
-  return asked;
+  return ((pinnedReturn: Map<ProgrammingLanguage, Preference>) => pinnedReturn)(asked);
 }
 
-function outranks(entry: Preference, incumbent: Preference): boolean {
-  return entry.q === incumbent.q ? entry.index < incumbent.index : entry.q > incumbent.q;
+function outranks(entry: Preference, incumbent: Preference) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    entry.q === incumbent.q ? entry.index < incumbent.index : entry.q > incumbent.q,
+  );
 }
 
 export function negotiateProgrammingLanguage(
   header: string | null | undefined,
   produces: ServableLanguages,
-): ProgrammingLanguage {
+) {
   if (header === null || header === undefined) {
-    return produces[0];
+    return ((pinnedReturn: ProgrammingLanguage) => pinnedReturn)(produces[0]);
   }
   const asked = preferences(header);
   let best: ProgrammingLanguage | null = null;
@@ -69,7 +73,9 @@ export function negotiateProgrammingLanguage(
     }
   }
   if (best !== null) {
-    return best;
+    return ((pinnedReturn: ProgrammingLanguage) => pinnedReturn)(best);
   }
-  return produces.find((candidate) => asked.get(candidate)?.q !== 0) ?? produces[0];
+  return ((pinnedReturn: ProgrammingLanguage) => pinnedReturn)(
+    produces.find((candidate) => asked.get(candidate)?.q !== 0) ?? produces[0],
+  );
 }

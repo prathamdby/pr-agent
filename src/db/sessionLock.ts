@@ -51,7 +51,7 @@ export async function withSessionLock<T>(
   key: SessionLockKey,
   options: TrySessionLockOptions | WaitSessionLockOptions,
   apply: (client: PoolClient) => Promise<T>,
-): Promise<T | undefined> {
+) {
   const poolMax = pool.options.max ?? (key.kind === "own_verdict" ? 10 : 0);
   const capacity = Math.max(options.mode === "try" ? 1 : 0, Math.floor(poolMax / 2));
   if (capacity < 1 || (options.mode === "try" && poolMax === 1 && !options.unleased)) {
@@ -120,7 +120,8 @@ export async function withSessionLock<T>(
     if (options.mode === "wait") options.onAcquireError(error);
     throw error;
   }
-  if (retained == null) return undefined;
+  if (retained == null)
+    return ((pinnedReturn: (T | undefined) | Promise<T | undefined>) => pinnedReturn)(undefined);
   const client = retained;
   let value: T | undefined;
   let failure: { readonly error: unknown } | undefined;
@@ -151,5 +152,5 @@ export async function withSessionLock<T>(
     }
   }
   if (failure != null) throw failure.error;
-  return value;
+  return ((pinnedReturn: (T | undefined) | Promise<T | undefined>) => pinnedReturn)(value);
 }

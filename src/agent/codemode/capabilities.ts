@@ -41,23 +41,32 @@ const ACCESS_DENIED_CODES = new Set<AppErrorCode>([
   "verification.sensitive_path_blocked",
 ]);
 
-export function classifyCapabilityFailure(error: unknown): {
-  readonly kind: CodeModeInnerFailureKind | "UNKNOWN";
-  readonly message: string;
-} {
+export function classifyCapabilityFailure(error: unknown) {
   if (isAppError(error)) {
     if (ACCESS_DENIED_CODES.has(error.code)) {
-      return { kind: "ACCESS_DENIED", message: error.message };
+      return ((pinnedReturn: {
+        readonly kind: CodeModeInnerFailureKind | "UNKNOWN";
+        readonly message: string;
+      }) => pinnedReturn)({ kind: "ACCESS_DENIED", message: error.message });
     }
     if (error.code === "tool.input_validation_failed") {
-      return { kind: "TOOL_INPUT_INVALID", message: error.message };
+      return ((pinnedReturn: {
+        readonly kind: CodeModeInnerFailureKind | "UNKNOWN";
+        readonly message: string;
+      }) => pinnedReturn)({ kind: "TOOL_INPUT_INVALID", message: error.message });
     }
   }
   const message = errorMessage(error);
   if (/not found|missing from checkout/i.test(message)) {
-    return { kind: "FILE_NOT_FOUND", message };
+    return ((pinnedReturn: {
+      readonly kind: CodeModeInnerFailureKind | "UNKNOWN";
+      readonly message: string;
+    }) => pinnedReturn)({ kind: "FILE_NOT_FOUND", message });
   }
-  return { kind: "UNKNOWN", message };
+  return ((pinnedReturn: {
+    readonly kind: CodeModeInnerFailureKind | "UNKNOWN";
+    readonly message: string;
+  }) => pinnedReturn)({ kind: "UNKNOWN", message });
 }
 
 function emitInnerTool(
@@ -69,7 +78,7 @@ function emitInnerTool(
     readonly provider?: string;
     readonly model?: string;
   },
-): void {
+) {
   if (!emit) return;
   emit({
     kind: "tool",
@@ -83,20 +92,16 @@ function emitInnerTool(
 
 type CloseHostCall = (outcome: HostCallOutcome) => void;
 
-function openHostCallTrace(
-  tracer: HostCallTracer | undefined,
-  tool: string,
-  input: unknown,
-): CloseHostCall | undefined {
-  if (!tracer) return undefined;
+function openHostCallTrace(tracer: HostCallTracer | undefined, tool: string, input: unknown) {
+  if (!tracer) return ((pinnedReturn: CloseHostCall | undefined) => pinnedReturn)(undefined);
   try {
-    return tracer(tool, input);
+    return ((pinnedReturn: CloseHostCall | undefined) => pinnedReturn)(tracer(tool, input));
   } catch {
-    return undefined;
+    return ((pinnedReturn: CloseHostCall | undefined) => pinnedReturn)(undefined);
   }
 }
 
-function closeHostCallTrace(close: CloseHostCall | undefined, outcome: HostCallOutcome): void {
+function closeHostCallTrace(close: CloseHostCall | undefined, outcome: HostCallOutcome) {
   if (!close) return;
   try {
     close(outcome);
@@ -113,7 +118,7 @@ export function createCodeModeCapabilityBridge(params: {
   readonly model?: string;
   readonly evidenceLedger?: EvidenceLedger;
   readonly headSha?: string;
-}): CodeModeCapabilityBridge {
+}) {
   const toolCalls: CodeModeToolCall[] = [];
   let admittedCalls = 0;
   let completedCalls = 0;
@@ -123,7 +128,7 @@ export function createCodeModeCapabilityBridge(params: {
 
   const atInFlightLimit = () => inFlight >= CODE_MODE_HOST_IN_FLIGHT;
 
-  async function acquireInFlight(signal: AbortSignal): Promise<void> {
+  async function acquireInFlight(signal: AbortSignal) {
     while (atInFlightLimit()) {
       if (signal.aborted) {
         throw hostCancelHalt();
@@ -142,12 +147,12 @@ export function createCodeModeCapabilityBridge(params: {
     inFlight += 1;
   }
 
-  function releaseInFlight(): void {
+  function releaseInFlight() {
     inFlight = Math.max(0, inFlight - 1);
     waiters.shift()?.();
   }
 
-  async function invoke(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  async function invoke(name: string, args: Record<string, unknown> = {}) {
     const signal = params.signal ?? idleAbortSignal();
     if (signal.aborted) {
       throw hostCancelHalt();
@@ -222,7 +227,7 @@ export function createCodeModeCapabilityBridge(params: {
         output: guest,
         outputBytes: guestBytes,
       });
-      return guest;
+      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(guest);
     } catch (error) {
       if (error instanceof CodeModeHostHalt) {
         closeHostCallTrace(closeTrace, { status: "error", errorKind: error.code });
@@ -250,7 +255,7 @@ export function createCodeModeCapabilityBridge(params: {
     }
   }
 
-  return {
+  return ((pinnedReturn: CodeModeCapabilityBridge) => pinnedReturn)({
     invoke,
     toolCalls,
     get admittedHostCalls() {
@@ -262,5 +267,5 @@ export function createCodeModeCapabilityBridge(params: {
     get transferredBytes() {
       return transferredBytes;
     },
-  };
+  });
 }

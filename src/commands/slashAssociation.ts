@@ -9,24 +9,28 @@ export function reviewAuthorTrust(pr: {
   readonly author_association?: string | null;
   readonly head: { readonly repo?: { readonly id?: number | null } | null };
   readonly base?: { readonly repo?: { readonly id?: number | null } | null };
-}): ReviewAuthorTrust {
-  if (!pr.author_association || pr.head.repo == null) return "awaiting_approval";
+}) {
+  if (!pr.author_association || pr.head.repo == null)
+    return ((pinnedReturn: ReviewAuthorTrust) => pinnedReturn)("awaiting_approval");
   const headId = pr.head.repo.id;
   const baseId = pr.base?.repo?.id;
-  if (headId != null && baseId != null && headId === baseId) return "trusted";
+  if (headId != null && baseId != null && headId === baseId)
+    return ((pinnedReturn: ReviewAuthorTrust) => pinnedReturn)("trusted");
   const association = pr.author_association.toUpperCase();
-  if (REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS.has(association)) return "trusted";
+  if (REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS.has(association))
+    return ((pinnedReturn: ReviewAuthorTrust) => pinnedReturn)("trusted");
   if (REVIEW_WORKFLOW_START_UNGATED_ASSOCIATIONS.has(association)) {
-    return "awaiting_maintainer_approval";
+    return ((pinnedReturn: ReviewAuthorTrust) => pinnedReturn)("awaiting_maintainer_approval");
   }
-  return "awaiting_approval";
+  return ((pinnedReturn: ReviewAuthorTrust) => pinnedReturn)("awaiting_approval");
 }
 
 export function isSlashAssociationAllowed(
   allowed: ReadonlySet<string>,
   association: string | null | undefined,
-): boolean {
-  if (allowed.has("*")) return true;
-  if (association && allowed.has(association.toUpperCase())) return true;
-  return false;
+) {
+  if (allowed.has("*")) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (association && allowed.has(association.toUpperCase()))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(false);
 }

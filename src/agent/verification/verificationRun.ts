@@ -43,7 +43,7 @@ export async function runVerification(params: {
   readonly sessionContext?: FeatureSessionContext;
   readonly escalation?: EscalationPlan;
   readonly signal?: AbortSignal;
-}): Promise<VerificationRunResult> {
+}) {
   const { cfg, owner, repo, prNumber, escalation } = params;
   const providerName = cfg.models.provider;
   const setup = buildVerificationRunSetup(params);
@@ -86,9 +86,9 @@ export async function runVerification(params: {
     logInfo("verification_run_completed", { owner, repo, pr: prNumber });
   }
 
-  return {
+  return ((pinnedReturn: VerificationRunResult | Promise<VerificationRunResult>) => pinnedReturn)({
     lastAssistant: assistantFromText(cfg, lastText, providerName),
     submitted: setup.submitState.submitted,
     payload: setup.submitState.payload,
-  };
+  });
 }

@@ -34,15 +34,19 @@ const CHANGED_FILE_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const CHANGED_FILE_HASH_179 = "91a6469a679b7717d05467340d90e16b5e5acb037a98e12f67ff70a8285235c0";
 const CHANGED_FILE_HASH_300 = "d58b5fd215f4a9ddfa13e5b1e165d44d37ef0cf4b2bdc58dd14de3045cdfdbf3";
 
-function changedFilePaths(count: number): LocalPrChangedFile[] {
-  return Array.from({ length: count }, (_, index) => ({
-    path: `src/file-${String(index).padStart(3, "0")}.ts`,
-    status: "modified",
-  }));
+function changedFilePaths(count: number) {
+  return ((pinnedReturn: LocalPrChangedFile[]) => pinnedReturn)(
+    Array.from({ length: count }, (_, index) => ({
+      path: `src/file-${String(index).padStart(3, "0")}.ts`,
+      status: "modified",
+    })),
+  );
 }
 
-function pathDigest(paths: readonly string[]): string {
-  return createHash("sha256").update(paths.join("\n")).digest("hex");
+function pathDigest(paths: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    createHash("sha256").update(paths.join("\n")).digest("hex"),
+  );
 }
 
 const WALK_CHANGED_FILES = `
@@ -98,8 +102,8 @@ async function deliverChangedFiles(
   });
 }
 
-function asResult(value: unknown): CodeModeResult {
-  return value as CodeModeResult;
+function asResult(value: unknown) {
+  return ((pinnedReturn: CodeModeResult) => pinnedReturn)(value as CodeModeResult);
 }
 
 describe("Code Mode", () => {
@@ -820,20 +824,27 @@ describe("Code Mode", () => {
 
     const session = createExecutionSessionStore();
     let releaseHost: (() => void) | undefined;
+    const toolEntered = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     const aborted = runCodeModeScript({
       executorKind: "in_process",
       code: 'state.flag = 99; await tools.readWorkspaceFile({ path: "a.ts" }); state.flag',
       session,
       capabilities: {
-        readWorkspaceFile: async () =>
-          new Promise((resolve) => {
+        readWorkspaceFile: async () => {
+          toolEntered.resolve();
+          return new Promise((resolve) => {
             releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          }),
+          });
+        },
       },
     });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await toolEntered.promise;
     session.closeAdmission();
     session.invalidate();
     releaseHost?.();
@@ -861,20 +872,27 @@ describe("Code Mode", () => {
   it("reports a session state conflict when a later cell commits first", async () => {
     const session = createExecutionSessionStore();
     let releaseHost: (() => void) | undefined;
+    const toolEntered = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     const first = runCodeModeScript({
       executorKind: "in_process",
       code: 'state.fromFirst = true; await tools.readWorkspaceFile({ path: "a.ts" }); state.fromFirst',
       session,
       capabilities: {
-        readWorkspaceFile: async () =>
-          new Promise((resolve) => {
+        readWorkspaceFile: async () => {
+          toolEntered.resolve();
+          return new Promise((resolve) => {
             releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          }),
+          });
+        },
       },
     });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await toolEntered.promise;
     const second = await runCodeModeScript({
       executorKind: "in_process",
       code: "state.fromSecond = true; state.fromSecond",
@@ -896,20 +914,27 @@ describe("Code Mode", () => {
     const firstSession = createExecutionSessionStore();
     const secondSession = createExecutionSessionStore();
     let releaseFirst: (() => void) | undefined;
+    const toolEntered = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     const first = runCodeModeScript({
       executorKind: "in_process",
       code: 'state.owner = "first"; await tools.readWorkspaceFile({ path: "a.ts" }); state.owner',
       session: firstSession,
       capabilities: {
-        readWorkspaceFile: async () =>
-          new Promise((resolve) => {
+        readWorkspaceFile: async () => {
+          toolEntered.resolve();
+          return new Promise((resolve) => {
             releaseFirst = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          }),
+          });
+        },
       },
     });
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await toolEntered.promise;
     const second = runCodeModeScript({
       executorKind: "in_process",
       code: 'state.owner = "second"; await tools.readWorkspaceFile({ path: "b.ts" }); state.owner',

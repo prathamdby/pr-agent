@@ -95,7 +95,7 @@ import { AppError } from "../src/errors/appError.ts";
 let runExecution: () => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["description"]) => Promise<unknown>,
-): void {
+) {
   runExecution = () =>
     run(
       createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
@@ -114,7 +114,7 @@ function descriptionItem(source: "slash" | "auto" = "slash") {
 function mockDurableExecution(
   item = descriptionItem(),
   executionEnv: { escalation?: EscalationPlan } = {},
-): void {
+) {
   configureExecution(async (spec) => {
     const result = await spec.execute(
       item,
@@ -135,10 +135,7 @@ function mockDurableExecution(
   });
 }
 
-async function runTerminalFailure(
-  source: "slash" | "auto",
-  prBody = "manual pr body",
-): Promise<void> {
+async function runTerminalFailure(source: "slash" | "auto", prBody = "manual pr body") {
   durablePrSurfaceControls().setPullRequestBody(prBody);
   const item = descriptionItem(source);
   configureExecution(async (spec) => {

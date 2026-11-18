@@ -147,8 +147,8 @@ import {
   parseReviewArtifactEnvelope,
 } from "../src/review/recovery/reviewArtifacts.ts";
 
-function finding(line: number): ReviewFinding {
-  return {
+function finding(line: number) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file: "src/a.ts",
     startLine: line,
@@ -156,7 +156,7 @@ function finding(line: number): ReviewFinding {
     title: `Bug at line ${line}`,
     detail: `The code at line ${line} returns the wrong value.`,
     fixPrompt: `Fix src/a.ts line ${line}.`,
-  };
+  });
 }
 
 describe("publishReviewSummaryOnly", () => {

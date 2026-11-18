@@ -118,10 +118,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     readonly ageSeconds?: number;
     readonly now?: Date;
     readonly installationId?: number;
-  }): Promise<{
-    readonly id: string;
-    readonly resourceKey: string;
-  }> {
+  }) {
     const id = randomUUID();
     const type = options?.type ?? "review";
     const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
@@ -149,14 +146,24 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         ageSeconds,
       ],
     );
-    return { id, resourceKey };
+    return ((
+      pinnedReturn:
+        | {
+            readonly id: string;
+            readonly resourceKey: string;
+          }
+        | Promise<{
+            readonly id: string;
+            readonly resourceKey: string;
+          }>,
+    ) => pinnedReturn)({ id, resourceKey });
   }
 
   async function insertJobMatchingWorkItemId(options: {
     readonly workItemId: string;
     readonly queue: string;
     readonly state: "active" | "completed";
-  }): Promise<void> {
+  }) {
     await pool.query(
       `INSERT INTO pgboss.job (id, name, state, data)
        VALUES ($1::uuid, $2, $3, $4::jsonb)`,
@@ -169,7 +176,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     );
   }
 
-  async function staleIds(now = new Date()): Promise<readonly string[]> {
+  async function staleIds(now = new Date()) {
     const report = await collectQueueDiagnostics({
       boss,
       pool,
@@ -177,13 +184,15 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       diagnosticQueues: [REVIEW_QUEUE, DESCRIPTION_QUEUE, ASK_QUEUE],
       dlqQueues: [],
     });
-    return report.staleQueuedWorkItems.map((row) => row.workItemId);
+    return ((pinnedReturn: readonly string[] | Promise<readonly string[]>) => pinnedReturn)(
+      report.staleQueuedWorkItems.map((row) => row.workItemId),
+    );
   }
 
   async function insertAgedQuotaAsk(options?: {
     readonly ageSeconds?: number;
     readonly now?: Date;
-  }): Promise<{ readonly id: string; readonly resourceKey: string }> {
+  }) {
     const id = randomUUID();
     const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
     const now = options?.now ?? new Date();
@@ -231,17 +240,23 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       "SELECT resource_key FROM agent_work_items WHERE id = $1",
       [id],
     );
-    return { id, resourceKey: row.rows[0]?.resource_key ?? `${OWNER}/r#1` };
+    return ((
+      pinnedReturn:
+        | { readonly id: string; readonly resourceKey: string }
+        | Promise<{ readonly id: string; readonly resourceKey: string }>,
+    ) => pinnedReturn)({ id, resourceKey: row.rows[0]?.resource_key ?? `${OWNER}/r#1` });
   }
 
-  async function outstandingAskCount(): Promise<number | null> {
+  async function outstandingAskCount() {
     const { rows } = await pool.query<{ outstanding_count: number }>(
       `SELECT outstanding_count
          FROM ask_quota_buckets
         WHERE scope = 'installation' AND scope_key = $1`,
       [`installation:${ASK_INSTALLATION_ID}`],
     );
-    return rows[0]?.outstanding_count ?? null;
+    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
+      rows[0]?.outstanding_count ?? null,
+    );
   }
 
   it("flags a queued review with no live lease and no pg-boss job", async () => {

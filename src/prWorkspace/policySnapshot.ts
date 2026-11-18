@@ -62,48 +62,68 @@ function unavailable(
   reason: PolicySnapshotUnavailableReason,
   baseSha: string | undefined,
   error?: unknown,
-): PolicySnapshot {
+) {
   const failureKind = error == null ? null : workspaceGitFailureKind(error);
   logWarn("repo_policy_snapshot_unavailable", {
     reason,
     ...(baseSha ? { baseSha } : {}),
     ...(failureKind ? { failureKind } : {}),
   });
-  return baseSha ? { kind: "unavailable", reason, baseSha } : { kind: "unavailable", reason };
+  return ((pinnedReturn: PolicySnapshot) => pinnedReturn)(
+    baseSha ? { kind: "unavailable", reason, baseSha } : { kind: "unavailable", reason },
+  );
 }
 
-function perFileCap(path: string): number {
-  return INSTRUCTION_FILENAMES.has(path)
-    ? MAX_AGENT_INSTRUCTION_FILE_BYTES
-    : MAX_REPO_POLICY_FILE_BYTES;
+function perFileCap(path: string) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    INSTRUCTION_FILENAMES.has(path) ? MAX_AGENT_INSTRUCTION_FILE_BYTES : MAX_REPO_POLICY_FILE_BYTES,
+  );
 }
 
-function parseTreeRecord(
-  record: string,
-): { readonly mode: string; readonly blobSha: string; readonly path: string } | null {
+function parseTreeRecord(record: string) {
   const tab = record.indexOf("\t");
-  if (tab <= 0) return null;
+  if (tab <= 0)
+    return ((
+      pinnedReturn: {
+        readonly mode: string;
+        readonly blobSha: string;
+        readonly path: string;
+      } | null,
+    ) => pinnedReturn)(null);
   const meta = record.slice(0, tab).split(" ");
   const mode = meta[0];
   const blobSha = meta[2];
   const path = record.slice(tab + 1);
-  if (!mode || !blobSha || !path) return null;
-  return { mode, blobSha, path };
+  if (!mode || !blobSha || !path)
+    return ((
+      pinnedReturn: {
+        readonly mode: string;
+        readonly blobSha: string;
+        readonly path: string;
+      } | null,
+    ) => pinnedReturn)(null);
+  return ((
+    pinnedReturn: { readonly mode: string; readonly blobSha: string; readonly path: string } | null,
+  ) => pinnedReturn)({ mode, blobSha, path });
 }
 
-function byPath<T extends { readonly path: string }>(left: T, right: T): number {
-  return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+function byPath<T extends { readonly path: string }>(left: T, right: T) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+  );
 }
 
-function oidStdin(oids: readonly string[]): string {
-  return `${oids.join("\n")}\n`;
+function oidStdin(oids: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${oids.join("\n")}\n`);
 }
 
-function uniqueOids(candidates: readonly TreeCandidate[]): string[] {
-  return [...new Set(candidates.map((candidate) => candidate.blobSha))];
+function uniqueOids(candidates: readonly TreeCandidate[]) {
+  return ((pinnedReturn: string[]) => pinnedReturn)([
+    ...new Set(candidates.map((candidate) => candidate.blobSha)),
+  ]);
 }
 
-function parseBatchCheckSizes(stdout: string, oids: readonly string[]): Map<string, number> {
+function parseBatchCheckSizes(stdout: string, oids: readonly string[]) {
   const sizes = new Map<string, number>();
   for (const line of stdout.split("\n")) {
     if (line.length === 0) continue;
@@ -117,10 +137,10 @@ function parseBatchCheckSizes(stdout: string, oids: readonly string[]): Map<stri
   for (const oid of oids) {
     if (!sizes.has(oid)) throw new Error("blob size");
   }
-  return sizes;
+  return ((pinnedReturn: Map<string, number>) => pinnedReturn)(sizes);
 }
 
-function parseBatchBodies(stdout: Buffer, oids: readonly string[]): Map<string, Buffer> {
+function parseBatchBodies(stdout: Buffer, oids: readonly string[]) {
   const bodies = new Map<string, Buffer>();
   let offset = 0;
   for (const expectedSha of oids) {
@@ -140,7 +160,7 @@ function parseBatchBodies(stdout: Buffer, oids: readonly string[]): Map<string, 
     offset = end + 1;
   }
   if (offset !== stdout.length) throw new Error("blob body");
-  return bodies;
+  return ((pinnedReturn: Map<string, Buffer>) => pinnedReturn)(bodies);
 }
 
 const POLICY_FETCH_FLAGS = [
@@ -155,10 +175,12 @@ export async function readBasePolicySnapshot(params: {
   readonly git: WorkspaceGit;
   readonly maxFetchBytes: number;
   readonly timeoutMs: number;
-}): Promise<PolicySnapshot> {
+}) {
   const requested = params.baseSha;
   if (requested == null || !BASE_SHA.test(requested)) {
-    return unavailable("missing_base_sha", undefined);
+    return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
+      unavailable("missing_base_sha", undefined),
+    );
   }
   const baseSha = requested;
   try {
@@ -176,7 +198,9 @@ export async function readBasePolicySnapshot(params: {
       params.timeoutMs,
     );
   } catch (error) {
-    return unavailable("fetch_failed", baseSha, error);
+    return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
+      unavailable("fetch_failed", baseSha, error),
+    );
   }
 
   try {
@@ -217,12 +241,23 @@ export async function readBasePolicySnapshot(params: {
 
     const counted = await params.git(["count-objects", "-v"], params.timeoutMs);
     if (gitCountObjectsStoreBytes(counted.stdout) > params.maxFetchBytes) {
-      return unavailable("object_store_cap", baseSha);
+      return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
+        unavailable("object_store_cap", baseSha),
+      );
     }
-    if (allowlisted === 0) return { kind: "absent", baseSha };
+    if (allowlisted === 0)
+      return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)({
+        kind: "absent",
+        baseSha,
+      });
     if (candidates.length === 0) {
       drops.sort(byPath);
-      return { kind: "ok", baseSha, files: [], drops };
+      return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)({
+        kind: "ok",
+        baseSha,
+        files: [],
+        drops,
+      });
     }
 
     const checked = await params.git(
@@ -265,8 +300,15 @@ export async function readBasePolicySnapshot(params: {
 
     files.sort(byPath);
     drops.sort(byPath);
-    return { kind: "ok", baseSha, files, drops };
+    return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)({
+      kind: "ok",
+      baseSha,
+      files,
+      drops,
+    });
   } catch (error) {
-    return unavailable("blob_read_failed", baseSha, error);
+    return ((pinnedReturn: PolicySnapshot | Promise<PolicySnapshot>) => pinnedReturn)(
+      unavailable("blob_read_failed", baseSha, error),
+    );
   }
 }

@@ -37,8 +37,9 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
   };
   return {
     prepareNextTurn: policy.enabled ? prepareNextTurn : undefined,
-    async recoverOverflow(messages: AgentMessage[]): Promise<boolean> {
-      if (overflowCompacts >= SESSION_OVERFLOW_COMPACT_MAX) return false;
+    async recoverOverflow(messages: AgentMessage[]) {
+      if (overflowCompacts >= SESSION_OVERFLOW_COMPACT_MAX)
+        return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
       dropTrailingErrorAssistant(messages);
       const compacted = await compactAgentMessages({
         messages,
@@ -48,13 +49,13 @@ export function createSessionCompaction(policy: CompactionPolicy, rt: SessionCom
         thinkingCeiling: rt.thinkingCeiling,
         trace: rt.trace,
       });
-      if (!compacted) return false;
+      if (!compacted) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
       overflowCompacts += 1;
       rt.onCompaction("overflow");
       messages.length = 0;
       messages.push(...compacted);
       rt.trace?.compacted(compacted);
-      return true;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
     },
   };
 }

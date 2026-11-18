@@ -7,7 +7,7 @@ type AcceptEntry = {
   readonly index: number;
 };
 
-export function parseQuality(parameters: readonly string[]): number {
+export function parseQuality(parameters: readonly string[]) {
   for (const parameter of parameters) {
     const separator = parameter.indexOf("=");
     if (separator === -1) {
@@ -18,21 +18,21 @@ export function parseQuality(parameters: readonly string[]): number {
     }
     const parsed = Number.parseFloat(parameter.slice(separator + 1).trim());
     if (Number.isNaN(parsed)) {
-      return 1;
+      return ((pinnedReturn: number) => pinnedReturn)(1);
     }
-    return Math.min(1, Math.max(0, parsed));
+    return ((pinnedReturn: number) => pinnedReturn)(Math.min(1, Math.max(0, parsed)));
   }
-  return 1;
+  return ((pinnedReturn: number) => pinnedReturn)(1);
 }
 
-function specificityOf(type: string): 0 | 1 | 2 {
+function specificityOf(type: string) {
   if (type === WILDCARD) {
-    return 0;
+    return ((pinnedReturn: 0 | 1 | 2) => pinnedReturn)(0);
   }
-  return type.endsWith("/*") ? 1 : 2;
+  return ((pinnedReturn: 0 | 1 | 2) => pinnedReturn)(type.endsWith("/*") ? 1 : 2);
 }
 
-export function parseAccept(header: string): readonly AcceptEntry[] {
+export function parseAccept(header: string) {
   const entries: AcceptEntry[] = [];
   for (const raw of header.split(",")) {
     const parts = raw.split(";");
@@ -47,30 +47,30 @@ export function parseAccept(header: string): readonly AcceptEntry[] {
       index: entries.length,
     });
   }
-  return entries;
+  return ((pinnedReturn: readonly AcceptEntry[]) => pinnedReturn)(entries);
 }
 
-function matches(entry: AcceptEntry, candidate: string): boolean {
+function matches(entry: AcceptEntry, candidate: string) {
   if (entry.type === WILDCARD) {
-    return true;
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
   if (entry.type.endsWith("/*")) {
-    return candidate.startsWith(entry.type.slice(0, -1));
+    return ((pinnedReturn: boolean) => pinnedReturn)(candidate.startsWith(entry.type.slice(0, -1)));
   }
-  return entry.type === candidate;
+  return ((pinnedReturn: boolean) => pinnedReturn)(entry.type === candidate);
 }
 
-function coversBetter(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
+function coversBetter(entry: AcceptEntry, incumbent: AcceptEntry) {
   if (entry.specificity !== incumbent.specificity) {
-    return entry.specificity > incumbent.specificity;
+    return ((pinnedReturn: boolean) => pinnedReturn)(entry.specificity > incumbent.specificity);
   }
   if (entry.q !== incumbent.q) {
-    return entry.q > incumbent.q;
+    return ((pinnedReturn: boolean) => pinnedReturn)(entry.q > incumbent.q);
   }
-  return entry.index < incumbent.index;
+  return ((pinnedReturn: boolean) => pinnedReturn)(entry.index < incumbent.index);
 }
 
-function bestEntryFor(entries: readonly AcceptEntry[], candidate: string): AcceptEntry | null {
+function bestEntryFor(entries: readonly AcceptEntry[], candidate: string) {
   let best: AcceptEntry | null = null;
   for (const entry of entries) {
     if (!matches(entry, candidate)) {
@@ -80,30 +80,27 @@ function bestEntryFor(entries: readonly AcceptEntry[], candidate: string): Accep
       best = entry;
     }
   }
-  return best;
+  return ((pinnedReturn: AcceptEntry | null) => pinnedReturn)(best);
 }
 
-function outranks(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
+function outranks(entry: AcceptEntry, incumbent: AcceptEntry) {
   if (entry.q !== incumbent.q) {
-    return entry.q > incumbent.q;
+    return ((pinnedReturn: boolean) => pinnedReturn)(entry.q > incumbent.q);
   }
   if (entry.specificity !== incumbent.specificity) {
-    return entry.specificity > incumbent.specificity;
+    return ((pinnedReturn: boolean) => pinnedReturn)(entry.specificity > incumbent.specificity);
   }
-  return entry.index < incumbent.index;
+  return ((pinnedReturn: boolean) => pinnedReturn)(entry.index < incumbent.index);
 }
 
-export function negotiateType(
-  header: string | null | undefined,
-  produces: readonly string[],
-): string | null {
+export function negotiateType(header: string | null | undefined, produces: readonly string[]) {
   const fallback = produces[0] ?? null;
   if (header === null || header === undefined) {
-    return fallback;
+    return ((pinnedReturn: string | null) => pinnedReturn)(fallback);
   }
   const entries = parseAccept(header);
   if (entries.length === 0) {
-    return header.trim() === "" ? null : fallback;
+    return ((pinnedReturn: string | null) => pinnedReturn)(header.trim() === "" ? null : fallback);
   }
 
   let best: string | null = null;
@@ -118,5 +115,5 @@ export function negotiateType(
       bestEntry = entry;
     }
   }
-  return best;
+  return ((pinnedReturn: string | null) => pinnedReturn)(best);
 }

@@ -23,7 +23,7 @@ let nextId = 1;
 let unavailableUntil = 0;
 const pending = new Map<number, Pending>();
 
-function failPending(reason: string): void {
+function failPending(reason: string) {
   for (const [id, entry] of pending) {
     clearTimeout(entry.timer);
     entry.reject(new Error(reason));
@@ -31,7 +31,7 @@ function failPending(reason: string): void {
   }
 }
 
-function retire(target: ChildProcess, reason: string): void {
+function retire(target: ChildProcess, reason: string) {
   if (child !== target) return;
   child = null;
   unavailableUntil = Date.now() + LOCAL_WORKSPACE_FFF_RESPAWN_BACKOFF_MS;
@@ -45,7 +45,7 @@ const responseSchema = v.variant("ok", [
   v.object({ id: v.number(), ok: v.literal(false), error: v.string() }),
 ]);
 
-function onMessage(message: unknown): void {
+function onMessage(message: unknown) {
   const parsed = v.safeParse(responseSchema, message);
   if (!parsed.success) return;
   const response = parsed.output;
@@ -57,7 +57,7 @@ function onMessage(message: unknown): void {
   else entry.reject(new Error(response.error));
 }
 
-function spawnHost(): ChildProcess {
+function spawnHost() {
   const spawned = fork(hostPath, [], {
     env: {},
     execArgv: [],
@@ -69,26 +69,31 @@ function spawnHost(): ChildProcess {
   spawned.on("exit", (code, signal) => retire(spawned, `host_exit:${signal ?? code ?? "unknown"}`));
   spawned.unref();
   spawned.channel?.unref();
-  return spawned;
+  return ((pinnedReturn: ChildProcess) => pinnedReturn)(spawned);
 }
 
-function request(message: Record<string, unknown>): Promise<unknown> {
+function request(message: Record<string, unknown>) {
   if (child == null) {
-    if (Date.now() < unavailableUntil) return Promise.reject(new Error("host_backoff"));
+    if (Date.now() < unavailableUntil)
+      return ((pinnedReturn: Promise<unknown>) => pinnedReturn)(
+        Promise.reject(new Error("host_backoff")),
+      );
     child = spawnHost();
   }
   const target = child;
   const id = nextId++;
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => retire(target, "host_deadline"),
-      LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS,
-    );
-    pending.set(id, { resolve, reject, timer });
-    target.send({ ...message, id }, (error) => {
-      if (error) retire(target, `host_send:${error.message}`);
-    });
-  });
+  return ((pinnedReturn: Promise<unknown>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => retire(target, "host_deadline"),
+        LOCAL_WORKSPACE_FFF_CALL_TIMEOUT_MS,
+      );
+      pending.set(id, { resolve, reject, timer });
+      target.send({ ...message, id }, (error) => {
+        if (error) retire(target, `host_send:${error.message}`);
+      });
+    }),
+  );
 }
 
 const openResultSchema = v.variant("status", [
@@ -121,10 +126,10 @@ export async function openFffIndex(params: {
   readonly scanTimeoutMs: number;
   readonly maxFiles: number;
   readonly maxIndexes: number;
-}): Promise<FffOpenResult> {
+}) {
   const parsed = v.safeParse(openResultSchema, await request({ op: "open", ...params }));
   if (!parsed.success) throw new Error("invalid_open_result");
-  return parsed.output;
+  return ((pinnedReturn: FffOpenResult | Promise<FffOpenResult>) => pinnedReturn)(parsed.output);
 }
 
 export async function grepFffIndex(params: {
@@ -136,10 +141,10 @@ export async function grepFffIndex(params: {
   readonly maxFileBytes: number;
   readonly pageSize: number;
   readonly timeBudgetMs: number;
-}): Promise<FffGrepResult> {
+}) {
   const parsed = v.safeParse(grepResultSchema, await request({ op: "grep", ...params }));
   if (!parsed.success) throw new Error("invalid_grep_result");
-  return parsed.output;
+  return ((pinnedReturn: FffGrepResult | Promise<FffGrepResult>) => pinnedReturn)(parsed.output);
 }
 
 const filesResultSchema = v.object({ paths: v.array(v.string()) });
@@ -149,13 +154,13 @@ export async function findFffFiles(params: {
   readonly query: string;
   readonly denied: readonly string[];
   readonly maxResults: number;
-}): Promise<FffFilesResult> {
+}) {
   const parsed = v.safeParse(filesResultSchema, await request({ op: "files", ...params }));
   if (!parsed.success) throw new Error("invalid_files_result");
-  return parsed.output;
+  return ((pinnedReturn: FffFilesResult | Promise<FffFilesResult>) => pinnedReturn)(parsed.output);
 }
 
-export function closeFffIndex(key: string): void {
+export function closeFffIndex(key: string) {
   if (child == null) return;
   request({ op: "close", key }).catch(() => {});
 }

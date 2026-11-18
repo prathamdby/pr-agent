@@ -137,35 +137,36 @@ function createRecording(
   const toolCallKeys = new Map<string, number>();
   const codeKeys = new Map<string, number>();
 
-  function redactText(text: string): string {
+  function redactText(text: string) {
     const value = recording.redact(text);
-    return typeof value === "string" ? value : "";
+    return ((pinnedReturn: string) => pinnedReturn)(typeof value === "string" ? value : "");
   }
 
-  function errorDetail(
-    code: string,
-    message: string,
-  ): { readonly code: string; readonly message: string } {
-    return { code, message: boundText(redactText(message), TRACE_ERROR_CHARS).text };
+  function errorDetail(code: string, message: string) {
+    return ((pinnedReturn: { readonly code: string; readonly message: string }) => pinnedReturn)({
+      code,
+      message: boundText(redactText(message), TRACE_ERROR_CHARS).text,
+    });
   }
 
-  function toolCallKey(
-    name: string,
-    input: unknown,
-  ): { readonly key: string; readonly hash: string } {
+  function toolCallKey(name: string, input: unknown) {
     const hash = sha256Hex(safeJson(recording.redact(input)));
-    return { key: `${name}:${hash}`, hash };
+    return ((pinnedReturn: { readonly key: string; readonly hash: string }) => pinnedReturn)({
+      key: `${name}:${hash}`,
+      hash,
+    });
   }
 
-  function noteCode(args: unknown): string | undefined {
+  function noteCode(args: unknown) {
     const redacted = recording.redact(args);
-    if (!isPlainObject(redacted) || typeof redacted.code !== "string") return undefined;
+    if (!isPlainObject(redacted) || typeof redacted.code !== "string")
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
     const hash = sha256Hex(redacted.code);
     codeKeys.set(hash, (codeKeys.get(hash) ?? 0) + 1);
-    return hash;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(hash);
   }
 
-  function noteFindings(value: unknown): void {
+  function noteFindings(value: unknown) {
     for (const finding of findingSnapshots(recording.redact(value))) {
       const key = `${finding.file}:${finding.startLine ?? ""}:${finding.title}`;
       if (
@@ -178,13 +179,13 @@ function createRecording(
     }
   }
 
-  function toolBody(name: string, status: TraceStatus, args: unknown, output: unknown): ToolBody {
+  function toolBody(name: string, status: TraceStatus, args: unknown, output: unknown) {
     const redactedArgs = recording.redact(args);
     const code =
       isPlainObject(redactedArgs) && typeof redactedArgs.code === "string"
         ? redactedArgs.code
         : undefined;
-    return {
+    return ((pinnedReturn: ToolBody) => pinnedReturn)({
       name,
       status,
       input_sha256: sha256Hex(safeJson(redactedArgs)),
@@ -195,22 +196,22 @@ function createRecording(
         TRACE_MESSAGE_CHARS,
         TRACE_TOOL_STATE_CHARS,
       ),
-    };
+    });
   }
 
-  function openGeneration(): OpenGeneration {
+  function openGeneration() {
     const turnIndex = turns;
     turns += 1;
-    return {
+    return ((pinnedReturn: OpenGeneration) => pinnedReturn)({
       id: randomUUID(),
       startedAt: Date.now(),
       attemptStart: getAttempts(),
       turnIndex,
       ...(opts?.phase != null ? { phase: opts.phase } : {}),
-    };
+    });
   }
 
-  function loopCounters(now: number): Record<string, string | number | boolean | null> {
+  function loopCounters(now: number) {
     let repeatHostCalls = 0;
     for (const entry of hostCallKeys.values()) repeatHostCalls += entry.count - 1;
     let repeatToolCalls = 0;
@@ -227,7 +228,7 @@ function createRecording(
       .slice(0, REPEAT_TOP)
       .map(([hash, count]) => `${hash.slice(0, TRACE_HASH_PREFIX)}:${count}`)
       .join(",");
-    return {
+    return ((pinnedReturn: Record<string, string | number | boolean | null>) => pinnedReturn)({
       turns,
       tool_calls: toolCalls,
       host_calls: hostCallCount,
@@ -244,14 +245,14 @@ function createRecording(
       ...(sessionErrorDetail != null
         ? { error_message: boundText(redactText(sessionErrorDetail), 200).text }
         : {}),
-    };
+    });
   }
 
-  function appendTurn(turn: PostHogMessage): void {
+  function appendTurn(turn: PostHogMessage) {
     basis.push(turn);
   }
 
-  function rememberUserOrSystem(message: Extract<AgentMessage, { role: "user" | "system" }>): void {
+  function rememberUserOrSystem(message: Extract<AgentMessage, { role: "user" | "system" }>) {
     const content = message.content;
     if (
       message.role === "system" &&
@@ -263,15 +264,18 @@ function createRecording(
     appendTurn(messageFromUserOrSystem(message.role, content));
   }
 
-  function messageFromUserOrSystem(
-    messageRole: "user" | "system",
-    content: unknown,
-  ): PostHogMessage {
+  function messageFromUserOrSystem(messageRole: "user" | "system", content: unknown) {
     const limit = messageRole === "system" ? TRACE_SYSTEM_CHARS : TRACE_MESSAGE_CHARS;
     if (typeof content === "string")
-      return { role: messageRole, content: boundText(redactText(content), limit).text };
+      return ((pinnedReturn: PostHogMessage) => pinnedReturn)({
+        role: messageRole,
+        content: boundText(redactText(content), limit).text,
+      });
     if (!Array.isArray(content)) {
-      return { role: messageRole, content: boundText(redactText(safeJson(content)), limit).text };
+      return ((pinnedReturn: PostHogMessage) => pinnedReturn)({
+        role: messageRole,
+        content: boundText(redactText(safeJson(content)), limit).text,
+      });
     }
     const parts: PostHogPart[] = [];
     for (const part of content) {
@@ -281,10 +285,13 @@ function createRecording(
         parts.push({ type: "text", text: "[image]" });
       }
     }
-    return { role: messageRole, content: parts.length > 0 ? parts : "" };
+    return ((pinnedReturn: PostHogMessage) => pinnedReturn)({
+      role: messageRole,
+      content: parts.length > 0 ? parts : "",
+    });
   }
 
-  function assistantParts(message: AssistantMessage): PostHogPart[] {
+  function assistantParts(message: AssistantMessage) {
     const parts: PostHogPart[] = [];
     for (const part of message.content) {
       if (part.type === "text") {
@@ -311,18 +318,23 @@ function createRecording(
         });
       }
     }
-    return parts;
+    return ((pinnedReturn: PostHogPart[]) => pinnedReturn)(parts);
   }
 
-  function turnFromAgentMessage(message: AgentMessage): PostHogMessage {
+  function turnFromAgentMessage(message: AgentMessage) {
     switch (message.role) {
       case "system":
       case "user":
-        return messageFromUserOrSystem(message.role, message.content);
+        return ((pinnedReturn: PostHogMessage) => pinnedReturn)(
+          messageFromUserOrSystem(message.role, message.content),
+        );
       case "assistant":
-        return { role: "assistant", content: assistantParts(message) };
+        return ((pinnedReturn: PostHogMessage) => pinnedReturn)({
+          role: "assistant",
+          content: assistantParts(message),
+        });
       case "toolResult":
-        return {
+        return ((pinnedReturn: PostHogMessage) => pinnedReturn)({
           role: "user",
           content: [
             {
@@ -332,38 +344,23 @@ function createRecording(
                 .text,
             },
           ],
-        };
+        });
       default: {
         const exhaustive: never = message;
-        return exhaustive;
+        return ((pinnedReturn: PostHogMessage) => pinnedReturn)(exhaustive);
       }
     }
   }
 
-  function identity(phase: string | undefined): Pick<TraceDraft, "phase" | "role" | "specialist"> {
-    return {
+  function identity(phase: string | undefined) {
+    return ((pinnedReturn: Pick<TraceDraft, "phase" | "role" | "specialist">) => pinnedReturn)({
       ...(phase != null ? { phase } : {}),
       role,
       ...(specialist != null ? { specialist } : {}),
-    };
+    });
   }
 
-  function usageFields(
-    message: AssistantMessage,
-  ): Pick<
-    TraceDraft,
-    | "inputTokens"
-    | "outputTokens"
-    | "cacheReadTokens"
-    | "cacheWriteTokens"
-    | "cacheWrite1hTokens"
-    | "totalTokens"
-    | "costUsd"
-    | "status"
-    | "isError"
-    | "error"
-    | "extra"
-  > {
+  function usageFields(message: AssistantMessage) {
     const exact = exactUsageFromProviderUsage(message.usage);
     const rates = Object.values(model.cost);
     const catalogPriced = rates.some((cost) => Number.isFinite(cost) && cost > 0);
@@ -378,7 +375,22 @@ function createRecording(
       isPlainObject(message.usage) && typeof message.usage.reasoning === "number"
         ? message.usage.reasoning
         : undefined;
-    return {
+    return ((
+      pinnedReturn: Pick<
+        TraceDraft,
+        | "inputTokens"
+        | "outputTokens"
+        | "cacheReadTokens"
+        | "cacheWriteTokens"
+        | "cacheWrite1hTokens"
+        | "totalTokens"
+        | "costUsd"
+        | "status"
+        | "isError"
+        | "error"
+        | "extra"
+      >,
+    ) => pinnedReturn)({
       ...(exact?.inputTokens != null ? { inputTokens: exact.inputTokens } : {}),
       ...(exact?.outputTokens != null ? { outputTokens: exact.outputTokens } : {}),
       ...(exact?.cacheReadTokens != null ? { cacheReadTokens: exact.cacheReadTokens } : {}),
@@ -405,10 +417,10 @@ function createRecording(
         empty_final_text: message.stopReason !== "toolUse" && !contentText(message.content).trim(),
         ...(reasoning != null ? { reasoning_tokens: reasoning } : {}),
       },
-    };
+    });
   }
 
-  function closeGeneration(status: TraceStatus, error?: string, output?: AssistantMessage): void {
+  function closeGeneration(status: TraceStatus, error?: string, output?: AssistantMessage) {
     if (!generation) return;
     const current = generation;
     generation = undefined;
@@ -474,7 +486,7 @@ function createRecording(
     else if (partial) appendTurn({ role: "assistant", content: streamed });
   }
 
-  function finishTool(tool: OpenTool, status: TraceStatus, result: unknown, error?: string): void {
+  function finishTool(tool: OpenTool, status: TraceStatus, result: unknown, error?: string) {
     const now = Date.now();
     toolMs += now - tool.startedAt;
     const hostCalls = tool.hostCalls.map((call) =>
@@ -507,7 +519,7 @@ function createRecording(
     });
   }
 
-  function finishCompaction(message: AssistantMessage | undefined, status: TraceStatus): void {
+  function finishCompaction(message: AssistantMessage | undefined, status: TraceStatus) {
     if (!compaction) return;
     const current = compaction;
     compaction = undefined;
@@ -557,10 +569,10 @@ function createRecording(
 
   return {
     addSecret: (secret: string | undefined) => recording.addSecret(secret),
-    beginSend: (send: PiSessionSendOptions): void => {
+    beginSend: (send: PiSessionSendOptions) => {
       opts = send;
     },
-    event: (event: AgentEvent): void => {
+    event: (event: AgentEvent) => {
       if (disposed) return;
       if (event.type === "turn_start") generation = openGeneration();
       if (event.type === "message_start") {
@@ -620,7 +632,7 @@ function createRecording(
         tools.delete(event.toolCallId);
       }
     },
-    toolMetadata: (toolCallId: string, event: AgentLifecycleEvent): void => {
+    toolMetadata: (toolCallId: string, event: AgentLifecycleEvent) => {
       if (event.kind !== "execution") return;
       const tool = tools.get(toolCallId);
       if (!tool) return;
@@ -629,14 +641,16 @@ function createRecording(
       tool.extra.termination_reason = event.terminationReason;
       tool.extra.code_mode_budget_hit = event.outcome === "budget";
     },
-    hostCall: (
-      toolCallId: string,
-      name: string,
-      input: unknown,
-    ): ((outcome: HostCallOutcome) => void) | undefined => {
-      if (disposed) return undefined;
+    hostCall: (toolCallId: string, name: string, input: unknown) => {
+      if (disposed)
+        return ((pinnedReturn: ((outcome: HostCallOutcome) => void) | undefined) => pinnedReturn)(
+          undefined,
+        );
       const tool = tools.get(toolCallId);
-      if (!tool) return undefined;
+      if (!tool)
+        return ((pinnedReturn: ((outcome: HostCallOutcome) => void) | undefined) => pinnedReturn)(
+          undefined,
+        );
       hostCallCount += 1;
       lastActivity = Date.now();
       const printed = toolCallKey(name, input);
@@ -646,18 +660,22 @@ function createRecording(
       if (tool.hostCalls.length >= CODE_MODE_MAX_TOOL_CALLS) {
         const omitted = tool.extra.host_calls_omitted;
         tool.extra.host_calls_omitted = (typeof omitted === "number" ? omitted : 0) + 1;
-        return undefined;
+        return ((pinnedReturn: ((outcome: HostCallOutcome) => void) | undefined) => pinnedReturn)(
+          undefined,
+        );
       }
       const record: HostCallRecord = { tool: name, input, startedAt: Date.now() };
       tool.hostCalls.push(record);
-      return (outcome) => {
-        if (record.outcome) return;
-        record.outcome = outcome;
-        record.endedAt = Date.now();
-        lastActivity = record.endedAt;
-      };
+      return ((pinnedReturn: ((outcome: HostCallOutcome) => void) | undefined) => pinnedReturn)(
+        (outcome) => {
+          if (record.outcome) return;
+          record.outcome = outcome;
+          record.endedAt = Date.now();
+          lastActivity = record.endedAt;
+        },
+      );
     },
-    endSend: (end: string, errorCode?: string, errorDetailText?: string): string | undefined => {
+    endSend: (end: string, errorCode?: string, errorDetailText?: string) => {
       lastEnd = end;
       if (errorDetailText) sessionErrorDetail = errorDetailText;
       const status: TraceStatus | undefined = errorCode
@@ -671,9 +689,9 @@ function createRecording(
         sessionError = errorCode;
         recording.fail(status, errorCode);
       }
-      return lastGenerationId;
+      return ((pinnedReturn: string | undefined) => pinnedReturn)(lastGenerationId);
     },
-    beginCompaction: (system: string, prompt: string): void => {
+    beginCompaction: (system: string, prompt: string) => {
       compaction = {
         id: randomUUID(),
         startedAt: Date.now(),
@@ -683,14 +701,14 @@ function createRecording(
         ...(opts?.phase != null ? { phase: opts.phase } : {}),
       };
     },
-    endCompaction: (message: AssistantMessage | undefined): void => {
+    endCompaction: (message: AssistantMessage | undefined) => {
       finishCompaction(message, message ? "ok" : "error");
     },
-    compacted: (messages: readonly AgentMessage[]): void => {
+    compacted: (messages: readonly AgentMessage[]) => {
       basis.length = 0;
       for (const message of messages) basis.push(turnFromAgentMessage(message));
     },
-    dispose: (): void => {
+    dispose: () => {
       if (disposed) return;
       disposed = true;
       if (generation) closeGeneration("cancelled");
@@ -745,18 +763,22 @@ function createRecording(
   };
 }
 
-function boundedText(
-  text: string,
-  limit: number,
-  redact: (text: string) => string,
-): { readonly text: string; readonly truncated: boolean } {
+function boundedText(text: string, limit: number, redact: (text: string) => string) {
   const redacted = redact(text);
-  if (redacted.length <= limit) return { text: redacted, truncated: false };
-  return { text: `${redacted.slice(0, limit)}\n${TRACE_CONTENT_TRUNCATED}`, truncated: true };
+  if (redacted.length <= limit)
+    return ((pinnedReturn: { readonly text: string; readonly truncated: boolean }) => pinnedReturn)(
+      { text: redacted, truncated: false },
+    );
+  return ((pinnedReturn: { readonly text: string; readonly truncated: boolean }) => pinnedReturn)({
+    text: `${redacted.slice(0, limit)}\n${TRACE_CONTENT_TRUNCATED}`,
+    truncated: true,
+  });
 }
 
-function asText(value: unknown): string {
-  return typeof value === "string" ? value : safeJson(value);
+function asText(value: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    typeof value === "string" ? value : safeJson(value),
+  );
 }
 
 function hostCallEntry(
@@ -764,7 +786,7 @@ function hostCallEntry(
   now: number,
   redact: (text: string) => string,
   inputSha: string,
-): Record<string, unknown> {
+) {
   const inputText = asText(call.input);
   const input =
     inputText.length <= HOST_CALL_INPUT_CHARS
@@ -773,32 +795,33 @@ function hostCallEntry(
   const { outcome, endedAt } = call;
   const hash = { input_sha256: inputSha };
   if (!outcome || endedAt == null) {
-    return {
+    return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
       tool: call.tool,
       status: "in_flight",
       input,
       elapsed_ms: now - call.startedAt,
       ...hash,
-    };
+    });
   }
   const base = { tool: call.tool, input, duration_ms: endedAt - call.startedAt, ...hash };
   if (outcome.status === "error") {
-    return { ...base, status: "error", error_kind: outcome.errorKind };
+    return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
+      ...base,
+      status: "error",
+      error_kind: outcome.errorKind,
+    });
   }
   const preview = boundedText(asText(outcome.output), HOST_CALL_PREVIEW_CHARS, redact);
-  return {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     ...base,
     status: "completed",
     output_bytes: outcome.outputBytes,
     output_preview: preview.text,
     ...(preview.truncated ? { preview_truncated: true } : {}),
-  };
+  });
 }
 
-function toolFailure(
-  result: unknown,
-  isError: boolean,
-): { readonly status: TraceStatus; readonly error?: string } {
+function toolFailure(result: unknown, isError: boolean) {
   let status: TraceStatus = isError ? "error" : "ok";
   let error = isError ? (plainError(result) ?? "tool_error") : undefined;
   if (isPlainObject(result) && Array.isArray(result.content)) {
@@ -819,24 +842,28 @@ function toolFailure(
       } catch {}
     }
   }
-  return error != null ? { status, error } : { status };
+  return ((pinnedReturn: { readonly status: TraceStatus; readonly error?: string }) =>
+    pinnedReturn)(error != null ? { status, error } : { status });
 }
 
-function plainError(result: unknown): string | undefined {
-  if (!isPlainObject(result)) return undefined;
-  if (typeof result.error === "string") return result.error;
-  if (typeof result.message === "string") return result.message;
-  return undefined;
+function plainError(result: unknown) {
+  if (!isPlainObject(result))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (typeof result.error === "string")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(result.error);
+  if (typeof result.message === "string")
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(result.message);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 export type SessionTrace = NonNullable<ReturnType<typeof createRecording>>;
 
-function observe<T>(run: () => T): T | undefined {
+function observe<T>(run: () => T) {
   try {
-    return run();
+    return ((pinnedReturn: T | undefined) => pinnedReturn)(run());
   } catch {
     logWarn("agent_trace_observer_failed");
-    return undefined;
+    return ((pinnedReturn: T | undefined) => pinnedReturn)(undefined);
   }
 }
 
@@ -862,10 +889,10 @@ export function createSessionTrace(
   model: Model<Api>,
   sessionId: string,
   getAttempts: () => number,
-): SessionTrace {
+) {
   const recording = observe(() => createRecording(params, model, sessionId, getAttempts));
-  if (!recording) return noTrace;
-  return {
+  if (!recording) return ((pinnedReturn: SessionTrace) => pinnedReturn)(noTrace);
+  return ((pinnedReturn: SessionTrace) => pinnedReturn)({
     addSecret: protect(recording.addSecret),
     beginSend: protect(recording.beginSend),
     event: protect(recording.event),
@@ -879,5 +906,5 @@ export function createSessionTrace(
     endCompaction: protect(recording.endCompaction),
     compacted: protect(recording.compacted),
     dispose: protect(recording.dispose),
-  };
+  });
 }

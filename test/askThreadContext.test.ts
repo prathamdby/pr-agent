@@ -5,13 +5,8 @@ import {
   type ThreadComment,
 } from "../src/agent/discussion/pullRequestDiscussion.ts";
 
-function comment(
-  id: number,
-  inReplyToId: number | null,
-  authorLogin: string,
-  body: string,
-): ThreadComment {
-  return { id, inReplyToId, authorLogin, body };
+function comment(id: number, inReplyToId: number | null, authorLogin: string, body: string) {
+  return ((pinnedReturn: ThreadComment) => pinnedReturn)({ id, inReplyToId, authorLogin, body });
 }
 
 describe("commentsInThread", () => {

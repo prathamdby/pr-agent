@@ -36,15 +36,17 @@ import {
   type FindingInventory,
 } from "../../src/review/findingIdentity/findingInventory.ts";
 
-export function completeFindingInventory(): FindingInventory {
-  return buildFindingInventory({
-    threads: { status: "ok", threads: [] },
-    summary: null,
-    summaryComplete: true,
-    botLogin: "",
-    renames: new Map(),
-    deletedPaths: new Set(),
-  });
+export function completeFindingInventory() {
+  return ((pinnedReturn: FindingInventory) => pinnedReturn)(
+    buildFindingInventory({
+      threads: { status: "ok", threads: [] },
+      summary: null,
+      summaryComplete: true,
+      botLogin: "",
+      renames: new Map(),
+      deletedPaths: new Set(),
+    }),
+  );
 }
 
 export type PublishTestState = {
@@ -56,12 +58,12 @@ export type PublishTestState = {
 export function createPublishTestState(initial?: {
   readonly inlineReviewIds?: readonly number[];
   readonly threadCallCount?: number;
-}): PublishTestState {
-  return {
+}) {
+  return ((pinnedReturn: PublishTestState) => pinnedReturn)({
     inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
     threadCallCount: initial?.threadCallCount ?? 0,
     publishSuperseded: false,
-  };
+  });
 }
 
 export async function runTestPublishFlow(
@@ -85,7 +87,7 @@ export async function runTestPublishFlow(
     boundPolicyJudge?: BoundPolicyJudge;
     readCheckoutFile?: (path: string) => Promise<string | undefined>;
   },
-): Promise<void> {
+) {
   const resumedPlacements = params.resumedPlacements ?? [];
   let ledger = createFindingLedger({
     accepted: resumedPlacements,
@@ -181,7 +183,7 @@ export async function publishReviewForTest(
     evidenceLedger?: EvidenceLedger;
     headSha?: string;
   },
-): Promise<void> {
+) {
   const headSha = params.headSha ?? "sha";
   const evidenceLedger = params.evidenceLedger ?? createTestEvidenceLedger(headSha);
   seedEvidenceForFindings(evidenceLedger, params.payload.findings);
@@ -209,42 +211,42 @@ export function testPublishState(
 export function testPlacements(
   findings: ReviewFinding[],
   opts: { inlinePosted?: boolean; inlineLine?: number | null } = {},
-): InlinePlacement[] {
+) {
   const inlinePosted = opts.inlinePosted ?? true;
-  return findings.map((finding) => ({
-    finding,
-    inlineLine: inlinePosted ? (opts.inlineLine ?? finding.startLine) : null,
-    inlinePosted,
-  }));
+  return ((pinnedReturn: InlinePlacement[]) => pinnedReturn)(
+    findings.map((finding) => ({
+      finding,
+      inlineLine: inlinePosted ? (opts.inlineLine ?? finding.startLine) : null,
+      inlinePosted,
+    })),
+  );
 }
 
 export function cachedDiffForLines(
   file: string,
   lines: number[],
   patch = buildPatchForRightLines(lines),
-): CachedPrDiffIndex {
+) {
   const index = createCachedPrDiffIndex();
   ingestListPullRequestFilesResult(index, {
     files: [{ filename: file, patch }],
   });
-  return index;
+  return ((pinnedReturn: CachedPrDiffIndex) => pinnedReturn)(index);
 }
 
-export function cachedDiffForFiles(
-  entries: Array<{ file: string; lines: number[] }>,
-): CachedPrDiffIndex {
+export function cachedDiffForFiles(entries: Array<{ file: string; lines: number[] }>) {
   const index = createCachedPrDiffIndex();
   for (const entry of entries) {
     ingestListPullRequestFilesResult(index, {
       files: [{ filename: entry.file, patch: buildPatchForRightLines(entry.lines) }],
     });
   }
-  return index;
+  return ((pinnedReturn: CachedPrDiffIndex) => pinnedReturn)(index);
 }
 
-function buildPatchForRightLines(lines: number[]): string {
+function buildPatchForRightLines(lines: number[]) {
   if (lines.length === 0) {
-    return "@@ -1,0 +1,0 @@";
+    return ((pinnedReturn: string) => pinnedReturn)("@@ -1,0 +1,0 @@");
   }
 
   const sorted = [...new Set(lines)].toSorted((a, b) => a - b);
@@ -262,11 +264,13 @@ function buildPatchForRightLines(lines: number[]): string {
   }
   runs.push(run);
 
-  return runs
-    .map((runLines) => {
-      const start = runLines[0];
-      const hunkLines = runLines.map((line) => `+code at line ${line}`);
-      return `@@ -${start},${runLines.length} +${start},${runLines.length} @@\n${hunkLines.join("\n")}`;
-    })
-    .join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    runs
+      .map((runLines) => {
+        const start = runLines[0];
+        const hunkLines = runLines.map((line) => `+code at line ${line}`);
+        return `@@ -${start},${runLines.length} +${start},${runLines.length} @@\n${hunkLines.join("\n")}`;
+      })
+      .join("\n"),
+  );
 }

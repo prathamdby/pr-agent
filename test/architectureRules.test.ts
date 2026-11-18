@@ -42,12 +42,14 @@ const CODE_KINDS = new Set([
   "github-list",
 ]);
 
-function loadCodeRows(): CodeRow[] {
+function loadCodeRows() {
   const dir = join(process.cwd(), "scripts", "guards");
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".json"))
-    .map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")) as CodeRow)
-    .filter((row) => CODE_KINDS.has(row.kind));
+  return ((pinnedReturn: CodeRow[]) => pinnedReturn)(
+    readdirSync(dir)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")) as CodeRow)
+      .filter((row) => CODE_KINDS.has(row.kind)),
+  );
 }
 
 const SOURCE_RULES: SourceRule[] = [
@@ -61,7 +63,7 @@ const SOURCE_RULES: SourceRule[] = [
   },
 ];
 
-function walkTsFiles(dir: string): string[] {
+function walkTsFiles(dir: string) {
   const entries = readdirSync(dir, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -72,10 +74,10 @@ function walkTsFiles(dir: string): string[] {
     }
     if (entry.isFile() && entry.name.endsWith(".ts")) files.push(full);
   }
-  return files;
+  return ((pinnedReturn: string[]) => pinnedReturn)(files);
 }
 
-function codeRowViolations(row: CodeRow): string[] {
+function codeRowViolations(row: CodeRow) {
   const violations: string[] = [];
   for (const file of walkTsFiles(SRC_ROOT)) {
     const rel = relative(process.cwd(), file);
@@ -83,15 +85,17 @@ function codeRowViolations(row: CodeRow): string[] {
     const text = readFileSync(file, "utf8");
     if (sourceMatchesCodeRow(row, file, text)) violations.push(`${row.id}: ${rel}`);
   }
-  return violations;
+  return ((pinnedReturn: string[]) => pinnedReturn)(violations);
 }
 
-function legacyOctokit(text: string): boolean {
+function legacyOctokit(text: string) {
   const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, "");
-  return /\bfrom\s+["']@octokit\//.test(cleaned) || /\bimport\s+["']@octokit\//.test(cleaned);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    /\bfrom\s+["']@octokit\//.test(cleaned) || /\bimport\s+["']@octokit\//.test(cleaned),
+  );
 }
 
-function legacyValueImport(text: string, specifier: "pg" | "pg-boss"): boolean {
+function legacyValueImport(text: string, specifier: "pg" | "pg-boss") {
   const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, "");
   const quoted = `["']${specifier}["']`;
   const clauses = cleaned.split(new RegExp(`\\bfrom\\s*${quoted}`));
@@ -99,17 +103,21 @@ function legacyValueImport(text: string, specifier: "pg" | "pg-boss"): boolean {
     const before = clauses.slice(0, i + 1).join(`from "${specifier}"`);
     const head = before.match(/[\s\S]*\b(import|export)\b([\s\S]*)$/);
     if (head == null) continue;
-    if (!/^\s*type\b/.test(head[2])) return true;
+    if (!/^\s*type\b/.test(head[2])) return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
-  return new RegExp(`\\bimport\\s*\\(\\s*${quoted}\\s*\\)`).test(cleaned);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    new RegExp(`\\bimport\\s*\\(\\s*${quoted}\\s*\\)`).test(cleaned),
+  );
 }
 
-function legacyPi(text: string): boolean {
+function legacyPi(text: string) {
   const stripped = text.replace(/^import\s+type\b[^;]*;/gm, "");
-  return /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(stripped);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(stripped),
+  );
 }
 
-function checkSourceRule(rule: SourceRule): string[] {
+function checkSourceRule(rule: SourceRule) {
   const allowed = new Set(rule.allowedPaths);
   const violations: string[] = [];
   for (const file of walkTsFiles(SRC_ROOT)) {
@@ -118,10 +126,10 @@ function checkSourceRule(rule: SourceRule): string[] {
     const text = readFileSync(file, "utf8");
     if (rule.pattern.test(text)) violations.push(`${rule.id}: ${rel}`);
   }
-  return violations;
+  return ((pinnedReturn: string[]) => pinnedReturn)(violations);
 }
 
-function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {}): Set<string> {
+function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {}) {
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length > 0) {
@@ -147,7 +155,7 @@ function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {
         queue.push(normalized);
     }
   }
-  return seen;
+  return ((pinnedReturn: Set<string>) => pinnedReturn)(seen);
 }
 
 type CommentLint = { lines: Record<string, number[]>; fixed: Record<string, string> };
@@ -166,11 +174,11 @@ type PluginLint = {
   fixed: Record<string, string>;
 };
 
-function repoPluginRules(): PluginRuleConfig {
+function repoPluginRules() {
   const repoConfig: PluginRuleConfig = JSON.parse(
     readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
   );
-  return {
+  return ((pinnedReturn: PluginRuleConfig) => pinnedReturn)({
     rules: Object.fromEntries(
       Object.entries(repoConfig.rules ?? {}).filter(([name]) => name.startsWith("pr-agent/")),
     ),
@@ -182,20 +190,21 @@ function repoPluginRules(): PluginRuleConfig {
         ),
       }))
       .filter((override) => Object.keys(override.rules).length > 0),
-  };
+  });
 }
 
 function lintWithPlugin(
   files: Record<string, string>,
   options: { fix?: boolean; config?: PluginRuleConfig } = {},
-): PluginLint {
-  const repoConfig: { jsPlugins?: string[] } = JSON.parse(
-    readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"),
-  );
+) {
+  const repoConfig: { jsPlugins?: Array<string | { name: string; specifier: string }> } =
+    JSON.parse(readFileSync(join(process.cwd(), ".oxlintrc.json"), "utf8"));
   const dir = mkdtempSync(join(tmpdir(), "pr-agent-lint-"));
   try {
     const config = {
-      jsPlugins: (repoConfig.jsPlugins ?? []).map((entry) => resolve(process.cwd(), entry)),
+      jsPlugins: (repoConfig.jsPlugins ?? []).flatMap((entry) =>
+        typeof entry === "string" ? [resolve(process.cwd(), entry)] : [],
+      ),
       ...(options.config ?? repoPluginRules()),
     };
     const configPath = join(dir, "oxlintrc.json");
@@ -234,13 +243,13 @@ function lintWithPlugin(
       for (const list of Object.values(found)) list.sort((a, b) => a - b);
       return found;
     };
-    return { lines, fixed };
+    return ((pinnedReturn: PluginLint) => pinnedReturn)({ lines, fixed });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-function lintComments(files: Record<string, string>, fix: boolean): CommentLint {
+function lintComments(files: Record<string, string>, fix: boolean) {
   const nested = Object.fromEntries(
     Object.entries(files).map(([name, text]) => [`src/${name}`, text]),
   );
@@ -249,7 +258,10 @@ function lintComments(files: Record<string, string>, fix: boolean): CommentLint 
     Object.fromEntries(
       Object.entries(record).map(([name, value]) => [name.slice("src/".length), value]),
     );
-  return { lines: flat(run.lines("no-comments")), fixed: flat(run.fixed) };
+  return ((pinnedReturn: CommentLint) => pinnedReturn)({
+    lines: flat(run.lines("no-comments")),
+    fixed: flat(run.fixed),
+  });
 }
 
 const suppression = (tool: "oxlint" | "eslint", rest: string) => `${tool}-disable${rest}`;

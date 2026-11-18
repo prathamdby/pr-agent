@@ -41,8 +41,8 @@ import {
   type VerificationDegradationReason,
 } from "../verificationPublishGate.ts";
 
-function withoutFindingObjections(thread: BotFindingThread): BotFindingThread {
-  return {
+function withoutFindingObjections(thread: BotFindingThread) {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId: thread.rootCommentId,
     ...(thread.findingId !== undefined ? { findingId: thread.findingId } : {}),
     lens: thread.lens,
@@ -61,45 +61,47 @@ function withoutFindingObjections(thread: BotFindingThread): BotFindingThread {
       ? { verificationStubCommentId: thread.verificationStubCommentId }
       : {}),
     threadUrl: thread.threadUrl,
-  };
+  });
 }
 
 function withPresentedObjections(
   thread: BotFindingThread,
   objections: readonly FindingObjection[],
-): BotFindingThread {
-  if (objections.length === 0) return withoutFindingObjections(thread);
-  return { ...thread, objections };
+) {
+  if (objections.length === 0)
+    return ((pinnedReturn: BotFindingThread) => pinnedReturn)(withoutFindingObjections(thread));
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({ ...thread, objections });
 }
 
-function objectionCount(threads: readonly BotFindingThread[]): number {
-  return threads.reduce((sum, thread) => sum + (thread.objections?.length ?? 0), 0);
+function objectionCount(threads: readonly BotFindingThread[]) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    threads.reduce((sum, thread) => sum + (thread.objections?.length ?? 0), 0),
+  );
 }
 
 function dropJournaledNonObjections(
   threads: readonly BotFindingThread[],
   ledger: VerificationThreadLedger,
-): readonly BotFindingThread[] {
-  return threads.map((thread) => {
-    const hidden = new Set(
-      (ledger.threads[String(thread.rootCommentId)]?.objections ?? [])
-        .filter((entry) => entry.decision === "not_objection")
-        .map((entry) => `${entry.commentId}:${entry.updatedAt}`),
-    );
-    if (hidden.size === 0 || thread.objections == null) return thread;
-    return withPresentedObjections(
-      thread,
-      thread.objections.filter(
-        (objection) => !hidden.has(`${objection.commentId}:${objection.updatedAt}`),
-      ),
-    );
-  });
+) {
+  return ((pinnedReturn: readonly BotFindingThread[]) => pinnedReturn)(
+    threads.map((thread) => {
+      const hidden = new Set(
+        (ledger.threads[String(thread.rootCommentId)]?.objections ?? [])
+          .filter((entry) => entry.decision === "not_objection")
+          .map((entry) => `${entry.commentId}:${entry.updatedAt}`),
+      );
+      if (hidden.size === 0 || thread.objections == null) return thread;
+      return withPresentedObjections(
+        thread,
+        thread.objections.filter(
+          (objection) => !hidden.has(`${objection.commentId}:${objection.updatedAt}`),
+        ),
+      );
+    }),
+  );
 }
 
-function capObjectionAnswers(threads: readonly BotFindingThread[]): {
-  readonly threads: readonly BotFindingThread[];
-  readonly deferred: number;
-} {
+function capObjectionAnswers(threads: readonly BotFindingThread[]) {
   const ranked = threads
     .flatMap((thread) => thread.objections ?? [])
     .toSorted((left, right) => {
@@ -107,14 +109,20 @@ function capObjectionAnswers(threads: readonly BotFindingThread[]): {
       return created === 0 ? left.commentId - right.commentId : created;
     });
   if (ranked.length <= VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN) {
-    return { threads, deferred: 0 };
+    return ((pinnedReturn: {
+      readonly threads: readonly BotFindingThread[];
+      readonly deferred: number;
+    }) => pinnedReturn)({ threads, deferred: 0 });
   }
   const kept = new Set(
     ranked
       .slice(0, VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN)
       .map((objection) => objection.commentId),
   );
-  return {
+  return ((pinnedReturn: {
+    readonly threads: readonly BotFindingThread[];
+    readonly deferred: number;
+  }) => pinnedReturn)({
     deferred: ranked.length - VERIFICATION_MAX_OBJECTION_ANSWERS_PER_RUN,
     threads: threads.map((thread) =>
       thread.objections == null
@@ -124,7 +132,7 @@ function capObjectionAnswers(threads: readonly BotFindingThread[]): {
             thread.objections.filter((objection) => kept.has(objection.commentId)),
           ),
     ),
-  };
+  });
 }
 
 function objectionCompletionFields(counts: {
@@ -133,14 +141,14 @@ function objectionCompletionFields(counts: {
   readonly notObjection: number;
   readonly deferred: number;
   readonly skippedIncomplete: number;
-}): {
-  readonly objectionsPresented?: number;
-  readonly objectionsAnswered?: number;
-  readonly objectionsNotObjection?: number;
-  readonly objectionsDeferredByCap?: number;
-  readonly objectionsSkippedIncomplete?: number;
-} {
-  return {
+}) {
+  return ((pinnedReturn: {
+    readonly objectionsPresented?: number;
+    readonly objectionsAnswered?: number;
+    readonly objectionsNotObjection?: number;
+    readonly objectionsDeferredByCap?: number;
+    readonly objectionsSkippedIncomplete?: number;
+  }) => pinnedReturn)({
     ...(counts.presented > 0 ? { objectionsPresented: counts.presented } : {}),
     ...(counts.answered > 0 ? { objectionsAnswered: counts.answered } : {}),
     ...(counts.notObjection > 0 ? { objectionsNotObjection: counts.notObjection } : {}),
@@ -148,7 +156,7 @@ function objectionCompletionFields(counts: {
     ...(counts.skippedIncomplete > 0
       ? { objectionsSkippedIncomplete: counts.skippedIncomplete }
       : {}),
-  };
+  });
 }
 
 export function createVerificationWorkExecution({
@@ -156,9 +164,9 @@ export function createVerificationWorkExecution({
   pool,
   boss,
   installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies): WorkExecution<"verification"> {
+}: WorkExecutionDependencies) {
   const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return {
+  return ((pinnedReturn: WorkExecution<"verification">) => pinnedReturn)({
     execute: async (item, env) => {
       const payload = item.payload;
       const { prSurface } = env;
@@ -210,7 +218,7 @@ export function createVerificationWorkExecution({
         orderedThreads = [...dropJournaledNonObjections(orderedThreads, ledger)];
       }
 
-      const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
+      const checkCompletionGate = async () => {
         throwIfExecutionAborted(env.signal, { workItemId: item.id });
         if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
@@ -222,7 +230,11 @@ export function createVerificationWorkExecution({
             repo: item.repo,
             pr: item.prNumber,
           });
-          return { kind: "completed" };
+          return ((
+            pinnedReturn:
+              | (DurableExecutionResult | undefined)
+              | Promise<DurableExecutionResult | undefined>,
+          ) => pinnedReturn)({ kind: "completed" });
         }
 
         const freshness = verificationHeadFreshness(headSha, await prSurface.getHeadSha());
@@ -238,9 +250,17 @@ export function createVerificationWorkExecution({
             repo: item.repo,
             pr: item.prNumber,
           });
-          return STALE_VERIFICATION_RESULT;
+          return ((
+            pinnedReturn:
+              | (DurableExecutionResult | undefined)
+              | Promise<DurableExecutionResult | undefined>,
+          ) => pinnedReturn)(STALE_VERIFICATION_RESULT);
         }
-        return undefined;
+        return ((
+          pinnedReturn:
+            | (DurableExecutionResult | undefined)
+            | Promise<DurableExecutionResult | undefined>,
+        ) => pinnedReturn)(undefined);
       };
 
       const refreshReviewVerdict = (degradation: readonly VerificationDegradationReason[]) =>
@@ -487,5 +507,5 @@ export function createVerificationWorkExecution({
         installationId: item.installationId,
       });
     },
-  };
+  });
 }

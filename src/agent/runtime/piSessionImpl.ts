@@ -53,17 +53,18 @@ function isOrchestratorPhaseTool(name: string): name is OrchestratorPhaseTool {
   return (ORCHESTRATOR_PHASE_TOOLS as readonly string[]).includes(name);
 }
 
-function assistantMessageText(message: AgentMessage): string {
-  if (message.role !== "assistant") return "";
-  return contentText(message.content).trim();
+function assistantMessageText(message: AgentMessage) {
+  if (message.role !== "assistant") return ((pinnedReturn: string) => pinnedReturn)("");
+  return ((pinnedReturn: string) => pinnedReturn)(contentText(message.content).trim());
 }
 
-function asAssistantMessage(message: AgentMessage | undefined): AssistantMessage | undefined {
-  if (!message || message.role !== "assistant") return undefined;
-  return message;
+function asAssistantMessage(message: AgentMessage | undefined) {
+  if (!message || message.role !== "assistant")
+    return ((pinnedReturn: AssistantMessage | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: AssistantMessage | undefined) => pinnedReturn)(message);
 }
 
-function convertToLlm(messages: AgentMessage[]): Message[] {
+function convertToLlm(messages: AgentMessage[]) {
   const converted: Message[] = [];
   for (const message of messages) {
     if (
@@ -75,10 +76,10 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
       converted.push(message);
     }
   }
-  return converted;
+  return ((pinnedReturn: Message[]) => pinnedReturn)(converted);
 }
 
-export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
+export async function createPiSessionImpl(params: PiSessionCreateParams) {
   const sessionId = randomUUID();
   let traceSpanId: string | undefined;
   const emitForGeneration = (generationId?: string) =>
@@ -152,7 +153,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   );
 
   let abortPromise: Promise<void> | undefined;
-  const abort = (): Promise<void> => {
+  const abort = () => {
     abortPromise ??= (async () => {
       sessionAbort.abort();
       emitSession({
@@ -163,7 +164,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         reason: "abort",
       });
     })();
-    return abortPromise;
+    return ((pinnedReturn: Promise<void>) => pinnedReturn)(abortPromise);
   };
 
   const piSession: PiSession = {
@@ -244,11 +245,14 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         maxRetries: params.cfg.provider.retryMax,
         maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        finishTurn: async (
-          turn,
-        ): Promise<{ action: "continue" } | { action: "end" } | undefined> => {
+        finishTurn: async (turn) => {
           const budgetDecision = await budget.finishTurn(turn);
-          if (!executeRepeat) return budgetDecision ?? undefined;
+          if (!executeRepeat)
+            return ((
+              pinnedReturn:
+                | ({ action: "continue" } | { action: "end" } | undefined)
+                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
+            ) => pinnedReturn)(budgetDecision ?? undefined);
           const action = executeRepeat.observe({
             refused: turn.message.rawStopReason === "refusal",
             calls: specialistExecuteCalls({
@@ -265,10 +269,23 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           });
           if (action === "stop") {
             repeatedExecuteStop = true;
-            return { action: "end" };
+            return ((
+              pinnedReturn:
+                | ({ action: "continue" } | { action: "end" } | undefined)
+                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
+            ) => pinnedReturn)({ action: "end" });
           }
-          if (budgetDecision == null) return undefined;
-          return budgetDecision;
+          if (budgetDecision == null)
+            return ((
+              pinnedReturn:
+                | ({ action: "continue" } | { action: "end" } | undefined)
+                | Promise<{ action: "continue" } | { action: "end" } | undefined>,
+            ) => pinnedReturn)(undefined);
+          return ((
+            pinnedReturn:
+              | ({ action: "continue" } | { action: "end" } | undefined)
+              | Promise<{ action: "continue" } | { action: "end" } | undefined>,
+          ) => pinnedReturn)(budgetDecision);
         },
         ...(compaction.prepareNextTurn || executeRepeat
           ? {
@@ -530,5 +547,5 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     },
   };
 
-  return piSession;
+  return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(piSession);
 }

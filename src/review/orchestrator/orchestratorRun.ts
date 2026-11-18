@@ -103,18 +103,18 @@ import { UNREAD_COVERAGE_PATH_LIMIT } from "../recovery/reviewRecoverySchema.ts"
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
 import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.ts";
 
-function ownVerdictPublishParams(params: ReviewRunParams): {
-  readonly workItemId?: string;
-  readonly resourceKey: string;
-  readonly leaseEpoch?: number | null;
-} {
+function ownVerdictPublishParams(params: ReviewRunParams) {
   const coordination = params.recordPublishStep?.summaryCommentCoordination;
-  return {
+  return ((pinnedReturn: {
+    readonly workItemId?: string;
+    readonly resourceKey: string;
+    readonly leaseEpoch?: number | null;
+  }) => pinnedReturn)({
     workItemId: coordination?.workItemId ?? params.workItemId ?? params.sessionContext?.workItemId,
     resourceKey:
       coordination?.resourceKey ?? prResourceKey(params.owner, params.repo, params.prNumber),
     leaseEpoch: coordination?.leaseEpoch,
-  };
+  });
 }
 
 export type OrchestratedReviewRunParams = ReviewRunParams & {
@@ -141,14 +141,16 @@ type DeadlineResult<T> =
   | { readonly kind: "deadline" }
   | { readonly kind: "aborted" };
 
-async function settleBefore<T>(
-  promise: Promise<T>,
-  deadlineMs: number,
-  signal?: AbortSignal,
-): Promise<DeadlineResult<T>> {
-  if (signal?.aborted) return { kind: "aborted" };
+async function settleBefore<T>(promise: Promise<T>, deadlineMs: number, signal?: AbortSignal) {
+  if (signal?.aborted)
+    return ((pinnedReturn: DeadlineResult<T> | Promise<DeadlineResult<T>>) => pinnedReturn)({
+      kind: "aborted",
+    });
   const remainingMs = deadlineMs - Date.now();
-  if (remainingMs <= 0) return { kind: "deadline" };
+  if (remainingMs <= 0)
+    return ((pinnedReturn: DeadlineResult<T> | Promise<DeadlineResult<T>>) => pinnedReturn)({
+      kind: "deadline",
+    });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<DeadlineResult<T>>((resolve) => {
     timer = setTimeout(() => resolve({ kind: "deadline" }), remainingMs);
@@ -171,11 +173,11 @@ async function settleBefore<T>(
   );
   if (timer) clearTimeout(timer);
   removeAbort?.();
-  return result;
+  return ((pinnedReturn: DeadlineResult<T> | Promise<DeadlineResult<T>>) => pinnedReturn)(result);
 }
 
-function initialState(): OrchestratedRunState {
-  return {
+function initialState() {
+  return ((pinnedReturn: OrchestratedRunState) => pinnedReturn)({
     recon: "running",
     specialists: {
       correctness: { phase: "waiting" },
@@ -191,13 +193,13 @@ function initialState(): OrchestratedRunState {
     lifecycle: { kind: "running" },
     progressRevision: 0,
     summary: { kind: "pending" },
-  };
+  });
 }
 
-function fallbackBrief(params: OrchestratedReviewRunParams): SpecialistBrief {
+function fallbackBrief(params: OrchestratedReviewRunParams) {
   const files = params.workspace.reader.changedFiles.map((file) => file.path);
   const riskFiles = files.slice(0, 12);
-  return {
+  return ((pinnedReturn: SpecialistBrief) => pinnedReturn)({
     prIntent:
       "Reconnaissance did not produce a valid structured brief. Pull request metadata is provided separately as untrusted evidence.",
     architectureNotes: "Reconnaissance did not produce a valid structured brief.",
@@ -213,7 +215,7 @@ function fallbackBrief(params: OrchestratedReviewRunParams): SpecialistBrief {
       quality: "Check maintainability, module ownership, and avoidable complexity.",
       tests: "Check regression coverage and missing failure-path tests.",
     },
-  };
+  });
 }
 
 function initialLedger(params: OrchestratedReviewRunParams) {
@@ -231,25 +233,26 @@ function initialLedger(params: OrchestratedReviewRunParams) {
   });
 }
 
-function loadReviewFindingInventory(
-  params: OrchestratedReviewRunParams,
-): Promise<FindingInventory> {
+function loadReviewFindingInventory(params: OrchestratedReviewRunParams) {
   const renames = new Map<string, string>();
   const deletedPaths = new Set<string>();
   for (const file of params.workspace.reader.changedFiles) {
     if (file.status === "renamed" && file.oldPath != null) renames.set(file.oldPath, file.path);
     if (file.status === "deleted") deletedPaths.add(file.path);
   }
-  return loadFindingInventoryOrUnavailable(params.prSurface, { renames, deletedPaths });
+  return ((pinnedReturn: Promise<FindingInventory>) => pinnedReturn)(
+    loadFindingInventoryOrUnavailable(params.prSurface, { renames, deletedPaths }),
+  );
 }
 
 export function reviewRunCoverage(
   failedSpecialists: readonly SpecialistId[],
   unreadPaths: readonly string[],
   unjudgedSpecialists: readonly SpecialistId[] = [],
-): ReviewCoverage {
+) {
   const failed = [...failedSpecialists];
-  if (failed.length === SPECIALIST_IDS.length) return { kind: "none", failed };
+  if (failed.length === SPECIALIST_IDS.length)
+    return ((pinnedReturn: ReviewCoverage) => pinnedReturn)({ kind: "none", failed });
   const paths: string[] = [];
   for (const path of unreadPaths) {
     const bounded = path.slice(0, OPENED_PATH_MAX_CHARS);
@@ -258,7 +261,8 @@ export function reviewRunCoverage(
     if (paths.length === UNREAD_COVERAGE_PATH_LIMIT) break;
   }
   const unjudged = [...unjudgedSpecialists];
-  if (failed.length === 0 && paths.length === 0 && unjudged.length === 0) return { kind: "full" };
+  if (failed.length === 0 && paths.length === 0 && unjudged.length === 0)
+    return ((pinnedReturn: ReviewCoverage) => pinnedReturn)({ kind: "full" });
   const sentences: string[] = [];
   if (failed.length > 0) {
     const names = failed.join(", ");
@@ -268,59 +272,59 @@ export function reviewRunCoverage(
   }
   if (paths.length > 0) sentences.push(unreadChangedFilesNote(unreadPaths));
   if (unjudged.length > 0) sentences.push(`Not judged: ${unjudged.join(", ")}.`);
-  return {
+  return ((pinnedReturn: ReviewCoverage) => pinnedReturn)({
     kind: "partial",
     note: sentences.join(" "),
     ...(failed.length > 0 ? { failed } : {}),
     ...(paths.length > 0 ? { paths } : {}),
     ...(unjudged.length > 0 ? { unjudged } : {}),
-  };
+  });
 }
 
-function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
+function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]) {
   switch (revision) {
     case 0:
     case 1:
     case 2:
-      return 3;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(3);
     case 3:
-      return 4;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(4);
     case 4:
-      return 5;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(5);
     case 5:
-      return 6;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(6);
     case 6:
     case 7:
-      return 6;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(6);
     default: {
       const exhaustive: never = revision;
-      return exhaustive;
+      return ((pinnedReturn: 3 | 4 | 5 | 6) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function acceptedOpenThreads(ledger: FindingLedger): AcceptedOpenThread[] {
-  return ledger.accepted.flatMap((accepted) =>
-    accepted.kind === "summary_only"
-      ? []
-      : [
-          {
-            id: accepted.findingId,
-            path: accepted.placement.finding.file,
-            startLine: accepted.placement.finding.startLine,
-            endLine: accepted.placement.finding.endLine,
-            title: accepted.placement.finding.title,
-            detail: accepted.placement.finding.detail,
-            severity: accepted.placement.finding.severity,
-            lens: accepted.source,
-          },
-        ],
+function acceptedOpenThreads(ledger: FindingLedger) {
+  return ((pinnedReturn: AcceptedOpenThread[]) => pinnedReturn)(
+    ledger.accepted.flatMap((accepted) =>
+      accepted.kind === "summary_only"
+        ? []
+        : [
+            {
+              id: accepted.findingId,
+              path: accepted.placement.finding.file,
+              startLine: accepted.placement.finding.startLine,
+              endLine: accepted.placement.finding.endLine,
+              title: accepted.placement.finding.title,
+              detail: accepted.placement.finding.detail,
+              severity: accepted.placement.finding.severity,
+              lens: accepted.source,
+            },
+          ],
+    ),
   );
 }
 
-export async function runOrchestratedPrReview(
-  params: OrchestratedReviewRunParams,
-): Promise<ReviewRunResult> {
+export async function runOrchestratedPrReview(params: OrchestratedReviewRunParams) {
   const reviewMode = params.mode ?? "review";
   initReviewRunMetrics({
     provider: params.cfg.models.provider,
@@ -464,11 +468,15 @@ export async function runOrchestratedPrReview(
       : undefined,
   });
   const state = initialState();
-  const unjudgedFromPhases = (): SpecialistId[] =>
-    SPECIALIST_IDS.filter((id) => state.specialists[id].phase === "unjudged");
-  const coverageNow = (): ReviewCoverage =>
-    reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), unjudgedFromPhases());
-  const restoreCoverageLists = (coverage: ReviewCoverage): void => {
+  const unjudgedFromPhases = () =>
+    ((pinnedReturn: SpecialistId[]) => pinnedReturn)(
+      SPECIALIST_IDS.filter((id) => state.specialists[id].phase === "unjudged"),
+    );
+  const coverageNow = () =>
+    ((pinnedReturn: ReviewCoverage) => pinnedReturn)(
+      reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), unjudgedFromPhases()),
+    );
+  const restoreCoverageLists = (coverage: ReviewCoverage) => {
     if (coverage.kind !== "partial") return;
     for (const specialist of coverage.failed ?? []) {
       if (!state.failedSpecialists.includes(specialist)) state.failedSpecialists.push(specialist);
@@ -479,7 +487,7 @@ export async function runOrchestratedPrReview(
   };
   const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
+  const resolveProgressCommentUrl = async () => {
     let commentId: number | null | undefined;
     if (progressCommentCoordination) {
       try {
@@ -506,7 +514,9 @@ export async function runOrchestratedPrReview(
     if (recovery && commentId == null) {
       commentId = (await params.prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL))?.id;
     }
-    return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId),
+    );
   };
   const findingInventory = await loadReviewFindingInventory(params);
   const verdictIdentity = ownVerdictPublishParams(params);
@@ -731,7 +741,9 @@ export async function runOrchestratedPrReview(
       });
     } else {
       const exhaustive: never = creation;
-      return exhaustive;
+      return ((pinnedReturn: ReviewRunResult | Promise<ReviewRunResult>) => pinnedReturn)(
+        exhaustive,
+      );
     }
   } catch (error) {
     state.judgment = "degraded";
@@ -752,7 +764,7 @@ export async function runOrchestratedPrReview(
   let lastText = "";
   let publishAttempts = 0;
   let publishStepCount = 0;
-  const retireSession = async (): Promise<void> => {
+  const retireSession = async () => {
     if (sessionRetired) return;
     sessionRetired = true;
     if (!session) return;
@@ -761,25 +773,26 @@ export async function runOrchestratedPrReview(
     void abortPromise.catch(() => undefined);
   };
 
-  const abortSpecialists = (): void => {
+  const abortSpecialists = () => {
     for (const controller of specialistControllers.values()) controller.abort();
   };
 
-  const markCompleteUnlessStopped = (): void => {
+  const markCompleteUnlessStopped = () => {
     if (state.lifecycle.kind !== "stopped") state.lifecycle = { kind: "complete" };
   };
 
-  const applyPublishStop = async (): Promise<boolean> => {
+  const applyPublishStop = async () => {
     const reason = publishThread.getStopReason() ?? summaryState.stoppedReason;
-    if (!reason) return false;
+    if (!reason) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     state.lifecycle = { kind: "stopped", reason };
     abortSpecialists();
     await retireSession();
-    return true;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   };
 
-  const stopFromGateResult = async (gate: ReviewRunGateResult): Promise<boolean> => {
-    if (gate.kind === "continue") return false;
+  const stopFromGateResult = async (gate: ReviewRunGateResult) => {
+    if (gate.kind === "continue")
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     state.lifecycle =
       gate.kind === "stop"
         ? gate.reason === "cancelled"
@@ -792,10 +805,10 @@ export async function runOrchestratedPrReview(
         : { kind: "finalizing", reason: gate.reason };
     abortSpecialists();
     await retireSession();
-    return true;
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   };
 
-  const stopForHostAbort = async (): Promise<void> => {
+  const stopForHostAbort = async () => {
     if (state.lifecycle.kind === "stopped" || state.lifecycle.kind === "finalizing") return;
     if (await stopFromGateResult(await params.gate.check())) return;
     state.lifecycle = { kind: "stopped", reason: "host_abort" };
@@ -807,7 +820,7 @@ export async function runOrchestratedPrReview(
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
     options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs" | "reservedTerminalTool">,
-  ): Promise<SendResult> => {
+  ) => {
     phaseRef.current = phase;
     const turnPrompt = recoveryBootstrapPending
       ? renderOrchestratorRecoveryBootstrap({
@@ -833,7 +846,7 @@ export async function runOrchestratedPrReview(
     let firstError: AppError | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       if (sessionRetired || !session) {
-        return {
+        return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
           kind: "failed",
           error:
             firstError ??
@@ -843,7 +856,7 @@ export async function runOrchestratedPrReview(
               message: "Orchestrator session is no longer available",
               context: { phase },
             }),
-        };
+        });
       }
       const gate = await params.gate.check();
       if (
@@ -854,7 +867,7 @@ export async function runOrchestratedPrReview(
         state.lifecycle = { kind: "finalizing", reason: "deadline" };
         abortSpecialists();
         await retireSession();
-        return {
+        return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
           kind: "failed",
           error: new AppError({
             domain: "review",
@@ -862,11 +875,11 @@ export async function runOrchestratedPrReview(
             message: "Orchestrator model deadline reached",
             context: { phase, attempt },
           }),
-        };
+        });
       }
       if (gate.kind === "stop") {
         await stopFromGateResult(gate);
-        return {
+        return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
           kind: "failed",
           error: new AppError({
             domain: "review",
@@ -874,7 +887,7 @@ export async function runOrchestratedPrReview(
             message: "Orchestrator stopped before the model send",
             context: { phase, attempt, reason: gate.reason },
           }),
-        };
+        });
       }
       try {
         const sendPromise = session.send(turnPrompt, {
@@ -892,7 +905,7 @@ export async function runOrchestratedPrReview(
           abortSpecialists();
           await retireSession();
           void sendPromise.catch(() => undefined);
-          return {
+          return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
             kind: "failed",
             error: new AppError({
               domain: "review",
@@ -900,13 +913,13 @@ export async function runOrchestratedPrReview(
               message: "Orchestrator model deadline reached during send",
               context: { phase, attempt },
             }),
-          };
+          });
         }
         if (send.kind === "aborted") {
           void sendPromise.catch(() => undefined);
           await session.abort().catch(() => undefined);
           await stopForHostAbort();
-          return {
+          return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
             kind: "failed",
             error: new AppError({
               domain: "agent",
@@ -914,15 +927,19 @@ export async function runOrchestratedPrReview(
               message: "Orchestrator send aborted by host signal",
               context: { phase, attempt },
             }),
-          };
+          });
         }
         if (send.kind === "rejected") throw send.error;
         if (send.kind !== "settled") {
           const exhaustive: never = send;
-          return exhaustive;
+          return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)(exhaustive);
         }
         recordAgentTurnMetrics(send.value);
-        return { kind: "sent", text: send.value.text, end: send.value.end };
+        return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
+          kind: "sent",
+          text: send.value.text,
+          end: send.value.end,
+        });
       } catch (error) {
         recovery?.rememberUnresolvedPublication(error);
         throwIfRecoveryBlocked();
@@ -934,7 +951,10 @@ export async function runOrchestratedPrReview(
         firstError ??= appError;
         if (isCancelAbortError(error) || params.signal?.aborted) {
           await stopForHostAbort();
-          return { kind: "failed", error: appError };
+          return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
+            kind: "failed",
+            error: appError,
+          });
         }
         if (isProviderRefusalError(appError)) {
           await retireSession();
@@ -961,20 +981,21 @@ export async function runOrchestratedPrReview(
 
     const failure = classifyFailure(terminalError, { phase });
     recordClassifiedFailure(failure);
-    return {
+    return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
       kind: "failed",
       error: terminalError,
-    };
+    });
   };
 
-  const snapshotSpecialists = (): OrchestratedRunState["specialists"] => ({
-    correctness: state.specialists.correctness,
-    security: state.specialists.security,
-    quality: state.specialists.quality,
-    tests: state.specialists.tests,
-  });
+  const snapshotSpecialists = () =>
+    ((pinnedReturn: OrchestratedRunState["specialists"]) => pinnedReturn)({
+      correctness: state.specialists.correctness,
+      security: state.specialists.security,
+      quality: state.specialists.quality,
+      tests: state.specialists.tests,
+    });
 
-  const writeTick = async (): Promise<void> => {
+  const writeTick = async () => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     const revision = state.progressRevision;
     if (!coordination || revision === 0 || revision === 7) return;
@@ -1001,13 +1022,13 @@ export async function runOrchestratedPrReview(
     });
   };
 
-  const writeWorkerStartTick = async (): Promise<void> => {
+  const writeWorkerStartTick = async () => {
     if (state.progressRevision !== 0) return;
     state.progressRevision = 1;
     await writeTick();
   };
 
-  const markReconDoneAndTick = async (): Promise<void> => {
+  const markReconDoneAndTick = async () => {
     state.recon = "done";
     for (const specialist of SPECIALIST_IDS) {
       state.specialists[specialist] = { phase: "running" };
@@ -1023,7 +1044,7 @@ export async function runOrchestratedPrReview(
 
   const writeTerminalTick = async (
     stopped: Extract<OrchestratedRunState["lifecycle"], { kind: "stopped" }>,
-  ): Promise<void> => {
+  ) => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
     const progressRevision =
@@ -1069,7 +1090,7 @@ export async function runOrchestratedPrReview(
     });
   };
 
-  const recordOutcome = async (outcome: SpecialistOutcome): Promise<void> => {
+  const recordOutcome = async (outcome: SpecialistOutcome) => {
     if (state.outcomes[outcome.specialist] != null) return;
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
@@ -1105,7 +1126,7 @@ export async function runOrchestratedPrReview(
   const recordUnjudgedReport = async (
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
     cause: JudgmentDegradeCause,
-  ): Promise<void> => {
+  ) => {
     if (state.lifecycle.kind === "stopped") return;
     const publishStop = await publishSession.stopReason();
     if (publishStop != null) {
@@ -1150,7 +1171,7 @@ export async function runOrchestratedPrReview(
     await writeTick();
   };
 
-  const publishDeterministicSummary = async (): Promise<void> => {
+  const publishDeterministicSummary = async () => {
     if (summaryState.published) return;
     const ledger = publishThread.getLedger();
     const payload = reviewPayloadFromFindings(ledgerFindings(ledger));
@@ -1175,7 +1196,7 @@ export async function runOrchestratedPrReview(
     state.summary = { kind: "published" };
   };
 
-  const publishFailureNotice = async (): Promise<void> => {
+  const publishFailureNotice = async () => {
     const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
     await publishReviewRunFailureNotice({
       cfg: params.cfg,
@@ -1199,20 +1220,21 @@ export async function runOrchestratedPrReview(
   let outcomes: SpecialistOutcome[] = [];
   let recoveryRoundsRun = 0;
 
-  const stepFacts = (): ReviewStepFacts => ({
-    hasSession: session != null,
-    sessionRetired,
-    briefSubmitted: briefTool.getBrief() != null,
-    hostAborted: params.signal?.aborted === true,
-    lifecycle: state.lifecycle.kind,
-    failedSpecialists: state.failedSpecialists.length,
-    specialistCount: SPECIALIST_IDS.length,
-    summaryPublished: summaryState.published,
-    recoveryRoundsRun,
-    recoveryRoundLimit: PUBLISH_RECOVERY_ROUNDS,
-  });
+  const stepFacts = () =>
+    ((pinnedReturn: ReviewStepFacts) => pinnedReturn)({
+      hasSession: session != null,
+      sessionRetired,
+      briefSubmitted: briefTool.getBrief() != null,
+      hostAborted: params.signal?.aborted === true,
+      lifecycle: state.lifecycle.kind,
+      failedSpecialists: state.failedSpecialists.length,
+      specialistCount: SPECIALIST_IDS.length,
+      summaryPublished: summaryState.published,
+      recoveryRoundsRun,
+      recoveryRoundLimit: PUBLISH_RECOVERY_ROUNDS,
+    });
 
-  const runStep = async (step: ReviewStep): Promise<void> => {
+  const runStep = async (step: ReviewStep) => {
     switch (step.kind) {
       case "recon": {
         if (cachedBrief || recoveredSummary) break;
@@ -1648,7 +1670,7 @@ export async function runOrchestratedPrReview(
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
   const runCoverage = coverageNow();
-  return {
+  return ((pinnedReturn: ReviewRunResult | Promise<ReviewRunResult>) => pinnedReturn)({
     lastAssistant,
     published: summaryState.published,
     publishAttempts,
@@ -1662,5 +1684,5 @@ export async function runOrchestratedPrReview(
           coverage: runCoverage,
         }
       : {}),
-  };
+  });
 }

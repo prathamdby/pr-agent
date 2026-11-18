@@ -8,7 +8,7 @@ function isSchemaNode(value: unknown): value is JsonSchemaNode {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function closeObjects(node: unknown): void {
+function closeObjects(node: unknown) {
   if (Array.isArray(node)) {
     for (const entry of node) closeObjects(entry);
     return;
@@ -24,10 +24,10 @@ function closeObjects(node: unknown): void {
   for (const value of Object.values(node)) closeObjects(value);
 }
 
-export function toToolParameters(schema: v.GenericSchema): PiTool["parameters"] {
+export function toToolParameters(schema: v.GenericSchema) {
   const json = toJsonSchema(schema, { errorMode: "ignore" });
   closeObjects(json);
-  return json;
+  return ((pinnedReturn: PiTool["parameters"]) => pinnedReturn)(json);
 }
 
 export const repoPathParam = v.pipe(

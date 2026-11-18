@@ -15,31 +15,37 @@ const CANCEL_ABORT_CODES = new Set<AppErrorCode>([
   "review.specialist_aborted",
 ]);
 
-export function isCancelAbortError(error: unknown): boolean {
-  if (isAppError(error) && CANCEL_ABORT_CODES.has(error.code)) return true;
-  return (
+export function isCancelAbortError(error: unknown) {
+  if (isAppError(error) && CANCEL_ABORT_CODES.has(error.code))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     error instanceof Error &&
-    error.name === "CodeModeHostHalt" &&
-    "code" in error &&
-    (error as { code: unknown }).code === "CANCELLED"
+      error.name === "CodeModeHostHalt" &&
+      "code" in error &&
+      (error as { code: unknown }).code === "CANCELLED",
   );
 }
 
-export function isProviderRefusalError(error: unknown): boolean {
-  return isAppError(error) && error.code === "provider.refusal";
+export function isProviderRefusalError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isAppError(error) && error.code === "provider.refusal",
+  );
 }
 
-export function classifyProviderError(error: unknown): ProviderErrorKind {
-  if (isCancelAbortError(error)) return "cancelled";
-  if (isAppError(error) && error.code === "review.specialist_timeout") return "timeout";
-  if (isAppError(error) && error.domain !== "provider") return "unknown";
+export function classifyProviderError(error: unknown) {
+  if (isCancelAbortError(error))
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("cancelled");
+  if (isAppError(error) && error.code === "review.specialist_timeout")
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("timeout");
+  if (isAppError(error) && error.domain !== "provider")
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("unknown");
   if (
     error instanceof Error &&
     error.name === "CodeModeHostHalt" &&
     "code" in error &&
     (error as { code: unknown }).code === "TIMEOUT"
   ) {
-    return "timeout";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("timeout");
   }
   const text =
     error instanceof Error
@@ -50,23 +56,23 @@ export function classifyProviderError(error: unknown): ProviderErrorKind {
       text,
     )
   ) {
-    return "auth";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("auth");
   }
   if (/\b429\b|rate limit|too many requests|secondary rate/.test(text)) {
-    return "rate_limit";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("rate_limit");
   }
   if (/billing|payment required|payment_required|\b402\b|subscription|plan limit/.test(text)) {
-    return "billing";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("billing");
   }
   if (
     /quota|insufficient credits|out of credits|usage limit|token limit exceeded|\bcredits?\b|\bbalance\b/.test(
       text,
     )
   ) {
-    return "quota";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("quota");
   }
   if (/timeout|timed out|deadline exceeded|hang|stalled/.test(text)) {
-    return "timeout";
+    return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("timeout");
   }
-  return "unknown";
+  return ((pinnedReturn: ProviderErrorKind) => pinnedReturn)("unknown");
 }

@@ -10,6 +10,6 @@ const COMPACTION_ENABLED: Readonly<Record<AgentSessionRole, boolean>> = {
   verification: true,
 };
 
-export function compactionPolicyForRole(role: AgentSessionRole): CompactionPolicy {
-  return { enabled: COMPACTION_ENABLED[role] };
+export function compactionPolicyForRole(role: AgentSessionRole) {
+  return ((pinnedReturn: CompactionPolicy) => pinnedReturn)({ enabled: COMPACTION_ENABLED[role] });
 }

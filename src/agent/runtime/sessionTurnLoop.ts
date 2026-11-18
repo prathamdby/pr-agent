@@ -29,23 +29,20 @@ type SessionTurnRuntime = {
   readonly onRetry: (attempt: number) => void;
 };
 
-export function isProviderRefusal(message: AssistantMessage | undefined): boolean {
-  return message?.rawStopReason === "refusal";
+export function isProviderRefusal(message: AssistantMessage | undefined) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(message?.rawStopReason === "refusal");
 }
 
-export function lastAssistant(messages: readonly AgentMessage[]): AssistantMessage | undefined {
+export function lastAssistant(messages: readonly AgentMessage[]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.role === "assistant") return message;
+    if (message?.role === "assistant")
+      return ((pinnedReturn: AssistantMessage | undefined) => pinnedReturn)(message);
   }
-  return undefined;
+  return ((pinnedReturn: AssistantMessage | undefined) => pinnedReturn)(undefined);
 }
 
-function placeUserMessage(
-  target: AgentMessage[],
-  userMessage: AgentMessage,
-  insertAt: number,
-): void {
+function placeUserMessage(target: AgentMessage[], userMessage: AgentMessage, insertAt: number) {
   const userIndex = target.indexOf(userMessage);
   if (userIndex === -1) {
     target.splice(insertAt, 0, userMessage);
@@ -62,7 +59,7 @@ function absorbProducedMessages(
   produced: readonly AgentMessage[],
   userMessage: AgentMessage,
   newContentStart: number,
-): void {
+) {
   const insertAt = Math.min(Math.max(newContentStart, 0), target.length);
   if (produced.length > 0) {
     target.splice(insertAt, target.length - insertAt, ...produced);
@@ -70,10 +67,7 @@ function absorbProducedMessages(
   placeUserMessage(target, userMessage, insertAt);
 }
 
-export async function runSessionTurn(
-  prompt: string,
-  rt: SessionTurnRuntime,
-): Promise<{ loopError: unknown }> {
+export async function runSessionTurn(prompt: string, rt: SessionTurnRuntime) {
   const messages = rt.context.messages;
   const transcriptLengthAtSend = messages.length;
   const userMessage: AgentMessage = { role: "user", content: prompt, timestamp: Date.now() };
@@ -133,5 +127,7 @@ export async function runSessionTurn(
       break;
     }
   }
-  return { loopError };
+  return ((pinnedReturn: { loopError: unknown } | Promise<{ loopError: unknown }>) => pinnedReturn)(
+    { loopError },
+  );
 }

@@ -82,11 +82,13 @@ type WritablePrCheckoutParams = {
   readonly remoteUrlOverride?: string;
 };
 
-function gitPersonHasForbiddenChars(value: string): boolean {
-  return value.includes("\r") || value.includes("\n") || value.includes("\0");
+function gitPersonHasForbiddenChars(value: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    value.includes("\r") || value.includes("\n") || value.includes("\0"),
+  );
 }
 
-function validateGitPerson(person: GitPerson, field: string): void {
+function validateGitPerson(person: GitPerson, field: string) {
   const name = person.name.trim();
   const email = person.email.trim();
   if (!name || name.includes("<") || name.includes(">") || gitPersonHasForbiddenChars(name)) {
@@ -112,7 +114,7 @@ function validateGitPerson(person: GitPerson, field: string): void {
   }
 }
 
-function assertHeadRef(value: string): void {
+function assertHeadRef(value: string) {
   if (
     value.startsWith("/") ||
     value.endsWith("/") ||
@@ -134,7 +136,7 @@ function assertHeadRef(value: string): void {
   }
 }
 
-function validateSubject(subject: string): void {
+function validateSubject(subject: string) {
   if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
     throw new AppError({
       domain: "pr_workspace",
@@ -161,8 +163,9 @@ function validateSubject(subject: string): void {
   }
 }
 
-function validateBody(body: readonly string[] | undefined): string | undefined {
-  if (!body || body.length === 0) return undefined;
+function validateBody(body: readonly string[] | undefined) {
+  if (!body || body.length === 0)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   if (body.length > TRIAGE_COMMIT_BODY_MAX_BULLETS) {
     throw new AppError({
       domain: "pr_workspace",
@@ -195,10 +198,10 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
       });
     }
   }
-  return body.join("\n");
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(body.join("\n"));
 }
 
-export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
+export function buildCommitCommandArgs(args: CommitArgs) {
   validateSubject(args.subject);
   const body = validateBody(args.body);
   const coAuthors = args.coAuthoredBy ?? [];
@@ -217,22 +220,24 @@ export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
   } else if (trailerBlock != null) {
     messageBody = trailerBlock;
   }
-  return messageBody == null
-    ? ["commit", "-n", "-m", args.subject]
-    : ["commit", "-n", "-m", args.subject, "-m", messageBody];
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(
+    messageBody == null
+      ? ["commit", "-n", "-m", args.subject]
+      : ["commit", "-n", "-m", args.subject, "-m", messageBody],
+  );
 }
 
-export function gitIdentityEnv(person: GitPerson): Record<string, string> {
+export function gitIdentityEnv(person: GitPerson) {
   validateGitPerson(person, "person");
-  return {
+  return ((pinnedReturn: Record<string, string>) => pinnedReturn)({
     GIT_AUTHOR_NAME: person.name,
     GIT_AUTHOR_EMAIL: person.email,
     GIT_COMMITTER_NAME: person.name,
     GIT_COMMITTER_EMAIL: person.email,
-  };
+  });
 }
 
-function validateFiles(root: string, files: readonly string[]): readonly string[] {
+function validateFiles(root: string, files: readonly string[]) {
   const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
   if (normalized.length === 0) {
     throw new AppError({
@@ -263,14 +268,16 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
       });
     }
   }
-  return normalized;
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(normalized);
 }
 
-function changedLineCount(diff: string): number {
-  return diff
-    .split("\n")
-    .filter((line) => /^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---"))
-    .length;
+function changedLineCount(diff: string) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    diff
+      .split("\n")
+      .filter((line) => /^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---"))
+      .length,
+  );
 }
 
 function classifyPushError(error: unknown): never {
@@ -287,7 +294,7 @@ function classifyPushError(error: unknown): never {
 export async function withWritablePrCheckout<T>(
   params: WritablePrCheckoutParams,
   fn: (checkout: WritablePrCheckout) => Promise<T>,
-): Promise<T> {
+) {
   const { owner, repo, headRef, headSha, installationToken, botIdentity } = params;
   assertGitRepoPart(owner, "owner");
   assertGitRepoPart(repo, "repo");
@@ -418,7 +425,7 @@ export async function withWritablePrCheckout<T>(
       listCommittedDetails: () => [...committed],
     };
 
-    return await fn(checkout);
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await fn(checkout));
   } finally {
     await resource.release();
   }

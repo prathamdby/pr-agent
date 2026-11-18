@@ -35,7 +35,7 @@ type SanitizedValue = {
   readonly changed: boolean;
 };
 
-function setProperty(target: Record<string, unknown>, key: string, value: unknown): void {
+function setProperty(target: Record<string, unknown>, key: string, value: unknown) {
   Object.defineProperty(target, key, {
     configurable: true,
     enumerable: true,
@@ -44,19 +44,20 @@ function setProperty(target: Record<string, unknown>, key: string, value: unknow
   });
 }
 
-function sanitizeString(value: string): string {
-  return redactOutboundSecrets(value);
+function sanitizeString(value: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(redactOutboundSecrets(value));
 }
 
-function readProperty(
-  value: object,
-  key: string,
-): { readonly present: boolean; readonly value?: unknown } {
+function readProperty(value: object, key: string) {
   try {
-    if (!(key in value)) return { present: false };
-    return { present: true, value: Reflect.get(value, key) };
+    if (!(key in value))
+      return ((pinnedReturn: { readonly present: boolean; readonly value?: unknown }) =>
+        pinnedReturn)({ present: false });
+    return ((pinnedReturn: { readonly present: boolean; readonly value?: unknown }) =>
+      pinnedReturn)({ present: true, value: Reflect.get(value, key) });
   } catch {
-    return { present: true, value: UNSUPPORTED_VALUE };
+    return ((pinnedReturn: { readonly present: boolean; readonly value?: unknown }) =>
+      pinnedReturn)({ present: true, value: UNSUPPORTED_VALUE });
   }
 }
 
@@ -77,18 +78,28 @@ const SENSITIVE_TELEMETRY_KEY_SUFFIXES = new Set([
   "authorization",
 ]);
 
-function isSensitiveTelemetryKey(key: string): boolean {
+function isSensitiveTelemetryKey(key: string) {
   const normalized = key.replaceAll(/[_-]/g, "").toLowerCase();
-  if (SENSITIVE_TELEMETRY_KEYS.has(normalized)) return true;
+  if (SENSITIVE_TELEMETRY_KEYS.has(normalized))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   for (const sensitive of SENSITIVE_TELEMETRY_KEY_SUFFIXES) {
-    if (normalized.endsWith(sensitive) && normalized.length > sensitive.length) return true;
+    if (normalized.endsWith(sensitive) && normalized.length > sensitive.length)
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
-  return false;
+  return ((pinnedReturn: boolean) => pinnedReturn)(false);
 }
 
-function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number): SanitizedValue {
-  if (ancestors.has(error)) return { value: CIRCULAR_VALUE, changed: true };
-  if (depth >= MAX_TELEMETRY_DEPTH) return { value: UNSUPPORTED_VALUE, changed: true };
+function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number) {
+  if (ancestors.has(error))
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: CIRCULAR_VALUE,
+      changed: true,
+    });
+  if (depth >= MAX_TELEMETRY_DEPTH)
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
 
   ancestors.add(error);
   try {
@@ -124,30 +135,56 @@ function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number):
       }
       setProperty(next, key, sanitizeValue(Reflect.get(error, key), ancestors, depth + 1).value);
     }
-    return { value: next, changed: true };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({ value: next, changed: true });
   } catch {
-    return { value: UNSUPPORTED_VALUE, changed: true };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
   } finally {
     ancestors.delete(error);
   }
 }
 
-function sanitizeObject(object: object, ancestors: WeakSet<object>, depth: number): SanitizedValue {
-  if (ancestors.has(object)) return { value: CIRCULAR_VALUE, changed: true };
-  if (depth >= MAX_TELEMETRY_DEPTH) return { value: UNSUPPORTED_VALUE, changed: true };
+const sanitizeObject: (
+  object: object,
+  ancestors: WeakSet<object>,
+  depth: number,
+) => SanitizedValue = (object: object, ancestors: WeakSet<object>, depth: number) => {
+  if (ancestors.has(object))
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: CIRCULAR_VALUE,
+      changed: true,
+    });
+  if (depth >= MAX_TELEMETRY_DEPTH)
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
 
   if (object instanceof Date) {
-    return {
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
       value: Number.isNaN(object.getTime())
         ? "[invalid date]"
         : sanitizeString(object.toISOString()),
       changed: true,
-    };
+    });
   }
-  if (object instanceof URL) return { value: sanitizeString(object.toString()), changed: true };
-  if (object instanceof RegExp) return { value: sanitizeString(object.toString()), changed: true };
+  if (object instanceof URL)
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: sanitizeString(object.toString()),
+      changed: true,
+    });
+  if (object instanceof RegExp)
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: sanitizeString(object.toString()),
+      changed: true,
+    });
   if (object instanceof Map || object instanceof Set) {
-    return { value: UNSUPPORTED_VALUE, changed: true };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
   }
 
   ancestors.add(object);
@@ -159,12 +196,17 @@ function sanitizeObject(object: object, ancestors: WeakSet<object>, depth: numbe
         changed ||= sanitized.changed;
         return sanitized.value;
       });
-      return changed ? { value: next, changed: true } : { value: object, changed: false };
+      return ((pinnedReturn: SanitizedValue) => pinnedReturn)(
+        changed ? { value: next, changed: true } : { value: object, changed: false },
+      );
     }
 
     const toJson = readProperty(object, "toJSON");
     if (toJson.present && typeof toJson.value === "function") {
-      return { value: UNSUPPORTED_VALUE, changed: true };
+      return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+        value: UNSUPPORTED_VALUE,
+        changed: true,
+      });
     }
 
     const next: Record<string, unknown> = {};
@@ -179,52 +221,76 @@ function sanitizeObject(object: object, ancestors: WeakSet<object>, depth: numbe
       setProperty(next, key, sanitized.value);
       changed ||= sanitized.changed;
     }
-    return changed ? { value: next, changed: true } : { value: object, changed: false };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)(
+      changed ? { value: next, changed: true } : { value: object, changed: false },
+    );
   } catch {
-    return { value: UNSUPPORTED_VALUE, changed: true };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
   } finally {
     ancestors.delete(object);
   }
-}
+};
 
-function sanitizeValue(value: unknown, ancestors: WeakSet<object>, depth: number): SanitizedValue {
+const sanitizeValue: (
+  value: unknown,
+  ancestors: WeakSet<object>,
+  depth: number,
+) => SanitizedValue = (value: unknown, ancestors: WeakSet<object>, depth: number) => {
   if (typeof value === "string") {
     const sanitized = sanitizeString(value);
-    return { value: sanitized, changed: sanitized !== value };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: sanitized,
+      changed: sanitized !== value,
+    });
   }
   if (value === null || value === undefined || typeof value === "boolean") {
-    return { value, changed: false };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({ value, changed: false });
   }
   if (typeof value === "number") {
-    return Number.isFinite(value)
-      ? { value, changed: false }
-      : { value: String(value), changed: true };
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)(
+      Number.isFinite(value) ? { value, changed: false } : { value: String(value), changed: true },
+    );
   }
-  if (typeof value === "bigint") return { value: value.toString(), changed: true };
+  if (typeof value === "bigint")
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: value.toString(),
+      changed: true,
+    });
   if (typeof value === "symbol") {
     const description = value.description;
-    return {
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
       value: description === undefined ? "Symbol" : `Symbol(${sanitizeString(description)})`,
       changed: true,
-    };
+    });
   }
-  if (typeof value === "function") return { value: UNSUPPORTED_VALUE, changed: true };
-  if (value instanceof Error) return sanitizeError(value, ancestors, depth);
-  return sanitizeObject(value, ancestors, depth);
+  if (typeof value === "function")
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)({
+      value: UNSUPPORTED_VALUE,
+      changed: true,
+    });
+  if (value instanceof Error)
+    return ((pinnedReturn: SanitizedValue) => pinnedReturn)(sanitizeError(value, ancestors, depth));
+  return ((pinnedReturn: SanitizedValue) => pinnedReturn)(sanitizeObject(value, ancestors, depth));
+};
+
+export function sanitizeTelemetryString(value: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(sanitizeString(value));
 }
 
-export function sanitizeTelemetryString(value: string): string {
-  return sanitizeString(value);
+export function sanitizeTelemetryValue(value: unknown) {
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    sanitizeValue(value, new WeakSet<object>(), 0).value,
+  );
 }
 
-export function sanitizeTelemetryValue(value: unknown): unknown {
-  return sanitizeValue(value, new WeakSet<object>(), 0).value;
-}
-
-export function sanitizeTelemetryRecord(
-  value: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (value === undefined) return undefined;
+export function sanitizeTelemetryRecord(value: Record<string, unknown> | undefined) {
+  if (value === undefined)
+    return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(undefined);
   const sanitized = sanitizeTelemetryValue(value);
-  return isRecord(sanitized) ? sanitized : {};
+  return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(
+    isRecord(sanitized) ? sanitized : {},
+  );
 }

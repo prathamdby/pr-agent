@@ -132,16 +132,20 @@ export type ReconciledFindings = {
   readonly outcomes: ReadonlyMap<string, ReconcileOutcome>;
 };
 
-export function reconciledFindingKey(finding: ReviewFinding): string {
-  return JSON.stringify([reviewFindingPlacementKey(finding), finding.detail]);
+export function reconciledFindingKey(finding: ReviewFinding) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    JSON.stringify([reviewFindingPlacementKey(finding), finding.detail]),
+  );
 }
 
 export function findingIdScope(
   session: Pick<ReviewPublishSession, "operationIntent" | "workItemId" | "ctx">,
   source: FindingSource,
-): readonly string[] | undefined {
+) {
   const workItemId = session.operationIntent?.workItemId ?? session.workItemId;
-  return workItemId == null ? undefined : [workItemId, session.ctx.headSha, source];
+  return ((pinnedReturn: readonly string[] | undefined) => pinnedReturn)(
+    workItemId == null ? undefined : [workItemId, session.ctx.headSha, source],
+  );
 }
 
 type ReconciledBatch = {
@@ -155,8 +159,8 @@ type ReconciledBatch = {
   readonly suppressedDismissedCount: number;
 };
 
-function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta {
-  return {
+function emptyDelta(overrides?: Partial<FindingLedgerDelta>) {
+  return ((pinnedReturn: FindingLedgerDelta) => pinnedReturn)({
     accepted: [],
     reaffirmed: [],
     suppressedDismissedCount: 0,
@@ -165,7 +169,7 @@ function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta
     threadCallCount: 1,
     threadBudgetExhausted: false,
     ...overrides,
-  };
+  });
 }
 
 function reaffirmedFinding(
@@ -175,7 +179,7 @@ function reaffirmedFinding(
   inventory: FindingInventory,
   judged: boolean,
   coverageGapCeiling: CoverageGapCeiling | undefined,
-): ReaffirmedFinding {
+) {
   const held = inventory.findings.get(outcome.id);
   const base = {
     id: outcome.id,
@@ -193,7 +197,7 @@ function reaffirmedFinding(
     ...(coverageGapCeiling == null ? {} : { coverageGapCeiling }),
   };
   if (held?.source === "thread") {
-    return {
+    return ((pinnedReturn: ReaffirmedFinding) => pinnedReturn)({
       ...base,
       heldBy: "thread",
       placement: {
@@ -202,13 +206,13 @@ function reaffirmedFinding(
         inlinePosted: true,
         ...(held.url.length > 0 ? { inlineCommentUrl: held.url } : {}),
       },
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: ReaffirmedFinding) => pinnedReturn)({
     ...base,
     heldBy: held == null ? "run" : "summary",
     placement: { finding: placement.finding, inlineLine: null, inlinePosted: false },
-  };
+  });
 }
 
 function reconcileBatch(
@@ -217,18 +221,20 @@ function reconcileBatch(
   reconciled: ReconciledFindings | undefined,
   judged: boolean,
   coverageGapCeiling: (finding: ReviewFinding) => CoverageGapCeiling | undefined,
-): ReconciledBatch {
+) {
   const identities = new Map<string, PlacementIdentity>();
-  const identify = (placement: InlinePlacement): PlacementIdentity | undefined =>
-    identities.get(reconciledFindingKey(placement.finding));
+  const identify = (placement: InlinePlacement) =>
+    ((pinnedReturn: PlacementIdentity | undefined) => pinnedReturn)(
+      identities.get(reconciledFindingKey(placement.finding)),
+    );
   if (reconciled == null) {
-    return {
+    return ((pinnedReturn: ReconciledBatch) => pinnedReturn)({
       postable: placements,
       identify,
       held: [],
       reaffirmed: [],
       suppressedDismissedCount: 0,
-    };
+    });
   }
   const postable: InlinePlacement[] = [];
   const held: { placement: IdentifiedInlinePlacement; reason: SummaryOnlyReason }[] = [];
@@ -274,11 +280,17 @@ function reconcileBatch(
         break;
       default: {
         const exhaustive: never = outcome;
-        return exhaustive;
+        return ((pinnedReturn: ReconciledBatch) => pinnedReturn)(exhaustive);
       }
     }
   }
-  return { postable, identify, held, reaffirmed, suppressedDismissedCount };
+  return ((pinnedReturn: ReconciledBatch) => pinnedReturn)({
+    postable,
+    identify,
+    held,
+    reaffirmed,
+    suppressedDismissedCount,
+  });
 }
 
 function ledgerPlacement({
@@ -294,15 +306,15 @@ function summaryOnlyPlacement(
   placement: IdentifiedInlinePlacement,
   source: FindingSource,
   reason: SummaryOnlyReason,
-): AcceptedPlacement {
-  return {
+) {
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
     kind: "summary_only",
     source,
     placement: { ...ledgerPlacement(placement), inlinePosted: false },
     findingId: placement.findingId,
     reason,
     ...(placement.reopens != null ? { reopens: placement.reopens } : {}),
-  };
+  });
 }
 
 function acceptedSummaryPlacements(params: {
@@ -311,7 +323,7 @@ function acceptedSummaryPlacements(params: {
   readonly batch: ReconciledBatch;
   readonly source: FindingSource;
   readonly budgetExhausted?: boolean;
-}): AcceptedPlacement[] {
+}) {
   const plannedByKey = new Map(
     params.planned.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
@@ -324,12 +336,10 @@ function acceptedSummaryPlacements(params: {
     const reason = params.budgetExhausted ? "budget" : planned?.inlinePosted ? "cap" : "anchor";
     return [summaryOnlyPlacement(placement, params.source, reason)];
   });
-  return [...held, ...fromTargets];
+  return ((pinnedReturn: AcceptedPlacement[]) => pinnedReturn)([...held, ...fromTargets]);
 }
 
-function storedPlacement(
-  placement: IdentifiedInlinePlacement,
-): StoredInlineBatch["placements"][number] {
+function storedPlacement(placement: IdentifiedInlinePlacement) {
   if (placement.inlineLine == null) {
     throw new AppError({
       domain: "review",
@@ -337,18 +347,18 @@ function storedPlacement(
       message: "Posted inline placement is missing its resolved line",
     });
   }
-  return {
+  return ((pinnedReturn: StoredInlineBatch["placements"][number]) => pinnedReturn)({
     finding: placement.finding,
     resolvedLine: placement.inlineLine,
     findingId: placement.findingId,
-  };
+  });
 }
 
 export async function publishFindingBatch(
   batch: readonly ReviewFinding[],
   session: ReviewPublishSession,
   input: FindingBatchInput,
-): Promise<FindingBatchResult> {
+) {
   const replay = input.recoveryDecision;
   const canonical = replay?.prepared.artifact.canonical;
   if (canonical && canonical.kind !== "threads") reviewArtifactInvalid("decision_target");
@@ -426,33 +436,34 @@ export async function publishFindingBatch(
     localDelta: FindingLedgerDelta,
     resultKind: CanonicalThreadDecision["resultKind"],
     footers: ReadonlyMap<string, readonly string[]> = new Map(),
-  ): CanonicalThreadDecision => ({
-    kind: "threads",
-    source: input.source,
-    ledgerBefore: snapshotFindingLedger(input.ledger),
-    localDelta: {
-      ...localDelta,
-      accepted: [...localDelta.accepted],
-      reaffirmed: [...localDelta.reaffirmed],
-      inlineReviewIds: [...localDelta.inlineReviewIds],
-    },
-    inline: targets.inline.map(({ relatedLinks, ...entry }) => ({
-      ...entry,
-      ...(relatedLinks != null ? { relatedLinks: [...relatedLinks] } : {}),
-    })),
-    footers: [...footers].map(([key, paths]) => [key, [...paths]]),
-    baseSha: input.policyBaseSha ?? null,
-    resultKind,
-    evidence: evidence ?? [],
-    judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
-    briefFallback: session.recovery?.getBriefFallback() ?? false,
-    coverage: session.recovery?.getCoverage() ?? { kind: "full" },
-    ...(input.evidenceLedger ? { openedPaths: [...input.evidenceLedger.openedPaths()] } : {}),
-    counts: {
-      suppressed: suppressedCount,
-      capDowngraded: targets.dropped.inlineCommentCapExcluded,
-    },
-  });
+  ) =>
+    ((pinnedReturn: CanonicalThreadDecision) => pinnedReturn)({
+      kind: "threads",
+      source: input.source,
+      ledgerBefore: snapshotFindingLedger(input.ledger),
+      localDelta: {
+        ...localDelta,
+        accepted: [...localDelta.accepted],
+        reaffirmed: [...localDelta.reaffirmed],
+        inlineReviewIds: [...localDelta.inlineReviewIds],
+      },
+      inline: targets.inline.map(({ relatedLinks, ...entry }) => ({
+        ...entry,
+        ...(relatedLinks != null ? { relatedLinks: [...relatedLinks] } : {}),
+      })),
+      footers: [...footers].map(([key, paths]) => [key, [...paths]]),
+      baseSha: input.policyBaseSha ?? null,
+      resultKind,
+      evidence: evidence ?? [],
+      judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
+      briefFallback: session.recovery?.getBriefFallback() ?? false,
+      coverage: session.recovery?.getCoverage() ?? { kind: "full" },
+      ...(input.evidenceLedger ? { openedPaths: [...input.evidenceLedger.openedPaths()] } : {}),
+      counts: {
+        suppressed: suppressedCount,
+        capDowngraded: targets.dropped.inlineCommentCapExcluded,
+      },
+    });
   const prepareDecision = async (operationKey: string, decision: CanonicalThreadDecision) => {
     if (replay) return replay;
     session.recovery?.throwIfPublicationUnresolved();
@@ -476,11 +487,13 @@ export async function publishFindingBatch(
   };
   if (saved && saved.resultKind !== "remote") {
     if (input.recoveryWithoutEvidence)
-      return {
+      return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
         kind: saved.resultKind,
         delta: { ...saved.localDelta, ...reconciledDelta, accepted: [] },
-      };
-    return finishLocal({ kind: saved.resultKind, delta: saved.localDelta });
+      });
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
+      finishLocal({ kind: saved.resultKind, delta: saved.localDelta }),
+    );
   }
 
   if (
@@ -495,10 +508,12 @@ export async function publishFindingBatch(
       source: input.source,
       budgetExhausted: true,
     });
-    return finishLocal({
-      kind: "budget_exhausted",
-      delta: emptyDelta({ accepted, ...reconciledDelta, threadBudgetExhausted: true }),
-    });
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
+      finishLocal({
+        kind: "budget_exhausted",
+        delta: emptyDelta({ accepted, ...reconciledDelta, threadBudgetExhausted: true }),
+      }),
+    );
   }
 
   const acceptedBeforePublish = input.recoveryWithoutEvidence
@@ -511,10 +526,12 @@ export async function publishFindingBatch(
         source: input.source,
       }));
   if (targets.inline.length === 0) {
-    return finishLocal({
-      kind: "empty",
-      delta: emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
-    });
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)(
+      finishLocal({
+        kind: "empty",
+        delta: emptyDelta({ accepted: acceptedBeforePublish, ...reconciledDelta }),
+      }),
+    );
   }
 
   if (session.recordPublishStep && session.workItemId == null) {
@@ -526,7 +543,11 @@ export async function publishFindingBatch(
   }
 
   const stopReason = await session.stopReason();
-  if (stopReason != null) return { kind: "stopped", reason: stopReason };
+  if (stopReason != null)
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
+      kind: "stopped",
+      reason: stopReason,
+    });
 
   const progressCommentUrl = (await session.resolveProgressCommentUrl())?.trim();
   if (!progressCommentUrl) {
@@ -573,7 +594,10 @@ export async function publishFindingBatch(
     replay?.settled?.artifact.kind === "publication_settled" &&
     replay.settled.artifact.outcome === "stopped"
   ) {
-    return { kind: "empty", delta: emptyDelta({ threadCallCount: 0 }) };
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
+      kind: "empty",
+      delta: emptyDelta({ threadCallCount: 0 }),
+    });
   }
   if (replay?.settled && session.operationIntent) {
     const intent = await getOperationIntent(
@@ -708,10 +732,10 @@ export async function publishFindingBatch(
   const review = inlineResult.review;
   if (!review) {
     await session.recovery?.settle(decision);
-    return {
+    return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
       kind: "empty",
       delta: emptyDelta({ accepted: acceptedWithoutPosted, ...reconciledDelta }),
-    };
+    });
   }
 
   const postedAccepted: AcceptedPlacement[] = posted.map((placement) => ({
@@ -764,7 +788,7 @@ export async function publishFindingBatch(
     });
   }
 
-  return {
+  return ((pinnedReturn: FindingBatchResult | Promise<FindingBatchResult>) => pinnedReturn)({
     kind: "published",
     reviewId: review.id,
     delta: emptyDelta({
@@ -773,5 +797,5 @@ export async function publishFindingBatch(
       inlineReviewIds: [review.id],
       postedInlineCount: posted.length,
     }),
-  };
+  });
 }

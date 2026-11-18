@@ -24,8 +24,8 @@ import type {
   ReviewCapabilityPolicy,
 } from "../../github/installationCapabilities.ts";
 
-function capabilityNotice(policy: ReviewCapabilityPolicy | undefined): string | null {
-  if (!policy) return null;
+function capabilityNotice(policy: ReviewCapabilityPolicy | undefined) {
+  if (!policy) return ((pinnedReturn: string | null) => pinnedReturn)(null);
   const unavailable = (operation: InstallationOperation) =>
     policy.access(operation) !== "available";
   const surfaces: string[] = [];
@@ -44,17 +44,19 @@ function capabilityNotice(policy: ReviewCapabilityPolicy | undefined): string | 
   if (unavailable("actionsRead")) surfaces.push("Actions logs");
   if (unavailable("labelsRead") || unavailable("labelsWrite")) surfaces.push("labels");
   if (unavailable("reactionsWrite")) surfaces.push("reactions");
-  if (!surfaces.length) return null;
-  return [
-    "<details>",
-    "<summary>Limited permissions</summary>",
-    "",
-    "Unavailable for this review:",
-    "",
-    ...surfaces.map((surface) => `- ${surface}`),
-    "",
-    "</details>",
-  ].join("\n");
+  if (!surfaces.length) return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    [
+      "<details>",
+      "<summary>Limited permissions</summary>",
+      "",
+      "Unavailable for this review:",
+      "",
+      ...surfaces.map((surface) => `- ${surface}`),
+      "",
+      "</details>",
+    ].join("\n"),
+  );
 }
 
 export type SummaryCommentCoordination = {
@@ -76,17 +78,23 @@ export type RecordPublishStepWithCoordination = RecordPublishStepFn & {
 export function attachSummaryCommentCoordination(
   recordPublishStep: RecordPublishStepFn,
   coordination: SummaryCommentCoordination,
-): RecordPublishStepWithCoordination {
-  return Object.assign(recordPublishStep, { summaryCommentCoordination: coordination });
+) {
+  return ((pinnedReturn: RecordPublishStepWithCoordination) => pinnedReturn)(
+    Object.assign(recordPublishStep, { summaryCommentCoordination: coordination }),
+  );
 }
 
 async function resolveKnownSummaryCommentRef(
   prSurface: PrSurface,
   sentinel: string,
   hintCommentId: number | null | undefined,
-): Promise<{ id: number; url: string } | null> {
+) {
   const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
-  return resolved ? { id: resolved.id, url: resolved.url } : null;
+  return ((
+    pinnedReturn:
+      | ({ id: number; url: string } | null)
+      | Promise<{ id: number; url: string } | null>,
+  ) => pinnedReturn)(resolved ? { id: resolved.id, url: resolved.url } : null);
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -119,21 +127,21 @@ type RevisionedUpsertParams = Omit<SummaryCommentUpsertParams, "pool" | "progres
   readonly progressRevision: ProgressCommentRevision;
 };
 
-async function upsertSummaryCommentWithoutRevision(
-  params: SummaryCommentUpsertParams,
-): Promise<SummaryCommentUpsertResult> {
+async function upsertSummaryCommentWithoutRevision(params: SummaryCommentUpsertParams) {
   const { pool, workItemId, resourceKey, reviewLens, prSurface, body, sentinel } = params;
 
   const storedId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
   const hintId = params.hintCommentId ?? storedId ?? null;
   const knownFromStored = await resolveKnownSummaryCommentRef(prSurface, sentinel, hintId);
   if (knownFromStored) {
-    return prSurface.upsertProgressComment(body, sentinel, knownFromStored);
+    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, knownFromStored));
   }
 
   if (workItemId == null) {
     const scanned = await prSurface.findProgressComment(sentinel);
-    return prSurface.upsertProgressComment(body, sentinel, scanned);
+    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
   }
 
   const claimWon =
@@ -148,7 +156,8 @@ async function upsertSummaryCommentWithoutRevision(
         );
   if (claimWon) {
     const scanned = await prSurface.findProgressComment(sentinel);
-    return prSurface.upsertProgressComment(body, sentinel, scanned);
+    return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+      pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -163,12 +172,14 @@ async function upsertSummaryCommentWithoutRevision(
     if (polledId == null) continue;
     const knownFromPoll = await resolveKnownSummaryCommentRef(prSurface, sentinel, polledId);
     if (knownFromPoll) {
-      return prSurface.upsertProgressComment(body, sentinel, knownFromPoll);
+      return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+        pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, knownFromPoll));
     }
   }
 
   const scanned = await prSurface.findProgressComment(sentinel);
-  return prSurface.upsertProgressComment(body, sentinel, scanned);
+  return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+    pinnedReturn)(prSurface.upsertProgressComment(body, sentinel, scanned));
 }
 
 type PreparedRevisionUpsert =
@@ -183,14 +194,26 @@ type PreparedRevisionUpsert =
 function skippedRevisionResult(
   currentComment: IssueCommentRef | null,
   hintCommentId?: number | null,
-): SummaryCommentUpsertResult {
+) {
   if (currentComment) {
-    return { id: currentComment.id, updated: false, skipped: true };
+    return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
+      id: currentComment.id,
+      updated: false,
+      skipped: true,
+    });
   }
   if (hintCommentId != null) {
-    return { id: hintCommentId, updated: false, skipped: true };
+    return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
+      id: hintCommentId,
+      updated: false,
+      skipped: true,
+    });
   }
-  return { id: 0, updated: false, skipped: true };
+  return ((pinnedReturn: SummaryCommentUpsertResult) => pinnedReturn)({
+    id: 0,
+    updated: false,
+    skipped: true,
+  });
 }
 
 async function prepareSummaryCommentAtRevision(
@@ -199,7 +222,7 @@ async function prepareSummaryCommentAtRevision(
     readonly currentComment: IssueCommentRef | null;
   },
   client: PoolClient,
-): Promise<PreparedRevisionUpsert> {
+) {
   const [progressOwner, storedRevision] = await Promise.all([
     getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
@@ -209,7 +232,11 @@ async function prepareSummaryCommentAtRevision(
     ? parseProgressRevisionState(currentComment.body ?? "")
     : null;
   if (params.shouldPublish && !(await params.shouldPublish(client))) {
-    return { kind: "skipped", result: skippedRevisionResult(currentComment, params.hintCommentId) };
+    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
+      pinnedReturn)({
+      kind: "skipped",
+      result: skippedRevisionResult(currentComment, params.hintCommentId),
+    });
   }
   if (
     progressOwner != null &&
@@ -226,10 +253,11 @@ async function prepareSummaryCommentAtRevision(
         progressRevision: params.progressRevision,
       });
     }
-    return {
+    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
+      pinnedReturn)({
       kind: "skipped",
       result: skippedRevisionResult(currentComment, params.hintCommentId),
-    };
+    });
   }
   const storedRevisionForRun =
     storedRevision != null && storedRevision.workItemId === params.workItemId
@@ -240,13 +268,18 @@ async function prepareSummaryCommentAtRevision(
       ? bodyRevision.revision
       : -1;
   if (currentComment && bodyRevisionForRun >= params.progressRevision) {
-    return { kind: "skipped", result: { id: currentComment.id, updated: false, skipped: true } };
+    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
+      pinnedReturn)({
+      kind: "skipped",
+      result: { id: currentComment.id, updated: false, skipped: true },
+    });
   }
   if (storedRevisionForRun > params.progressRevision) {
-    return {
+    return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) =>
+      pinnedReturn)({
       kind: "skipped",
       result: skippedRevisionResult(currentComment, params.hintCommentId),
-    };
+    });
   }
 
   const stubPostedAtMs =
@@ -273,100 +306,105 @@ async function prepareSummaryCommentAtRevision(
     }).record();
   }
 
-  return {
-    kind: "write",
-    body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
-    hintCommentId: currentComment?.id ?? params.hintCommentId,
-    stubPostedAtMs,
-  };
+  return ((pinnedReturn: PreparedRevisionUpsert | Promise<PreparedRevisionUpsert>) => pinnedReturn)(
+    {
+      kind: "write",
+      body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
+      hintCommentId: currentComment?.id ?? params.hintCommentId,
+      stubPostedAtMs,
+    },
+  );
 }
 
-async function upsertSummaryCommentAtRevision(
-  params: RevisionedUpsertParams,
-): Promise<SummaryCommentUpsertResult> {
+async function upsertSummaryCommentAtRevision(params: RevisionedUpsertParams) {
   const progressRevision = params.progressRevision;
 
-  return withSessionLock(
-    params.pool,
-    { kind: "progress", resourceKey: params.resourceKey, reviewLens: params.reviewLens },
-    {
-      mode: "wait",
-      deadline: performance.now() + POSTGRES_LOCK_TIMEOUT_MS,
-      capacityError: (poolMax) =>
-        Object.assign(
+  return ((pinnedReturn: SummaryCommentUpsertResult | Promise<SummaryCommentUpsertResult>) =>
+    pinnedReturn)(
+    withSessionLock(
+      params.pool,
+      { kind: "progress", resourceKey: params.resourceKey, reviewLens: params.reviewLens },
+      {
+        mode: "wait",
+        deadline: performance.now() + POSTGRES_LOCK_TIMEOUT_MS,
+        capacityError: (poolMax) =>
+          Object.assign(
+            new AppError({
+              domain: "review",
+              kind: "progress_lock_capacity",
+              message: "Progress publication needs a pool with at least two connections",
+              context: { poolMax },
+            }),
+            { mutationAccepted: false },
+          ),
+        timeoutError: Object.assign(
           new AppError({
             domain: "review",
-            kind: "progress_lock_capacity",
-            message: "Progress publication needs a pool with at least two connections",
-            context: { poolMax },
+            kind: "progress_lock_timeout",
+            message: "Progress publication lock acquisition timed out",
+            context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
           }),
           { mutationAccepted: false },
         ),
-      timeoutError: Object.assign(
-        new AppError({
-          domain: "review",
-          kind: "progress_lock_timeout",
-          message: "Progress publication lock acquisition timed out",
-          context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
-        }),
-        { mutationAccepted: false },
-      ),
-      onAcquireError: (error) => {
-        throw Object.assign(
-          error instanceof AppError
-            ? error
-            : new AppError({
-                domain: "review",
-                kind: "progress_lock_failed",
-                message: "Progress publication lock acquisition failed",
-                cause: error,
-              }),
-          { mutationAccepted: false },
+        onAcquireError: (error) => {
+          throw Object.assign(
+            error instanceof AppError
+              ? error
+              : new AppError({
+                  domain: "review",
+                  kind: "progress_lock_failed",
+                  message: "Progress publication lock acquisition failed",
+                  cause: error,
+                }),
+            { mutationAccepted: false },
+          );
+        },
+        onUnlockError: (error) => {
+          logWarn("review_progress_unlock_failed", {
+            resourceKey: params.resourceKey,
+            reviewLens: params.reviewLens,
+            message: errorMessage(error),
+          });
+        },
+      },
+      async (client) => {
+        const currentComment = await params.prSurface.findProgressComment(params.sentinel);
+        const prepared = await prepareSummaryCommentAtRevision(
+          { ...params, progressRevision, currentComment },
+          client,
         );
-      },
-      onUnlockError: (error) => {
-        logWarn("review_progress_unlock_failed", {
-          resourceKey: params.resourceKey,
-          reviewLens: params.reviewLens,
-          message: errorMessage(error),
+        if (prepared.kind === "skipped") {
+          return prepared.result;
+        }
+        const result = await upsertSummaryCommentWithoutRevision({
+          ...params,
+          pool: client,
+          body: prepared.body,
+          hintCommentId: prepared.hintCommentId,
         });
+        if (params.workItemId != null) {
+          await createPublishContext(client, {
+            workItemId: params.workItemId,
+            resourceKey: params.resourceKey,
+            reviewLens: params.reviewLens,
+            step: "progress_comment",
+            githubId: result.id,
+            leaseEpoch: params.leaseEpoch ?? null,
+            detail: {
+              progressRevision: params.progressRevision,
+              updated: result.updated,
+              ...(prepared.stubPostedAtMs != null
+                ? { stubPostedAtMs: prepared.stubPostedAtMs }
+                : {}),
+              ...(params.ciHeadSha != null
+                ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
+                : {}),
+            },
+          }).record();
+        }
+        return result;
       },
-    },
-    async (client) => {
-      const currentComment = await params.prSurface.findProgressComment(params.sentinel);
-      const prepared = await prepareSummaryCommentAtRevision(
-        { ...params, progressRevision, currentComment },
-        client,
-      );
-      if (prepared.kind === "skipped") {
-        return prepared.result;
-      }
-      const result = await upsertSummaryCommentWithoutRevision({
-        ...params,
-        pool: client,
-        body: prepared.body,
-        hintCommentId: prepared.hintCommentId,
-      });
-      if (params.workItemId != null) {
-        await createPublishContext(client, {
-          workItemId: params.workItemId,
-          resourceKey: params.resourceKey,
-          reviewLens: params.reviewLens,
-          step: "progress_comment",
-          githubId: result.id,
-          leaseEpoch: params.leaseEpoch ?? null,
-          detail: {
-            progressRevision: params.progressRevision,
-            updated: result.updated,
-            ...(prepared.stubPostedAtMs != null ? { stubPostedAtMs: prepared.stubPostedAtMs } : {}),
-            ...(params.ciHeadSha != null
-              ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
-              : {}),
-          },
-        }).record();
-      }
-      return result;
-    },
+    ),
   );
 }
 
@@ -400,32 +438,36 @@ export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
       readonly shouldPublish?: ReviewSummaryCommentTick["shouldPublish"];
     },
     progressRevision: ProgressCommentRevision,
-  ): Promise<SummaryCommentUpsertResult> => {
+  ) => {
     const { coordination } = deps;
     const notice = capabilityNotice(deps.prSurface.capabilities);
     const body = notice == null ? params.body : `${params.body}\n\n${notice}`;
     if (coordination == null) {
-      return deps.prSurface.upsertProgressComment(
-        body,
-        REVIEW_SUMMARY_SENTINEL,
-        params.knownExisting ?? null,
+      return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
+        deps.prSurface.upsertProgressComment(
+          body,
+          REVIEW_SUMMARY_SENTINEL,
+          params.knownExisting ?? null,
+        ),
       );
     }
-    return upsertSummaryCommentAtRevision({
-      pool: coordination.pool,
-      resourceKey: coordination.resourceKey,
-      workItemId: coordination.workItemId,
-      leaseEpoch: coordination.leaseEpoch,
-      reviewLens: deps.reviewLens,
-      prSurface: deps.prSurface,
-      body,
-      sentinel: REVIEW_SUMMARY_SENTINEL,
-      hintCommentId: params.hintCommentId,
-      progressRevision,
-      ciHeadSha: params.ciHeadSha,
-      ciVersion: params.ciVersion,
-      shouldPublish: params.shouldPublish,
-    });
+    return ((pinnedReturn: Promise<SummaryCommentUpsertResult>) => pinnedReturn)(
+      upsertSummaryCommentAtRevision({
+        pool: coordination.pool,
+        resourceKey: coordination.resourceKey,
+        workItemId: coordination.workItemId,
+        leaseEpoch: coordination.leaseEpoch,
+        reviewLens: deps.reviewLens,
+        prSurface: deps.prSurface,
+        body,
+        sentinel: REVIEW_SUMMARY_SENTINEL,
+        hintCommentId: params.hintCommentId,
+        progressRevision,
+        ciHeadSha: params.ciHeadSha,
+        ciVersion: params.ciVersion,
+        shouldPublish: params.shouldPublish,
+      }),
+    );
   };
   return {
     tick: (params: ReviewSummaryCommentTick) => write(params, params.progressRevision),

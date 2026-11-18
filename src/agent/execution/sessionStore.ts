@@ -14,12 +14,12 @@ export type ExecutionSessionStore = {
   commit: (expectedGeneration: number, expectedRevision: number, next: JsonObject) => boolean;
 };
 
-export function createExecutionSessionStore(initial: JsonObject = {}): ExecutionSessionStore {
+export function createExecutionSessionStore(initial: JsonObject = {}) {
   let generation = 1;
   let revision = 0;
   let data: JsonObject = initial;
   let admissionOpen = true;
-  return {
+  return ((pinnedReturn: ExecutionSessionStore) => pinnedReturn)({
     get generation() {
       return generation;
     },
@@ -56,5 +56,5 @@ export function createExecutionSessionStore(initial: JsonObject = {}): Execution
       revision += 1;
       return true;
     },
-  };
+  });
 }

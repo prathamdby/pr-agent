@@ -98,15 +98,24 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
-  getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
+  getSummaryCommentGithubId: vi.fn(async () =>
+    ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null),
+  ),
   getProgressCommentOwner: vi.fn(async () => ({
     workItemId: "00000000-0000-4000-8000-000000000001",
     generation: 0,
   })),
-  getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
-  getWorkItem: vi.fn(async (): Promise<unknown> => null),
+  getProgressStubPostedAtMs: vi.fn(async () =>
+    ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null),
+  ),
+  getWorkItem: vi.fn(async () =>
+    ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(null),
+  ),
   write: vi.fn(),
-  completed: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
+  completed: vi.fn(async (..._args: unknown[]) =>
+    ((pinnedReturn: (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>) =>
+      pinnedReturn)(null),
+  ),
   shouldSkipWork: vi.fn(async () => false),
   ensureReviewAccess: vi.fn(async () => undefined),
   summaryConclude: vi.fn(
@@ -182,7 +191,7 @@ let runExecution: () => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["review"]) => Promise<unknown>,
   config = cfg,
-): void {
+) {
   runExecution = () =>
     run(
       createWorkDefinitions({
@@ -255,7 +264,7 @@ function mockDurableExecution(
     ? pullRequest
     : undefined,
   escalation?: EscalationPlan,
-): CapturedDurableExecution {
+) {
   const captured: CapturedDurableExecution = {};
   durableSurfaceBundle = createFakePrSurface(
     { owner: "o", repo: "r", prNumber: 1 },
@@ -290,11 +299,13 @@ function mockDurableExecution(
       }),
     );
   });
-  return captured;
+  return ((pinnedReturn: CapturedDurableExecution) => pinnedReturn)(captured);
 }
 
 const verdictMethods = {
-  pending: vi.fn(async (): Promise<number | null> => 123),
+  pending: vi.fn(async () =>
+    ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(123),
+  ),
   close: vi.fn(async (_outcome: verdictOwner.OwnVerdictOutcome) => undefined),
   repairIfOpen: vi.fn(async () => undefined),
 };
@@ -316,8 +327,9 @@ describe("review work definition", () => {
           ? undefined
           : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
     );
-    mocks.completed.mockImplementation(
-      async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
+    mocks.completed.mockImplementation(async (..._args: unknown[]) =>
+      ((pinnedReturn: (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>) =>
+        pinnedReturn)(null),
     );
     vi.spyOn(verdictOwner, "ownCheckCloseIntents").mockResolvedValue([null, null]);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
@@ -1684,11 +1696,21 @@ describe("review work definition", () => {
         workspace: mockLocalPrWorkspace(),
       });
     });
-    mocks.fetchPriorFeedback.mockResolvedValue("prior block");
+    const feedbackRequested = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    mocks.fetchPriorFeedback.mockImplementation(() => {
+      feedbackRequested.resolve();
+      return Promise.resolve("prior block");
+    });
 
     const review = runExecution();
 
-    await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
+    await feedbackRequested.promise;
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
 
     releaseRepositoryView();

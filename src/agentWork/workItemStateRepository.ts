@@ -67,7 +67,7 @@ function invalidWorkItemRow(row: Omit<AgentWorkRow, "payload">, detail: string):
   );
 }
 
-function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore {
+function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">) {
   const base = workItemRowBase(row);
   switch (row.type) {
     case "review": {
@@ -77,50 +77,50 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
       if (!isAnyReviewLens(row.review_lens)) {
         invalidWorkItemRow(row, `invalid review_lens "${row.review_lens}"`);
       }
-      return {
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)({
         ...base,
         type: "review",
         source: row.source,
         reviewLens: normalizeReviewLens(row.review_lens),
-      };
+      });
     }
     case "ask": {
       if (row.source !== "slash") {
         invalidWorkItemRow(row, `expected source "slash", got "${row.source}"`);
       }
-      return {
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)({
         ...base,
         type: "ask",
         source: "slash",
         reviewLens: null,
-      };
+      });
     }
     case "description": {
-      return {
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)({
         ...base,
         type: "description",
         source: row.source,
         reviewLens: null,
-      };
+      });
     }
     case "triage": {
       if (row.source !== "slash") {
         invalidWorkItemRow(row, `expected source "slash", got "${row.source}"`);
       }
-      return {
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)({
         ...base,
         type: "triage",
         source: "slash",
         reviewLens: null,
-      };
+      });
     }
     case "verification": {
-      return {
+      return ((pinnedReturn: AgentWorkItemCore) => pinnedReturn)({
         ...base,
         type: "verification",
         source: row.source,
         reviewLens: null,
-      };
+      });
     }
     default: {
       const exhaustive: never = row.type;
@@ -132,14 +132,13 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
   }
 }
 
-function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
-  return attachWorkItemPayload(mapWorkItemCore(row), row.payload);
+function mapWorkItem(row: AgentWorkRow) {
+  return ((pinnedReturn: AgentWorkItem) => pinnedReturn)(
+    attachWorkItemPayload(mapWorkItemCore(row), row.payload),
+  );
 }
 
-export async function getWorkItem(
-  client: Pool | PoolClient,
-  id: string,
-): Promise<AgentWorkItem | null> {
+export async function getWorkItem(client: Pool | PoolClient, id: string) {
   const row = await queryOne<AgentWorkRow>(
     client,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
@@ -148,10 +147,12 @@ export async function getWorkItem(
 		  WHERE id = $1`,
     [id],
   );
-  return row ? mapWorkItem(row) : null;
+  return ((pinnedReturn: (AgentWorkItem | null) | Promise<AgentWorkItem | null>) => pinnedReturn)(
+    row ? mapWorkItem(row) : null,
+  );
 }
 
-export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWorkItemCore | null> {
+export async function getWorkItemCore(pool: Pool, id: string) {
   const row = await queryOne<Omit<AgentWorkRow, "payload">>(
     pool,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
@@ -160,13 +161,11 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
 		  WHERE id = $1`,
     [id],
   );
-  return row ? mapWorkItemCore(row) : null;
+  return ((pinnedReturn: (AgentWorkItemCore | null) | Promise<AgentWorkItemCore | null>) =>
+    pinnedReturn)(row ? mapWorkItemCore(row) : null);
 }
 
-export async function getActiveReviewWorkItem(
-  client: Pool | PoolClient,
-  resourceKey: string,
-): Promise<{ id: string } | null> {
+export async function getActiveReviewWorkItem(client: Pool | PoolClient, resourceKey: string) {
   const result = await client.query<{ id: string }>(
     `SELECT id
        FROM agent_work_items
@@ -176,7 +175,9 @@ export async function getActiveReviewWorkItem(
       LIMIT 1`,
     [resourceKey],
   );
-  return result.rows[0] ?? null;
+  return ((pinnedReturn: ({ id: string } | null) | Promise<{ id: string } | null>) => pinnedReturn)(
+    result.rows[0] ?? null,
+  );
 }
 
 export type ReviewQueuePosition = {
@@ -184,10 +185,7 @@ export type ReviewQueuePosition = {
   readonly total: number;
 };
 
-export async function getReviewQueuePosition(
-  pool: Pool,
-  workItemId: string,
-): Promise<ReviewQueuePosition | null> {
+export async function getReviewQueuePosition(pool: Pool, workItemId: string) {
   const row = await queryOne<{ position: number; total: number }>(
     pool,
     `WITH target AS (
@@ -211,7 +209,9 @@ export async function getReviewQueuePosition(
      FROM target`,
     [workItemId],
   );
-  if (row == null) return null;
+  if (row == null)
+    return ((pinnedReturn: (ReviewQueuePosition | null) | Promise<ReviewQueuePosition | null>) =>
+      pinnedReturn)(null);
   const position = row.position;
   const total = row.total;
   if (
@@ -220,22 +220,26 @@ export async function getReviewQueuePosition(
     position < 1 ||
     total < position
   ) {
-    return null;
+    return ((pinnedReturn: (ReviewQueuePosition | null) | Promise<ReviewQueuePosition | null>) =>
+      pinnedReturn)(null);
   }
-  return { position, total };
+  return ((pinnedReturn: (ReviewQueuePosition | null) | Promise<ReviewQueuePosition | null>) =>
+    pinnedReturn)({ position, total });
 }
 
-export async function getWorkItemPayload(pool: Pool, id: string): Promise<unknown> {
+export async function getWorkItemPayload(pool: Pool, id: string) {
   const row = await queryOne<{ payload: unknown }>(
     pool,
     "SELECT payload FROM agent_work_items WHERE id = $1",
     [id],
   );
-  return row == null ? undefined : row.payload;
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    row == null ? undefined : row.payload,
+  );
 }
 
-function sanitizeWorkError(error: unknown): string {
-  return sanitizeLogMessage(errorMessage(error));
+function sanitizeWorkError(error: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(sanitizeLogMessage(errorMessage(error)));
 }
 
 export type WorkClaim = {
@@ -249,7 +253,7 @@ export async function claimWorkForExecution(
   db: Pool | PoolClient,
   id: string,
   leaseEpoch?: number | null,
-): Promise<WorkClaim | null> {
+) {
   const claimed = await transition(db, {
     selector: { id },
     lockPrior: { id },
@@ -261,13 +265,14 @@ export async function claimWorkForExecution(
     returning: ["created_at", "started_at", "attempt_count", "prior_status"],
   });
   const row = claimed.rows[0];
-  if (!row) return null;
-  return {
+  if (!row)
+    return ((pinnedReturn: (WorkClaim | null) | Promise<WorkClaim | null>) => pinnedReturn)(null);
+  return ((pinnedReturn: (WorkClaim | null) | Promise<WorkClaim | null>) => pinnedReturn)({
     createdAt: row.created_at,
     startedAt: row.started_at,
     attemptCount: row.attempt_count,
     resumed: row.prior_status === "running",
-  };
+  });
 }
 
 export type WorkAttemptResult =
@@ -280,48 +285,46 @@ export async function beginWorkAttempt(
   id: string,
   leaseEpoch: number | null,
   attemptLimit: number,
-): Promise<WorkAttemptResult> {
-  return inTransaction(pool, async (client) => {
-    if (leaseEpoch != null) await lockPrActorLeaseForUpdate(client, id, leaseEpoch);
-    const row = await queryOne<{
-      status: WorkStatus;
-      cancel_requested_at: Date | null;
-      attempt_count: number;
-      created_at: Date;
-      started_at: Date;
-    }>(
-      client,
-      `SELECT status, cancel_requested_at, attempt_count, created_at, started_at
+) {
+  return ((pinnedReturn: WorkAttemptResult | Promise<WorkAttemptResult>) => pinnedReturn)(
+    inTransaction(pool, async (client) => {
+      if (leaseEpoch != null) await lockPrActorLeaseForUpdate(client, id, leaseEpoch);
+      const row = await queryOne<{
+        status: WorkStatus;
+        cancel_requested_at: Date | null;
+        attempt_count: number;
+        created_at: Date;
+        started_at: Date;
+      }>(
+        client,
+        `SELECT status, cancel_requested_at, attempt_count, created_at, started_at
          FROM agent_work_items WHERE id = $1 FOR UPDATE`,
-      [id],
-    );
-    if (row == null || row.status !== "running" || row.cancel_requested_at != null) {
-      return { kind: "unavailable" };
-    }
-    if (row.attempt_count >= attemptLimit) {
-      return { kind: "exhausted", attemptCount: row.attempt_count };
-    }
-    await client.query(
-      `UPDATE agent_work_items SET attempt_count = attempt_count + 1, updated_at = now()
+        [id],
+      );
+      if (row == null || row.status !== "running" || row.cancel_requested_at != null) {
+        return { kind: "unavailable" };
+      }
+      if (row.attempt_count >= attemptLimit) {
+        return { kind: "exhausted", attemptCount: row.attempt_count };
+      }
+      await client.query(
+        `UPDATE agent_work_items SET attempt_count = attempt_count + 1, updated_at = now()
          WHERE id = $1`,
-      [id],
-    );
-    return {
-      kind: "started",
-      claim: {
-        createdAt: row.created_at,
-        startedAt: row.started_at,
-        attemptCount: row.attempt_count + 1,
-      },
-    };
-  });
+        [id],
+      );
+      return {
+        kind: "started",
+        claim: {
+          createdAt: row.created_at,
+          startedAt: row.started_at,
+          attemptCount: row.attempt_count + 1,
+        },
+      };
+    }),
+  );
 }
 
-export async function markWorkPublishDegraded(
-  pool: Pool,
-  id: string,
-  leaseEpoch: number | null,
-): Promise<void> {
+export async function markWorkPublishDegraded(pool: Pool, id: string, leaseEpoch: number | null) {
   const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
     pool.query(
       `UPDATE agent_work_items
@@ -341,11 +344,7 @@ export async function markWorkPublishDegraded(
   }
 }
 
-export async function markWorkCompleted(
-  pool: Pool,
-  id: string,
-  leaseEpoch: number | null,
-): Promise<boolean> {
+export async function markWorkCompleted(pool: Pool, id: string, leaseEpoch: number | null) {
   const result = await transition(pool, {
     selector: { id },
     from: ["running"],
@@ -353,14 +352,14 @@ export async function markWorkCompleted(
     unlessCancelRequested: true,
     fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
 export async function forceMarkRescheduledParentCompleted(
   pool: Pool,
   id: string,
   leaseEpoch: number,
-): Promise<boolean> {
+) {
   const result = await transition(pool, {
     selector: { id },
     from: ["running", "queued"],
@@ -370,7 +369,7 @@ export async function forceMarkRescheduledParentCompleted(
     where: () => `AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NOT NULL`,
     fence: { kind: "lease", epoch: leaseEpoch },
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
 export async function updateRunningWorkHeadSha(
@@ -378,7 +377,7 @@ export async function updateRunningWorkHeadSha(
   id: string,
   headSha: string,
   leaseEpoch: number | null,
-): Promise<boolean> {
+) {
   const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
     pool.query(
       `UPDATE agent_work_items
@@ -391,13 +390,13 @@ export async function updateRunningWorkHeadSha(
       [id, headSha, leaseEpoch],
     ),
   );
-  return (result.rowCount ?? 0) > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)((result.rowCount ?? 0) > 0);
 }
 
 export async function transitionCancelRequestedLostRunning(
   pool: Pool,
   row: { readonly id: string; readonly linked: boolean },
-): Promise<boolean> {
+) {
   const result = await transition(pool, {
     selector: { id: row.id },
     from: ["running"],
@@ -407,13 +406,13 @@ export async function transitionCancelRequestedLostRunning(
       `AND w.cancel_requested_at IS NOT NULL
       ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
 export async function transitionCancelRequestedStaleQueued(
   pool: Pool,
   row: { readonly id: string; readonly linked: boolean; readonly type: WorkType },
-): Promise<boolean> {
+) {
   const result = await transition(pool, {
     selector: { id: row.id },
     from: ["queued"],
@@ -423,7 +422,7 @@ export async function transitionCancelRequestedStaleQueued(
       `AND w.cancel_requested_at IS NOT NULL
       ${row.type === "ask" ? liveQueueJobSql() : staleQueuedWorkLivenessSql("statement_timestamp()")}`,
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
 async function markOrphanedWorkFailed(
@@ -432,57 +431,59 @@ async function markOrphanedWorkFailed(
   status: "running" | "queued",
   lastError: "worker_lost" | "queue_delivery_lost",
   where: (bind: (value: unknown) => string, type: WorkType) => string,
-): Promise<boolean> {
+) {
   let protectedQuery = false;
   try {
-    return await inTransaction(pool, async (client) => {
-      await client.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
-      await client.query("SET LOCAL statement_timeout = '1000ms'");
-      await client.query("SET LOCAL idle_in_transaction_session_timeout = '1000ms'");
-      const target = await queryOne<{ resource_key: string; type: WorkType }>(
-        client,
-        `SELECT resource_key, type FROM agent_work_items
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+      await inTransaction(pool, async (client) => {
+        await client.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+        await client.query("SET LOCAL statement_timeout = '1000ms'");
+        await client.query("SET LOCAL idle_in_transaction_session_timeout = '1000ms'");
+        const target = await queryOne<{ resource_key: string; type: WorkType }>(
+          client,
+          `SELECT resource_key, type FROM agent_work_items
           WHERE id = $1
             AND type IN ('review', 'description', 'triage', 'verification', 'ask')
             AND status = $2 AND cancel_requested_at IS NULL`,
-        [id, status],
-      );
-      if (!target) return false;
+          [id, status],
+        );
+        if (!target) return false;
 
-      protectedQuery = true;
-      const unleased = (UNLEASED_WORK_TYPES as readonly string[]).includes(target.type);
-      if (!unleased) {
-        const leaseSql = `SELECT 1 FROM pr_actor_leases
+        protectedQuery = true;
+        const unleased = (UNLEASED_WORK_TYPES as readonly string[]).includes(target.type);
+        if (!unleased) {
+          const leaseSql = `SELECT 1 FROM pr_actor_leases
           WHERE resource_key = $1 AND work_type = $2 FOR UPDATE NOWAIT`;
-        const lease = await client.query(leaseSql, [target.resource_key, target.type]);
-        if (lease.rows.length === 0) {
-          await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
-          await client.query(leaseSql, [target.resource_key, target.type]);
+          const lease = await client.query(leaseSql, [target.resource_key, target.type]);
+          if (lease.rows.length === 0) {
+            await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
+            await client.query(leaseSql, [target.resource_key, target.type]);
+          }
         }
-      }
-      await client.query("LOCK TABLE pgboss.job IN SHARE MODE NOWAIT");
-      await client.query("LOCK TABLE agent_work_items IN ROW EXCLUSIVE MODE NOWAIT");
-      const locked = await client.query(
-        `SELECT id FROM agent_work_items
+        await client.query("LOCK TABLE pgboss.job IN SHARE MODE NOWAIT");
+        await client.query("LOCK TABLE agent_work_items IN ROW EXCLUSIVE MODE NOWAIT");
+        const locked = await client.query(
+          `SELECT id FROM agent_work_items
           WHERE id = $1 AND resource_key = $2 AND type = $3 FOR UPDATE NOWAIT`,
-        [id, target.resource_key, target.type],
-      );
-      if (locked.rows.length === 0) {
+          [id, target.resource_key, target.type],
+        );
+        if (locked.rows.length === 0) {
+          protectedQuery = false;
+          return false;
+        }
+        const result = await transition(client, {
+          selector: { id, resourceKey: target.resource_key, type: target.type },
+          from: [status],
+          to: "failed",
+          unlessCancelRequested: true,
+          lastError,
+          where: (bind) => where(bind, target.type),
+          fence: unleasedFence(),
+        });
         protectedQuery = false;
-        return false;
-      }
-      const result = await transition(client, {
-        selector: { id, resourceKey: target.resource_key, type: target.type },
-        from: [status],
-        to: "failed",
-        unlessCancelRequested: true,
-        lastError,
-        where: (bind) => where(bind, target.type),
-        fence: unleasedFence(),
-      });
-      protectedQuery = false;
-      return result.rowCount > 0;
-    });
+        return result.rowCount > 0;
+      }),
+    );
   } catch (error) {
     if (
       protectedQuery &&
@@ -491,40 +492,40 @@ async function markOrphanedWorkFailed(
       "code" in error &&
       (error.code === "55P03" || error.code === "57014")
     ) {
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     }
     throw error;
   }
 }
 
-export async function markLostRunningWorkFailed(
-  pool: Pool,
-  id: string,
-  minAgeSeconds: number,
-): Promise<boolean> {
-  return markOrphanedWorkFailed(
-    pool,
-    id,
-    "running",
-    "worker_lost",
-    (bind) =>
-      `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
+export async function markLostRunningWorkFailed(pool: Pool, id: string, minAgeSeconds: number) {
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    markOrphanedWorkFailed(
+      pool,
+      id,
+      "running",
+      "worker_lost",
+      (bind) =>
+        `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
             AND w.started_at IS NOT NULL
             AND w.started_at < statement_timestamp() - (${bind(minAgeSeconds)} * interval '1 second')
             ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+    ),
   );
 }
 
-export async function markStaleQueuedWorkFailed(pool: Pool, id: string): Promise<boolean> {
-  return markOrphanedWorkFailed(
-    pool,
-    id,
-    "queued",
-    "queue_delivery_lost",
-    (bind, type) =>
-      `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
+export async function markStaleQueuedWorkFailed(pool: Pool, id: string) {
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    markOrphanedWorkFailed(
+      pool,
+      id,
+      "queued",
+      "queue_delivery_lost",
+      (bind, type) =>
+        `AND w.type IN ('review', 'description', 'triage', 'verification', 'ask')
             AND w.created_at < statement_timestamp() - (${bind(STALE_QUEUED_WORK_GRACE_SECONDS)} * interval '1 second')
             ${type === "ask" ? liveQueueJobSql() : staleQueuedWorkLivenessSql("statement_timestamp()")}`,
+    ),
   );
 }
 
@@ -533,7 +534,7 @@ export async function markWorkFailed(
   id: string,
   error: unknown,
   leaseEpoch?: number | null,
-): Promise<boolean> {
+) {
   const result = await transition(pool, {
     selector: { id },
     from: ["running"],
@@ -542,14 +543,10 @@ export async function markWorkFailed(
     lastError: sanitizeWorkError(error),
     fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
-export async function markQueuedWorkCancelled(
-  pool: Pool,
-  id: string,
-  error: unknown,
-): Promise<boolean> {
+export async function markQueuedWorkCancelled(pool: Pool, id: string, error: unknown) {
   const cancel = {
     selector: { id },
     to: "cancelled" as const,
@@ -557,13 +554,15 @@ export async function markQueuedWorkCancelled(
     lastError: sanitizeWorkError(error),
     fence: unleasedFence(),
   };
-  if ((await transition(pool, { ...cancel, from: ["queued"] })).rowCount > 0) return true;
+  if ((await transition(pool, { ...cancel, from: ["queued"] })).rowCount > 0)
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
 
   type CancellationTarget = { status: WorkStatus; execution_epoch: string | number | null };
   const targetSql = "SELECT status, execution_epoch FROM agent_work_items WHERE id = $1";
   let target = await queryOne<CancellationTarget>(pool, targetSql, [id]);
-  if (!target) return false;
-  if (target.status === "cancelled") return true;
+  if (!target) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  if (target.status === "cancelled")
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   const observedEpoch = Number(target.execution_epoch);
   if (target.status === "queued") {
     const queuedEpoch = target.execution_epoch;
@@ -573,26 +572,32 @@ export async function markQueuedWorkCancelled(
       where: (bind) => `AND w.execution_epoch IS NOT DISTINCT FROM ${bind(queuedEpoch)}::bigint`,
       fence: unleasedFence(),
     });
-    if (retry.rowCount > 0) return true;
+    if (retry.rowCount > 0)
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
     target = await queryOne<CancellationTarget>(pool, targetSql, [id]);
-    if (!target) return false;
-    if (observedEpoch > 0 && Number(target.execution_epoch) !== observedEpoch) return false;
-    if (target.status === "cancelled") return true;
+    if (!target) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+    if (observedEpoch > 0 && Number(target.execution_epoch) !== observedEpoch)
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+    if (target.status === "cancelled")
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
   }
   const epoch = observedEpoch > 0 ? observedEpoch : Number(target.execution_epoch);
-  if (target.status !== "running" || !Number.isSafeInteger(epoch) || epoch <= 0) return false;
-  return inTransaction(pool, async (client) => {
-    await lockPrActorLeaseForUpdate(client, id, epoch);
-    const cancelled = await transition(client, {
-      ...cancel,
-      from: ["queued", "running"],
-      where: (bind) => `AND w.execution_epoch = ${bind(epoch)}`,
-      fence: { kind: "lease", epoch },
-    });
-    if (cancelled.rowCount > 0) return true;
-    const current = await queryOne<CancellationTarget>(client, targetSql, [id]);
-    return current?.status === "cancelled" && Number(current.execution_epoch) === epoch;
-  });
+  if (target.status !== "running" || !Number.isSafeInteger(epoch) || epoch <= 0)
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    inTransaction(pool, async (client) => {
+      await lockPrActorLeaseForUpdate(client, id, epoch);
+      const cancelled = await transition(client, {
+        ...cancel,
+        from: ["queued", "running"],
+        where: (bind) => `AND w.execution_epoch = ${bind(epoch)}`,
+        fence: { kind: "lease", epoch },
+      });
+      if (cancelled.rowCount > 0) return true;
+      const current = await queryOne<CancellationTarget>(client, targetSql, [id]);
+      return current?.status === "cancelled" && Number(current.execution_epoch) === epoch;
+    }),
+  );
 }
 
 export async function markWorkRetrying(
@@ -600,7 +605,7 @@ export async function markWorkRetrying(
   id: string,
   error: unknown,
   leaseEpoch: number | null,
-): Promise<boolean> {
+) {
   const result = await transition(pool, {
     selector: { id },
     from: ["running"],
@@ -609,33 +614,26 @@ export async function markWorkRetrying(
     lastError: sanitizeWorkError(error),
     fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
-export async function markWorkCancelled(
-  pool: Pool,
-  id: string,
-  leaseEpoch?: number | null,
-): Promise<boolean> {
+export async function markWorkCancelled(pool: Pool, id: string, leaseEpoch?: number | null) {
   const result = await transition(pool, {
     selector: { id },
     from: ["queued", "running"],
     to: "cancelled",
     fence: typeof leaseEpoch === "number" ? { kind: "lease", epoch: leaseEpoch } : unleasedFence(),
   });
-  return result.rowCount > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rowCount > 0);
 }
 
-export async function shouldSkipWork(
-  pool: Pool,
-  item: Pick<AgentWorkItem, "id">,
-): Promise<boolean> {
+export async function shouldSkipWork(pool: Pool, item: Pick<AgentWorkItem, "id">) {
   const row = await queryOne<{
     status: WorkStatus;
     cancel_requested_at: Date | null;
   }>(pool, "SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1", [item.id]);
-  if (!row) return true;
-  return (
-    row.status === "superseded" || row.status === "cancelled" || row.cancel_requested_at != null
+  if (!row) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    row.status === "superseded" || row.status === "cancelled" || row.cancel_requested_at != null,
   );
 }

@@ -32,19 +32,19 @@ export type TriageWorkspaceToolState = {
   readonly commitErrors: TriageCommitError[];
 };
 
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle.length === 0) return 0;
+function countOccurrences(haystack: string, needle: string) {
+  if (needle.length === 0) return ((pinnedReturn: number) => pinnedReturn)(0);
   let count = 0;
   let offset = 0;
   for (;;) {
     const found = haystack.indexOf(needle, offset);
-    if (found < 0) return count;
+    if (found < 0) return ((pinnedReturn: number) => pinnedReturn)(count);
     count++;
     offset = found + needle.length;
   }
 }
 
-function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): number {
+function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number) {
   let rawIndex = raw.startsWith("\uFEFF") ? 1 : 0;
   let normalizedIndex = 0;
   while (normalizedIndex < normalizedOffset && rawIndex < raw.length) {
@@ -55,11 +55,14 @@ function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): nu
     }
     normalizedIndex += 1;
   }
-  return rawIndex;
+  return ((pinnedReturn: number) => pinnedReturn)(rawIndex);
 }
 
-export function createTriageWorkspaceToolState(): TriageWorkspaceToolState {
-  return { commitByThreadRootCommentId: new Map(), commitErrors: [] };
+export function createTriageWorkspaceToolState() {
+  return ((pinnedReturn: TriageWorkspaceToolState) => pinnedReturn)({
+    commitByThreadRootCommentId: new Map(),
+    commitErrors: [],
+  });
 }
 
 export function buildTriageWorkspaceTools(params: {
@@ -67,10 +70,7 @@ export function buildTriageWorkspaceTools(params: {
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
   readonly state: TriageWorkspaceToolState;
-}): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
+}) {
   const inventoryIds = new Set(params.inventory.map((thread) => thread.rootCommentId));
   const implicatedPaths = new Set(
     params.inventory.map((thread) => normalizeRepoRelativePath(thread.path)),
@@ -265,8 +265,11 @@ export function buildTriageWorkspaceTools(params: {
 
   const reads = buildWorkspaceTools({ profile: "triage", reader: params.checkout.reader });
   const writes = defineToolset(tools, "sequential");
-  return {
+  return ((pinnedReturn: {
+    readonly piTools: PiTool[];
+    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  }) => pinnedReturn)({
     piTools: [...reads.piTools, ...writes.piTools],
     executors: { ...reads.executors, ...writes.executors },
-  };
+  });
 }

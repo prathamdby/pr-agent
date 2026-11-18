@@ -20,10 +20,7 @@ export type RetentionResult = {
   readonly reviewApprovalsDeleted: number;
 };
 
-export async function runRetention(
-  pool: Pool,
-  cfg: Pick<Config, "retention" | "agentEvents">,
-): Promise<RetentionResult> {
+export async function runRetention(pool: Pool, cfg: Pick<Config, "retention" | "agentEvents">) {
   const [
     workItemsDeleted,
     webhookEventsDeleted,
@@ -132,7 +129,7 @@ export async function runRetention(
     deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
   ]);
   await deleteExpiredGithubCapabilities(pool, cfg.retention.agentWorkSeconds);
-  return {
+  return ((pinnedReturn: RetentionResult | Promise<RetentionResult>) => pinnedReturn)({
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
@@ -141,7 +138,7 @@ export async function runRetention(
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
     reviewApprovalsDeleted,
-  };
+  });
 }
 
 let warnedAgentEventsRetentionDisabled = false;
@@ -149,7 +146,7 @@ let warnedAgentEventsRetentionDisabled = false;
 export async function ensureRetentionSchedule(
   boss: PgBoss,
   cfg: Pick<Config, "retention" | "agentEvents">,
-): Promise<void> {
+) {
   if (
     cfg.agentEvents.enabled &&
     cfg.agentEvents.retentionSeconds <= 0 &&

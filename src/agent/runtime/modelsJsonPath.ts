@@ -11,7 +11,7 @@ export type ResolveModelsJsonPathOptions = {
 
 export function resolveModelsJsonPath(
   cwdOrOptions: string | ResolveModelsJsonPathOptions = process.cwd(),
-): string | null {
+) {
   const options: ResolveModelsJsonPathOptions =
     typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
   const cwd = options.cwd ?? process.cwd();
@@ -26,12 +26,12 @@ export function resolveModelsJsonPath(
         context: { path },
       });
     }
-    return path;
+    return ((pinnedReturn: string | null) => pinnedReturn)(path);
   }
   const path = join(cwd, MODELS_JSON_FILENAME);
-  return existsSync(path) ? path : null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(existsSync(path) ? path : null);
 }
 
-export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()): string {
-  return join(cwd, MODELS_JSON_FILENAME);
+export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()) {
+  return ((pinnedReturn: string) => pinnedReturn)(join(cwd, MODELS_JSON_FILENAME));
 }

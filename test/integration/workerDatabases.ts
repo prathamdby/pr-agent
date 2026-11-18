@@ -2,41 +2,45 @@ const adminUrlEnv = "PR_AGENT_INTEGRATION_ADMIN_URL";
 
 export const integrationWorkerCount = 2;
 
-function assertPlainIdent(name: string): string {
+function assertPlainIdent(name: string) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.length > 63) {
     throw new Error(`refusing database name ${name}`);
   }
-  return name;
+  return ((pinnedReturn: string) => pinnedReturn)(name);
 }
 
-export function quoteDatabaseIdent(name: string): string {
-  return `"${assertPlainIdent(name)}"`;
+export function quoteDatabaseIdent(name: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`"${assertPlainIdent(name)}"`);
 }
 
-export function databaseNameFromUrl(connectionString: string): string {
-  return assertPlainIdent(
-    decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, "")),
+export function databaseNameFromUrl(connectionString: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    assertPlainIdent(decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, ""))),
   );
 }
 
-export function workerDatabaseName(baseName: string, poolId: number): string {
-  return assertPlainIdent(`${assertPlainIdent(baseName)}_w${poolId}`);
+export function workerDatabaseName(baseName: string, poolId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    assertPlainIdent(`${assertPlainIdent(baseName)}_w${poolId}`),
+  );
 }
 
-export function connectionStringForDatabase(connectionString: string, database: string): string {
+export function connectionStringForDatabase(connectionString: string, database: string) {
   const url = new URL(connectionString);
   url.pathname = `/${assertPlainIdent(database)}`;
-  return url.toString();
+  return ((pinnedReturn: string) => pinnedReturn)(url.toString());
 }
 
-export function workerDatabaseNames(connectionString: string): string[] {
+export function workerDatabaseNames(connectionString: string) {
   const base = databaseNameFromUrl(connectionString);
-  return Array.from({ length: integrationWorkerCount }, (_, index) =>
-    workerDatabaseName(base, index + 1),
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    Array.from({ length: integrationWorkerCount }, (_, index) =>
+      workerDatabaseName(base, index + 1),
+    ),
   );
 }
 
-export function assignWorkerDatabaseUrl(env: NodeJS.ProcessEnv = process.env): void {
+export function assignWorkerDatabaseUrl(env: NodeJS.ProcessEnv = process.env) {
   const current = env.DATABASE_URL;
   if (typeof current !== "string" || current.length === 0) return;
 

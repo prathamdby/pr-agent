@@ -171,14 +171,16 @@ export const AGENT_RESOURCES: readonly AgentResource[] = [
   ROBOTS_POLICY,
 ];
 
-export function resourceUrl(resource: AgentResource, origin: string = SITE_ORIGIN): string {
-  return `${origin}${resource.path}`;
+export function resourceUrl(resource: AgentResource, origin: string = SITE_ORIGIN) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${origin}${resource.path}`);
 }
 
-export function renderResourceLinks(): string {
-  return AGENT_RESOURCES.map(
-    (resource) => `- [${resource.path}](${resource.path}): ${resource.description}`,
-  ).join("\n");
+export function renderResourceLinks() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    AGENT_RESOURCES.map(
+      (resource) => `- [${resource.path}](${resource.path}): ${resource.description}`,
+    ).join("\n"),
+  );
 }
 
 export type DocLink = {
@@ -225,8 +227,10 @@ export const DOC_LINKS: readonly DocLink[] = [
   },
 ];
 
-export function renderDocLinks(): string {
-  return DOC_LINKS.map((doc) => `- [${doc.title}](${doc.url}): ${doc.description}`).join("\n");
+export function renderDocLinks() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    DOC_LINKS.map((doc) => `- [${doc.title}](${doc.url}): ${doc.description}`).join("\n"),
+  );
 }
 
 const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
@@ -237,17 +241,19 @@ const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
   OPENAPI_DOCUMENT,
 ];
 
-export function renderSetupPrompt(origin: string): string {
+export function renderSetupPrompt(origin: string) {
   const links = SETUP_PROMPT_RESOURCES.map(
     (resource) => `- ${resource.title}: ${origin}${resource.path}`,
   );
-  return [
-    "I want to set up PR Agent, a self-hosted GitHub App that reviews pull requests with AI. It is MIT licensed, runs on my own servers with my own model keys, and has no per-seat fee.",
-    "",
-    "Read these before you answer, and fetch them again whenever you need a detail:",
-    ...links,
-    `- Source and README: ${REPO_URL}`,
-    "",
-    "Then help me: explain what PR Agent does in a few sentences, ask which model provider and host I plan to use, and walk me through creating the GitHub App, filling .env, and starting the stack with Docker Compose. Answer my follow-up questions from those resources rather than from memory.",
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "I want to set up PR Agent, a self-hosted GitHub App that reviews pull requests with AI. It is MIT licensed, runs on my own servers with my own model keys, and has no per-seat fee.",
+      "",
+      "Read these before you answer, and fetch them again whenever you need a detail:",
+      ...links,
+      `- Source and README: ${REPO_URL}`,
+      "",
+      "Then help me: explain what PR Agent does in a few sentences, ask which model provider and host I plan to use, and walk me through creating the GitHub App, filling .env, and starting the stack with Docker Compose. Answer my follow-up questions from those resources rather than from memory.",
+    ].join("\n"),
+  );
 }

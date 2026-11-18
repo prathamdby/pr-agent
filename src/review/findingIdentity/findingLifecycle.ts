@@ -75,15 +75,17 @@ const SEVERITY_ORDER: readonly (FindingSeverity | "unknown")[] = [
 ];
 const CARRIED_TITLE_MAX_CHARS = 80;
 
-function severityRank(severity: FindingSeverity | "unknown"): number {
-  return SEVERITY_ORDER.indexOf(severity);
+function severityRank(severity: FindingSeverity | "unknown") {
+  return ((pinnedReturn: number) => pinnedReturn)(SEVERITY_ORDER.indexOf(severity));
 }
 
 export function higherSeverity(
   left: FindingSeverity | "unknown",
   right: FindingSeverity | "unknown",
-): FindingSeverity | "unknown" {
-  return severityRank(left) <= severityRank(right) ? left : right;
+) {
+  return ((pinnedReturn: FindingSeverity | "unknown") => pinnedReturn)(
+    severityRank(left) <= severityRank(right) ? left : right,
+  );
 }
 
 export function severityWithinRunCap(
@@ -95,7 +97,7 @@ export function severityWithinRunCap(
     readonly judged: boolean;
     readonly coverageGapCeiling?: CoverageGapCeiling;
   },
-): ReviewFinding["severity"] {
+) {
   const capped = cappedFindingSeverity({
     severity,
     testsLens: params.testsLens,
@@ -103,14 +105,17 @@ export function severityWithinRunCap(
     judged: params.judged,
     coverageGapCeiling: params.coverageGapCeiling,
   });
-  if (params.heldPath == null || params.heldPath === params.anchorPath) return capped;
-  return cappedFindingSeverity({
-    severity: capped,
-    testsLens: params.testsLens,
-    anchorPath: params.heldPath,
-    judged: params.judged,
-    coverageGapCeiling: params.coverageGapCeiling,
-  });
+  if (params.heldPath == null || params.heldPath === params.anchorPath)
+    return ((pinnedReturn: ReviewFinding["severity"]) => pinnedReturn)(capped);
+  return ((pinnedReturn: ReviewFinding["severity"]) => pinnedReturn)(
+    cappedFindingSeverity({
+      severity: capped,
+      testsLens: params.testsLens,
+      anchorPath: params.heldPath,
+      judged: params.judged,
+      coverageGapCeiling: params.coverageGapCeiling,
+    }),
+  );
 }
 
 export function cappedReaffirmedSeverity(params: {
@@ -121,11 +126,13 @@ export function cappedReaffirmedSeverity(params: {
   readonly heldPath?: string;
   readonly judged: boolean;
   readonly coverageGapCeiling?: CoverageGapCeiling;
-}): ReviewFinding["severity"] {
+}) {
   const merged =
     params.held == null ? params.observed : higherSeverity(params.held, params.observed);
   const severity = merged === "unknown" ? params.observed : merged;
-  return severityWithinRunCap(severity, params);
+  return ((pinnedReturn: ReviewFinding["severity"]) => pinnedReturn)(
+    severityWithinRunCap(severity, params),
+  );
 }
 
 function viewRow(
@@ -135,22 +142,22 @@ function viewRow(
   held: InventoryFinding | null,
   observedThisRun: boolean,
   checkFailSeverity: ReviewFinding["severity"],
-): FindingViewRow {
-  return {
+) {
+  return ((pinnedReturn: FindingViewRow) => pinnedReturn)({
     id,
     status,
     severity,
     blocking: severity !== "unknown" && isCheckFailingSeverity(severity, checkFailSeverity),
     held,
     observedThisRun,
-  };
+  });
 }
 
 function runRows(
   inventory: FindingInventory,
   ledger: Extract<FindingRunOutcomes, { kind: "reviewed" }>["ledger"],
   checkFailSeverity: ReviewFinding["severity"],
-): FindingViewRow[] {
+) {
   const rows = new Map<FindingId, FindingViewRow>();
   for (const accepted of ledger.accepted) {
     if (rows.has(accepted.findingId)) continue;
@@ -181,20 +188,23 @@ function runRows(
       ),
     );
   }
-  return [...rows.values()];
+  return ((pinnedReturn: FindingViewRow[]) => pinnedReturn)([...rows.values()]);
 }
 
-function carriedStatus(finding: InventoryFinding): FindingStatus {
-  if (finding.source === "summary") return "summary_only";
-  return finding.positionStale ? "outdated_location" : "open_unverified";
+function carriedStatus(finding: InventoryFinding) {
+  if (finding.source === "summary")
+    return ((pinnedReturn: FindingStatus) => pinnedReturn)("summary_only");
+  return ((pinnedReturn: FindingStatus) => pinnedReturn)(
+    finding.positionStale ? "outdated_location" : "open_unverified",
+  );
 }
 
-function compareCarried(left: InventoryFinding, right: InventoryFinding): number {
-  return (
+function compareCarried(left: InventoryFinding, right: InventoryFinding) {
+  return ((pinnedReturn: number) => pinnedReturn)(
     severityRank(left.severity) - severityRank(right.severity) ||
-    left.path.localeCompare(right.path) ||
-    (left.line ?? 0) - (right.line ?? 0) ||
-    left.id.localeCompare(right.id)
+      left.path.localeCompare(right.path) ||
+      (left.line ?? 0) - (right.line ?? 0) ||
+      left.id.localeCompare(right.id),
   );
 }
 
@@ -202,22 +212,19 @@ function canonicalAfterCleanup(
   inventory: FindingInventory,
   cleanedTo: ReadonlyMap<FindingId, FindingId>,
   start: FindingId,
-): FindingId | null {
+) {
   const seen = new Set<FindingId>();
   let current = start;
   while (!seen.has(current)) {
     seen.add(current);
     const next = cleanedTo.get(current) ?? inventory.findings.get(current)?.aliasOf;
-    if (next == null) return current;
+    if (next == null) return ((pinnedReturn: FindingId | null) => pinnedReturn)(current);
     current = next;
   }
-  return null;
+  return ((pinnedReturn: FindingId | null) => pinnedReturn)(null);
 }
 
-function openCopySeverities(
-  inventory: FindingInventory,
-  cleaned: readonly CleanedDuplicate[],
-): Map<FindingId, FindingSeverity | "unknown"> {
+function openCopySeverities(inventory: FindingInventory, cleaned: readonly CleanedDuplicate[]) {
   const cleanedTo = new Map(cleaned.map((duplicate) => [duplicate.id, duplicate.canonicalId]));
   const closedIds = new Set(
     cleaned.filter((duplicate) => duplicate.resolved).map((duplicate) => duplicate.id),
@@ -233,14 +240,14 @@ function openCopySeverities(
       higherSeverity(severities.get(canonicalId) ?? "unknown", finding.severity),
     );
   }
-  return severities;
+  return ((pinnedReturn: Map<FindingId, FindingSeverity | "unknown">) => pinnedReturn)(severities);
 }
 
 export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
   checkFailSeverity: ReviewFinding["severity"],
-): FindingView {
+) {
   const duplicates = outcomes.kind === "reviewed" ? outcomes.duplicates : [];
   const cleaned = duplicates.filter(
     (duplicate) => inventory.findings.get(duplicate.id)?.url !== duplicate.canonicalUrl,
@@ -297,62 +304,70 @@ export function buildFindingView(
       ? row
       : viewRow(row.id, row.status, severity, row.held, row.observedThisRun, checkFailSeverity);
   });
-  return {
+  return ((pinnedReturn: FindingView) => pinnedReturn)({
     completeness: inventory.completeness,
     rows,
     blockingCount: rows.filter((row) => row.blocking).length,
     suppressedDismissedCount:
       outcomes.kind === "reviewed" ? outcomes.ledger.suppressedDismissedCount : 0,
     duplicates,
-  };
+  });
 }
 
-export function checkConclusion(view: FindingView): FindingCheckConclusion {
-  if (view.blockingCount > 0) return "failure";
-  return view.completeness === "complete" ? "success" : "neutral";
+export function checkConclusion(view: FindingView) {
+  if (view.blockingCount > 0)
+    return ((pinnedReturn: FindingCheckConclusion) => pinnedReturn)("failure");
+  return ((pinnedReturn: FindingCheckConclusion) => pinnedReturn)(
+    view.completeness === "complete" ? "success" : "neutral",
+  );
 }
 
-export function findingCheck(view: FindingView): FindingCheck {
-  return { conclusion: checkConclusion(view), blockingCount: view.blockingCount };
+export function findingCheck(view: FindingView) {
+  return ((pinnedReturn: FindingCheck) => pinnedReturn)({
+    conclusion: checkConclusion(view),
+    blockingCount: view.blockingCount,
+  });
 }
 
-function statusLabel(status: FindingStatus): string {
+function statusLabel(status: FindingStatus) {
   switch (status) {
     case "new":
-      return "New";
+      return ((pinnedReturn: string) => pinnedReturn)("New");
     case "confirmed_at_head":
-      return "Confirmed at head";
+      return ((pinnedReturn: string) => pinnedReturn)("Confirmed at head");
     case "open_unverified":
-      return "Open, not rechecked";
+      return ((pinnedReturn: string) => pinnedReturn)("Open, not rechecked");
     case "outdated_location":
-      return "Outdated location";
+      return ((pinnedReturn: string) => pinnedReturn)("Outdated location");
     case "summary_only":
-      return "Summary only";
+      return ((pinnedReturn: string) => pinnedReturn)("Summary only");
     default: {
       const exhaustive: never = status;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function locationLabel(finding: InventoryFinding): string {
-  if (finding.line == null) return "line unknown";
+function locationLabel(finding: InventoryFinding) {
+  if (finding.line == null) return ((pinnedReturn: string) => pinnedReturn)("line unknown");
   if (finding.startLine == null || finding.startLine === finding.line)
-    return `line ${finding.line}`;
-  return `lines ${finding.startLine}-${finding.line}`;
+    return ((pinnedReturn: string) => pinnedReturn)(`line ${finding.line}`);
+  return ((pinnedReturn: string) => pinnedReturn)(`lines ${finding.startLine}-${finding.line}`);
 }
 
-function shortTitle(title: string): string {
-  return title.length <= CARRIED_TITLE_MAX_CHARS
-    ? title
-    : `${title.slice(0, CARRIED_TITLE_MAX_CHARS - 1)}…`;
+function shortTitle(title: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    title.length <= CARRIED_TITLE_MAX_CHARS
+      ? title
+      : `${title.slice(0, CARRIED_TITLE_MAX_CHARS - 1)}…`,
+  );
 }
 
-export function findingSeverityLabel(severity: FindingSeverity | "unknown"): string {
-  return severity === "unknown" ? "Unrated" : severity;
+export function findingSeverityLabel(severity: FindingSeverity | "unknown") {
+  return ((pinnedReturn: string) => pinnedReturn)(severity === "unknown" ? "Unrated" : severity);
 }
 
-export function renderCarriedFindingCell(row: FindingViewRow, finding: InventoryFinding): string {
+export function renderCarriedFindingCell(row: FindingViewRow, finding: InventoryFinding) {
   const label = finding.fileDeleted
     ? `${statusLabel(row.status)}, file deleted`
     : statusLabel(row.status);
@@ -368,20 +383,24 @@ export function renderCarriedFindingCell(row: FindingViewRow, finding: Inventory
           ...(finding.reopens != null ? { reopens: finding.reopens } : {}),
         })
       : "";
-  return `${renderTableLink(shortTitle(finding.title), finding.url)}<br>${renderTableLocationMeta(label, finding.path, locationLabel(finding))}${marker}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${renderTableLink(shortTitle(finding.title), finding.url)}<br>${renderTableLocationMeta(label, finding.path, locationLabel(finding))}${marker}`,
+  );
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+function plural(count: number, noun: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${count} ${noun}${count === 1 ? "" : "s"}`);
 }
 
-function threadLinks(duplicates: readonly CleanedDuplicate[]): string {
-  return [...new Set(duplicates.map((duplicate) => duplicate.canonicalUrl))]
-    .map((url) => `[thread](${url})`)
-    .join(", ");
+function threadLinks(duplicates: readonly CleanedDuplicate[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [...new Set(duplicates.map((duplicate) => duplicate.canonicalUrl))]
+      .map((url) => `[thread](${url})`)
+      .join(", "),
+  );
 }
 
-export function renderResolvedThisRun(view: FindingView): string {
+export function renderResolvedThisRun(view: FindingView) {
   const resolved = view.duplicates.filter((duplicate) => duplicate.resolved);
   const linked = view.duplicates.filter((duplicate) => !duplicate.resolved);
   const parts: string[] = [];
@@ -400,16 +419,18 @@ export function renderResolvedThisRun(view: FindingView): string {
       `${plural(view.suppressedDismissedCount, "observation")} matched dismissed findings.`,
     );
   }
-  return parts.join(" ");
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join(" "));
 }
 
-function findingsHeading(view: FindingView): string {
-  return `${renderTableStrong("Findings")} · ${view.rows.length} open · ${view.blockingCount} blocking`;
+function findingsHeading(view: FindingView) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${renderTableStrong("Findings")} · ${view.rows.length} open · ${view.blockingCount} blocking`,
+  );
 }
 
 type ListedRow = readonly [FindingViewRow, InventoryFinding];
 
-function sectionBody(view: FindingView, rows: readonly ListedRow[], omitted: number): string {
+function sectionBody(view: FindingView, rows: readonly ListedRow[], omitted: number) {
   const parts = [findingsHeading(view), ""];
   if (rows.length > 0) {
     parts.push(
@@ -425,19 +446,21 @@ function sectionBody(view: FindingView, rows: readonly ListedRow[], omitted: num
     parts.push("", escapeTableHtml(`${omitted} more open findings are listed on their threads.`));
   }
   if (view.completeness !== "complete") parts.push("", FINDING_INVENTORY_UNAVAILABLE_NOTE);
-  return parts.join("\n").trimEnd();
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join("\n").trimEnd());
 }
 
-export function renderFindingsSection(view: FindingView, budgetChars: number): string {
+export function renderFindingsSection(view: FindingView, budgetChars: number) {
   const budget = Math.max(0, budgetChars);
   if (view.rows.length === 0) {
     const note = view.completeness === "complete" ? "" : FINDING_INVENTORY_UNAVAILABLE_NOTE;
-    return note.length <= budget ? note : "";
+    return ((pinnedReturn: string) => pinnedReturn)(note.length <= budget ? note : "");
   }
-  const listed = view.rows.flatMap((row): ListedRow[] =>
-    row.held == null || row.observedThisRun ? [] : [[row, row.held]],
+  const listed = view.rows.flatMap((row) =>
+    ((pinnedReturn: ListedRow[]) => pinnedReturn)(
+      row.held == null || row.observedThisRun ? [] : [[row, row.held]],
+    ),
   );
-  const withLimits = (droppableLimit: number, durableLimit: number): string => {
+  const withLimits = (droppableLimit: number, durableLimit: number) => {
     let droppableLeft = droppableLimit;
     let durableLeft = durableLimit;
     const rows = listed.filter(([, finding]) => {
@@ -448,14 +471,16 @@ export function renderFindingsSection(view: FindingView, budgetChars: number): s
       droppableLeft -= 1;
       return droppableLeft >= 0;
     });
-    return sectionBody(view, rows, listed.length - rows.length);
+    return ((pinnedReturn: string) => pinnedReturn)(
+      sectionBody(view, rows, listed.length - rows.length),
+    );
   };
   const durableCount = listed.filter(([, finding]) => finding.source === "summary").length;
   const droppableCount = listed.length - durableCount;
-  return (
+  return ((pinnedReturn: string) => pinnedReturn)(
     largestFittingBody(droppableCount, budget, (limit) => withLimits(limit, durableCount)) ??
-    largestFittingBody(durableCount - 1, budget, (limit) => withLimits(0, limit)) ??
-    ""
+      largestFittingBody(durableCount - 1, budget, (limit) => withLimits(0, limit)) ??
+      "",
   );
 }
 
@@ -463,7 +488,7 @@ export function largestFittingBody(
   maxLimit: number,
   maxBodyChars: number,
   render: (limit: number) => string,
-): string | null {
+) {
   let lo = 0;
   let hi = maxLimit;
   let best: string | null = null;
@@ -477,5 +502,5 @@ export function largestFittingBody(
       hi = limit - 1;
     }
   }
-  return best;
+  return ((pinnedReturn: string | null) => pinnedReturn)(best);
 }

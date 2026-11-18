@@ -29,8 +29,8 @@ export const severityRubric = [
   "An inflated P0 or P1 burns the check's meaning and the author's trust exactly as a missed one loses a defect.",
 ].join("\n");
 
-export function severityDefinitionText(): string {
-  return SEVERITY_DEFINITIONS.join(" ");
+export function severityDefinitionText() {
+  return ((pinnedReturn: string) => pinnedReturn)(SEVERITY_DEFINITIONS.join(" "));
 }
 
 export const causalPublicationContract = [

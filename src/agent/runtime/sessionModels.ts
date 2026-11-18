@@ -7,7 +7,7 @@ export type SessionModels = {
   readonly credentials: InMemoryCredentialStore;
 };
 
-export async function createSessionModels(cfg: Config): Promise<SessionModels> {
+export async function createSessionModels(cfg: Config) {
   const credentials = new InMemoryCredentialStore();
   const models = await overlayCatalog(cfg.models.jsonPath, credentials);
   for (const [provider, key] of Object.entries(cfg.models.providerKeys)) {
@@ -15,5 +15,8 @@ export async function createSessionModels(cfg: Config): Promise<SessionModels> {
       await credentials.modify(provider, async () => ({ type: "api_key", key: key.trim() }));
     }
   }
-  return { models, credentials };
+  return ((pinnedReturn: SessionModels | Promise<SessionModels>) => pinnedReturn)({
+    models,
+    credentials,
+  });
 }

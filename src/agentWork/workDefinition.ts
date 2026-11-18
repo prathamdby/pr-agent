@@ -75,7 +75,7 @@ export function createWorkDefinitions(
       keyof WorkExecution<T> | "dispatch" | "queue" | "prActorLease"
     >,
     execution: WorkExecution<T>,
-  ): DurableWorkDefinition<T> {
+  ) {
     const queue = WORK_QUEUES[policy.type];
     const definition = {
       ...policy,
@@ -83,7 +83,7 @@ export function createWorkDefinitions(
       queue,
       ...leaseBinding(policy.type, queue),
     };
-    return {
+    return ((pinnedReturn: DurableWorkDefinition<T>) => pinnedReturn)({
       ...definition,
       dispatch: (job) =>
         runDurableWorkItem({
@@ -94,7 +94,7 @@ export function createWorkDefinitions(
           job,
           runtime: createDurableRuntime({ ...dependencies.runtime, installationSurface }),
         }),
-    };
+    });
   }
   return {
     review: define(

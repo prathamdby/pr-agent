@@ -7,8 +7,8 @@ import {
   type AgentEventInsertRow,
 } from "../src/agentWork/agentEventsRepository.ts";
 
-function sampleRow(overrides: Partial<AgentEventInsertRow> = {}): AgentEventInsertRow {
-  return {
+function sampleRow(overrides: Partial<AgentEventInsertRow> = {}) {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     workItemId: "wi-1",
     installationId: 42,
     owner: "acme",
@@ -22,7 +22,7 @@ function sampleRow(overrides: Partial<AgentEventInsertRow> = {}): AgentEventInse
     model: "gpt-4o-mini",
     detail: { attempt: 1 },
     ...overrides,
-  };
+  });
 }
 
 describe("appendAgentEvents", () => {
@@ -67,7 +67,6 @@ describe("safeAppendAgentEvents", () => {
     });
     const pool = { query } as unknown as Pool;
     safeAppendAgentEvents(pool, makeTestConfig({ agentEvents: { enabled: true } }), [sampleRow()]);
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(query).toHaveBeenCalledTimes(1);
   });
 });

@@ -26,9 +26,9 @@ export function createReviewWorkExecution({
   boss,
   installationSurface = productionInstallationSurface,
   createSession = createFeaturePiSession,
-}: WorkExecutionDependencies): WorkExecution<"review"> {
+}: WorkExecutionDependencies) {
   const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return {
+  return ((pinnedReturn: WorkExecution<"review">) => pinnedReturn)({
     execute: (item, env) =>
       runReviewForWorkItem(item, env, { cfg, pool, boss, getBotIdentity, createSession }),
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
@@ -150,5 +150,5 @@ export function createReviewWorkExecution({
         summaryCommentId: commentId,
       }).close({ kind: "crashed" });
     },
-  };
+  });
 }

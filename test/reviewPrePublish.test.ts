@@ -6,8 +6,8 @@ import { makeReviewPayload } from "./helpers/reviewPayloadFactory.ts";
 
 type ReviewFinding = ReviewPayload["findings"][number];
 
-function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
-  return {
+function makeFinding(overrides: Partial<ReviewFinding> = {}) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file: "src/a.ts",
     startLine: 1,
@@ -16,7 +16,7 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     detail: "Details.",
     fixPrompt: "Fix it.",
     ...overrides,
-  };
+  });
 }
 
 const secretDetail = "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent";

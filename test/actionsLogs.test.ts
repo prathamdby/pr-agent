@@ -15,12 +15,14 @@ vi.mock("../src/github/appAuth.ts", () => ({
       params: { page?: number; per_page?: number },
       map?: (response: { data: unknown }, done: () => void) => unknown,
     ) => {
-      const read = (raw: unknown): unknown => {
-        if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
-        if ("workflow_runs" in raw) return raw.workflow_runs;
-        if ("jobs" in raw) return raw.jobs;
-        if ("check_runs" in raw) return raw.check_runs;
-        return raw;
+      const read = (raw: unknown) => {
+        if (Array.isArray(raw) || raw == null || typeof raw !== "object")
+          return ((pinnedReturn: unknown) => pinnedReturn)(raw);
+        if ("workflow_runs" in raw)
+          return ((pinnedReturn: unknown) => pinnedReturn)(raw.workflow_runs);
+        if ("jobs" in raw) return ((pinnedReturn: unknown) => pinnedReturn)(raw.jobs);
+        if ("check_runs" in raw) return ((pinnedReturn: unknown) => pinnedReturn)(raw.check_runs);
+        return ((pinnedReturn: unknown) => pinnedReturn)(raw);
       };
       if (!map) return read((await route(params))?.data);
       const perPage = params.per_page ?? 100;

@@ -47,7 +47,7 @@ export type NumberedPolicyPair = {
   readonly rule: RepoPolicyRule;
 };
 
-function extractJsonObject(text: string): unknown {
+function extractJsonObject(text: string) {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1]?.trim() ?? trimmed;
@@ -56,30 +56,33 @@ function extractJsonObject(text: string): unknown {
   if (start < 0 || end <= start) {
     throw new Error("bound policy judge response contained no JSON object");
   }
-  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    JSON.parse(candidate.slice(start, end + 1)) as unknown,
+  );
 }
 
-export function parseBoundPolicyYesIds(
-  text: string,
-  askedIds: ReadonlySet<string>,
-): readonly string[] {
+export function parseBoundPolicyYesIds(text: string, askedIds: ReadonlySet<string>) {
   try {
     const parsed = v.safeParse(yesIdsSchema, extractJsonObject(text));
-    if (!parsed.success) return [];
-    return parsed.output.yes.filter((id) => askedIds.has(id));
+    if (!parsed.success) return ((pinnedReturn: readonly string[]) => pinnedReturn)([]);
+    return ((pinnedReturn: readonly string[]) => pinnedReturn)(
+      parsed.output.yes.filter((id) => askedIds.has(id)),
+    );
   } catch {
-    return [];
+    return ((pinnedReturn: readonly string[]) => pinnedReturn)([]);
   }
 }
 
 export function numberCandidatePairs(
   pairs: readonly { readonly finding: ReviewFinding; readonly rule: RepoPolicyRule }[],
-): readonly NumberedPolicyPair[] {
-  return pairs.map((pair, index) => ({
-    id: `p${index}`,
-    finding: pair.finding,
-    rule: pair.rule,
-  }));
+) {
+  return ((pinnedReturn: readonly NumberedPolicyPair[]) => pinnedReturn)(
+    pairs.map((pair, index) => ({
+      id: `p${index}`,
+      finding: pair.finding,
+      rule: pair.rule,
+    })),
+  );
 }
 
 export async function citedSnippetForFinding(params: {
@@ -87,48 +90,65 @@ export async function citedSnippetForFinding(params: {
   readonly evidenceLedger?: EvidenceLedger;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
-}): Promise<string | undefined> {
+}) {
   const { finding } = params;
   if (!params.evidenceLedger?.covers(finding.file, finding.startLine, finding.endLine)) {
-    return undefined;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   }
   if (params.isPathInCheckout != null && !params.isPathInCheckout(finding.file)) {
-    return undefined;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   }
-  if (params.readCheckoutFile == null) return undefined;
+  if (params.readCheckoutFile == null)
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   const text = await params.readCheckoutFile(finding.file);
-  if (text == null || text.length === 0) return undefined;
+  if (text == null || text.length === 0)
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   const lines = text.split(/\r?\n/);
   const slice = lines
     .slice(finding.startLine - 1, finding.endLine)
     .join("\n")
     .trim();
-  if (!slice) return undefined;
-  return slice.slice(0, BOUND_POLICY_SNIPPET_MAX_CHARS);
+  if (!slice)
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
+  return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+    slice.slice(0, BOUND_POLICY_SNIPPET_MAX_CHARS),
+  );
 }
 
 export function buildBoundPolicyJudgePairs(
   numbered: readonly NumberedPolicyPair[],
   snippets: ReadonlyMap<string, string | undefined>,
-): readonly BoundPolicyJudgePair[] {
-  return numbered.map((pair) => ({
-    id: pair.id,
-    relativePath: pair.rule.relativePath,
-    body: pair.rule.body,
-    file: pair.finding.file,
-    startLine: pair.finding.startLine,
-    endLine: pair.finding.endLine,
-    title: pair.finding.title,
-    detail: pair.finding.detail,
-    severity: pair.finding.severity,
-    snippet: snippets.get(pair.id),
-  }));
+) {
+  return ((pinnedReturn: readonly BoundPolicyJudgePair[]) => pinnedReturn)(
+    numbered.map((pair) => ({
+      id: pair.id,
+      relativePath: pair.rule.relativePath,
+      body: pair.rule.body,
+      file: pair.finding.file,
+      startLine: pair.finding.startLine,
+      endLine: pair.finding.endLine,
+      title: pair.finding.title,
+      detail: pair.finding.detail,
+      severity: pair.finding.severity,
+      snippet: snippets.get(pair.id),
+    })),
+  );
 }
 
 export function attachJudgedBoundPaths(params: {
   readonly pairs: readonly NumberedPolicyPair[];
   readonly yesIds: readonly string[];
-}): ReadonlyMap<string, readonly string[]> {
+}) {
   const asked = new Map(params.pairs.map((pair) => [pair.id, pair]));
   const yes = new Set(params.yesIds.filter((id) => asked.has(id)));
   const byFinding = new Map<string, string[]>();
@@ -142,7 +162,7 @@ export function attachJudgedBoundPaths(params: {
     }
     byFinding.set(key, paths);
   }
-  return byFinding;
+  return ((pinnedReturn: ReadonlyMap<string, readonly string[]>) => pinnedReturn)(byFinding);
 }
 
 export async function resolveBoundPolicyFooters(params: {
@@ -152,7 +172,7 @@ export async function resolveBoundPolicyFooters(params: {
   readonly evidenceLedger?: EvidenceLedger;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
-}): Promise<ReadonlyMap<string, readonly string[]>> {
+}) {
   const numbered = numberCandidatePairs(
     candidatePolicyPairs({
       policy: params.policy,
@@ -160,7 +180,11 @@ export async function resolveBoundPolicyFooters(params: {
     }),
   );
   if (numbered.length === 0 || params.judge == null) {
-    return new Map();
+    return ((
+      pinnedReturn:
+        | ReadonlyMap<string, readonly string[]>
+        | Promise<ReadonlyMap<string, readonly string[]>>,
+    ) => pinnedReturn)(new Map());
   }
 
   const snippetEntries = await Promise.all(
@@ -184,13 +208,21 @@ export async function resolveBoundPolicyFooters(params: {
     logWarn("bound_policy_judge_failed", {
       message: errorMessage(error),
     });
-    return new Map();
+    return ((
+      pinnedReturn:
+        | ReadonlyMap<string, readonly string[]>
+        | Promise<ReadonlyMap<string, readonly string[]>>,
+    ) => pinnedReturn)(new Map());
   }
-  return attachJudgedBoundPaths({ pairs: numbered, yesIds });
+  return ((
+    pinnedReturn:
+      | ReadonlyMap<string, readonly string[]>
+      | Promise<ReadonlyMap<string, readonly string[]>>,
+  ) => pinnedReturn)(attachJudgedBoundPaths({ pairs: numbered, yesIds }));
 }
 
-export function createBoundPolicyJudge(cfg: Config): BoundPolicyJudge {
-  return async (pairs) => {
+export function createBoundPolicyJudge(cfg: Config) {
+  return ((pinnedReturn: BoundPolicyJudge) => pinnedReturn)(async (pairs) => {
     if (pairs.length === 0) return [];
     const askedIds = new Set(pairs.map((pair) => pair.id));
     const session = await createFeaturePiSession({
@@ -217,5 +249,5 @@ export function createBoundPolicyJudge(cfg: Config): BoundPolicyJudge {
     } finally {
       await session.dispose();
     }
-  };
+  });
 }

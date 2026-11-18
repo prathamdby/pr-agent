@@ -20,15 +20,15 @@ const COMPACTION_RESERVE_TOKENS = 16_384;
 const COMPACTION_KEEP_RECENT_TOKENS = 20_000;
 const ESTIMATED_IMAGE_CHARS = 4_800;
 
-function isToolResult(message: AgentMessage): boolean {
-  return message.role === "toolResult";
+function isToolResult(message: AgentMessage) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(message.role === "toolResult");
 }
 
-function safeJsonStringify(value: unknown): string {
+function safeJsonStringify(value: unknown) {
   try {
-    return JSON.stringify(value) ?? "undefined";
+    return ((pinnedReturn: string) => pinnedReturn)(JSON.stringify(value) ?? "undefined");
   } catch {
-    return "[unserializable]";
+    return ((pinnedReturn: string) => pinnedReturn)("[unserializable]");
   }
 }
 
@@ -38,8 +38,10 @@ function contextTokens(usage: {
   readonly output: number;
   readonly cacheRead: number;
   readonly cacheWrite: number;
-}): number {
-  return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+}) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
+  );
 }
 
 function assistantUsage(message: AgentMessage) {
@@ -49,7 +51,7 @@ function assistantUsage(message: AgentMessage) {
   return message.usage;
 }
 
-function estimateContextTokens(messages: readonly AgentMessage[]): number {
+function estimateContextTokens(messages: readonly AgentMessage[]) {
   let usageIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -59,37 +61,43 @@ function estimateContextTokens(messages: readonly AgentMessage[]): number {
     }
   }
   if (usageIndex < 0) {
-    return messages.reduce((total, message) => total + estimateTokens(message), 0);
+    return ((pinnedReturn: number) => pinnedReturn)(
+      messages.reduce((total, message) => total + estimateTokens(message), 0),
+    );
   }
   const usageMessage = messages[usageIndex];
   const usage = usageMessage ? assistantUsage(usageMessage) : undefined;
   const reported = usage ? contextTokens(usage) : 0;
   let trailing = 0;
   for (const message of messages.slice(usageIndex + 1)) trailing += estimateTokens(message);
-  return reported + trailing;
+  return ((pinnedReturn: number) => pinnedReturn)(reported + trailing);
 }
 
-function contextNeedsCompaction(tokens: number, contextWindow: number): boolean {
-  return tokens > contextWindow - COMPACTION_RESERVE_TOKENS;
+function contextNeedsCompaction(tokens: number, contextWindow: number) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    tokens > contextWindow - COMPACTION_RESERVE_TOKENS,
+  );
 }
 
 function estimateTextAndImageChars(
   content: string | readonly { readonly type: string; readonly text?: string }[],
-): number {
-  if (typeof content === "string") return content.length;
+) {
+  if (typeof content === "string") return ((pinnedReturn: number) => pinnedReturn)(content.length);
   let chars = 0;
   for (const block of content) {
     if (block.type === "text" && block.text) chars += block.text.length;
     else if (block.type === "image") chars += ESTIMATED_IMAGE_CHARS;
   }
-  return chars;
+  return ((pinnedReturn: number) => pinnedReturn)(chars);
 }
 
-function estimateTokens(message: AgentMessage): number {
+function estimateTokens(message: AgentMessage) {
   if (message.role === "user" || message.role === "toolResult") {
-    return Math.ceil(estimateTextAndImageChars(message.content) / 4);
+    return ((pinnedReturn: number) => pinnedReturn)(
+      Math.ceil(estimateTextAndImageChars(message.content) / 4),
+    );
   }
-  if (message.role !== "assistant") return 0;
+  if (message.role !== "assistant") return ((pinnedReturn: number) => pinnedReturn)(0);
   let chars = 0;
   for (const block of message.content) {
     if (block.type === "text") chars += block.text.length;
@@ -98,10 +106,10 @@ function estimateTokens(message: AgentMessage): number {
       chars += block.name.length + safeJsonStringify(block.arguments).length;
     }
   }
-  return Math.ceil(chars / 4);
+  return ((pinnedReturn: number) => pinnedReturn)(Math.ceil(chars / 4));
 }
 
-function serializeForSummary(messages: readonly AgentMessage[]): string {
+function serializeForSummary(messages: readonly AgentMessage[]) {
   const lines: string[] = [];
   for (const message of messages) {
     if (message.role === "user") {
@@ -119,14 +127,11 @@ function serializeForSummary(messages: readonly AgentMessage[]): string {
       lines.push(`Tool ${message.toolName}: ${contentText(message.content)}`);
     }
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-export function findSafeCutIndex(
-  messages: readonly AgentMessage[],
-  keepRecentTokens: number,
-): number {
-  if (messages.length === 0) return 0;
+export function findSafeCutIndex(messages: readonly AgentMessage[], keepRecentTokens: number) {
+  if (messages.length === 0) return ((pinnedReturn: number) => pinnedReturn)(0);
   let tokens = 0;
   let index = messages.length;
   while (index > 0) {
@@ -141,9 +146,9 @@ export function findSafeCutIndex(
     const current = messages[index];
     if (!current || !isToolResult(current)) break;
     index -= 1;
-    if (index < 0) return 0;
+    if (index < 0) return ((pinnedReturn: number) => pinnedReturn)(0);
   }
-  return Math.max(0, index);
+  return ((pinnedReturn: number) => pinnedReturn)(Math.max(0, index));
 }
 
 async function summarizeMessages(
@@ -153,9 +158,12 @@ async function summarizeMessages(
   signal: AbortSignal | undefined,
   thinkingCeiling: ThinkingLevel,
   trace?: SessionTrace,
-): Promise<string | undefined> {
+) {
   const conversationText = serializeForSummary(messages);
-  if (conversationText.length === 0) return undefined;
+  if (conversationText.length === 0)
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   const reasoning = clampThinkingLevel("low", thinkingCeiling);
   const promptText = renderCompactionUserPrompt(conversationText);
   const maxTokens = Math.min(
@@ -188,30 +196,40 @@ async function summarizeMessages(
     const response = await stream.result();
     trace?.endCompaction(response);
     if (response.stopReason === "error" || response.stopReason === "aborted") {
-      return undefined;
+      return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+        undefined,
+      );
     }
     const text = contentText(response.content).trim();
-    return text.length > 0 ? text : undefined;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      text.length > 0 ? text : undefined,
+    );
   } catch {
     trace?.endCompaction(undefined);
-    return undefined;
+    return ((pinnedReturn: (string | undefined) | Promise<string | undefined>) => pinnedReturn)(
+      undefined,
+    );
   }
 }
 
-function thinkingBoundToPrefix(model: Model<Api>): boolean {
+function thinkingBoundToPrefix(model: Model<Api>) {
   const compat = model.compat;
-  return (
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     model.api === "anthropic-messages" &&
-    compat != null &&
-    "forceAdaptiveThinking" in compat &&
-    compat.forceAdaptiveThinking === true
+      compat != null &&
+      "forceAdaptiveThinking" in compat &&
+      compat.forceAdaptiveThinking === true,
   );
 }
 
-function withoutThinking(message: AgentMessage): AgentMessage {
-  if (message.role !== "assistant") return message;
-  if (!message.content.some((part) => part.type === "thinking")) return message;
-  return { ...message, content: message.content.filter((part) => part.type !== "thinking") };
+function withoutThinking(message: AgentMessage) {
+  if (message.role !== "assistant") return ((pinnedReturn: AgentMessage) => pinnedReturn)(message);
+  if (!message.content.some((part) => part.type === "thinking"))
+    return ((pinnedReturn: AgentMessage) => pinnedReturn)(message);
+  return ((pinnedReturn: AgentMessage) => pinnedReturn)({
+    ...message,
+    content: message.content.filter((part) => part.type !== "thinking"),
+  });
 }
 
 export async function compactAgentMessages(params: {
@@ -221,7 +239,7 @@ export async function compactAgentMessages(params: {
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
-}): Promise<AgentMessage[] | undefined> {
+}) {
   const leadingSystem: AgentMessage[] = [];
   let restStart = 0;
   while (restStart < params.messages.length && params.messages[restStart]?.role === "system") {
@@ -232,7 +250,9 @@ export async function compactAgentMessages(params: {
   }
   const rest = params.messages.slice(restStart);
   const cut = findSafeCutIndex(rest, COMPACTION_KEEP_RECENT_TOKENS);
-  if (cut <= 0) return undefined;
+  if (cut <= 0)
+    return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
+      pinnedReturn)(undefined);
   const summarized = rest.slice(0, cut);
   const retained = thinkingBoundToPrefix(params.model)
     ? rest.slice(cut).map(withoutThinking)
@@ -245,13 +265,16 @@ export async function compactAgentMessages(params: {
     params.thinkingCeiling,
     params.trace,
   );
-  if (!summary) return undefined;
+  if (!summary)
+    return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
+      pinnedReturn)(undefined);
   const summaryMessage: AgentMessage = {
     role: "user",
     content: `${COMPACTION_SUMMARY_PREFIX}${summary}${COMPACTION_SUMMARY_SUFFIX}`,
     timestamp: Date.now(),
   };
-  return [...leadingSystem, summaryMessage, ...retained];
+  return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
+    pinnedReturn)([...leadingSystem, summaryMessage, ...retained]);
 }
 
 export async function compactIfNeeded(params: {
@@ -261,15 +284,17 @@ export async function compactIfNeeded(params: {
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
   readonly thinkingCeiling: ThinkingLevel;
-}): Promise<AgentMessage[] | undefined> {
+}) {
   const usage = estimateContextTokens(params.messages);
   if (!contextNeedsCompaction(usage, params.model.contextWindow)) {
-    return undefined;
+    return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
+      pinnedReturn)(undefined);
   }
-  return compactAgentMessages(params);
+  return ((pinnedReturn: (AgentMessage[] | undefined) | Promise<AgentMessage[] | undefined>) =>
+    pinnedReturn)(compactAgentMessages(params));
 }
 
-export function dropTrailingErrorAssistant(messages: AgentMessage[]): void {
+export function dropTrailingErrorAssistant(messages: AgentMessage[]) {
   const last = messages[messages.length - 1];
   if (last?.role === "assistant" && "stopReason" in last && last.stopReason === "error") {
     messages.pop();

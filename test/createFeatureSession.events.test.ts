@@ -3,20 +3,20 @@ import type { AgentEventInsertRow } from "../src/agentWork/agentEventsRepository
 import { makeTestConfig } from "./helpers/config.ts";
 
 const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
-  function fakePiSession(): {
-    role: "orchestrator";
-    primary: { provider: "openai"; model: "gpt-4o-mini" };
-    send: ReturnType<typeof vi.fn>;
-    abort: ReturnType<typeof vi.fn>;
-    dispose: ReturnType<typeof vi.fn>;
-  } {
-    return {
+  function fakePiSession() {
+    return ((pinnedReturn: {
+      role: "orchestrator";
+      primary: { provider: "openai"; model: "gpt-4o-mini" };
+      send: ReturnType<typeof vi.fn>;
+      abort: ReturnType<typeof vi.fn>;
+      dispose: ReturnType<typeof vi.fn>;
+    }) => pinnedReturn)({
       role: "orchestrator",
       primary: { provider: "openai", model: "gpt-4o-mini" },
       send: vi.fn(),
       abort: vi.fn(async () => undefined),
       dispose: vi.fn(async () => undefined),
-    };
+    });
   }
   return {
     appendAgentEvents: vi.fn(
@@ -87,7 +87,6 @@ describe("createFeaturePiSession agent events", () => {
       sessionContext,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
     const rows = appendAgentEvents.mock.calls[0]?.[1];
     expect(rows?.[0]?.eventKind).toBe("turn");
@@ -103,7 +102,6 @@ describe("createFeaturePiSession agent events", () => {
       executors: {},
       sessionContext,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).not.toHaveBeenCalled();
   });
 
@@ -205,7 +203,6 @@ describe("createFeaturePiSession agent events", () => {
       }),
     ).resolves.toBeDefined();
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
   });
 
@@ -250,6 +247,5 @@ describe("safeAppendAgentEvents isolation", () => {
         },
       ]),
     ).not.toThrow();
-    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });

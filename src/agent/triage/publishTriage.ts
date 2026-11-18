@@ -141,21 +141,27 @@ export type StoredTriagePreviewDetail = {
   readonly payload: TriagePayload;
 };
 
-export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePreviewDetail | null {
-  if (!isRecord(detail)) return null;
+export function parseStoredTriagePreviewDetail(detail: unknown) {
+  if (!isRecord(detail))
+    return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
   const entry = detail;
-  if (typeof entry.headSha !== "string" || entry.headSha.length === 0) return null;
-  if (!Array.isArray(entry.threadRootCommentIds) || !Array.isArray(entry.hunks)) return null;
+  if (typeof entry.headSha !== "string" || entry.headSha.length === 0)
+    return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
+  if (!Array.isArray(entry.threadRootCommentIds) || !Array.isArray(entry.hunks))
+    return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
   const payload = v.safeParse(TriagePayloadSchema, entry.payload);
-  if (!payload.success) return null;
+  if (!payload.success)
+    return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
   const threadRootCommentIds: number[] = [];
   for (const id of entry.threadRootCommentIds) {
-    if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
+    if (typeof id !== "number" || !Number.isInteger(id) || id <= 0)
+      return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
     threadRootCommentIds.push(id);
   }
   const hunks: TriagePreviewHunk[] = [];
   for (const raw of entry.hunks) {
-    if (!isRecord(raw)) return null;
+    if (!isRecord(raw))
+      return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
     const hunk = raw;
     if (
       typeof hunk.threadRootCommentId !== "number" ||
@@ -164,7 +170,7 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
       typeof hunk.subject !== "string" ||
       typeof hunk.diff !== "string"
     ) {
-      return null;
+      return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)(null);
     }
     hunks.push({
       threadRootCommentId: hunk.threadRootCommentId,
@@ -172,40 +178,53 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
       diff: hunk.diff,
     });
   }
-  return { headSha: entry.headSha, threadRootCommentIds, hunks, payload: payload.output };
+  return ((pinnedReturn: StoredTriagePreviewDetail | null) => pinnedReturn)({
+    headSha: entry.headSha,
+    threadRootCommentIds,
+    hunks,
+    payload: payload.output,
+  });
 }
 
-function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
-  if (!isRecord(value)) return null;
+function parseStoredCommit(value: unknown) {
+  if (!isRecord(value)) return ((pinnedReturn: TriageCommittedDetail | null) => pinnedReturn)(null);
   const entry = value;
-  return typeof entry.sha === "string" &&
-    typeof entry.subject === "string" &&
-    typeof entry.diff === "string"
-    ? { sha: entry.sha, subject: entry.subject, diff: entry.diff }
-    : null;
+  return ((pinnedReturn: TriageCommittedDetail | null) => pinnedReturn)(
+    typeof entry.sha === "string" &&
+      typeof entry.subject === "string" &&
+      typeof entry.diff === "string"
+      ? { sha: entry.sha, subject: entry.subject, diff: entry.diff }
+      : null,
+  );
 }
 
 function inferStoredPushOutcome(
   entry: Record<string, unknown>,
   commits: readonly TriageCommittedDetail[],
-): TriagePushOutcome {
-  if (isTriagePushOutcome(entry.pushOutcome)) return entry.pushOutcome;
-  if (entry.staleHead === true) return "stale";
-  return commits.length > 0 ? "pushed" : "not-needed";
+) {
+  if (isTriagePushOutcome(entry.pushOutcome))
+    return ((pinnedReturn: TriagePushOutcome) => pinnedReturn)(entry.pushOutcome);
+  if (entry.staleHead === true) return ((pinnedReturn: TriagePushOutcome) => pinnedReturn)("stale");
+  return ((pinnedReturn: TriagePushOutcome) => pinnedReturn)(
+    commits.length > 0 ? "pushed" : "not-needed",
+  );
 }
 
-export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
-  if (!isRecord(detail)) return null;
+export function parseStoredTriagePushDetail(detail: unknown) {
+  if (!isRecord(detail))
+    return ((pinnedReturn: StoredTriagePushDetail | null) => pinnedReturn)(null);
   const entry = detail;
   const payload = v.safeParse(TriagePayloadSchema, entry.payload);
-  if (!payload.success || !Array.isArray(entry.commits)) return null;
+  if (!payload.success || !Array.isArray(entry.commits))
+    return ((pinnedReturn: StoredTriagePushDetail | null) => pinnedReturn)(null);
   const parsedCommits: TriageCommittedDetail[] = [];
   for (const raw of entry.commits) {
     const commit = parseStoredCommit(raw);
-    if (commit === null) return null;
+    if (commit === null)
+      return ((pinnedReturn: StoredTriagePushDetail | null) => pinnedReturn)(null);
     parsedCommits.push(commit);
   }
-  return {
+  return ((pinnedReturn: StoredTriagePushDetail | null) => pinnedReturn)({
     payload: payload.output,
     commits: parsedCommits,
     pushOutcome: inferStoredPushOutcome(entry, parsedCommits),
@@ -216,7 +235,7 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
       Array.isArray(entry.pushedShas) && entry.pushedShas.every((sha) => typeof sha === "string")
         ? entry.pushedShas
         : undefined,
-  };
+  });
 }
 
 function storedTriagePushRecord(params: {
@@ -226,7 +245,7 @@ function storedTriagePushRecord(params: {
   readonly committedShas: readonly string[];
   readonly commits: readonly TriageCommittedDetail[];
   readonly payload: TriagePayload;
-}): Record<string, unknown> {
+}) {
   const shared = {
     pushOutcome: params.outcome,
     payload: params.payload,
@@ -235,17 +254,17 @@ function storedTriagePushRecord(params: {
     headRef: params.headRef,
   };
   if (params.outcome === "stale" || params.outcome === "closed") {
-    return {
+    return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
       ...shared,
       ...(params.outcome === "stale" ? { staleHead: true } : {}),
       attemptedShas: params.committedShas,
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     ...shared,
     pushedShas: params.committedShas,
     pushedHeadSha: params.committedShas.at(-1) ?? params.headSha,
-  };
+  });
 }
 
 function shouldReplyToTriageThread(
@@ -265,41 +284,36 @@ function shouldReplyToTriageThread(
   }
 }
 
-function shouldResolveTriageThread(
-  verdict: TriageVerdict,
-  pushOutcome: TriagePushOutcome,
-): boolean {
+function shouldResolveTriageThread(verdict: TriageVerdict, pushOutcome: TriagePushOutcome) {
   switch (verdict.verdict) {
     case "skipped":
-      return false;
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
     case "fixed":
-      return pushOutcome === "pushed";
+      return ((pinnedReturn: boolean) => pinnedReturn)(pushOutcome === "pushed");
     case "already-resolved":
     case "dismissed":
-      return true;
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
     default: {
       const exhaustive: never = verdict;
-      return exhaustive;
+      return ((pinnedReturn: boolean) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function replyBody(
-  verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>,
-): string {
+function replyBody(verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>) {
   if (verdict.verdict === "fixed") {
-    return redactReviewText(
-      `**Triage**: Fixed in ${verdict.commitSha.slice(0, 7)} - ${verdict.evidence}`,
+    return ((pinnedReturn: string) => pinnedReturn)(
+      redactReviewText(
+        `**Triage**: Fixed in ${verdict.commitSha.slice(0, 7)} - ${verdict.evidence}`,
+      ),
     );
   }
-  return redactReviewText(`**Triage**: Already resolved - ${verdict.evidence}`);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    redactReviewText(`**Triage**: Already resolved - ${verdict.evidence}`),
+  );
 }
 
-async function findMarkedComment(
-  prSurface: PrSurface,
-  marker: string,
-  rootCommentId?: number,
-): Promise<{ readonly id: number } | null> {
+async function findMarkedComment(prSurface: PrSurface, marker: string, rootCommentId?: number) {
   const botLogin = await prSurface.getBotLogin();
   const { comments } = await prSurface.listReviewComments();
   const id = findCommentIdByMarker(
@@ -309,7 +323,9 @@ async function findMarkedComment(
       comment.authorLogin === botLogin &&
       (rootCommentId == null || comment.inReplyToId === rootCommentId),
   );
-  return id == null ? null : { id };
+  return ((
+    pinnedReturn: ({ readonly id: number } | null) | Promise<{ readonly id: number } | null>,
+  ) => pinnedReturn)(id == null ? null : { id });
 }
 
 async function replyToThread(
@@ -319,7 +335,7 @@ async function replyToThread(
     readonly operationMarker: string;
     readonly receipt: string;
   },
-): Promise<void> {
+) {
   await params.prSurface.replyAt(
     {
       kind: "inlineReviewThread",
@@ -337,7 +353,7 @@ async function upsertTriageReport(
   > & {
     readonly body: string;
   },
-): Promise<void> {
+) {
   const operationKey = triageReportOperationKey(params.resourceKey);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const result = await publishOnce<{ readonly id: number; readonly updated: boolean }>({
@@ -380,7 +396,7 @@ async function upsertTriageReport(
   }).record();
 }
 
-export async function publishTriageReportOnly(params: ReportOnlyParams): Promise<void> {
+export async function publishTriageReportOnly(params: ReportOnlyParams) {
   await upsertTriageReport(params);
 }
 
@@ -391,7 +407,7 @@ type PublishTriagePreviewParams = Omit<
   readonly hunks: readonly TriagePreviewHunk[];
 };
 
-export async function publishTriagePreview(params: PublishTriagePreviewParams): Promise<void> {
+export async function publishTriagePreview(params: PublishTriagePreviewParams) {
   const body = renderTriagePreview({
     headSha: params.headSha,
     inventory: params.inventory,
@@ -443,8 +459,10 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams): 
   }).record();
 }
 
-export async function publishTriage(params: PublishTriageParams): Promise<PublishTriageResult> {
-  return publishTriageBody(params, { kind: "fresh", checkout: params.checkout });
+export async function publishTriage(params: PublishTriageParams) {
+  return ((pinnedReturn: PublishTriageResult | Promise<PublishTriageResult>) => pinnedReturn)(
+    publishTriageBody(params, { kind: "fresh", checkout: params.checkout }),
+  );
 }
 
 type TriagePublication =
@@ -456,9 +474,7 @@ type RecoveryTriageParams = Omit<PublishTriageParams, "checkout" | "payload"> & 
   readonly recoveryInventory?: readonly BotFindingThread[];
 };
 
-export async function recoverTriagePublication(
-  params: RecoveryTriageParams,
-): Promise<PublishTriageResult | null> {
+export async function recoverTriagePublication(params: RecoveryTriageParams) {
   const ctx = createPublishContext(params.pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
@@ -470,20 +486,29 @@ export async function recoverTriagePublication(
     (await ctx.withoutNewer("triage_push", "triage_report"));
   const operationKey = triagePushOperationKey(params.resourceKey);
   const intent = detail == null ? await ctx.intent(operationKey) : null;
-  if (detail == null && intent == null) return null;
-  if (intent?.status === "failed") return null;
+  if (detail == null && intent == null)
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(null);
+  if (intent?.status === "failed")
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(null);
   if (
     intent != null &&
     intent.detail.__mutating !== true &&
     !Object.hasOwn(intent.detail, "__result") &&
     intent.status === "pending"
   )
-    return null;
-  if (intent?.detail.unknownResolution === "terminal") return ctx.failClosed(intent);
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(null);
+  if (intent?.detail.unknownResolution === "terminal")
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(ctx.failClosed(intent));
   const retained = detail ?? intent?.detail.pushPlan;
   const push = parseStoredTriagePushDetail(retained);
   if (push == null || !isRecord(retained)) {
-    if (intent != null) return ctx.failClosed(intent);
+    if (intent != null)
+      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+        pinnedReturn)(ctx.failClosed(intent));
     throw new AppError({
       domain: "triage",
       kind: "invalid_stored_push",
@@ -510,7 +535,8 @@ export async function recoverTriagePublication(
       new Set(roots.output).size !== verdictIds.size ||
       !roots.output.every((id) => verdictIds.has(id))
     )
-      return ctx.failClosed(intent);
+      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+        pinnedReturn)(ctx.failClosed(intent));
   }
   const inventory = retainedPublicationInventory(push, params);
   const publicationParams = inventory == null ? null : { ...params, inventory };
@@ -522,10 +548,15 @@ export async function recoverTriagePublication(
     !matches &&
     storedPushMatchesPublication(push, publicationParams, { prePushHead: true });
   if (!matches && !reconciledHeadMiss) {
-    if (intent != null) return ctx.failClosed(intent);
-    return null;
+    if (intent != null)
+      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+        pinnedReturn)(ctx.failClosed(intent));
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(null);
   }
-  if (inventory == null) return null;
+  if (inventory == null)
+    return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+      pinnedReturn)(null);
   await assertTriagePublicationActive(params);
   if (intent != null) {
     try {
@@ -569,26 +600,28 @@ export async function recoverTriagePublication(
           payload: push.payload,
         }),
       });
-      return publishTriageBody(
-        { ...params, inventory, payload: push.payload },
-        { kind: "retained", push: closed },
+      return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+        pinnedReturn)(
+        publishTriageBody(
+          { ...params, inventory, payload: push.payload },
+          { kind: "retained", push: closed },
+        ),
       );
     }
     await ctx.record({ step: "triage_push", detail: retained });
   }
-  return publishTriageBody(
-    { ...params, inventory, payload: push.payload },
-    { kind: "retained", push },
+  return ((pinnedReturn: (PublishTriageResult | null) | Promise<PublishTriageResult | null>) =>
+    pinnedReturn)(
+    publishTriageBody({ ...params, inventory, payload: push.payload }, { kind: "retained", push }),
   );
 }
 
-function retainedPublicationInventory(
-  push: StoredTriagePushDetail,
-  params: RecoveryTriageParams,
-): readonly BotFindingThread[] | null {
-  if (params.recoveryInventory == null) return params.inventory;
+function retainedPublicationInventory(push: StoredTriagePushDetail, params: RecoveryTriageParams) {
+  if (params.recoveryInventory == null)
+    return ((pinnedReturn: readonly BotFindingThread[] | null) => pinnedReturn)(params.inventory);
   const ids = new Set(push.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
-  if (params.inventory.some((thread) => !ids.has(thread.rootCommentId))) return null;
+  if (params.inventory.some((thread) => !ids.has(thread.rootCommentId)))
+    return ((pinnedReturn: readonly BotFindingThread[] | null) => pinnedReturn)(null);
   const inventory = params.recoveryInventory.filter((thread) => ids.has(thread.rootCommentId));
   const unresolvedIds = new Set(params.inventory.map((thread) => thread.rootCommentId));
   if (
@@ -598,45 +631,47 @@ function retainedPublicationInventory(
         params.resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
     )
   )
-    return null;
-  return inventory;
+    return ((pinnedReturn: readonly BotFindingThread[] | null) => pinnedReturn)(null);
+  return ((pinnedReturn: readonly BotFindingThread[] | null) => pinnedReturn)(inventory);
 }
 
 function storedPushMatchesPublication(
   push: StoredTriagePushDetail,
   params: RecoveryTriageParams,
   options?: { readonly prePushHead?: boolean },
-): boolean {
-  if (push.pushOutcome === "stale" || push.pushOutcome === "closed") return false;
+) {
+  if (push.pushOutcome === "stale" || push.pushOutcome === "closed")
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   if (!options?.prePushHead && push.pushedHeadSha?.toLowerCase() !== params.headSha.toLowerCase())
-    return false;
-  if (push.headRef != null && push.headRef !== params.headRef) return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (push.headRef != null && push.headRef !== params.headRef)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const verdictIds = new Set(push.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
   if (
     verdictIds.size !== params.inventory.length ||
     !params.inventory.every((thread) => verdictIds.has(thread.rootCommentId))
   )
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const shas = push.commits.map((commit) => commit.sha);
   if (
     push.pushedShas != null &&
     (push.pushedShas.length !== shas.length ||
       !push.pushedShas.every((sha, index) => sha === shas[index]))
   )
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   if (push.pushOutcome === "pushed" && (shas.length === 0 || shas.at(-1) !== push.pushedHeadSha))
-    return false;
-  return (
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     push.pushOutcome !== "pushed" ||
-    !push.payload.verdicts.some(
-      (verdict) => verdict.verdict === "fixed" && !shas.includes(verdict.commitSha),
-    )
+      !push.payload.verdicts.some(
+        (verdict) => verdict.verdict === "fixed" && !shas.includes(verdict.commitSha),
+      ),
   );
 }
 
 async function assertTriagePublicationActive(
   params: Pick<PublishTriageParams, "pool" | "workItemId" | "signal" | "leaseEpoch">,
-): Promise<void> {
+) {
   throwIfExecutionAborted(params.signal, { workItemId: params.workItemId });
   if (await shouldSkipWork(params.pool, { id: params.workItemId }))
     throw new TriageCancelledError();
@@ -646,7 +681,7 @@ async function assertTriagePublicationActive(
 
 async function assertTriageWriteAllowed(
   params: Pick<PublishTriageParams, "pool" | "workItemId" | "signal" | "leaseEpoch" | "prSurface">,
-): Promise<void> {
+) {
   await assertTriagePublicationActive(params);
   await assertTriagePullRequestWritable(params.prSurface);
 }
@@ -654,7 +689,7 @@ async function assertTriageWriteAllowed(
 async function publishTriageBody(
   params: Omit<PublishTriageParams, "checkout">,
   publication: TriagePublication,
-): Promise<PublishTriageResult> {
+) {
   await assertTriagePublicationActive(params);
   let pushOutcome: TriagePushOutcome =
     publication.kind === "retained" ? publication.push.pushOutcome : "not-needed";
@@ -964,5 +999,9 @@ async function publishTriageBody(
     }),
   });
 
-  return { pushOutcome, missingThreadAction, ...(partialBulk ? { partialBulk: true } : {}) };
+  return ((pinnedReturn: PublishTriageResult | Promise<PublishTriageResult>) => pinnedReturn)({
+    pushOutcome,
+    missingThreadAction,
+    ...(partialBulk ? { partialBulk: true } : {}),
+  });
 }

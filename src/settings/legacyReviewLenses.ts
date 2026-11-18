@@ -27,6 +27,6 @@ export function isAnyReviewLens(value: string): value is AnyReviewLens {
   }
 }
 
-export function normalizeReviewLens(_lens: AnyReviewLens): "review" {
-  return "review";
+export function normalizeReviewLens(_lens: AnyReviewLens) {
+  return ((pinnedReturn: "review") => pinnedReturn)("review");
 }

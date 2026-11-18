@@ -35,17 +35,25 @@ import { makeTestConfig } from "./helpers/config.ts";
 
 const cfg = makeTestConfig({ github: { appId: "111", privateKey: "k" } });
 
-function holdAuthenticatedAppResponse(): () => void {
+function holdAuthenticatedAppResponse() {
+  const called = (() => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  })();
   let release: () => void = () => {
     throw new Error("getAuthenticated was not called");
   };
   getAuthenticated.mockImplementation(
     () =>
       new Promise((resolve) => {
+        called.resolve();
         release = () => resolve({ data: { slug: "pr-agent" } });
       }),
   );
-  return () => release();
+  return { called: called.promise, release: () => release() };
 }
 
 let getAppBotIdentity = createAppBotIdentityLookup();
@@ -60,13 +68,13 @@ describe("app bot identity cache", () => {
   });
 
   it("coalesces concurrent cold app identity lookups", async () => {
-    const release = holdAuthenticatedAppResponse();
+    const held = holdAuthenticatedAppResponse();
 
     const pending = Promise.all([getAppBotIdentity(cfg), getAppBotIdentity(cfg)]);
-    await vi.waitFor(() => expect(getAuthenticated).toHaveBeenCalledTimes(1));
+    await held.called;
     expect(authFn).toHaveBeenCalledTimes(1);
 
-    release();
+    held.release();
     const [first, second] = await pending;
     expect(first).toEqual({ userId: 123, login: "pr-agent[bot]" });
     expect(second).toEqual(first);
@@ -74,14 +82,14 @@ describe("app bot identity cache", () => {
   });
 
   it("lets a cold caller await the boot prewarm lookup", async () => {
-    const release = holdAuthenticatedAppResponse();
+    const held = holdAuthenticatedAppResponse();
 
     void getAppBotIdentity(cfg);
-    await vi.waitFor(() => expect(getAuthenticated).toHaveBeenCalledTimes(1));
+    await held.called;
     const pending = getAppBotIdentity(cfg);
     expect(authFn).toHaveBeenCalledTimes(1);
 
-    release();
+    held.release();
     await expect(pending).resolves.toEqual({ userId: 123, login: "pr-agent[bot]" });
     expect(getByUsername).toHaveBeenCalledTimes(1);
   });

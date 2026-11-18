@@ -11,31 +11,35 @@ import { errorMessage } from "../../errors/errorMessage.ts";
 
 const exec = promisify(execFile);
 
-export function previewHunkHasDiff(hunk: TriagePreviewHunk): boolean {
-  return hunk.diff.trim().length > 0;
+export function previewHunkHasDiff(hunk: TriagePreviewHunk) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(hunk.diff.trim().length > 0);
 }
 
 export function approvedPreviewThreads(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly previewIds: ReadonlySet<number>;
   readonly excludeIds: ReadonlySet<number>;
-}): readonly BotFindingThread[] {
-  return params.inventory.filter(
-    (thread) =>
-      params.previewIds.has(thread.rootCommentId) && !params.excludeIds.has(thread.rootCommentId),
+}) {
+  return ((pinnedReturn: readonly BotFindingThread[]) => pinnedReturn)(
+    params.inventory.filter(
+      (thread) =>
+        params.previewIds.has(thread.rootCommentId) && !params.excludeIds.has(thread.rootCommentId),
+    ),
   );
 }
 
 export function approvedPreviewHunks(params: {
   readonly hunks: readonly TriagePreviewHunk[];
   readonly approvedIds: ReadonlySet<number>;
-}): readonly TriagePreviewHunk[] {
-  return params.hunks.filter(
-    (hunk) => params.approvedIds.has(hunk.threadRootCommentId) && previewHunkHasDiff(hunk),
+}) {
+  return ((pinnedReturn: readonly TriagePreviewHunk[]) => pinnedReturn)(
+    params.hunks.filter(
+      (hunk) => params.approvedIds.has(hunk.threadRootCommentId) && previewHunkHasDiff(hunk),
+    ),
   );
 }
 
-export function pathsFromUnifiedDiff(diff: string): readonly string[] {
+export function pathsFromUnifiedDiff(diff: string) {
   const paths: string[] = [];
   for (const line of diff.split("\n")) {
     if (!line.startsWith("diff --git ")) continue;
@@ -43,14 +47,14 @@ export function pathsFromUnifiedDiff(diff: string): readonly string[] {
     const path = match?.[2];
     if (path != null && path.length > 0) paths.push(path);
   }
-  return [...new Set(paths)];
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)([...new Set(paths)]);
 }
 
 export function remapBulkPayload(params: {
   readonly payload: TriagePayload;
   readonly approvedIds: ReadonlySet<number>;
   readonly appliedCommits: ReadonlyMap<number, string>;
-}): TriagePayload {
+}) {
   const verdicts: TriageVerdict[] = [];
   for (const verdict of params.payload.verdicts) {
     if (!params.approvedIds.has(verdict.threadRootCommentId)) continue;
@@ -68,14 +72,14 @@ export function remapBulkPayload(params: {
         break;
       default: {
         const exhaustive: never = verdict;
-        return exhaustive;
+        return ((pinnedReturn: TriagePayload) => pinnedReturn)(exhaustive);
       }
     }
   }
-  return { verdicts };
+  return ((pinnedReturn: TriagePayload) => pinnedReturn)({ verdicts });
 }
 
-export async function applyGitDiff(dir: string, diff: string): Promise<void> {
+export async function applyGitDiff(dir: string, diff: string) {
   const input = diff.endsWith("\n") ? diff : `${diff}\n`;
   const scratch = await mkdtemp(join(tmpdir(), "triage-preview-hunk-"));
   const patchPath = join(scratch, "hunk.diff");
@@ -90,7 +94,7 @@ export async function applyGitDiff(dir: string, diff: string): Promise<void> {
   }
 }
 
-export async function resetUncommittedCheckout(dir: string): Promise<void> {
+export async function resetUncommittedCheckout(dir: string) {
   await exec("git", ["reset", "--hard", "HEAD"], { cwd: dir, timeout: 30_000 });
 }
 
@@ -99,10 +103,7 @@ export async function replayPreviewHunks(params: {
   readonly hunks: readonly TriagePreviewHunk[];
   readonly applyDiff?: (dir: string, diff: string) => Promise<void>;
   readonly resetUncommitted?: (dir: string) => Promise<void>;
-}): Promise<{
-  readonly commitByThreadRootCommentId: Map<number, string>;
-  readonly commitErrors: { readonly threadRootCommentId: number; readonly error: string }[];
-}> {
+}) {
   const applyDiff = params.applyDiff ?? applyGitDiff;
   const resetUncommitted = params.resetUncommitted ?? resetUncommittedCheckout;
   const commitByThreadRootCommentId = new Map<number, string>();
@@ -130,7 +131,17 @@ export async function replayPreviewHunks(params: {
       });
     }
   }
-  return { commitByThreadRootCommentId, commitErrors };
+  return ((
+    pinnedReturn:
+      | {
+          readonly commitByThreadRootCommentId: Map<number, string>;
+          readonly commitErrors: { readonly threadRootCommentId: number; readonly error: string }[];
+        }
+      | Promise<{
+          readonly commitByThreadRootCommentId: Map<number, string>;
+          readonly commitErrors: { readonly threadRootCommentId: number; readonly error: string }[];
+        }>,
+  ) => pinnedReturn)({ commitByThreadRootCommentId, commitErrors });
 }
 
 export function previewApprovalSets(params: {
@@ -140,13 +151,7 @@ export function previewApprovalSets(params: {
     readonly hunks: readonly TriagePreviewHunk[];
   };
   readonly excludeIds: ReadonlySet<number>;
-}): {
-  readonly approvedInventory: readonly BotFindingThread[];
-  readonly approvedIds: ReadonlySet<number>;
-  readonly approvedHunks: readonly TriagePreviewHunk[];
-  readonly excludedIds: ReadonlySet<number>;
-  readonly notInPreviewIds: ReadonlySet<number>;
-} {
+}) {
   const previewIds = new Set(params.preview.threadRootCommentIds);
   const excludedIds = new Set(
     params.inventory
@@ -164,11 +169,17 @@ export function previewApprovalSets(params: {
     excludeIds: params.excludeIds,
   });
   const approvedIds = new Set(approvedInventory.map((thread) => thread.rootCommentId));
-  return {
+  return ((pinnedReturn: {
+    readonly approvedInventory: readonly BotFindingThread[];
+    readonly approvedIds: ReadonlySet<number>;
+    readonly approvedHunks: readonly TriagePreviewHunk[];
+    readonly excludedIds: ReadonlySet<number>;
+    readonly notInPreviewIds: ReadonlySet<number>;
+  }) => pinnedReturn)({
     approvedInventory,
     approvedIds,
     approvedHunks: approvedPreviewHunks({ hunks: params.preview.hunks, approvedIds }),
     excludedIds,
     notInPreviewIds,
-  };
+  });
 }

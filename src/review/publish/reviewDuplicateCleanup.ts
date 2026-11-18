@@ -32,11 +32,14 @@ export type ReviewDuplicateCleanup = {
   readonly clean: (session: ReviewPublishSession) => Promise<readonly CleanedDuplicate[]>;
 };
 
-function planIds(plan: DuplicateCleanupPlan): FindingId[] {
-  return [plan.canonical.id, ...plan.duplicates.map((entry) => entry.finding.id)];
+function planIds(plan: DuplicateCleanupPlan) {
+  return ((pinnedReturn: FindingId[]) => pinnedReturn)([
+    plan.canonical.id,
+    ...plan.duplicates.map((entry) => entry.finding.id),
+  ]);
 }
 
-function cleanupDeps(session: ReviewPublishSession): DuplicateCleanupDeps {
+function cleanupDeps(session: ReviewPublishSession) {
   const { prSurface, ctx, operationIntent } = session;
   const surface = {
     prNumber: ctx.prNumber,
@@ -47,7 +50,7 @@ function cleanupDeps(session: ReviewPublishSession): DuplicateCleanupDeps {
     resolveInlineReviewThread: (threadNodeId: string) =>
       prSurface.resolveInlineReviewThread(threadNodeId),
   };
-  return {
+  return ((pinnedReturn: DuplicateCleanupDeps) => pinnedReturn)({
     surface,
     withThreadLock: threadMutationLock(
       session.pool ?? session.verdict?.pool,
@@ -77,14 +80,13 @@ function cleanupDeps(session: ReviewPublishSession): DuplicateCleanupDeps {
         mutate,
       });
     },
-  };
+  });
 }
 
-async function runCleanup(
-  session: ReviewPublishSession,
-  plans: readonly DuplicateCleanupPlan[],
-): Promise<readonly CleanedDuplicate[]> {
-  if (plans.length === 0) return [];
+async function runCleanup(session: ReviewPublishSession, plans: readonly DuplicateCleanupPlan[]) {
+  if (plans.length === 0)
+    return ((pinnedReturn: readonly CleanedDuplicate[] | Promise<readonly CleanedDuplicate[]>) =>
+      pinnedReturn)([]);
   const warn = (fields: Record<string, unknown>, error: unknown) =>
     logWarn("review_duplicate_cleanup_failed", {
       owner: session.ctx.owner,
@@ -94,10 +96,13 @@ async function runCleanup(
       message: errorMessage(error),
     });
   try {
-    if ((await session.stopReason()) != null) return [];
+    if ((await session.stopReason()) != null)
+      return ((pinnedReturn: readonly CleanedDuplicate[] | Promise<readonly CleanedDuplicate[]>) =>
+        pinnedReturn)([]);
   } catch (error) {
     warn({}, error);
-    return [];
+    return ((pinnedReturn: readonly CleanedDuplicate[] | Promise<readonly CleanedDuplicate[]>) =>
+      pinnedReturn)([]);
   }
   const deps = cleanupDeps(session);
   const cleaned: CleanedDuplicate[] = [];
@@ -119,13 +124,14 @@ async function runCleanup(
       }
     }
   }
-  return cleaned;
+  return ((pinnedReturn: readonly CleanedDuplicate[] | Promise<readonly CleanedDuplicate[]>) =>
+    pinnedReturn)(cleaned);
 }
 
-export function createReviewDuplicateCleanup(inventory: FindingInventory): ReviewDuplicateCleanup {
+export function createReviewDuplicateCleanup(inventory: FindingInventory) {
   let accepted: readonly DuplicateCleanupPlan[] = [];
   let cleaned: Promise<readonly CleanedDuplicate[]> | null = null;
-  return {
+  return ((pinnedReturn: ReviewDuplicateCleanup) => pinnedReturn)({
     declare: (ids) => {
       const declared = new Set(ids);
       const overlapping = accepted.filter((plan) => planIds(plan).some((id) => declared.has(id)));
@@ -148,5 +154,5 @@ export function createReviewDuplicateCleanup(inventory: FindingInventory): Revie
       cleaned ??= runCleanup(session, [...accepted, ...planSameIdCleanup(inventory)]);
       return cleaned;
     },
-  };
+  });
 }

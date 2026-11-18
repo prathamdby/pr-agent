@@ -165,66 +165,82 @@ type PublishThreadToolParams = {
   readonly initialLedger?: FindingLedger;
 };
 
-function observationRelation(
-  relation: SubmittedRelation | undefined,
-): ObservationRelation | string {
-  if (relation == null || relation.kind === "new") return { kind: "new" };
+function observationRelation(relation: SubmittedRelation | undefined) {
+  if (relation == null || relation.kind === "new")
+    return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)({ kind: "new" });
   const ids = relation.kind === "continues" ? [relation.findingId] : relation.findingIds;
   const malformed = ids.filter((id) => !isFindingId(id));
-  if (malformed.length > 0) return `Unknown finding ids ${malformed.join(", ")}.`;
+  if (malformed.length > 0)
+    return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)(
+      `Unknown finding ids ${malformed.join(", ")}.`,
+    );
   const findingIds = ids.filter(isFindingId);
   switch (relation.kind) {
     case "continues": {
       const [findingId] = findingIds;
-      return findingId == null
-        ? "A continues relation needs a finding id."
-        : { kind: "continues", findingId };
+      return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)(
+        findingId == null
+          ? "A continues relation needs a finding id."
+          : { kind: "continues", findingId },
+      );
     }
     case "distinct_from":
-      return { kind: "distinct_from", findingIds, reason: relation.reason };
+      return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)({
+        kind: "distinct_from",
+        findingIds,
+        reason: relation.reason,
+      });
     case "uncertain":
-      return { kind: "uncertain", findingIds };
+      return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)({
+        kind: "uncertain",
+        findingIds,
+      });
     default: {
       const exhaustive: never = relation;
-      return exhaustive;
+      return ((pinnedReturn: ObservationRelation | string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function acceptedThisRun(ledger: FindingLedger): AcceptedThisRun[] {
-  return ledger.accepted.map((accepted) => {
-    const detail = capFindingDetail(accepted.placement.finding.detail);
-    return {
-      id: accepted.findingId,
-      path: accepted.placement.finding.file,
-      startLine: accepted.placement.finding.startLine,
-      endLine: accepted.placement.finding.endLine,
-      title: accepted.placement.finding.title,
-      ...(detail != null ? { detail } : {}),
-      url: accepted.placement.inlineCommentUrl ?? "",
-    };
-  });
-}
-
-function normalizedSubstance(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function repeatsFinding(earlier: ReviewFinding, candidate: ReviewFinding): boolean {
-  if (reviewFindingPlacementKey(earlier) === reviewFindingPlacementKey(candidate)) return true;
-  return (
-    earlier.file === candidate.file &&
-    earlier.startLine <= candidate.endLine &&
-    candidate.startLine <= earlier.endLine &&
-    normalizedSubstance(earlier.title) === normalizedSubstance(candidate.title) &&
-    normalizedSubstance(earlier.detail) === normalizedSubstance(candidate.detail)
+function acceptedThisRun(ledger: FindingLedger) {
+  return ((pinnedReturn: AcceptedThisRun[]) => pinnedReturn)(
+    ledger.accepted.map((accepted) => {
+      const detail = capFindingDetail(accepted.placement.finding.detail);
+      return {
+        id: accepted.findingId,
+        path: accepted.placement.finding.file,
+        startLine: accepted.placement.finding.startLine,
+        endLine: accepted.placement.finding.endLine,
+        title: accepted.placement.finding.title,
+        ...(detail != null ? { detail } : {}),
+        url: accepted.placement.inlineCommentUrl ?? "",
+      };
+    }),
   );
 }
 
-function repeatedInBatch(findings: readonly ReviewFinding[]): ReadonlySet<number> {
+function normalizedSubstance(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim(),
+  );
+}
+
+function repeatsFinding(earlier: ReviewFinding, candidate: ReviewFinding) {
+  if (reviewFindingPlacementKey(earlier) === reviewFindingPlacementKey(candidate))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    earlier.file === candidate.file &&
+      earlier.startLine <= candidate.endLine &&
+      candidate.startLine <= earlier.endLine &&
+      normalizedSubstance(earlier.title) === normalizedSubstance(candidate.title) &&
+      normalizedSubstance(earlier.detail) === normalizedSubstance(candidate.detail),
+  );
+}
+
+function repeatedInBatch(findings: readonly ReviewFinding[]) {
   const seen: ReviewFinding[] = [];
   const repeated = new Set<number>();
   const byPriority = findings
@@ -236,13 +252,10 @@ function repeatedInBatch(findings: readonly ReviewFinding[]): ReadonlySet<number
     if (seen.some((earlier) => repeatsFinding(earlier, finding))) repeated.add(index);
     seen.push(finding);
   }
-  return repeated;
+  return ((pinnedReturn: ReadonlySet<number>) => pinnedReturn)(repeated);
 }
 
-function severityMovement(
-  report: SpecialistReport | null,
-  findings: readonly ReviewFinding[],
-): { readonly severityRaised: number; readonly severityLowered: number } {
+function severityMovement(report: SpecialistReport | null, findings: readonly ReviewFinding[]) {
   let severityRaised = 0;
   let severityLowered = 0;
   for (const finding of findings) {
@@ -260,38 +273,34 @@ function severityMovement(
     if (judgedRank < suggestedRank) severityRaised += 1;
     else if (judgedRank > suggestedRank) severityLowered += 1;
   }
-  return { severityRaised, severityLowered };
+  return ((pinnedReturn: { readonly severityRaised: number; readonly severityLowered: number }) =>
+    pinnedReturn)({ severityRaised, severityLowered });
 }
 
-function validationFailed(message: string): AppError {
-  return new AppError({ domain: "review", kind: "publish_thread_validation_failed", message });
+function validationFailed(message: string) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({ domain: "review", kind: "publish_thread_validation_failed", message }),
+  );
 }
 
 function overlapUnanswered(
   questions: readonly OverlapQuestionReport[],
   rejected: readonly RejectedRelationReport[],
-): AppError {
-  return new AppError({
-    domain: "review",
-    kind: "publish_thread_overlap_unanswered",
-    message: [
-      "publish_thread published nothing: some findings need a relation answer first.",
-      "For each overlap question, set that finding's relation to continues, distinct_from, or uncertain with the listed finding IDs. Fix each rejected relation. Then call publish_thread again with the whole batch. A finding still unanswered on that call lands summary-only.",
-      JSON.stringify({ overlapQuestions: questions, rejectedRelations: rejected }, null, 2),
-    ].join("\n"),
-  });
+) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "review",
+      kind: "publish_thread_overlap_unanswered",
+      message: [
+        "publish_thread published nothing: some findings need a relation answer first.",
+        "For each overlap question, set that finding's relation to continues, distinct_from, or uncertain with the listed finding IDs. Fix each rejected relation. Then call publish_thread again with the whole batch. A finding still unanswered on that call lands summary-only.",
+        JSON.stringify({ overlapQuestions: questions, rejectedRelations: rejected }, null, 2),
+      ].join("\n"),
+    }),
+  );
 }
 
-export function buildPublishThreadTool(params: PublishThreadToolParams): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
-  readonly setSource: (source: SpecialistId) => void;
-  readonly setReport: (report: SpecialistReport) => void;
-  readonly getLedger: () => FindingLedger;
-  readonly getPublishedBatchCount: () => number;
-  readonly getStopReason: () => PublishStopReason | null;
-  readonly replay: (decision: RecoveryDecision, withoutEvidence?: boolean) => Promise<void>;
-} {
+export function buildPublishThreadTool(params: PublishThreadToolParams) {
   let source: SpecialistId | null = null;
   let specialistReport: SpecialistReport | null = null;
   let stopReason: PublishStopReason | null = null;
@@ -312,7 +321,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     repeated: ReadonlySet<number>,
     overlapRoundsLeft: number,
     batchSource: SpecialistId,
-  ): Map<string, ReconcileOutcome> => {
+  ) => {
     const accepted = acceptedThisRun(ledger);
     const scope = findingIdScope(session, batchSource);
     const occurrences = new Map<string, number>();
@@ -369,7 +378,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       overlapRoundsUsed += 1;
       throw overlapUnanswered(questions, rejected);
     }
-    return outcomes;
+    return ((pinnedReturn: Map<string, ReconcileOutcome>) => pinnedReturn)(outcomes);
   };
 
   const publish = async (
@@ -377,7 +386,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     overlapRoundsLeft: number,
     judged: boolean,
     dispositions: readonly JudgmentDisposition[],
-  ): Promise<PublishThreadToolResult> => {
+  ) => {
     if (source == null) {
       throw new AppError({
         domain: "review",
@@ -471,19 +480,21 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     } else {
       stopReason = result.reason;
     }
-    return result;
+    return ((pinnedReturn: PublishThreadToolResult | Promise<PublishThreadToolResult>) =>
+      pinnedReturn)(result);
   };
 
-  const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
+  const executor = async (args: Record<string, unknown>) => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");
     if (!gate.ok) {
-      return {
+      return ((pinnedReturn: PublishThreadToolResult | Promise<PublishThreadToolResult>) =>
+        pinnedReturn)({
         kind: "wrong_phase",
         code: gate.code,
         phase: gate.phase,
         allowed: gate.allowed,
         error: gate.error,
-      };
+      });
     }
     const options = { toolName: "publish_thread", errorTitle: "publish_thread validation failed:" };
     const parsed = parseToolInput(publishThreadSchema, args, options);
@@ -509,15 +520,27 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       dispositions: parsed.value.dispositions,
     });
     if (mismatch != null) throw validationFailed(mismatch);
-    return publish(
-      submitted,
-      Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed),
-      true,
-      parsed.value.dispositions,
+    return ((pinnedReturn: PublishThreadToolResult | Promise<PublishThreadToolResult>) =>
+      pinnedReturn)(
+      publish(
+        submitted,
+        Math.max(0, MAX_OVERLAP_ROUNDS - overlapRoundsUsed),
+        true,
+        parsed.value.dispositions,
+      ),
     );
   };
 
-  return {
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
+    readonly setSource: (source: SpecialistId) => void;
+    readonly setReport: (report: SpecialistReport) => void;
+    readonly getLedger: () => FindingLedger;
+    readonly getPublishedBatchCount: () => number;
+    readonly getStopReason: () => PublishStopReason | null;
+    readonly replay: (decision: RecoveryDecision, withoutEvidence?: boolean) => Promise<void>;
+  }) => pinnedReturn)({
     piTool,
     executor,
     setSource: (nextSource) => {
@@ -550,5 +573,5 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       }
       ledger = applyFindingLedgerDelta(ledger, result.delta);
     },
-  };
+  });
 }

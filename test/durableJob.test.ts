@@ -156,17 +156,19 @@ const boss = {
 
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
-): AgentWorkItem {
-  return makeReviewWorkItem({ status: "queued", ...overrides });
+) {
+  return ((pinnedReturn: AgentWorkItem) => pinnedReturn)(
+    makeReviewWorkItem({ status: "queued", ...overrides }),
+  );
 }
 
-function mockFetchedItem(item: AgentWorkItem | null): void {
+function mockFetchedItem(item: AgentWorkItem | null) {
   vi.mocked(repo.getWorkItem).mockResolvedValue(item);
   vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
   vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
-function mockFetchedItems(...items: AgentWorkItem[]): void {
+function mockFetchedItems(...items: AgentWorkItem[]) {
   vi.mocked(repo.getWorkItem).mockReset();
   vi.mocked(repo.getWorkItemCore).mockReset();
   vi.mocked(repo.getWorkItemPayload).mockReset();
@@ -177,54 +179,60 @@ function mockFetchedItems(...items: AgentWorkItem[]): void {
   }
 }
 
-function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: string }> {
-  return {
+function makeJob(retryCount = 0, retryLimit = 3) {
+  return ((pinnedReturn: JobWithMetadata<{ workItemId: string }>) => pinnedReturn)({
     id: "job-1",
     data: { workItemId: "wi-1" },
     retryCount,
     retryLimit,
     signal: new AbortController().signal,
-  } as unknown as JobWithMetadata<{ workItemId: string }>;
+  } as unknown as JobWithMetadata<{ workItemId: string }>);
 }
 
-function completedResult(degradation?: readonly string[]): DurableExecutionResult {
-  return degradation ? { kind: "completed", degradation } : { kind: "completed" };
+function completedResult(degradation?: readonly string[]) {
+  return ((pinnedReturn: DurableExecutionResult) => pinnedReturn)(
+    degradation ? { kind: "completed", degradation } : { kind: "completed" },
+  );
 }
 
 function rescheduledResult(
   overrides: Partial<Omit<Extract<DurableExecutionResult, { kind: "rescheduled" }>, "kind">> = {},
-): Extract<DurableExecutionResult, { kind: "rescheduled" }> {
-  return {
-    kind: "rescheduled",
-    replacementWorkItemId: "replacement-wi",
-    afterComplete: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
-  };
+) {
+  return ((pinnedReturn: Extract<DurableExecutionResult, { kind: "rescheduled" }>) => pinnedReturn)(
+    {
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    },
+  );
 }
 
 function runReviewWorkItem(
   overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
-): Promise<void> {
-  return runDurableWorkItem({
-    contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
-    cfg,
-    pool,
-    boss,
-    job: makeJob(),
-    type: "review",
-    prActorLease: { queue: "agent-work-review" },
-    resolveHeadSha: async () => ({ headSha: "x" }),
-    runtime: createDurableRuntime({
-      installationSurface,
-      transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+) {
+  return ((pinnedReturn: Promise<void>) => pinnedReturn)(
+    runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "review",
+      prActorLease: { queue: "agent-work-review" },
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+      }),
+      ...overrides,
+      execute: async (item, env) => {
+        await env.ensureReviewAccess?.();
+        await env.beginAttempt();
+        return overrides.execute(item, env);
+      },
     }),
-    ...overrides,
-    execute: async (item, env) => {
-      await env.ensureReviewAccess?.();
-      await env.beginAttempt();
-      return overrides.execute(item, env);
-    },
-  });
+  );
 }
 
 function defaultMocks() {
@@ -1260,7 +1268,8 @@ describe("DurableExecutionResult assignability", () => {
   });
 
   it("constructs valid object literals", () => {
-    const accept = (result: DurableExecutionResult): DurableExecutionResult => result;
+    const accept = (result: DurableExecutionResult) =>
+      ((pinnedReturn: DurableExecutionResult) => pinnedReturn)(result);
     accept({ kind: "completed" });
     accept({ kind: "completed", degradation: ["push_stale", "bulk_partial"] });
     accept({

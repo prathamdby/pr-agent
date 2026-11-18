@@ -45,7 +45,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     status: string,
     completedAt: string | null,
     updatedAt: string = completedAt ?? new Date().toISOString(),
-  ): Promise<string> {
+  ) {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO agent_work_items
@@ -53,7 +53,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
        VALUES ($1, 'review', 'auto', $2, $3, 'r', 1, 1, 'h', $4, $5, $6)`,
       [id, status, OWNER, `k-${id}`, completedAt, updatedAt],
     );
-    return id;
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(id);
   }
 
   it("deletes aged terminal work items but keeps fresh and non-terminal", async () => {

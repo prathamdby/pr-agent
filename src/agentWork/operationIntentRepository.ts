@@ -35,9 +35,10 @@ export function selectRetainedDescriptionSurfaceIdentity(
     readonly detail: Record<string, unknown>;
   }[],
   params: RetainedDescriptionLookup,
-): RetainedDescriptionSurfaceIdentity | null {
+) {
   const retained = rows[0];
-  if (retained == null) return null;
+  if (retained == null)
+    return ((pinnedReturn: RetainedDescriptionSurfaceIdentity | null) => pinnedReturn)(null);
   const inputHash = retained.detail.inputHash;
   const prefix =
     params.parentOperationKey == null
@@ -59,13 +60,16 @@ export function selectRetainedDescriptionSurfaceIdentity(
       context: { workItemId: params.workItemId, operationKey: params.operationKey },
     });
   }
-  return { operationKey: retained.operation_key, inputHash };
+  return ((pinnedReturn: RetainedDescriptionSurfaceIdentity | null) => pinnedReturn)({
+    operationKey: retained.operation_key,
+    inputHash,
+  });
 }
 
 export async function findRetainedDescriptionSurfaceIdentity(
   client: Pool | PoolClient,
   params: RetainedDescriptionLookup,
-): Promise<RetainedDescriptionSurfaceIdentity | null> {
+) {
   const { rows } = await client.query<{
     operation_key: string;
     detail: Record<string, unknown>;
@@ -80,7 +84,11 @@ export async function findRetainedDescriptionSurfaceIdentity(
       LIMIT 2`,
     [params.workItemId, params.parentOperationKey ?? null, params.operationMarker ?? null],
   );
-  return selectRetainedDescriptionSurfaceIdentity(rows, params);
+  return ((
+    pinnedReturn:
+      | (RetainedDescriptionSurfaceIdentity | null)
+      | Promise<RetainedDescriptionSurfaceIdentity | null>,
+  ) => pinnedReturn)(selectRetainedDescriptionSurfaceIdentity(rows, params));
 }
 
 export async function persistOperationIntent(
@@ -92,7 +100,7 @@ export async function persistOperationIntent(
     readonly leaseEpoch?: number | null;
     readonly detail?: Record<string, unknown>;
   },
-): Promise<OperationIntentRow> {
+) {
   const id = crypto.randomUUID();
   const row = await fencedWrite(
     client,
@@ -156,7 +164,9 @@ export async function persistOperationIntent(
       },
     });
   }
-  return mapRow(row);
+  return ((pinnedReturn: OperationIntentRow | Promise<OperationIntentRow>) => pinnedReturn)(
+    mapRow(row),
+  );
 }
 
 export async function mergeOperationIntentDetail(
@@ -167,7 +177,7 @@ export async function mergeOperationIntentDetail(
     readonly leaseEpoch?: number | null;
     readonly detail: Record<string, unknown>;
   },
-): Promise<OperationIntentRow | null> {
+) {
   const row = await fencedWrite(
     client,
     params.workItemId,
@@ -208,7 +218,8 @@ export async function mergeOperationIntentDetail(
         ],
       ),
   );
-  return row ? mapRow(row) : null;
+  return ((pinnedReturn: (OperationIntentRow | null) | Promise<OperationIntentRow | null>) =>
+    pinnedReturn)(row ? mapRow(row) : null);
 }
 
 export async function releaseUnsentInFlightIntent(
@@ -218,7 +229,7 @@ export async function releaseUnsentInFlightIntent(
     readonly operationKey: string;
     readonly leaseEpoch: number;
   },
-): Promise<void> {
+) {
   await queryOne(
     client,
     `UPDATE operation_intents
@@ -240,7 +251,7 @@ export async function releaseUnsentInFlightIntent(
 export async function findInFlightMutatingIntent(
   client: Pool | PoolClient,
   params: { readonly workItemId: string; readonly operationKey: string },
-): Promise<OperationIntentRow | null> {
+) {
   const row = await queryOne<{
     id: string;
     work_item_id: string;
@@ -297,7 +308,8 @@ export async function findInFlightMutatingIntent(
       LIMIT 1`,
     [params.workItemId, params.operationKey],
   );
-  return row ? mapRow(row) : null;
+  return ((pinnedReturn: (OperationIntentRow | null) | Promise<OperationIntentRow | null>) =>
+    pinnedReturn)(row ? mapRow(row) : null);
 }
 
 export async function reconcileOperationIntent(
@@ -311,7 +323,7 @@ export async function reconcileOperationIntent(
     readonly leaseHolderWorkItemId?: string;
     readonly detail?: Record<string, unknown>;
   },
-): Promise<OperationIntentRow | null> {
+) {
   const leaseHolderWorkItemId = params.leaseHolderWorkItemId ?? params.workItemId;
   type IntentSqlRow = {
     id: string;
@@ -378,14 +390,15 @@ export async function reconcileOperationIntent(
       return current;
     },
   );
-  return row ? mapRow(row) : null;
+  return ((pinnedReturn: (OperationIntentRow | null) | Promise<OperationIntentRow | null>) =>
+    pinnedReturn)(row ? mapRow(row) : null);
 }
 
 export async function getOperationIntent(
   client: Pool | PoolClient,
   workItemId: string,
   operationKey: string,
-): Promise<OperationIntentRow | null> {
+) {
   const row = await queryOne<{
     id: string;
     work_item_id: string;
@@ -404,13 +417,11 @@ export async function getOperationIntent(
       LIMIT 1`,
     [workItemId, operationKey],
   );
-  return row ? mapRow(row) : null;
+  return ((pinnedReturn: (OperationIntentRow | null) | Promise<OperationIntentRow | null>) =>
+    pinnedReturn)(row ? mapRow(row) : null);
 }
 
-export async function listPendingOperationIntents(
-  client: Pool | PoolClient,
-  workItemId: string,
-): Promise<readonly OperationIntentRow[]> {
+export async function listPendingOperationIntents(client: Pool | PoolClient, workItemId: string) {
   const result = await client.query<{
     id: string;
     work_item_id: string;
@@ -428,7 +439,8 @@ export async function listPendingOperationIntents(
       ORDER BY created_at ASC`,
     [workItemId],
   );
-  return result.rows.map(mapRow);
+  return ((pinnedReturn: readonly OperationIntentRow[] | Promise<readonly OperationIntentRow[]>) =>
+    pinnedReturn)(result.rows.map(mapRow));
 }
 
 function mapRow(row: {
@@ -440,8 +452,8 @@ function mapRow(row: {
   publish_record_id: string | null;
   lease_epoch: string | number | null;
   detail: Record<string, unknown>;
-}): OperationIntentRow {
-  return {
+}) {
+  return ((pinnedReturn: OperationIntentRow) => pinnedReturn)({
     id: row.id,
     workItemId: row.work_item_id,
     operationKey: row.operation_key,
@@ -450,5 +462,5 @@ function mapRow(row: {
     publishRecordId: row.publish_record_id,
     leaseEpoch: row.lease_epoch == null ? null : Number(row.lease_epoch),
     detail: row.detail,
-  };
+  });
 }

@@ -15,8 +15,8 @@ export function defineLocalTool<TSchema extends v.GenericSchema, TResult>(tool: 
   readonly description: string;
   readonly schema: TSchema;
   readonly run: (parsed: v.InferOutput<TSchema>, ctx?: AgentToolCallContext) => Promise<TResult>;
-}): LocalTool<TResult> {
-  return {
+}) {
+  return ((pinnedReturn: LocalTool<TResult>) => pinnedReturn)({
     description: tool.description,
     schema: tool.schema,
     execute: async (name, raw, ctx) => {
@@ -34,23 +34,25 @@ export function defineLocalTool<TSchema extends v.GenericSchema, TResult>(tool: 
       }
       return ctx != null ? tool.run(parsed.value, ctx) : tool.run(parsed.value);
     },
-  };
+  });
 }
 
 export function toPiTool(
   name: string,
   t: Pick<LocalTool, "description" | "schema"> & { readonly run?: unknown },
-): PiTool {
-  return {
+) {
+  return ((pinnedReturn: PiTool) => pinnedReturn)({
     name,
     description: t.description,
     parameters: toToolParameters(t.schema),
-  };
+  });
 }
 
-export function toExecutor<TResult>(
-  name: string,
-  t: LocalTool<TResult>,
-): (args: Parameters<AgentRunnerToolExecutor>[0], ctx?: AgentToolCallContext) => Promise<TResult> {
-  return (args, ctx) => t.execute(name, args, ctx);
+export function toExecutor<TResult>(name: string, t: LocalTool<TResult>) {
+  return ((
+    pinnedReturn: (
+      args: Parameters<AgentRunnerToolExecutor>[0],
+      ctx?: AgentToolCallContext,
+    ) => Promise<TResult>,
+  ) => pinnedReturn)((args, ctx) => t.execute(name, args, ctx));
 }

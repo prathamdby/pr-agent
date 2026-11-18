@@ -24,8 +24,8 @@ export type TriageRunSetup = {
   readonly workspaceState: TriageWorkspaceToolState;
 };
 
-export function shouldContinueTriageRun(setup: Pick<TriageRunSetup, "submitState">): boolean {
-  return !setup.submitState.submitted;
+export function shouldContinueTriageRun(setup: Pick<TriageRunSetup, "submitState">) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(!setup.submitState.submitted);
 }
 
 export function buildTriageRunSetup(params: {
@@ -37,7 +37,7 @@ export function buildTriageRunSetup(params: {
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
   readonly scope?: TriageScope;
-}): TriageRunSetup {
+}) {
   const workspaceState = createTriageWorkspaceToolState();
   const submitState = createSubmitTriageState();
   const workspaceTools = buildTriageWorkspaceTools({
@@ -56,7 +56,7 @@ export function buildTriageRunSetup(params: {
     submitState,
   });
 
-  return {
+  return ((pinnedReturn: TriageRunSetup) => pinnedReturn)({
     systemPrompt: triageSystemPrompt,
     userContent: buildTriageUserContent({
       owner: params.owner,
@@ -71,5 +71,5 @@ export function buildTriageRunSetup(params: {
     executors: { ...workspaceTools.executors, submitTriage: submitTool.executor },
     submitState,
     workspaceState,
-  };
+  });
 }

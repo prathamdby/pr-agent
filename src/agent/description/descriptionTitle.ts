@@ -3,9 +3,9 @@ import { DESCRIPTION_TITLE_MAX_LENGTH } from "../../settings/index.ts";
 const CONVENTIONAL_TYPE_PREFIX =
   /^(?:feat|fix|docs|chore|refactor|test|perf|style|ci|build|revert)(?:\([^)]+\))?!?:\s+/i;
 
-export function enforceDescriptionTitle(title: string): string {
+export function enforceDescriptionTitle(title: string) {
   const trimmed = title.trim();
-  if (trimmed.length === 0) return trimmed;
+  if (trimmed.length === 0) return ((pinnedReturn: string) => pinnedReturn)(trimmed);
 
   let normalized = trimmed.replace(CONVENTIONAL_TYPE_PREFIX, "").replace(/\.+$/, "").trim();
   if (normalized.length === 0) {
@@ -15,13 +15,13 @@ export function enforceDescriptionTitle(title: string): string {
   normalized = normalized.charAt(0).toUpperCase() + normalized.slice(1);
 
   if (normalized.length <= DESCRIPTION_TITLE_MAX_LENGTH) {
-    return normalized;
+    return ((pinnedReturn: string) => pinnedReturn)(normalized);
   }
 
   const truncated = normalized.slice(0, DESCRIPTION_TITLE_MAX_LENGTH);
   const lastSpace = truncated.lastIndexOf(" ");
   if (lastSpace > DESCRIPTION_TITLE_MAX_LENGTH * 0.5) {
-    return truncated.slice(0, lastSpace).trim();
+    return ((pinnedReturn: string) => pinnedReturn)(truncated.slice(0, lastSpace).trim());
   }
-  return truncated.trim();
+  return ((pinnedReturn: string) => pinnedReturn)(truncated.trim());
 }

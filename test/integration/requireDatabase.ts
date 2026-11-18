@@ -19,24 +19,26 @@ export const INTEGRATION_DATABASE_HINT = [
   "  npm run test:integration:inventory",
 ].join("\n");
 
-export function allowIntegrationSkipWithoutDatabase(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[INTEGRATION_ALLOW_SKIP_ENV] === "1";
+export function allowIntegrationSkipWithoutDatabase(env: NodeJS.ProcessEnv = process.env) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(env[INTEGRATION_ALLOW_SKIP_ENV] === "1");
 }
 
-export function formatMissingDatabaseUrlError(): Error {
-  return new Error(`DATABASE_URL is unset.\n\n${INTEGRATION_DATABASE_HINT}`);
-}
-
-export function formatUnreachableDatabaseError(cause: unknown): Error {
-  const detail = cause instanceof Error ? cause.message : String(cause);
-  return new Error(
-    `Postgres at DATABASE_URL is unreachable (${detail}).\n\n${INTEGRATION_DATABASE_HINT}`,
+export function formatMissingDatabaseUrlError() {
+  return ((pinnedReturn: Error) => pinnedReturn)(
+    new Error(`DATABASE_URL is unset.\n\n${INTEGRATION_DATABASE_HINT}`),
   );
 }
 
-export async function assertIntegrationDatabaseReady(
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<void> {
+export function formatUnreachableDatabaseError(cause: unknown) {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return ((pinnedReturn: Error) => pinnedReturn)(
+    new Error(
+      `Postgres at DATABASE_URL is unreachable (${detail}).\n\n${INTEGRATION_DATABASE_HINT}`,
+    ),
+  );
+}
+
+export async function assertIntegrationDatabaseReady(env: NodeJS.ProcessEnv = process.env) {
   if (allowIntegrationSkipWithoutDatabase(env)) return;
 
   const databaseUrl = env.DATABASE_URL;

@@ -16,8 +16,8 @@ function capability(id: CapabilityId) {
   return item;
 }
 
-function command(trigger: string): string | null {
-  return trigger.match(/\/[a-z-]+/)?.[0] ?? null;
+function command(trigger: string) {
+  return ((pinnedReturn: string | null) => pinnedReturn)(trigger.match(/\/[a-z-]+/)?.[0] ?? null);
 }
 
 function IconTile({ icon: Icon }: { readonly icon: IconComponent }) {

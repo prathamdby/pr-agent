@@ -12,8 +12,8 @@ import type { TriageWorkspaceToolState } from "../src/agent/triage/triageWorkspa
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.ts";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 
-function inventoryThread(): BotFindingThread {
-  return {
+function inventoryThread() {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId: 1,
     lens: "review",
     path: "src/a.ts",
@@ -22,7 +22,7 @@ function inventoryThread(): BotFindingThread {
     titleSnippet: "Guard the missing value",
     humanReplies: [],
     threadUrl: "https://example.com/threads/1",
-  };
+  });
 }
 
 function buildTool(thread: BotFindingThread = inventoryThread()) {
@@ -133,8 +133,8 @@ import {
   createSubmitVerificationState,
 } from "../src/agent/verification/submitVerificationTool.ts";
 
-function verificationInventoryThread(): BotFindingThread {
-  return {
+function verificationInventoryThread() {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId: 1,
     lens: "review",
     path: "src/a.ts",
@@ -143,7 +143,7 @@ function verificationInventoryThread(): BotFindingThread {
     titleSnippet: "Guard the missing value",
     humanReplies: [],
     threadUrl: "https://example.com/threads/1",
-  };
+  });
 }
 
 function buildVerificationFixture(thread: BotFindingThread = verificationInventoryThread()) {

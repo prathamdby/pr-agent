@@ -121,7 +121,7 @@ export type DurableExecutionContext = {
 function noteWorkspaceCheckout(
   record: ((properties: WorkspaceCheckoutProperties) => void) | undefined,
   observe: () => Parameters<typeof workspaceCheckoutProperties>[0] | undefined,
-): void {
+) {
   if (!record) return;
   try {
     const observed = observe();
@@ -145,7 +145,7 @@ export function createDurableExecutionContext(
     readonly executionId?: string;
     readonly recordWorkspaceCheckout?: (properties: WorkspaceCheckoutProperties) => void;
   },
-): DurableExecutionContext {
+) {
   const {
     pool,
     item,
@@ -159,7 +159,7 @@ export function createDurableExecutionContext(
   const runtimeExecutionId = executionId ?? randomUUID();
   let admission: Promise<WorkClaim> | undefined;
   const admit = () => (admission ??= beginAttempt());
-  return {
+  return ((pinnedReturn: DurableExecutionContext) => pinnedReturn)({
     ...context,
     beginAttempt: admit,
     withAdmittedRepositoryView: async (options, run) => {
@@ -214,21 +214,21 @@ export function createDurableExecutionContext(
     get escalation() {
       return getEscalation();
     },
-  };
+  });
 }
 
 export type DurableRuntime = LeasedExecutionRuntime & {
   readonly installationSurface: InstallationSurface;
 };
 
-export function createDurableRuntime(dependencies: Partial<DurableRuntime> = {}): DurableRuntime {
-  return {
+export function createDurableRuntime(dependencies: Partial<DurableRuntime> = {}) {
+  return ((pinnedReturn: DurableRuntime) => pinnedReturn)({
     installationSurface: productionInstallationSurface,
     transaction: inTransaction,
     startLeaseRenewal,
     startCancelObserve,
     ...dependencies,
-  };
+  });
 }
 
 export type DurableExecutionResult =
@@ -282,28 +282,28 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   ) => Promise<void>;
 };
 
-export async function resolveWorkItemHead(
-  prSurface: PrSurface,
-  item: AgentWorkItemCore,
-): Promise<DurableHeadResolution> {
-  return item.headSha === DEFERRED_HEAD_SHA ? prSurface.getHead() : { headSha: item.headSha };
+export async function resolveWorkItemHead(prSurface: PrSurface, item: AgentWorkItemCore) {
+  return ((pinnedReturn: DurableHeadResolution | Promise<DurableHeadResolution>) => pinnedReturn)(
+    item.headSha === DEFERRED_HEAD_SHA ? prSurface.getHead() : { headSha: item.headSha },
+  );
 }
 
 async function isBotCommenter(
   installationSurface: InstallationSurface,
   cfg: Config,
   commenterId?: number,
-): Promise<boolean> {
-  if (commenterId == null) return false;
+) {
+  if (commenterId == null)
+    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
   const bot = await installationSurface.botIdentity(cfg);
-  return bot.userId === commenterId;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(bot.userId === commenterId);
 }
 
 async function recordRescheduledParentCompleted(
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string,
-): Promise<void> {
+) {
   logInfo("agent_work_completed", {
     type,
     workItemId: itemId,
@@ -318,7 +318,7 @@ async function finishRescheduledParentWorkItem(
   type: WorkType,
   replacementWorkItemId: string,
   pool: Pool,
-): Promise<void> {
+) {
   if (await lease.mark.completed(itemId)) {
     await recordRescheduledParentCompleted(itemId, type, replacementWorkItemId);
     return;
@@ -352,27 +352,27 @@ type WorkItemPhase = "claiming" | "executing" | "completing";
 
 type WorkItemPhaseState = { phase: WorkItemPhase };
 
-function enterExecutingPhase(state: WorkItemPhaseState): void {
+function enterExecutingPhase(state: WorkItemPhaseState) {
   state.phase = "executing";
 }
 
-function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
-  return state.phase === "executing";
+function isSkipCheckSuppressed(state: WorkItemPhaseState) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(state.phase === "executing");
 }
 
-function passthroughMutationBoundary(): PrSurfaceMutationBoundary {
-  return {
+function passthroughMutationBoundary() {
+  return ((pinnedReturn: PrSurfaceMutationBoundary) => pinnedReturn)({
     signal: new AbortController().signal,
     confirmLeaseHeld: () => Promise.resolve(),
     run: (_mutation, mutate) => mutate(),
-  };
+  });
 }
 
 export async function recordLostRunningTerminal(
   pool: Pool,
   core: AgentWorkItemCore,
   completion: Extract<WorkCompletion, { kind: "failure" | "cancelled" | "superseded" }>,
-): Promise<void> {
+) {
   try {
     const timing = await queryOne<{ started_at: Date | null }>(
       pool,
@@ -399,9 +399,7 @@ export async function recordLostRunningTerminal(
   }
 }
 
-export async function runDurableWorkItem<T extends WorkType>(
-  spec: DurableJobSpec<T>,
-): Promise<void> {
+export async function runDurableWorkItem<T extends WorkType>(spec: DurableJobSpec<T>) {
   type TypedItem = Extract<AgentWorkItem, { type: T }>;
   type TypedCore = Extract<AgentWorkItemCore, { type: T }>;
 
@@ -423,10 +421,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     annotateExecution({ extra: properties });
   };
 
-  async function prSurfaceForHooks(
-    workItemCore: TypedCore,
-    installation?: InstallationToken,
-  ): Promise<PrSurface> {
+  async function prSurfaceForHooks(workItemCore: TypedCore, installation?: InstallationToken) {
     if (reviewCapabilities && !installation && !seededInstallation) {
       assertEssentialInstallationCapabilities(reviewCapabilities.observation);
     }
@@ -434,25 +429,27 @@ export async function runDurableWorkItem<T extends WorkType>(
       installation ??
       seededInstallation ??
       (await runtime.installationSurface.token(spec.cfg, workItemCore.installationId));
-    return runtime.installationSurface.create({
-      cfg: spec.cfg,
-      installationId: workItemCore.installationId,
-      owner: workItemCore.owner,
-      repo: workItemCore.repo,
-      prNumber: workItemCore.prNumber,
-      installation: token,
-      capabilities: reviewCapabilities,
-      mutationBoundary:
-        lease?.mutationBoundary(workItemCore, { checkCancellation: false }) ??
-        passthroughMutationBoundary(),
-    });
+    return ((pinnedReturn: PrSurface | Promise<PrSurface>) => pinnedReturn)(
+      runtime.installationSurface.create({
+        cfg: spec.cfg,
+        installationId: workItemCore.installationId,
+        owner: workItemCore.owner,
+        repo: workItemCore.repo,
+        prNumber: workItemCore.prNumber,
+        installation: token,
+        capabilities: reviewCapabilities,
+        mutationBoundary:
+          lease?.mutationBoundary(workItemCore, { checkCancellation: false }) ??
+          passthroughMutationBoundary(),
+      }),
+    );
   }
 
   async function invokeCancelledHook(
     itemCore: TypedCore,
     reason: string,
     installation?: InstallationToken,
-  ): Promise<void> {
+  ) {
     if (!spec.onCancelled) return;
     const leaseEpoch = lease?.leaseEpoch ?? null;
     if (spec.prActorLease && leaseEpoch == null) {
@@ -481,7 +478,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     reason: string,
     installation?: InstallationToken,
     notifyHook = true,
-  ): Promise<void> {
+  ) {
     const won = lease
       ? await lease.cancelWhileOwned(itemCore, reason)
       : await markWorkCancelled(spec.pool, itemCore.id, null);
@@ -506,7 +503,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     if (notifyHook) await invokeCancelledHook(itemCore, reason, installation);
   }
 
-  async function recordStartedCancellation(itemCore: TypedCore, reason: string): Promise<void> {
+  async function recordStartedCancellation(itemCore: TypedCore, reason: string) {
     const claim = workClaim;
     if (!executionStarted || claim == null) return;
     try {
@@ -540,7 +537,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function assignInstallationPolicy(
     itemCore: Pick<TypedCore, "installationId" | "owner" | "repo">,
     signal: AbortSignal,
-  ): Promise<void> {
+  ) {
     if (reviewCapabilities != null) return;
     if (
       spec.type !== "ask" &&
@@ -592,17 +589,17 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function assignInstallationPolicyForCancel(
     itemCore: Pick<TypedCore, "id" | "installationId" | "owner" | "repo">,
     signal: AbortSignal,
-  ): Promise<boolean> {
+  ) {
     try {
       await assignInstallationPolicy(itemCore, signal);
-      return true;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(true);
     } catch (error) {
       logWarn("agent_work_capability_policy_failed", {
         type: spec.type,
         workItemId: itemCore.id,
         message: errorMessage(error),
       });
-      return false;
+      return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
     }
   }
 
@@ -632,7 +629,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   const leaseEpoch = opened.leaseEpoch;
   const executionSignal = opened.signal;
   let executionStopped = false;
-  const recordExecutionStopped = (reason: WorkExecutionStopReason): void => {
+  const recordExecutionStopped = (reason: WorkExecutionStopReason) => {
     if (executionStopped) return;
     executionStopped = true;
     captureWorkExecutionStopped({
@@ -692,7 +689,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     const item = workItem;
     let workAdmissionAcknowledged = false;
 
-    async function admitWork(): Promise<WorkClaim> {
+    async function admitWork() {
       if (executionSignal.aborted) {
         throw (
           executionSignal.reason ??
@@ -747,10 +744,10 @@ export async function runDurableWorkItem<T extends WorkType>(
           })
         );
       }
-      return workClaim;
+      return ((pinnedReturn: WorkClaim | Promise<WorkClaim>) => pinnedReturn)(workClaim);
     }
 
-    function ensureReviewAccess(): void {
+    function ensureReviewAccess() {
       if (!reviewCapabilities) return;
       const observation = reviewCapabilities.observation;
       const availability = { ...observation.availability };
@@ -790,9 +787,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return cancelIfSkippable(reason, notifyHook);
     };
 
-    async function prepareDurableExecution(
-      installationToken: InstallationToken,
-    ): Promise<DurableExecutionContext | undefined> {
+    async function prepareDurableExecution(installationToken: InstallationToken) {
       if (
         await isBotCommenter(
           runtime.installationSurface,
@@ -801,7 +796,11 @@ export async function runDurableWorkItem<T extends WorkType>(
         )
       ) {
         await markCancelledAndInvokeHook(item, "bot_commenter", installationToken);
-        return undefined;
+        return ((
+          pinnedReturn:
+            | (DurableExecutionContext | undefined)
+            | Promise<DurableExecutionContext | undefined>,
+        ) => pinnedReturn)(undefined);
       }
 
       const prSurface = await runtime.installationSurface.create({
@@ -819,34 +818,45 @@ export async function runDurableWorkItem<T extends WorkType>(
       if (await opened.mark.headSha(item.id, headSha)) {
         boundHeadSha = headSha;
         executionPrSurface = prSurface;
-        return createDurableExecutionContext({
-          pool: spec.pool,
-          item,
-          job: spec.job,
-          prSurface,
-          headSha,
-          pullRequest: resolvedHead.pullRequest,
-          leaseEpoch,
-          signal: executionSignal,
-          beginAttempt: admitWork,
-          ensureReviewAccess: spec.type === "review" ? async () => ensureReviewAccess() : undefined,
-          getClaim: () => workClaim,
-          executionId,
-          recordWorkspaceCheckout,
-          getEscalation: () =>
-            workAdmissionAcknowledged && workClaim
-              ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
-              : undefined,
-        });
+        return ((
+          pinnedReturn:
+            | (DurableExecutionContext | undefined)
+            | Promise<DurableExecutionContext | undefined>,
+        ) => pinnedReturn)(
+          createDurableExecutionContext({
+            pool: spec.pool,
+            item,
+            job: spec.job,
+            prSurface,
+            headSha,
+            pullRequest: resolvedHead.pullRequest,
+            leaseEpoch,
+            signal: executionSignal,
+            beginAttempt: admitWork,
+            ensureReviewAccess:
+              spec.type === "review" ? async () => ensureReviewAccess() : undefined,
+            getClaim: () => workClaim,
+            executionId,
+            recordWorkspaceCheckout,
+            getEscalation: () =>
+              workAdmissionAcknowledged && workClaim
+                ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
+                : undefined,
+          }),
+        );
       }
 
       await recheckSkippableAndCancel("head_update_rejected");
-      return undefined;
+      return ((
+        pinnedReturn:
+          | (DurableExecutionContext | undefined)
+          | Promise<DurableExecutionContext | undefined>,
+      ) => pinnedReturn)(undefined);
     }
 
     async function completeRescheduledResult(
       result: Extract<DurableExecutionResult, { kind: "rescheduled" }>,
-    ): Promise<void> {
+    ) {
       opened.requireLeaseEpoch(item.id);
       await result.afterComplete(spec.boss);
       await finishRescheduledParentWorkItem(
@@ -858,7 +868,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       );
     }
 
-    async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
+    async function publishOutcomeReaction(content: GithubReactionContent) {
       try {
         const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
         if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") !== "available")
@@ -874,7 +884,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
     }
 
-    async function recordCompletion(completion: WorkCompletion): Promise<void> {
+    async function recordCompletion(completion: WorkCompletion) {
       try {
         const ci = await loadCiWorkTelemetry(spec.pool, item.owner, item.repo, item.headSha);
         recordWorkCompleted({
@@ -895,7 +905,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
     }
 
-    async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
+    async function completeDurableExecution(result: DurableExecutionResult) {
       switch (result.kind) {
         case "rescheduled":
           await completeRescheduledResult(result);
@@ -925,7 +935,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       message: string,
       disposition: RetryDisposition,
       attemptCount: number,
-    ): Promise<void> {
+    ) {
       if (await opened.mark.retrying(item.id, error)) {
         const failure = classifyFailure(error);
         logWarn("agent_work_retrying", {
@@ -963,12 +973,13 @@ export async function runDurableWorkItem<T extends WorkType>(
       await recheckSkippableAndCancel("retry_claim_rejected");
     }
 
-    function itemForHooks(): TypedItem {
-      if (boundHeadSha == null || boundHeadSha === item.headSha) return item;
-      return { ...item, headSha: boundHeadSha };
+    function itemForHooks() {
+      if (boundHeadSha == null || boundHeadSha === item.headSha)
+        return ((pinnedReturn: TypedItem) => pinnedReturn)(item);
+      return ((pinnedReturn: TypedItem) => pinnedReturn)({ ...item, headSha: boundHeadSha });
     }
 
-    async function invokeTerminalFailureHook(error: unknown): Promise<void> {
+    async function invokeTerminalFailureHook(error: unknown) {
       if (!spec.onTerminalFailure) return;
       if (spec.prActorLease && leaseEpoch == null) {
         logInfo("agent_work_terminal_failure_hook_skipped_without_lease", {
@@ -998,7 +1009,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
     }
 
-    async function handleDurableExecutionError(error: unknown): Promise<void> {
+    async function handleDurableExecutionError(error: unknown) {
       if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
         recordExecutionStopped("lease_lost");
         logInfo("agent_work_stale_execution_skipped", {

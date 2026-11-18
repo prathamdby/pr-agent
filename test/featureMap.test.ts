@@ -15,7 +15,7 @@ const GATE_BASE = {
   SITE_SELECTED: "false",
 };
 
-function gateExit(overrides: Partial<typeof GATE_BASE>): number {
+function gateExit(overrides: Partial<typeof GATE_BASE>) {
   try {
     execFileSync("bash", ["scripts/ci-gate.sh"], {
       cwd: process.cwd(),
@@ -23,10 +23,10 @@ function gateExit(overrides: Partial<typeof GATE_BASE>): number {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    return 0;
+    return ((pinnedReturn: number) => pinnedReturn)(0);
   } catch (error) {
     const status = (error as { status?: number }).status;
-    return typeof status === "number" ? status : 1;
+    return ((pinnedReturn: number) => pinnedReturn)(typeof status === "number" ? status : 1);
   }
 }
 

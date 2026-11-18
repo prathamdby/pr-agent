@@ -24,15 +24,16 @@ const PR_SURFACE_WIRE_NAMES = {
   updatePullRequest: "publishDescription",
 } satisfies Record<keyof PrSurfaceMutationMethods, string>;
 
-export function prSurfaceWireName(method: keyof PrSurfaceMutationMethods): string {
-  return PR_SURFACE_WIRE_NAMES[method];
+export function prSurfaceWireName(method: keyof PrSurfaceMutationMethods) {
+  return ((pinnedReturn: string) => pinnedReturn)(PR_SURFACE_WIRE_NAMES[method]);
 }
 
-function methodFromWireName(wireName: unknown): keyof PrSurfaceMutationMethods | undefined {
+function methodFromWireName(wireName: unknown) {
   for (const [method, name] of Object.entries(PR_SURFACE_WIRE_NAMES)) {
-    if (name === wireName && isPrSurfaceMutationMethod(method)) return method;
+    if (name === wireName && isPrSurfaceMutationMethod(method))
+      return ((pinnedReturn: keyof PrSurfaceMutationMethods | undefined) => pinnedReturn)(method);
   }
-  return undefined;
+  return ((pinnedReturn: keyof PrSurfaceMutationMethods | undefined) => pinnedReturn)(undefined);
 }
 
 const OPERATION_INTENT_MARKER_RE = /<!-- pr-agent:operation-intent [a-f0-9]{24} -->/;
@@ -43,39 +44,52 @@ export function isPrSurfaceMutationMethod(
   return typeof property === "string" && Object.hasOwn(PR_SURFACE_WIRE_NAMES, property);
 }
 
-function firstOperationIntentMarker(text: string): string | undefined {
-  return OPERATION_INTENT_MARKER_RE.exec(text)?.[0];
+function firstOperationIntentMarker(text: string) {
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    OPERATION_INTENT_MARKER_RE.exec(text)?.[0],
+  );
 }
 
-function detailString(detail: Record<string, unknown>, key: string): string | undefined {
+function detailString(detail: Record<string, unknown>, key: string) {
   const value = detail[key];
-  return typeof value === "string" ? value : undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    typeof value === "string" ? value : undefined,
+  );
 }
 
-function detailNumber(detail: Record<string, unknown>, key: string): number | undefined {
+function detailNumber(detail: Record<string, unknown>, key: string) {
   const value = detail[key];
-  return typeof value === "number" ? value : undefined;
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(
+    typeof value === "number" ? value : undefined,
+  );
 }
 
-function replyTargetKind(value: unknown): "prConversation" | "inlineReviewThread" | undefined {
-  if (!isRecord(value)) return undefined;
+function replyTargetKind(value: unknown) {
+  if (!isRecord(value))
+    return ((pinnedReturn: "prConversation" | "inlineReviewThread" | undefined) => pinnedReturn)(
+      undefined,
+    );
   if (value.kind === "prConversation" || value.kind === "inlineReviewThread") {
-    return value.kind;
+    return ((pinnedReturn: "prConversation" | "inlineReviewThread" | undefined) => pinnedReturn)(
+      value.kind,
+    );
   }
-  return undefined;
+  return ((pinnedReturn: "prConversation" | "inlineReviewThread" | undefined) => pinnedReturn)(
+    undefined,
+  );
 }
 
 export function extractPrSurfaceRecoverDetail(
   method: keyof PrSurfaceMutationMethods,
   args: readonly unknown[],
-): Record<string, unknown> {
+) {
   switch (method) {
     case "replyAt": {
       const target = args[0];
       const body = typeof args[1] === "string" ? args[1] : "";
       const marker = firstOperationIntentMarker(body);
       const kind = replyTargetKind(target);
-      return {
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(kind != null ? { replyTargetKind: kind } : {}),
         ...(kind === "inlineReviewThread" &&
         isRecord(target) &&
@@ -83,7 +97,7 @@ export function extractPrSurfaceRecoverDetail(
           ? { inReplyToId: target.inReplyToCommentId }
           : {}),
         ...(marker != null ? { operationMarker: marker } : {}),
-      };
+      });
     }
     case "upsertProgressComment": {
       const body = typeof args[0] === "string" ? args[0] : "";
@@ -91,70 +105,80 @@ export function extractPrSurfaceRecoverDetail(
       const marker = firstOperationIntentMarker(body);
       const knownExistingId =
         isRecord(args[2]) && typeof args[2].id === "number" ? args[2].id : undefined;
-      return {
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(sentinel != null ? { sentinel } : {}),
         ...(marker != null ? { operationMarker: marker } : {}),
         ...(knownExistingId != null ? { knownExistingId } : {}),
-      };
+      });
     }
     case "editComment":
     case "editReviewComment": {
       const commentId = typeof args[0] === "number" ? args[0] : undefined;
       const body = typeof args[1] === "string" ? args[1] : "";
       const marker = firstOperationIntentMarker(body);
-      return {
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(commentId != null ? { commentId } : {}),
         ...(marker != null ? { operationMarker: marker } : {}),
-      };
+      });
     }
     case "publishThreadBatch": {
       const review = args[0];
-      if (!isRecord(review) || typeof review.body !== "string") return {};
+      if (!isRecord(review) || typeof review.body !== "string")
+        return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({});
       const marker = firstOperationIntentMarker(review.body);
-      return {
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(typeof review.commitId === "string" ? { commitId: review.commitId } : {}),
         ...(marker != null ? { operationMarker: marker } : {}),
-      };
+      });
     }
     case "updatePullRequest": {
       const marker = typeof args[1] === "string" ? args[1] : undefined;
-      return marker != null ? { operationMarker: marker } : {};
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+        marker != null ? { operationMarker: marker } : {},
+      );
     }
     case "startReviewCheck": {
       const headSha = typeof args[0] === "string" ? args[0] : undefined;
       const externalId = typeof args[1] === "string" ? args[1] : undefined;
-      return {
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
         ...(headSha != null ? { headSha } : {}),
         ...(externalId != null ? { externalId } : {}),
-      };
+      });
     }
     case "resolveInlineReviewThread": {
       const threadId = typeof args[0] === "string" ? args[0] : undefined;
-      return threadId != null ? { threadId } : {};
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+        threadId != null ? { threadId } : {},
+      );
     }
     case "dismissPullRequestReview": {
       const params = args[0];
-      if (!isRecord(params) || typeof params.reviewId !== "number") return {};
-      return { reviewId: params.reviewId };
+      if (!isRecord(params) || typeof params.reviewId !== "number")
+        return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({});
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
+        reviewId: params.reviewId,
+      });
     }
     case "setAcknowledgementReaction":
     case "setReviewCommitStatus":
     case "setLabels":
     case "finishReviewCheck":
-      return {};
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({});
     default: {
       const exhaustive: never = method;
-      return exhaustive;
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-async function recoverReplyAt(
-  surface: PrSurface,
-  detail: Record<string, unknown>,
-): Promise<OperationIntentRecovery<{ readonly commentId: number }>> {
+async function recoverReplyAt(surface: PrSurface, detail: Record<string, unknown>) {
   const marker = detailString(detail, "operationMarker");
-  if (marker == null) return { kind: "absent" };
+  if (marker == null)
+    return ((
+      pinnedReturn:
+        | OperationIntentRecovery<{ readonly commentId: number }>
+        | Promise<OperationIntentRecovery<{ readonly commentId: number }>>,
+    ) => pinnedReturn)({ kind: "absent" });
   const botLogin = await surface.getBotLogin();
 
   const kind = detailString(detail, "replyTargetKind");
@@ -165,7 +189,13 @@ async function recoverReplyAt(
       if (comment.authorLogin !== botLogin) return false;
       return inReplyToId == null || comment.inReplyToId === inReplyToId;
     });
-    return commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } };
+    return ((
+      pinnedReturn:
+        | OperationIntentRecovery<{ readonly commentId: number }>
+        | Promise<OperationIntentRecovery<{ readonly commentId: number }>>,
+    ) => pinnedReturn)(
+      commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } },
+    );
   }
 
   const comments = (await surface.listConversationComments()).comments;
@@ -174,7 +204,13 @@ async function recoverReplyAt(
     marker,
     (comment) => comment.authorLogin === botLogin,
   );
-  return commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } };
+  return ((
+    pinnedReturn:
+      | OperationIntentRecovery<{ readonly commentId: number }>
+      | Promise<OperationIntentRecovery<{ readonly commentId: number }>>,
+  ) => pinnedReturn)(
+    commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } },
+  );
 }
 
 export async function recoverMarkedProgressComment(
@@ -184,32 +220,49 @@ export async function recoverMarkedProgressComment(
     readonly sentinel?: string;
     readonly knownExistingId?: number;
   },
-): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
+) {
   const marker = params.operationMarker;
-  if (marker == null) return { kind: "absent" };
+  if (marker == null)
+    return ((
+      pinnedReturn:
+        | OperationIntentRecovery<ProgressCommentUpsert>
+        | Promise<OperationIntentRecovery<ProgressCommentUpsert>>,
+    ) => pinnedReturn)({ kind: "absent" });
   const botLogin = await surface.getBotLogin();
   const comments = (await surface.listConversationComments()).comments;
   const commentId = findCommentIdByMarker(comments, marker, (comment) => {
     if (comment.authorLogin !== botLogin) return false;
     return params.sentinel == null || comment.body.includes(params.sentinel);
   });
-  if (commentId == null) return { kind: "absent" };
-  return {
+  if (commentId == null)
+    return ((
+      pinnedReturn:
+        | OperationIntentRecovery<ProgressCommentUpsert>
+        | Promise<OperationIntentRecovery<ProgressCommentUpsert>>,
+    ) => pinnedReturn)({ kind: "absent" });
+  return ((
+    pinnedReturn:
+      | OperationIntentRecovery<ProgressCommentUpsert>
+      | Promise<OperationIntentRecovery<ProgressCommentUpsert>>,
+  ) => pinnedReturn)({
     kind: "reconciled",
     value: {
       id: commentId,
       updated: params.knownExistingId != null && params.knownExistingId === commentId,
     },
-  };
+  });
 }
 
 async function recoverMarkedComment(
   surface: PrSurface,
   detail: Record<string, unknown>,
   source: "conversation" | "inline",
-): Promise<OperationIntentRecovery<unknown>> {
+) {
   const marker = detailString(detail, "operationMarker");
-  if (marker == null) return { kind: "absent" };
+  if (marker == null)
+    return ((
+      pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+    ) => pinnedReturn)({ kind: "absent" });
   const botLogin = await surface.getBotLogin();
   const comments =
     source === "inline"
@@ -220,18 +273,25 @@ async function recoverMarkedComment(
     if (comment.authorLogin !== botLogin) return false;
     return commentId == null || comment.id === commentId;
   });
-  if (foundId == null) return { kind: "absent" };
-  return source === "inline"
-    ? { kind: "reconciled", value: true }
-    : { kind: "reconciled", value: undefined };
+  if (foundId == null)
+    return ((
+      pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+    ) => pinnedReturn)({ kind: "absent" });
+  return ((
+    pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+  ) => pinnedReturn)(
+    source === "inline"
+      ? { kind: "reconciled", value: true }
+      : { kind: "reconciled", value: undefined },
+  );
 }
 
-export async function recoverPrSurfaceMutation(
-  surface: PrSurface,
-  intent: OperationIntentRow,
-): Promise<OperationIntentRecovery<unknown>> {
+export async function recoverPrSurfaceMutation(surface: PrSurface, intent: OperationIntentRow) {
   const method = methodFromWireName(intent.detail.surfaceMethod);
-  if (method == null) return { kind: "absent" };
+  if (method == null)
+    return ((
+      pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+    ) => pinnedReturn)({ kind: "absent" });
 
   let recovery: OperationIntentRecovery<unknown>;
   switch (method) {
@@ -323,8 +383,12 @@ export async function recoverPrSurfaceMutation(
       break;
     default: {
       const exhaustive: never = method;
-      return exhaustive;
+      return ((
+        pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+      ) => pinnedReturn)(exhaustive);
     }
   }
-  return recovery;
+  return ((
+    pinnedReturn: OperationIntentRecovery<unknown> | Promise<OperationIntentRecovery<unknown>>,
+  ) => pinnedReturn)(recovery);
 }

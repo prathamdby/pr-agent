@@ -25,30 +25,34 @@ export type AssociationsSlice = {
   readonly maintainerDecision: ReadonlySet<string>;
 };
 
-function stripMatchingQuotes(value: string): string {
+function stripMatchingQuotes(value: string) {
   const first = value[0];
   const last = value[value.length - 1];
   if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
-    return value.slice(1, -1);
+    return ((pinnedReturn: string) => pinnedReturn)(value.slice(1, -1));
   }
-  return value;
+  return ((pinnedReturn: string) => pinnedReturn)(value);
 }
 
-function looksLikePemPrivateKey(value: string): boolean {
-  return value.includes("-----BEGIN ") && value.includes("PRIVATE KEY-----");
+function looksLikePemPrivateKey(value: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    value.includes("-----BEGIN ") && value.includes("PRIVATE KEY-----"),
+  );
 }
 
-function decodeBase64Pem(value: string): string | null {
+function decodeBase64Pem(value: string) {
   const compact = value.replace(/\s/g, "");
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length % 4 !== 0) {
-    return null;
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
   }
 
   const decoded = Buffer.from(compact, "base64").toString("utf8").trim();
-  return looksLikePemPrivateKey(decoded) ? decoded : null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    looksLikePemPrivateKey(decoded) ? decoded : null,
+  );
 }
 
-export function normalizeGithubAppPrivateKey(raw: string): string {
+export function normalizeGithubAppPrivateKey(raw: string) {
   const unquoted = stripMatchingQuotes(raw.trim());
   let key = unquoted.replace(/\\n/g, "\n");
 
@@ -68,21 +72,18 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
     });
   }
 
-  return key;
+  return ((pinnedReturn: string) => pinnedReturn)(key);
 }
 
 const allowedGithubAuthorAssociations = new Set<string>(GITHUB_AUTHOR_ASSOCIATIONS);
 
-function readAssociationAllowlist(
-  name: string,
-  defaultValue: string,
-  allowWildcard: boolean,
-): ReadonlySet<string> {
+function readAssociationAllowlist(name: string, defaultValue: string, allowWildcard: boolean) {
   const values = optionalEnv(name, defaultValue)
     .split(",")
     .map((value) => value.trim().toUpperCase());
 
-  if (allowWildcard && values.length === 1 && values[0] === "*") return new Set(["*"]);
+  if (allowWildcard && values.length === 1 && values[0] === "*")
+    return ((pinnedReturn: ReadonlySet<string>) => pinnedReturn)(new Set(["*"]));
 
   for (const value of values) {
     if (!allowedGithubAuthorAssociations.has(value)) {
@@ -95,25 +96,25 @@ function readAssociationAllowlist(
     }
   }
 
-  return new Set(values);
+  return ((pinnedReturn: ReadonlySet<string>) => pinnedReturn)(new Set(values));
 }
 
-export function readGithubSlice(): GithubSlice {
+export function readGithubSlice() {
   const appId = requireEnv(ENV.GITHUB_APP_ID);
   const privateKey = normalizeGithubAppPrivateKey(requireEnv(ENV.GITHUB_APP_PRIVATE_KEY));
-  return { appId, privateKey };
+  return ((pinnedReturn: GithubSlice) => pinnedReturn)({ appId, privateKey });
 }
 
-export function readWebhookSlice(): WebhookSlice {
-  return {
+export function readWebhookSlice() {
+  return ((pinnedReturn: WebhookSlice) => pinnedReturn)({
     secret: requireEnv(ENV.WEBHOOK_SECRET),
     timeoutMs: WEBHOOK_TIMEOUT_MS,
     maxBodyBytes: WEBHOOK_MAX_BODY_BYTES,
-  };
+  });
 }
 
-export function readAssociationsSlice(): AssociationsSlice {
-  return {
+export function readAssociationsSlice() {
+  return ((pinnedReturn: AssociationsSlice) => pinnedReturn)({
     slashAllowed: readAssociationAllowlist(
       ENV.SLASH_ALLOWED_ASSOCIATIONS,
       DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
@@ -124,5 +125,5 @@ export function readAssociationsSlice(): AssociationsSlice {
       DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
       false,
     ),
-  };
+  });
 }

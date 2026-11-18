@@ -27,29 +27,29 @@ export function decodePublishedBatch(value: unknown) {
   return value;
 }
 
-export function decodeVoidResult(value: unknown): void {
+export function decodeVoidResult(value: unknown) {
   v.assert(v.void(), value);
 }
 
 export function decodePrSurfaceMutationResult(
   method: keyof PrSurfaceMutationMethods,
   value: unknown,
-): unknown {
+) {
   switch (method) {
     case "replyAt":
-      return decodePostedReply(value);
+      return ((pinnedReturn: unknown) => pinnedReturn)(decodePostedReply(value));
     case "upsertProgressComment":
-      return decodeProgressComment(value);
+      return ((pinnedReturn: unknown) => pinnedReturn)(decodeProgressComment(value));
     case "startReviewCheck":
-      return decodeCheckRef(value);
+      return ((pinnedReturn: unknown) => pinnedReturn)(decodeCheckRef(value));
     case "publishThreadBatch":
-      return decodePublishedBatch(value);
+      return ((pinnedReturn: unknown) => pinnedReturn)(decodePublishedBatch(value));
     case "updatePullRequest":
       v.assert(pullRequestUpdateSchema, value);
-      return value;
+      return ((pinnedReturn: unknown) => pinnedReturn)(value);
     case "editReviewComment":
       v.assert(v.boolean(), value);
-      return value;
+      return ((pinnedReturn: unknown) => pinnedReturn)(value);
     case "setAcknowledgementReaction":
     case "editComment":
     case "setReviewCommitStatus":
@@ -57,10 +57,10 @@ export function decodePrSurfaceMutationResult(
     case "resolveInlineReviewThread":
     case "setLabels":
     case "finishReviewCheck":
-      return decodeVoidResult(value);
+      return ((pinnedReturn: unknown) => pinnedReturn)(decodeVoidResult(value));
     default: {
       const exhaustive: never = method;
-      return exhaustive;
+      return ((pinnedReturn: unknown) => pinnedReturn)(exhaustive);
     }
   }
 }

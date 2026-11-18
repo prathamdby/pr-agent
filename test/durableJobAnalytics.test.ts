@@ -73,9 +73,11 @@ vi.mock("../src/agentWork/reviewLightweightCompletion.ts", () => ({
   tryLightweightAutoReviewCompletion: vi.fn(),
 }));
 const verdict = vi.hoisted(() => ({
-  pending: vi.fn(async (): Promise<number | null> => null),
-  close: vi.fn(async (_outcome: unknown): Promise<void> => undefined),
-  repairIfOpen: vi.fn(async (): Promise<void> => undefined),
+  pending: vi.fn(async () =>
+    ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null),
+  ),
+  close: vi.fn(async (_outcome: unknown) => undefined),
+  repairIfOpen: vi.fn(async () => undefined),
 }));
 vi.mock("../src/agentWork/reviewVerdict.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/agentWork/reviewVerdict.ts")>()),
@@ -220,18 +222,14 @@ const cfg = makeTestConfig({
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function reviewJob(
-  workItemId: string,
-  retryCount: number,
-  retryLimit: number,
-): JobWithMetadata<{ workItemId: string }> {
-  return {
+function reviewJob(workItemId: string, retryCount: number, retryLimit: number) {
+  return ((pinnedReturn: JobWithMetadata<{ workItemId: string }>) => pinnedReturn)({
     id: `job-${workItemId}`,
     data: { workItemId },
     retryCount,
     retryLimit,
     signal: new AbortController().signal,
-  } as unknown as JobWithMetadata<{ workItemId: string }>;
+  } as unknown as JobWithMetadata<{ workItemId: string }>);
 }
 
 describe("durableJob analytics forwarding", () => {
@@ -1475,7 +1473,7 @@ describe("durableJob analytics forwarding", () => {
       await drainTraces();
     });
 
-    function serveView(telemetry: WorkspaceCheckoutTelemetry, reused: boolean): void {
+    function serveView(telemetry: WorkspaceCheckoutTelemetry, reused: boolean) {
       vi.mocked(withPrRepositoryView).mockImplementation(async (_params, run) =>
         run({
           agentCwd: "/tmp/pr-agent",
@@ -1489,21 +1487,23 @@ describe("durableJob analytics forwarding", () => {
     function dispatchAsk(
       item: ReturnType<typeof makeAskWorkItem>,
       execute: DurableJobSpec<"ask">["execute"],
-    ): Promise<void> {
+    ) {
       vi.mocked(repo.getWorkItem).mockResolvedValue(item);
       vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
       vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
-      return runDurableWorkItem({
-        type: "ask",
-        cfg,
-        pool,
-        boss,
-        runtime: createDurableRuntime({ installationSurface }),
-        job: reviewJob(item.id, 0, 3),
-        contextPolicy: { commenterId: () => undefined },
-        resolveHeadSha: async () => ({ headSha: item.headSha }),
-        execute,
-      });
+      return ((pinnedReturn: Promise<void>) => pinnedReturn)(
+        runDurableWorkItem({
+          type: "ask",
+          cfg,
+          pool,
+          boss,
+          runtime: createDurableRuntime({ installationSurface }),
+          job: reviewJob(item.id, 0, 3),
+          contextPolicy: { commenterId: () => undefined },
+          resolveHeadSha: async () => ({ headSha: item.headSha }),
+          execute,
+        }),
+      );
     }
 
     const askCompletion: WorkCompletion = {
@@ -1512,18 +1512,24 @@ describe("durableJob analytics forwarding", () => {
       replyTargetKind: "prConversation",
     };
 
-    async function executionSpan(): Promise<Record<string, unknown> | undefined> {
+    async function executionSpan() {
       await drainTraces();
-      return spans.find((span) => span.$ai_span_name === "execution");
+      return ((
+        pinnedReturn:
+          | (Record<string, unknown> | undefined)
+          | Promise<Record<string, unknown> | undefined>,
+      ) => pinnedReturn)(spans.find((span) => span.$ai_span_name === "execution"));
     }
 
-    function capturedEvent(event: string): Record<string, unknown> | undefined {
+    function capturedEvent(event: string) {
       for (const [input] of mockPostHog.instances[0]?.capture.mock.calls ?? []) {
         if (isRecord(input) && input.event === event && isRecord(input.properties)) {
-          return input.properties;
+          return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(
+            input.properties,
+          );
         }
       }
-      return undefined;
+      return ((pinnedReturn: Record<string, unknown> | undefined) => pinnedReturn)(undefined);
     }
 
     it("annotates the execution span and work completed with a same-attempt sparse fallback", async () => {

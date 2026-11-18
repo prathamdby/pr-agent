@@ -1,9 +1,9 @@
 import { BOT_SECRET_PATTERNS } from "../settings/index.ts";
 
-export function redactOutboundSecrets(text: string): string {
+export function redactOutboundSecrets(text: string) {
   let out = text;
   for (const pattern of BOT_SECRET_PATTERNS) {
     out = out.replace(pattern, "[redacted]");
   }
-  return out;
+  return ((pinnedReturn: string) => pinnedReturn)(out);
 }

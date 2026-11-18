@@ -3,16 +3,18 @@ import { isAppError } from "../errors/appError.ts";
 import { githubErrorMessage, isProvenInlineAnchorRejection } from "./githubErrors.ts";
 import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.ts";
 
-function objectValue(value: unknown, key: string): unknown {
-  if (typeof value !== "object" || value == null) return undefined;
-  return Reflect.get(value, key);
+function objectValue(value: unknown, key: string) {
+  if (typeof value !== "object" || value == null)
+    return ((pinnedReturn: unknown) => pinnedReturn)(undefined);
+  return ((pinnedReturn: unknown) => pinnedReturn)(Reflect.get(value, key));
 }
 
-function numericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
+function numericValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return ((pinnedReturn: number | null) => pinnedReturn)(value);
+  if (typeof value !== "string") return ((pinnedReturn: number | null) => pinnedReturn)(null);
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return ((pinnedReturn: number | null) => pinnedReturn)(Number.isFinite(parsed) ? parsed : null);
 }
 
 export type LineResolutionPublishErrorHint = {
@@ -20,9 +22,10 @@ export type LineResolutionPublishErrorHint = {
   line?: number;
 };
 
-function hintAtErrorLevel(error: unknown): LineResolutionPublishErrorHint | null {
+function hintAtErrorLevel(error: unknown) {
   const errors = objectValue(objectValue(objectValue(error, "response"), "data"), "errors");
-  if (!Array.isArray(errors)) return null;
+  if (!Array.isArray(errors))
+    return ((pinnedReturn: LineResolutionPublishErrorHint | null) => pinnedReturn)(null);
 
   for (const detail of errors) {
     const path = objectValue(detail, "path");
@@ -31,14 +34,13 @@ function hintAtErrorLevel(error: unknown): LineResolutionPublishErrorHint | null
     if (typeof path === "string" && path.length > 0) hint.path = path;
     const parsedLine = numericValue(line);
     if (parsedLine != null) hint.line = parsedLine;
-    if (hint.path != null || hint.line != null) return hint;
+    if (hint.path != null || hint.line != null)
+      return ((pinnedReturn: LineResolutionPublishErrorHint | null) => pinnedReturn)(hint);
   }
-  return null;
+  return ((pinnedReturn: LineResolutionPublishErrorHint | null) => pinnedReturn)(null);
 }
 
-export function lineResolutionPublishErrorHint(
-  error: unknown,
-): LineResolutionPublishErrorHint | null {
+export function lineResolutionPublishErrorHint(error: unknown) {
   const seen = new Set<object>();
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current != null; depth += 1) {
@@ -47,39 +49,45 @@ export function lineResolutionPublishErrorHint(
       seen.add(current);
     }
     const hint = hintAtErrorLevel(current);
-    if (hint != null) return hint;
+    if (hint != null)
+      return ((pinnedReturn: LineResolutionPublishErrorHint | null) => pinnedReturn)(hint);
     current = objectValue(current, "cause");
   }
-  return null;
+  return ((pinnedReturn: LineResolutionPublishErrorHint | null) => pinnedReturn)(null);
 }
 
-export function isLineResolutionPublishError(error: unknown): boolean {
+export function isLineResolutionPublishError(error: unknown) {
   const message = githubErrorMessage(error);
-  return (
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     /line could not be resolved/i.test(message) ||
-    /pull request review thread line.*invalid/i.test(message) ||
-    /must be part of the diff/i.test(message)
+      /pull request review thread line.*invalid/i.test(message) ||
+      /must be part of the diff/i.test(message),
   );
 }
 
-export function isInlineAnchorPublishError(error: unknown): boolean {
-  return isLineResolutionPublishError(error) || isProvenInlineAnchorRejection(error);
+export function isInlineAnchorPublishError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isLineResolutionPublishError(error) || isProvenInlineAnchorRejection(error),
+  );
 }
 
-export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {
-  return isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error);
+export function isDefinitelyNoAcceptanceReviewError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error),
+  );
 }
 
-export function publicationAttemptRejected(error: unknown): boolean {
-  if (isCancelAbortError(error)) return false;
+export function publicationAttemptRejected(error: unknown) {
+  if (isCancelAbortError(error)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
   if (isAppError(error)) {
     if (
       error.code === "agent_work.pr_actor_lease_lost" ||
       error.code === "operation_intent.mutation_outcome_unknown"
     ) {
-      return false;
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
     }
-    if (error.code === "operation_intent.mutation_failed") return true;
+    if (error.code === "operation_intent.mutation_failed")
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
-  return isDefinitelyNoAcceptanceReviewError(error);
+  return ((pinnedReturn: boolean) => pinnedReturn)(isDefinitelyNoAcceptanceReviewError(error));
 }

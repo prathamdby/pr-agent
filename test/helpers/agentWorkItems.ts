@@ -61,9 +61,9 @@ const base = {
   cancelRequestedAt: null as Date | null,
 };
 
-export function makeReviewWorkItem(overrides: ReviewOverrides = {}): ReviewWorkItem {
+export function makeReviewWorkItem(overrides: ReviewOverrides = {}) {
   const { payload, reviewLens = "review", source = "auto", ...rest } = overrides;
-  return {
+  return ((pinnedReturn: ReviewWorkItem) => pinnedReturn)({
     ...base,
     type: "review",
     source,
@@ -74,12 +74,12 @@ export function makeReviewWorkItem(overrides: ReviewOverrides = {}): ReviewWorkI
       ...payload,
     },
     ...rest,
-  };
+  });
 }
 
-export function makeAskWorkItem(overrides: AskOverrides = {}): AskWorkItem {
+export function makeAskWorkItem(overrides: AskOverrides = {}) {
   const { payload, ...rest } = overrides;
-  return {
+  return ((pinnedReturn: AskWorkItem) => pinnedReturn)({
     ...base,
     type: "ask",
     source: "slash",
@@ -91,12 +91,12 @@ export function makeAskWorkItem(overrides: AskOverrides = {}): AskWorkItem {
       ...payload,
     },
     ...rest,
-  };
+  });
 }
 
-export function makeDescriptionWorkItem(overrides: DescriptionOverrides = {}): DescriptionWorkItem {
+export function makeDescriptionWorkItem(overrides: DescriptionOverrides = {}) {
   const { payload, source = "auto", ...rest } = overrides;
-  return {
+  return ((pinnedReturn: DescriptionWorkItem) => pinnedReturn)({
     ...base,
     type: "description",
     source,
@@ -106,12 +106,12 @@ export function makeDescriptionWorkItem(overrides: DescriptionOverrides = {}): D
       ...payload,
     },
     ...rest,
-  };
+  });
 }
 
-export function makeTriageWorkItem(overrides: TriageOverrides = {}): TriageWorkItem {
+export function makeTriageWorkItem(overrides: TriageOverrides = {}) {
   const { payload, ...rest } = overrides;
-  return {
+  return ((pinnedReturn: TriageWorkItem) => pinnedReturn)({
     ...base,
     type: "triage",
     source: "slash",
@@ -125,14 +125,12 @@ export function makeTriageWorkItem(overrides: TriageOverrides = {}): TriageWorkI
       ...payload,
     },
     ...rest,
-  };
+  });
 }
 
-export function makeVerificationWorkItem(
-  overrides: VerificationOverrides = {},
-): VerificationWorkItem {
+export function makeVerificationWorkItem(overrides: VerificationOverrides = {}) {
   const { payload, source = "auto", ...rest } = overrides;
-  return {
+  return ((pinnedReturn: VerificationWorkItem) => pinnedReturn)({
     ...base,
     type: "verification",
     source,
@@ -142,5 +140,5 @@ export function makeVerificationWorkItem(
       ...payload,
     },
     ...rest,
-  };
+  });
 }

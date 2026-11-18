@@ -203,10 +203,10 @@ function isAppErrorCode(code: string): code is AppErrorCode {
   return KNOWN_CODES.has(code);
 }
 
-export function appErrorCode(shape: AppErrorShape): AppErrorCode {
+export function appErrorCode(shape: AppErrorShape) {
   const code = `${shape.domain}.${shape.kind}`;
   if (!isAppErrorCode(code)) {
     throw new TypeError(`Unknown app error code: ${code}`);
   }
-  return code;
+  return ((pinnedReturn: AppErrorCode) => pinnedReturn)(code);
 }

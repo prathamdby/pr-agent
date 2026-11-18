@@ -15,9 +15,9 @@ export const SEQUENTIAL_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
-export function toolExecutionMode(toolName: string): ToolExecutionMode | undefined {
-  return (
+export function toolExecutionMode(toolName: string) {
+  return ((pinnedReturn: ToolExecutionMode | undefined) => pinnedReturn)(
     workspaceToolExecutionMode(toolName) ??
-    (SEQUENTIAL_TOOL_NAMES.has(toolName) ? "sequential" : undefined)
+      (SEQUENTIAL_TOOL_NAMES.has(toolName) ? "sequential" : undefined),
   );
 }

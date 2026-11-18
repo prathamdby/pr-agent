@@ -66,10 +66,7 @@ export async function approveAwaiting(
   return result.rows[0] ?? null;
 }
 
-export async function reviewPushAdmitted(
-  client: PoolClient,
-  resourceKey: string,
-): Promise<boolean> {
+export async function reviewPushAdmitted(client: PoolClient, resourceKey: string) {
   const result = await client.query(
     `SELECT 1 FROM agent_work_items
       WHERE resource_key = $1 AND type = 'review'
@@ -79,7 +76,7 @@ export async function reviewPushAdmitted(
      LIMIT 1`,
     [resourceKey],
   );
-  return result.rows.length > 0;
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(result.rows.length > 0);
 }
 
 export async function loadAwaitingApproval(

@@ -57,14 +57,14 @@ export type Config = {
   readonly logging: LoggingSlice;
 };
 
-export async function loadConfig(): Promise<Config> {
+export async function loadConfig() {
   const runtime = readRuntimeSlice();
   const github = readGithubSlice();
   const webhook = readWebhookSlice();
   const models = await readModelsSlice(runtime.role);
   const provider = readProviderSlice();
   const retention = readRetentionSlice();
-  return {
+  return ((pinnedReturn: Config | Promise<Config>) => pinnedReturn)({
     runtime,
     github,
     webhook,
@@ -81,5 +81,5 @@ export async function loadConfig(): Promise<Config> {
     retention,
     posthog: readPosthogSlice(),
     logging: readLoggingSlice(),
-  };
+  });
 }

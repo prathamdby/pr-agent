@@ -13,7 +13,7 @@ export function onRateLimit(
   options: Required<EndpointDefaults>,
   _octokit: Octokit,
   retryCount: number,
-): boolean {
+) {
   const willRetry = retryCount < PRIMARY_RATE_LIMIT_MAX_RETRIES;
   logDebug("octokit_on_rate_limit", {
     method: options.method,
@@ -25,7 +25,7 @@ export function onRateLimit(
   if (!willRetry) {
     noteRateLimitRetryExhausted("primary");
   }
-  return willRetry;
+  return ((pinnedReturn: boolean) => pinnedReturn)(willRetry);
 }
 
 export function onSecondaryRateLimit(
@@ -33,7 +33,7 @@ export function onSecondaryRateLimit(
   options: Required<EndpointDefaults>,
   _octokit: Octokit,
   retryCount: number,
-): boolean {
+) {
   const willRetry = retryAfter > 0 && retryCount < SECONDARY_RATE_LIMIT_MAX_RETRIES;
   logDebug("octokit_on_secondary_rate_limit", {
     method: options.method,
@@ -45,5 +45,5 @@ export function onSecondaryRateLimit(
   if (!willRetry) {
     noteRateLimitRetryExhausted("secondary");
   }
-  return willRetry;
+  return ((pinnedReturn: boolean) => pinnedReturn)(willRetry);
 }

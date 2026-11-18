@@ -105,7 +105,7 @@ export function buildVerificationUserContent(params: {
   readonly threads: readonly VerificationPromptThread[];
   readonly discussion: PullRequestDiscussion;
   readonly compareFilesTruncated?: boolean;
-}): string {
+}) {
   const lines = [
     `Target repository: ${params.owner}/${params.repo}`,
     `Pull request #: ${params.prNumber}`,
@@ -141,26 +141,30 @@ export function buildVerificationUserContent(params: {
 
   lines.push("", wrapUntrustedBlock("discussion", formatPullRequestDiscussion(params.discussion)));
 
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-function formatObjectionCandidate(objection: FindingObjection): string[] {
+function formatObjectionCandidate(objection: FindingObjection) {
   const trust = objection.authorized ? "authorized" : "untrusted";
-  return [
+  return ((pinnedReturn: string[]) => pinnedReturn)([
     `  Objection commentId=${objection.commentId} trust=${trust} createdAt=${objection.createdAt} updatedAt=${objection.updatedAt}`,
     ...indentEvidence("finding objection", neutralizeMarkerEcho(objection.body)),
-  ];
+  ]);
 }
 
-function indentEvidence(source: string, text: string): string[] {
-  return wrapUntrustedEvidence(source, text)
-    .split("\n")
-    .map((line) => `  ${line}`);
+function indentEvidence(source: string, text: string) {
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    wrapUntrustedEvidence(source, text)
+      .split("\n")
+      .map((line) => `  ${line}`),
+  );
 }
 
 export const VERIFICATION_SUBMIT_ONLY_NUDGE =
   "Your last reply was text only, and the server reads only the submitVerification call. Call submitVerification now with a complete VerificationPayload.";
 
-export function renderVerificationRepairPrompt(validationError: string): string {
-  return [validationError, "Fix the payload and call submitVerification again."].join("\n\n");
+export function renderVerificationRepairPrompt(validationError: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [validationError, "Fix the payload and call submitVerification again."].join("\n\n"),
+  );
 }

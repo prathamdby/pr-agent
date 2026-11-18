@@ -42,7 +42,7 @@ import { hasDatabase, integrationPool } from "./db.ts";
 const OWNER = "work-item-repo-it";
 const EVENT = "work-item-repo-it";
 
-async function insertWebhookEvent(client: PoolClient, id: string): Promise<void> {
+async function insertWebhookEvent(client: PoolClient, id: string) {
   await client.query(
     `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
      VALUES ($1, $2, $3, 'sha', 'accepted')`,
@@ -83,7 +83,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
   });
 
-  async function acquireReviewLease(workItemId: string, resourceKey: string): Promise<number> {
+  async function acquireReviewLease(workItemId: string, resourceKey: string) {
     const acquisition = await acquirePrActorLease(pool, {
       resourceKey,
       workType: "review",
@@ -92,7 +92,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       ttlSeconds: 900,
     });
     if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${workItemId}`);
-    return acquisition.leaseEpoch;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(acquisition.leaseEpoch);
   }
 
   it.each([

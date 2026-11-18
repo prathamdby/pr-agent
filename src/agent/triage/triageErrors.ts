@@ -16,7 +16,7 @@ export class TriageClosedPullRequestError extends AppError {
   }
 }
 
-export async function assertTriagePullRequestWritable(prSurface: PrSurface): Promise<void> {
+export async function assertTriagePullRequestWritable(prSurface: PrSurface) {
   const { pullRequest } = await prSurface.getHead();
   if (!isPullRequestOpenAndUnmerged(pullRequest)) {
     throw new TriageClosedPullRequestError();

@@ -20,12 +20,16 @@ export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
           NULLIF(payload->>'staleHeadReplacementWorkItemId', '')
         )`;
 
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+function nonEmptyString(value: unknown) {
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    typeof value === "string" && value.length > 0 ? value : undefined,
+  );
 }
 
-function asReplacementState(value: unknown): StaleHeadReplacementState | undefined {
-  return value === "pending-enqueue" || value === "enqueued" ? value : undefined;
+function asReplacementState(value: unknown) {
+  return ((pinnedReturn: StaleHeadReplacementState | undefined) => pinnedReturn)(
+    value === "pending-enqueue" || value === "enqueued" ? value : undefined,
+  );
 }
 
 export function normalizeStaleHeadReplacement(raw: {
@@ -33,17 +37,21 @@ export function normalizeStaleHeadReplacement(raw: {
   readonly staleHeadReplacement?: unknown;
   readonly staleHeadReplacementWorkItemId?: unknown;
   readonly staleHeadReplacementEnqueued?: unknown;
-}): StaleHeadReplacement | undefined {
+}) {
   const nested = isRecord(raw.staleHeadReplacement) ? raw.staleHeadReplacement : undefined;
   const nestedId = nonEmptyString(nested?.replacementWorkItemId);
   const legacyId = nonEmptyString(raw.staleHeadReplacementWorkItemId);
   const replacementWorkItemId =
     nestedId ?? (raw.staleHeadRescheduled === true ? undefined : legacyId);
-  if (!replacementWorkItemId) return undefined;
+  if (!replacementWorkItemId)
+    return ((pinnedReturn: StaleHeadReplacement | undefined) => pinnedReturn)(undefined);
   const state =
     asReplacementState(nested?.state) ??
     (raw.staleHeadReplacementEnqueued === true ? "enqueued" : "pending-enqueue");
-  return { replacementWorkItemId, state };
+  return ((pinnedReturn: StaleHeadReplacement | undefined) => pinnedReturn)({
+    replacementWorkItemId,
+    state,
+  });
 }
 
 const ReviewModeSchema = v.pipe(
@@ -202,11 +210,7 @@ export class WorkItemPayloadValidationError extends AppError {
   }
 }
 
-function parseWithSchema<T>(
-  workType: WorkType,
-  schema: v.GenericSchema<unknown, T>,
-  raw: unknown,
-): T {
+function parseWithSchema<T>(workType: WorkType, schema: v.GenericSchema<unknown, T>, raw: unknown) {
   const result = v.safeParse(schema, raw);
   if (!result.success) {
     const issue = result.issues[0];
@@ -218,7 +222,7 @@ function parseWithSchema<T>(
       `Invalid ${workType} work item payload: ${detail}`,
     );
   }
-  return result.output;
+  return ((pinnedReturn: T) => pinnedReturn)(result.output);
 }
 
 export function parseWorkItemPayload(type: "review", raw: unknown): ReviewWorkPayload;
@@ -235,26 +239,53 @@ export function parseWorkItemPayload(
   | DescriptionWorkPayload
   | TriageWorkPayload
   | VerificationWorkPayload;
-export function parseWorkItemPayload(
-  type: WorkType,
-  raw: unknown,
-):
-  | ReviewWorkPayload
-  | AskWorkPayload
-  | DescriptionWorkPayload
-  | TriageWorkPayload
-  | VerificationWorkPayload {
+export function parseWorkItemPayload(type: WorkType, raw: unknown) {
   switch (type) {
     case "review":
-      return parseWithSchema(type, ReviewWorkPayloadSchema, raw);
+      return ((
+        pinnedReturn:
+          | ReviewWorkPayload
+          | AskWorkPayload
+          | DescriptionWorkPayload
+          | TriageWorkPayload
+          | VerificationWorkPayload,
+      ) => pinnedReturn)(parseWithSchema(type, ReviewWorkPayloadSchema, raw));
     case "ask":
-      return parseWithSchema(type, AskWorkPayloadSchema, raw);
+      return ((
+        pinnedReturn:
+          | ReviewWorkPayload
+          | AskWorkPayload
+          | DescriptionWorkPayload
+          | TriageWorkPayload
+          | VerificationWorkPayload,
+      ) => pinnedReturn)(parseWithSchema(type, AskWorkPayloadSchema, raw));
     case "description":
-      return parseWithSchema(type, DescriptionWorkPayloadSchema, raw);
+      return ((
+        pinnedReturn:
+          | ReviewWorkPayload
+          | AskWorkPayload
+          | DescriptionWorkPayload
+          | TriageWorkPayload
+          | VerificationWorkPayload,
+      ) => pinnedReturn)(parseWithSchema(type, DescriptionWorkPayloadSchema, raw));
     case "triage":
-      return parseWithSchema(type, TriageWorkPayloadSchema, raw);
+      return ((
+        pinnedReturn:
+          | ReviewWorkPayload
+          | AskWorkPayload
+          | DescriptionWorkPayload
+          | TriageWorkPayload
+          | VerificationWorkPayload,
+      ) => pinnedReturn)(parseWithSchema(type, TriageWorkPayloadSchema, raw));
     case "verification":
-      return parseWithSchema(type, VerificationWorkPayloadSchema, raw);
+      return ((
+        pinnedReturn:
+          | ReviewWorkPayload
+          | AskWorkPayload
+          | DescriptionWorkPayload
+          | TriageWorkPayload
+          | VerificationWorkPayload,
+      ) => pinnedReturn)(parseWithSchema(type, VerificationWorkPayloadSchema, raw));
     default: {
       const exhaustive: never = type;
       throw new WorkItemPayloadValidationError(
@@ -270,18 +301,33 @@ export function attachWorkItemPayload<T extends WorkType>(
   raw: unknown,
 ): Extract<AgentWorkItem, { type: T }>;
 export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem;
-export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem {
+export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown) {
   switch (core.type) {
     case "review":
-      return { ...core, payload: parseWorkItemPayload("review", raw) };
+      return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
+        ...core,
+        payload: parseWorkItemPayload("review", raw),
+      });
     case "ask":
-      return { ...core, payload: parseWorkItemPayload("ask", raw) };
+      return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
+        ...core,
+        payload: parseWorkItemPayload("ask", raw),
+      });
     case "description":
-      return { ...core, payload: parseWorkItemPayload("description", raw) };
+      return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
+        ...core,
+        payload: parseWorkItemPayload("description", raw),
+      });
     case "triage":
-      return { ...core, payload: parseWorkItemPayload("triage", raw) };
+      return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
+        ...core,
+        payload: parseWorkItemPayload("triage", raw),
+      });
     case "verification":
-      return { ...core, payload: parseWorkItemPayload("verification", raw) };
+      return ((pinnedReturn: AgentWorkItem) => pinnedReturn)({
+        ...core,
+        payload: parseWorkItemPayload("verification", raw),
+      });
     default: {
       const exhaustive: never = core;
       throw new WorkItemPayloadValidationError(

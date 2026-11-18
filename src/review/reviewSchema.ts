@@ -159,31 +159,34 @@ const BASE_TYPE_ISSUE_TYPES = new Set([
   "undefined",
 ]);
 
-function valibotIssueFailureKind(issue: v.GenericIssue): ReviewValidationFailureKind {
-  if (issue.input === undefined) return "missing_field";
+function valibotIssueFailureKind(issue: v.GenericIssue) {
+  if (issue.input === undefined)
+    return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)("missing_field");
   switch (issue.type) {
     case "picklist":
     case "literal":
-      return "enum_mismatch";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)("enum_mismatch");
     case "min_length":
-      return typeof issue.input === "string" ? "string_too_short" : "out_of_range";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)(
+        typeof issue.input === "string" ? "string_too_short" : "out_of_range",
+      );
     case "max_length":
-      return Array.isArray(issue.input) ? "array_too_long" : "out_of_range";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)(
+        Array.isArray(issue.input) ? "array_too_long" : "out_of_range",
+      );
     case "min_value":
     case "max_value":
-      return "out_of_range";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)("out_of_range");
     case "check":
-      return "custom_predicate";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)("custom_predicate");
     default:
-      return BASE_TYPE_ISSUE_TYPES.has(issue.type) ? "wrong_type" : "other";
+      return ((pinnedReturn: ReviewValidationFailureKind) => pinnedReturn)(
+        BASE_TYPE_ISSUE_TYPES.has(issue.type) ? "wrong_type" : "other",
+      );
   }
 }
 
-export function formatReviewValidationError(issues: readonly v.GenericIssue[]): {
-  message: string;
-  failureKind: ReviewValidationFailureKind;
-  paths: string[];
-} {
+export function formatReviewValidationError(issues: readonly v.GenericIssue[]) {
   const paths: string[] = [];
   const lines = ["ReviewPayload validation failed:"];
   for (const issue of issues) {
@@ -193,19 +196,25 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
   }
   const firstIssue = issues[0];
   const failureKind = firstIssue ? valibotIssueFailureKind(firstIssue) : "other";
-  return { message: lines.join("\n"), failureKind, paths };
+  return ((pinnedReturn: {
+    message: string;
+    failureKind: ReviewValidationFailureKind;
+    paths: string[];
+  }) => pinnedReturn)({ message: lines.join("\n"), failureKind, paths });
 }
 
-export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
-  return severity === "P0" || severity === "P1" || severity === "P2" || severity === "P3";
+export function isInlineSeverity(severity: ReviewFinding["severity"]) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    severity === "P0" || severity === "P1" || severity === "P2" || severity === "P3",
+  );
 }
 
 const REVIEW_SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
 
 type SeverityRank = (typeof REVIEW_SEVERITY_RANK)[ReviewFinding["severity"]];
 
-function looserRank(left: SeverityRank, right: SeverityRank): SeverityRank {
-  return left > right ? left : right;
+function looserRank(left: SeverityRank, right: SeverityRank) {
+  return ((pinnedReturn: SeverityRank) => pinnedReturn)(left > right ? left : right);
 }
 
 export const COVERAGE_GAP_CEILINGS = ["P0", "P1"] as const;
@@ -217,7 +226,7 @@ export function cappedFindingSeverity(params: {
   readonly anchorPath: string;
   readonly judged: boolean;
   readonly coverageGapCeiling?: CoverageGapCeiling;
-}): ReviewFinding["severity"] {
+}) {
   let rank: SeverityRank = REVIEW_SEVERITY_RANK[params.severity];
   if (params.coverageGapCeiling == null) {
     if (params.testsLens) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P2);
@@ -228,24 +237,26 @@ export function cappedFindingSeverity(params: {
     rank = looserRank(rank, REVIEW_SEVERITY_RANK[params.coverageGapCeiling]);
   }
   if (!params.judged) rank = looserRank(rank, REVIEW_SEVERITY_RANK.P1);
-  return REVIEW_SEVERITIES[rank] ?? params.severity;
+  return ((pinnedReturn: ReviewFinding["severity"]) => pinnedReturn)(
+    REVIEW_SEVERITIES[rank] ?? params.severity,
+  );
 }
 
 export function isCheckFailingSeverity(
   severity: ReviewFinding["severity"],
   threshold: ReviewFinding["severity"],
-): boolean {
-  return REVIEW_SEVERITY_RANK[severity] <= REVIEW_SEVERITY_RANK[threshold];
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    REVIEW_SEVERITY_RANK[severity] <= REVIEW_SEVERITY_RANK[threshold],
+  );
 }
 
-export function reviewPayloadFromFindings(
-  findings: readonly ReviewPayload["findings"][number][],
-): ReviewPayload {
-  return {
+export function reviewPayloadFromFindings(findings: readonly ReviewPayload["findings"][number][]) {
+  return ((pinnedReturn: ReviewPayload) => pinnedReturn)({
     findings: [...findings],
     size: "M",
     followUps: [],
     mergeability: REVIEW_GATE_PROSE_UNASSESSED,
     blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
-  };
+  });
 }

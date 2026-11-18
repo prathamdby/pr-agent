@@ -1,8 +1,9 @@
 import type { AckTarget, AgentWorkItem } from "./types.ts";
 
-export function reactionTargetsForWorkItem(item: AgentWorkItem): readonly AckTarget[] {
+export function reactionTargetsForWorkItem(item: AgentWorkItem) {
   const stored = item.payload.ackTargets;
-  if (stored != null && stored.length > 0) return stored;
+  if (stored != null && stored.length > 0)
+    return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)(stored);
 
   const targets: AckTarget[] = [{ kind: "pr", prNumber: item.prNumber }];
   switch (item.type) {
@@ -22,8 +23,8 @@ export function reactionTargetsForWorkItem(item: AgentWorkItem): readonly AckTar
       break;
     default: {
       const exhaustive: never = item;
-      return exhaustive;
+      return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)(exhaustive);
     }
   }
-  return targets;
+  return ((pinnedReturn: readonly AckTarget[]) => pinnedReturn)(targets);
 }

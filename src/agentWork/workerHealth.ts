@@ -59,18 +59,18 @@ export type WorkerReadinessSnapshot = {
   readonly missingQueues: readonly string[];
 };
 
-export function evaluateWorkerReadiness(input: WorkerReadinessInput): WorkerReadinessSnapshot {
+export function evaluateWorkerReadiness(input: WorkerReadinessInput) {
   const required = input.requiredQueues ?? WORKER_CONSUMER_QUEUES;
   const missingQueues = required.filter((queue) => !input.registeredQueues.has(queue));
   const reasons: string[] = [];
   if (!input.postgresOk) reasons.push("postgres_unreachable");
   if (!input.pgBossInstalled) reasons.push("pg_boss_not_installed");
   if (missingQueues.length > 0) reasons.push("consumers_not_registered");
-  return {
+  return ((pinnedReturn: WorkerReadinessSnapshot) => pinnedReturn)({
     ready: reasons.length === 0,
     reasons,
     missingQueues,
-  };
+  });
 }
 
 export async function probeWorkerDependencies(
@@ -81,7 +81,7 @@ export async function probeWorkerDependencies(
     readonly setTimeoutFn?: typeof setTimeout;
     readonly clearTimeoutFn?: typeof clearTimeout;
   },
-): Promise<{ readonly postgresOk: boolean; readonly pgBossInstalled: boolean }> {
+) {
   const pingTimeoutMs = options?.pingTimeoutMs ?? HEALTH_DB_PING_TIMEOUT_MS;
   const setTimeoutFn = options?.setTimeoutFn ?? setTimeout;
   const clearTimeoutFn = options?.clearTimeoutFn ?? clearTimeout;
@@ -115,7 +115,11 @@ export async function probeWorkerDependencies(
   } catch {
     pgBossInstalled = false;
   }
-  return { postgresOk, pgBossInstalled };
+  return ((
+    pinnedReturn:
+      | { readonly postgresOk: boolean; readonly pgBossInstalled: boolean }
+      | Promise<{ readonly postgresOk: boolean; readonly pgBossInstalled: boolean }>,
+  ) => pinnedReturn)({ postgresOk, pgBossInstalled });
 }
 
 export type QueueLaneDiagnostic = {
@@ -158,16 +162,16 @@ export type QueueDiagnosticsReport = {
 
 type DiagnosticsBoss = Pick<PgBoss, "getQueueStats">;
 
-async function laneStats(boss: DiagnosticsBoss, queue: string): Promise<QueueLaneDiagnostic> {
+async function laneStats(boss: DiagnosticsBoss, queue: string) {
   const [stats] = await boss.getQueueStats(queue);
-  return {
+  return ((pinnedReturn: QueueLaneDiagnostic | Promise<QueueLaneDiagnostic>) => pinnedReturn)({
     queue,
     queued: stats?.queuedCount ?? 0,
     active: stats?.activeCount ?? 0,
     total: stats?.totalCount ?? 0,
     deferred: stats?.deferredCount ?? 0,
     failed: stats?.failedCount ?? 0,
-  };
+  });
 }
 
 export async function collectQueueDiagnostics(params: {
@@ -177,7 +181,7 @@ export async function collectQueueDiagnostics(params: {
   readonly diagnosticQueues?: readonly string[];
   readonly dlqQueues?: readonly string[];
   readonly lostRunningMinAgeSeconds?: number;
-}): Promise<QueueDiagnosticsReport> {
+}) {
   const diagnosticQueues = params.diagnosticQueues ?? WORKER_DIAGNOSTIC_QUEUES;
   const dlqQueues = params.dlqQueues ?? WORKER_DLQ_QUEUES;
 
@@ -274,17 +278,19 @@ export async function collectQueueDiagnostics(params: {
     lostRunningWorkItems = [];
   }
 
-  return {
-    at: params.now.toISOString(),
-    queues,
-    deadLetters,
-    oldestRunningWorkItemAgeMs,
-    staleQueuedWorkItems,
-    lostRunningWorkItems,
-  };
+  return ((pinnedReturn: QueueDiagnosticsReport | Promise<QueueDiagnosticsReport>) => pinnedReturn)(
+    {
+      at: params.now.toISOString(),
+      queues,
+      deadLetters,
+      oldestRunningWorkItemAgeMs,
+      staleQueuedWorkItems,
+      lostRunningWorkItems,
+    },
+  );
 }
 
-export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void {
+export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport) {
   for (const lane of report.queues) {
     logDebug("agent_queue_stats", {
       queue: lane.queue,
@@ -333,7 +339,7 @@ export function startPeriodicQueueDiagnostics(params: {
   readonly tick: (now: Date) => Promise<void>;
   readonly setIntervalFn?: typeof setInterval;
   readonly clearIntervalFn?: typeof clearInterval;
-}): { readonly stop: () => void } {
+}) {
   const setIntervalFn = params.setIntervalFn ?? setInterval;
   const clearIntervalFn = params.clearIntervalFn ?? clearInterval;
   let inFlight = false;
@@ -351,20 +357,17 @@ export function startPeriodicQueueDiagnostics(params: {
         inFlight = false;
       });
   }, params.intervalMs);
-  return {
+  return ((pinnedReturn: { readonly stop: () => void }) => pinnedReturn)({
     stop: () => {
       clearIntervalFn(handle);
     },
-  };
+  });
 }
 
 export function startWorkerHealthServer(params: {
   readonly port: number;
   readonly getReadiness: () => Promise<WorkerReadinessSnapshot>;
-}): {
-  readonly server: Server;
-  readonly close: () => Promise<void>;
-} {
+}) {
   const server = createServer((req, res) => {
     const path = req.url?.split("?")[0] ?? "/";
     if (req.method === "GET" && path === "/health") {
@@ -393,7 +396,8 @@ export function startWorkerHealthServer(params: {
 
   server.listen(params.port);
 
-  return {
+  return ((pinnedReturn: { readonly server: Server; readonly close: () => Promise<void> }) =>
+    pinnedReturn)({
     server,
     close: () =>
       new Promise((resolve, reject) => {
@@ -402,5 +406,5 @@ export function startWorkerHealthServer(params: {
           else resolve();
         });
       }),
-  };
+  });
 }

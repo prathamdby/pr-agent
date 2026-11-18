@@ -14,38 +14,36 @@ export const CONTENT_REVISION_MISMATCH =
 
 export const CONTENT_REVISION_HOST = "content revision hash input contains a site host";
 
-export function redactOrigin(body: string, origin: string): string {
-  return body.split(origin).join(ORIGIN_TOKEN);
+export function redactOrigin(body: string, origin: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(body.split(origin).join(ORIGIN_TOKEN));
 }
 
-function sha256(body: string): string {
-  return createHash("sha256").update(body).digest("hex");
+function sha256(body: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(createHash("sha256").update(body).digest("hex"));
 }
 
-export function stableDocumentBodies(): Record<RevisionId, string> {
+export function stableDocumentBodies() {
   const landing = FETCH_MARKDOWN_LANGUAGES.map((language) =>
     redactOrigin(renderHomeMarkdown(language), SITE_ORIGIN),
   ).join("\n");
-  return {
+  return ((pinnedReturn: Record<RevisionId, string>) => pinnedReturn)({
     landing,
     llms: renderLlmsTxt(),
     agents: renderAgentInstructionsMarkdown(),
     openapi: redactOrigin(JSON.stringify(renderOpenApiDocument()), SITE_ORIGIN),
-  };
+  });
 }
 
-export function revisionHashes(
-  bodies: Record<RevisionId, string> = stableDocumentBodies(),
-): Record<RevisionId, string> {
-  return {
+export function revisionHashes(bodies: Record<RevisionId, string> = stableDocumentBodies()) {
+  return ((pinnedReturn: Record<RevisionId, string>) => pinnedReturn)({
     landing: sha256(bodies.landing),
     llms: sha256(bodies.llms),
     agents: sha256(bodies.agents),
     openapi: sha256(bodies.openapi),
-  };
+  });
 }
 
-export function assertHostStable(bodies: Record<RevisionId, string>): void {
+export function assertHostStable(bodies: Record<RevisionId, string>) {
   for (const id of REVISION_IDS) {
     const body = bodies[id];
     if (body.includes("localhost") || body.includes(".vercel.app") || body.includes(SITE_ORIGIN)) {
@@ -61,7 +59,7 @@ export type SitemapCoverageResource = {
 
 export function assertSitemapCoverage(
   resources: readonly SitemapCoverageResource[] = AGENT_RESOURCES,
-): void {
+) {
   for (const resource of resources) {
     if (resource.inSitemap) {
       lastmodForSitemapPath(resource.path);

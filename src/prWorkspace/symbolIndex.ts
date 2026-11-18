@@ -44,15 +44,15 @@ const PYTHON_LINE_MATCHERS: ReadonlyArray<readonly [RegExp, SymbolKind]> = [
   [PY_CLASS, "class"],
 ];
 
-function extensionOf(path: string): string {
+function extensionOf(path: string) {
   const slash = path.lastIndexOf("/");
   const dot = path.lastIndexOf(".");
-  if (dot <= slash) return "";
-  return path.slice(dot).toLowerCase();
+  if (dot <= slash) return ((pinnedReturn: string) => pinnedReturn)("");
+  return ((pinnedReturn: string) => pinnedReturn)(path.slice(dot).toLowerCase());
 }
 
-export function isIndexableSourcePath(path: string): boolean {
-  return INDEXABLE_EXTENSIONS.has(extensionOf(path));
+export function isIndexableSourcePath(path: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(INDEXABLE_EXTENSIONS.has(extensionOf(path)));
 }
 
 function addEntry(
@@ -61,8 +61,8 @@ function addEntry(
   entry: SymbolIndexEntry,
   maxSymbols: number,
   symbolCount: { value: number },
-): boolean {
-  if (symbolCount.value >= maxSymbols) return false;
+) {
+  if (symbolCount.value >= maxSymbols) return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const existing = byName.get(name);
   if (existing) {
     existing.push(entry);
@@ -70,7 +70,7 @@ function addEntry(
     byName.set(name, [entry]);
   }
   symbolCount.value += 1;
-  return true;
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 function indexFirstMatch(
@@ -81,13 +81,15 @@ function indexFirstMatch(
   line: string,
   maxSymbols: number,
   symbolCount: { value: number },
-): boolean {
+) {
   for (const [pattern, kind] of matchers) {
     const match = pattern.exec(line);
     if (!match?.[1]) continue;
-    return addEntry(byName, match[1], { path, line: lineNumber, kind }, maxSymbols, symbolCount);
+    return ((pinnedReturn: boolean) => pinnedReturn)(
+      addEntry(byName, match[1], { path, line: lineNumber, kind }, maxSymbols, symbolCount),
+    );
   }
-  return true;
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 function indexFileContent(
@@ -96,7 +98,7 @@ function indexFileContent(
   content: string,
   maxSymbols: number,
   symbolCount: { value: number },
-): boolean {
+) {
   const ext = extensionOf(path);
   const isPython = ext === ".py";
   const lines = content.split("\n");
@@ -112,9 +114,9 @@ function indexFileContent(
       maxSymbols,
       symbolCount,
     );
-    if (!continueIndexing) return false;
+    if (!continueIndexing) return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  return true;
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 export async function buildSymbolIndex(
@@ -126,7 +128,7 @@ export async function buildSymbolIndex(
     readonly readConcurrency?: number;
     readonly signal?: AbortSignal;
   },
-): Promise<SymbolIndex> {
+) {
   const maxSymbols = options?.maxSymbols ?? LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS;
   const maxFileBytes = options?.maxFileBytes ?? LOCAL_WORKSPACE_MAX_FILE_BYTES;
   const readConcurrency = Math.max(
@@ -159,20 +161,28 @@ export async function buildSymbolIndex(
     if (capped) break;
   }
 
-  return { byName, symbolCount: symbolCount.value };
+  return ((pinnedReturn: SymbolIndex | Promise<SymbolIndex>) => pinnedReturn)({
+    byName,
+    symbolCount: symbolCount.value,
+  });
 }
 
 export function querySymbolIndex(
   index: SymbolIndex | null | undefined,
   name: string,
   maxResults = LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
-): readonly SymbolIndexEntry[] {
-  if (!index || !name) return [];
+) {
+  if (!index || !name) return ((pinnedReturn: readonly SymbolIndexEntry[]) => pinnedReturn)([]);
   const matches = index.byName.get(name) ?? [];
-  return matches.slice(0, maxResults);
+  return ((pinnedReturn: readonly SymbolIndexEntry[]) => pinnedReturn)(
+    matches.slice(0, maxResults),
+  );
 }
 
-export function symbolIndexStatus(index: SymbolIndex | null | undefined): SymbolIndexStatus {
-  if (!index) return { available: false };
-  return { available: true, symbolCount: index.symbolCount };
+export function symbolIndexStatus(index: SymbolIndex | null | undefined) {
+  if (!index) return ((pinnedReturn: SymbolIndexStatus) => pinnedReturn)({ available: false });
+  return ((pinnedReturn: SymbolIndexStatus) => pinnedReturn)({
+    available: true,
+    symbolCount: index.symbolCount,
+  });
 }

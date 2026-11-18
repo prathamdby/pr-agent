@@ -38,7 +38,7 @@ export type AgentAuditRecord = {
 export function agentAuditRecordFromLifecycleEvent(
   event: AgentLifecycleEvent,
   now: () => Date = () => new Date(),
-): AgentAuditRecord {
+) {
   const base = {
     source: "agent_lifecycle" as const,
     kind: event.kind,
@@ -53,30 +53,30 @@ export function agentAuditRecordFromLifecycleEvent(
 
   switch (event.kind) {
     case "turn":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         phase: event.phase,
         checkpointId: event.checkpointId,
-      };
+      });
     case "tool":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
         toolName: event.toolName,
         ...(event.ok != null ? { ok: event.ok } : {}),
-      };
+      });
     case "retry":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
         reason: event.reason,
         ...(event.attempt != null ? { attempt: event.attempt } : {}),
-      };
+      });
     case "compaction":
-      return { ...base, reason: event.reason };
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({ ...base, reason: event.reason });
     case "usage":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
@@ -87,11 +87,11 @@ export function agentAuditRecordFromLifecycleEvent(
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
-      };
+      });
     case "cancellation":
-      return { ...base, reason: event.reason };
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({ ...base, reason: event.reason });
     case "completion":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
@@ -106,9 +106,9 @@ export function agentAuditRecordFromLifecycleEvent(
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
-      };
+      });
     case "failure":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
@@ -125,9 +125,9 @@ export function agentAuditRecordFromLifecycleEvent(
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
-      };
+      });
     case "execution":
-      return {
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)({
         ...base,
         ok: event.outcome === "success",
         failureCode: event.errorCode,
@@ -138,10 +138,10 @@ export function agentAuditRecordFromLifecycleEvent(
         completedHostCalls: event.completedHostCalls,
         transferredBytes: event.transferredBytes,
         outputBytes: event.outputBytes,
-      };
+      });
     default: {
       const _exhaustive: never = event;
-      return _exhaustive;
+      return ((pinnedReturn: AgentAuditRecord) => pinnedReturn)(_exhaustive);
     }
   }
 }

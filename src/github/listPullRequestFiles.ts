@@ -55,16 +55,16 @@ export type PullRequestBranchInfo = {
   readonly sameRepo: boolean;
 };
 
-export function pullRequestBranchInfo(pullRequest: PullRequestForFileList): PullRequestBranchInfo {
-  return {
+export function pullRequestBranchInfo(pullRequest: PullRequestForFileList) {
+  return ((pinnedReturn: PullRequestBranchInfo) => pinnedReturn)({
     headRef: pullRequest.head?.ref ?? "",
     sameRepo: pullRequest.head?.repo?.full_name === pullRequest.base?.repo?.full_name,
-  };
+  });
 }
 
-export function isPullRequestOpenAndUnmerged(pullRequest: PullRequestForFileList): boolean {
-  return (
-    pullRequest.state === "open" && pullRequest.merged === false && pullRequest.merged_at === null
+export function isPullRequestOpenAndUnmerged(pullRequest: PullRequestForFileList) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    pullRequest.state === "open" && pullRequest.merged === false && pullRequest.merged_at === null,
   );
 }
 
@@ -76,7 +76,7 @@ type PatchBudgetState = {
 export function assertPullRequestFilesHeadSha(
   prFiles: ListPullRequestFilesResult,
   expectedHeadSha: string,
-): void {
+) {
   if (prFiles.headSha?.toLowerCase() !== expectedHeadSha.toLowerCase()) {
     throw new AppError({
       domain: "github",
@@ -90,31 +90,41 @@ function resolvePatchForFile(
   rawPatch: string | undefined,
   state: PatchBudgetState,
   maxPatchBytes: number,
-): {
-  patch: string | undefined;
-  patchOmitted: true | undefined;
-  state: PatchBudgetState;
-  patchOmittedCountDelta: number;
-} {
+) {
   if (rawPatch == null) {
-    return {
+    return ((pinnedReturn: {
+      patch: string | undefined;
+      patchOmitted: true | undefined;
+      state: PatchBudgetState;
+      patchOmittedCountDelta: number;
+    }) => pinnedReturn)({
       patch: undefined,
       patchOmitted: undefined,
       state,
       patchOmittedCountDelta: 0,
-    };
+    });
   }
   if (state.patchCapReached) {
-    return {
+    return ((pinnedReturn: {
+      patch: string | undefined;
+      patchOmitted: true | undefined;
+      state: PatchBudgetState;
+      patchOmittedCountDelta: number;
+    }) => pinnedReturn)({
       patch: undefined,
       patchOmitted: true,
       state,
       patchOmittedCountDelta: 1,
-    };
+    });
   }
   const patchLen = Buffer.byteLength(rawPatch, "utf8");
   if (state.patchBytes + patchLen <= maxPatchBytes) {
-    return {
+    return ((pinnedReturn: {
+      patch: string | undefined;
+      patchOmitted: true | undefined;
+      state: PatchBudgetState;
+      patchOmittedCountDelta: number;
+    }) => pinnedReturn)({
       patch: rawPatch,
       patchOmitted: undefined,
       state: {
@@ -122,14 +132,19 @@ function resolvePatchForFile(
         patchBytes: state.patchBytes + patchLen,
       },
       patchOmittedCountDelta: 0,
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: {
+    patch: string | undefined;
+    patchOmitted: true | undefined;
+    state: PatchBudgetState;
+    patchOmittedCountDelta: number;
+  }) => pinnedReturn)({
     patch: undefined,
     patchOmitted: true,
     state: { ...state, patchCapReached: true },
     patchOmittedCountDelta: 1,
-  };
+  });
 }
 
 export async function listPullRequestFilesPaginated(
@@ -139,7 +154,7 @@ export async function listPullRequestFilesPaginated(
   pullNumber: number,
   limits: ListPullRequestFilesLimits,
   pullRequest?: PullRequestForFileList,
-): Promise<ListPullRequestFilesResult> {
+) {
   const pull =
     pullRequest ??
     (
@@ -157,7 +172,7 @@ export async function listPullRequestFilesPaginated(
   let patchOmittedCount = 0;
   let patchCapReached = false;
 
-  function consumeFilePage(data: readonly GithubFile[]): void {
+  function consumeFilePage(data: readonly GithubFile[]) {
     for (const file of data) {
       if (files.length >= limits.maxPrFilesListed) {
         return;
@@ -227,22 +242,23 @@ export async function listPullRequestFilesPaginated(
   }
   const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
 
-  return {
+  return ((pinnedReturn: ListPullRequestFilesResult | Promise<ListPullRequestFilesResult>) =>
+    pinnedReturn)({
     files,
     truncated,
     omittedCountLowerBound,
     totalChanges,
     headSha,
     warning,
-  };
+  });
 }
 
 function mapGithubFile(
   file: GithubFile,
   patch: string | undefined,
   patchOmitted: true | undefined,
-): PullRequestFileEntry {
-  return {
+) {
+  return ((pinnedReturn: PullRequestFileEntry) => pinnedReturn)({
     filename: file.filename,
     status: file.status,
     additions: file.additions,
@@ -251,7 +267,7 @@ function mapGithubFile(
     ...(file.previous_filename ? { previousFilename: file.previous_filename } : {}),
     patch,
     ...(patchOmitted ? { patchOmitted } : {}),
-  };
+  });
 }
 
 export async function fetchPullRequestFiles(
@@ -262,7 +278,10 @@ export async function fetchPullRequestFiles(
   limits: ListPullRequestFilesLimits,
   pullRequest?: PullRequestForFileList,
   expiresAtTs?: number,
-): Promise<ListPullRequestFilesResult> {
+) {
   const octokit = installationOctokit(token, expiresAtTs);
-  return listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, limits, pullRequest);
+  return ((pinnedReturn: ListPullRequestFilesResult | Promise<ListPullRequestFilesResult>) =>
+    pinnedReturn)(
+    listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, limits, pullRequest),
+  );
 }

@@ -18,7 +18,7 @@ export function planDescriptionPublish(params: {
   readonly resource: PrResource;
   readonly payload: DescriptionPayload;
   readonly operationMarker?: string;
-}): DescriptionPublishPlan {
+}) {
   const { pullRequest, payload, operationMarker } = params;
   const agentBlock = renderDescriptionAgentBlock(payload, params.resource);
   const body = mergeDescriptionIntoPrBody({
@@ -28,10 +28,10 @@ export function planDescriptionPublish(params: {
   const currentTitle = pullRequest.title ?? "";
   const titleRewrite = params.cfg.features.titleRewrite;
   const title = titleRewrite ? payload.title.trim() : currentTitle;
-  return {
+  return ((pinnedReturn: DescriptionPublishPlan) => pinnedReturn)({
     title,
     body,
     titleUpdated: titleRewrite && title !== currentTitle,
     bodyUpdated: body !== (pullRequest.body ?? ""),
-  };
+  });
 }

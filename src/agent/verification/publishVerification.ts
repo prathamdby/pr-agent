@@ -77,21 +77,25 @@ type PublishVerificationParams = {
   readonly leaseEpoch: number | null;
 };
 
-function withStubMarker(body: string, operationMarker?: string): string {
+function withStubMarker(body: string, operationMarker?: string) {
   const marked = body.includes(VERIFICATION_STUB_MARKER)
     ? body
     : `${VERIFICATION_STUB_MARKER}\n${body}`;
-  return operationMarker == null || marked.includes(operationMarker)
-    ? marked
-    : `${marked}\n${operationMarker}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    operationMarker == null || marked.includes(operationMarker)
+      ? marked
+      : `${marked}\n${operationMarker}`,
+  );
 }
 
 function terminalSuccessStubBody(
   verdict: Extract<VerificationVerdict, { verdict: "fixed" | "already-resolved" }>,
   operationMarker?: string,
-): string {
+) {
   const label = verdict.verdict === "fixed" ? "Fixed" : "Already resolved";
-  return withStubMarker(redactReviewText(`**Verification**: ${label}`), operationMarker);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    withStubMarker(redactReviewText(`**Verification**: ${label}`), operationMarker),
+  );
 }
 
 function dismissedReplyBody(
@@ -99,14 +103,16 @@ function dismissedReplyBody(
   thread: BotFindingThread,
   policyResult: RepoPolicyResult,
   operationMarker?: string,
-): string {
+) {
   const evidence = redactReviewText(`**Verification**: Dismissed - ${verdict.evidence}`);
   const suggestion = renderPolicySuggestionForDismissed({
     filePath: thread.path,
     dismissalEvidence: verdict.evidence,
     policyResult,
   });
-  return withStubMarker(`${evidence}\n\nSuggested policy entry:\n\n${suggestion}`, operationMarker);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    withStubMarker(`${evidence}\n\nSuggested policy entry:\n\n${suggestion}`, operationMarker),
+  );
 }
 
 async function recoverVerificationMutation(params: {
@@ -124,7 +130,7 @@ async function recoverVerificationMutation(params: {
   readonly stubCommentId?: number;
   readonly threadNodeId?: string;
   readonly expectedBody: string;
-}): Promise<OperationIntentRecovery<number | undefined>> {
+}) {
   if (params.publishRecordId != null) {
     const { rows } = await params.pool.query<{ detail: unknown }>(
       `SELECT detail FROM publish_records WHERE id = $1 AND work_item_id = $2
@@ -143,7 +149,11 @@ async function recoverVerificationMutation(params: {
         requiresStub: params.requiresStub,
       })
     ) {
-      return { kind: "reconciled", value: receipt?.stubCommentId };
+      return ((
+        pinnedReturn:
+          | OperationIntentRecovery<number | undefined>
+          | Promise<OperationIntentRecovery<number | undefined>>,
+      ) => pinnedReturn)({ kind: "reconciled", value: receipt?.stubCommentId });
     }
   }
   const childEvidenceMatches =
@@ -238,14 +248,22 @@ async function recoverVerificationMutation(params: {
   if ((!stubProven || !resolved) && rows.length >= 16) {
     throw new Error("Verification child receipt recovery is capped");
   }
-  return stubProven && resolved ? { kind: "reconciled", value: stubCommentId } : { kind: "absent" };
+  return ((
+    pinnedReturn:
+      | OperationIntentRecovery<number | undefined>
+      | Promise<OperationIntentRecovery<number | undefined>>,
+  ) => pinnedReturn)(
+    stubProven && resolved ? { kind: "reconciled", value: stubCommentId } : { kind: "absent" },
+  );
 }
 
 function resolveStubCommentId(
   thread: BotFindingThread,
   state: VerificationThreadState | undefined,
-): number | undefined {
-  return state?.stubCommentId ?? thread.verificationStubCommentId;
+) {
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(
+    state?.stubCommentId ?? thread.verificationStubCommentId,
+  );
 }
 
 async function createStubReply(params: {
@@ -253,7 +271,7 @@ async function createStubReply(params: {
   readonly prNumber: number;
   readonly thread: BotFindingThread;
   readonly body: string;
-}): Promise<number> {
+}) {
   const posted = await params.prSurface.replyAt(
     {
       kind: "inlineReviewThread",
@@ -262,15 +280,17 @@ async function createStubReply(params: {
     },
     params.body,
   );
-  return posted.commentId;
+  return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(posted.commentId);
 }
 
 async function updateStubReply(params: {
   readonly prSurface: PrSurface;
   readonly stubCommentId: number;
   readonly body: string;
-}): Promise<boolean> {
-  return params.prSurface.editReviewComment(params.stubCommentId, params.body);
+}) {
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    params.prSurface.editReviewComment(params.stubCommentId, params.body),
+  );
 }
 
 async function upsertStubComment(params: {
@@ -279,16 +299,17 @@ async function upsertStubComment(params: {
   readonly thread: BotFindingThread;
   readonly stubCommentId: number | undefined;
   readonly body: string;
-}): Promise<number> {
+}) {
   if (params.stubCommentId != null) {
     const updated = await updateStubReply({
       prSurface: params.prSurface,
       stubCommentId: params.stubCommentId,
       body: params.body,
     });
-    if (updated) return params.stubCommentId;
+    if (updated)
+      return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(params.stubCommentId);
   }
-  return createStubReply(params);
+  return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(createStubReply(params));
 }
 
 async function persistThreadState(params: {
@@ -299,7 +320,7 @@ async function persistThreadState(params: {
   readonly rootCommentId: number;
   readonly state: VerificationThreadState;
   readonly leaseEpoch: number | null;
-}): Promise<VerificationThreadLedger> {
+}) {
   const next = upsertVerificationThreadState(params.ledger, params.rootCommentId, params.state);
   await saveVerificationThreadLedger(params.pool, {
     workItemId: params.workItemId,
@@ -307,7 +328,8 @@ async function persistThreadState(params: {
     ledger: next,
     leaseEpoch: params.leaseEpoch,
   });
-  return next;
+  return ((pinnedReturn: VerificationThreadLedger | Promise<VerificationThreadLedger>) =>
+    pinnedReturn)(next);
 }
 
 function terminalThreadState(
@@ -315,14 +337,14 @@ function terminalThreadState(
   lastVerdict: VerificationThreadState["lastVerdict"],
   lastHeadSha: string,
   stubCommentId?: number,
-): VerificationThreadState {
+) {
   const resolvedStubId = stubCommentId ?? prior?.stubCommentId;
-  return {
+  return ((pinnedReturn: VerificationThreadState) => pinnedReturn)({
     ...(resolvedStubId != null ? { stubCommentId: resolvedStubId } : {}),
     lastVerdict,
     lastHeadSha,
     terminal: true,
-  };
+  });
 }
 
 function verificationIntentDetail(
@@ -330,8 +352,8 @@ function verificationIntentDetail(
   threadRootCommentId: number,
   verdict: string,
   operationMarker: string,
-): Record<string, unknown> {
-  return {
+) {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     step: "verification_thread_actions",
     resourceKey: params.resourceKey,
     reviewLens: VERIFICATION_PUBLISH_LENS,
@@ -339,7 +361,7 @@ function verificationIntentDetail(
     verdict,
     operationMarker,
     headSha: params.headSha,
-  };
+  });
 }
 
 async function withVerificationThreadOperation(
@@ -353,7 +375,7 @@ async function withVerificationThreadOperation(
     readonly body: (marker: string) => string;
   },
   mutate: (operationMarker: string, accepted: () => void) => Promise<number | undefined>,
-): Promise<{ readonly stubCommentId?: number; readonly completion: VerificationThreadCompletion }> {
+) {
   const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
   const retained = await getOperationIntent(params.pool, params.workItemId, operationKey);
@@ -436,7 +458,14 @@ async function withVerificationThreadOperation(
         childAccepted = true;
       }),
   });
-  return {
+  return ((
+    pinnedReturn:
+      | { readonly stubCommentId?: number; readonly completion: VerificationThreadCompletion }
+      | Promise<{
+          readonly stubCommentId?: number;
+          readonly completion: VerificationThreadCompletion;
+        }>,
+  ) => pinnedReturn)({
     ...(stubCommentId != null ? { stubCommentId } : {}),
     completion: {
       workItemId: params.workItemId,
@@ -447,7 +476,7 @@ async function withVerificationThreadOperation(
       ...(stubCommentId != null ? { stubCommentId } : {}),
       resolutionOutcome: requiresResolved ? "resolved" : "not_required",
     },
-  };
+  });
 }
 
 const VERIFICATION_REPLY_PREFIX = "**Verification reply**:";
@@ -475,64 +504,69 @@ type ObjectionPostResult = {
   readonly skippedIncomplete: number;
 };
 
-function objectionDecisionsFor(
-  thread: BotFindingThread,
-  payload: VerificationPayload,
-): readonly VerificationObjectionDecision[] {
+function objectionDecisionsFor(thread: BotFindingThread, payload: VerificationPayload) {
   const ids = new Set((thread.objections ?? []).map((objection) => objection.commentId));
-  return (payload.objectionDecisions ?? []).filter((decision) => ids.has(decision.commentId));
+  return ((pinnedReturn: readonly VerificationObjectionDecision[]) => pinnedReturn)(
+    (payload.objectionDecisions ?? []).filter((decision) => ids.has(decision.commentId)),
+  );
 }
 
-function notObjectionEntries(
-  decisions: readonly VerificationObjectionDecision[],
-): readonly VerificationObjectionJournalEntry[] {
-  return decisions.flatMap((decision) =>
-    decision.decision === "not_objection"
-      ? [
-          {
-            commentId: decision.commentId,
-            updatedAt: decision.updatedAt,
-            decision: decision.decision,
-          },
-        ]
-      : [],
+function notObjectionEntries(decisions: readonly VerificationObjectionDecision[]) {
+  return ((pinnedReturn: readonly VerificationObjectionJournalEntry[]) => pinnedReturn)(
+    decisions.flatMap((decision) =>
+      decision.decision === "not_objection"
+        ? [
+            {
+              commentId: decision.commentId,
+              updatedAt: decision.updatedAt,
+              decision: decision.decision,
+            },
+          ]
+        : [],
+    ),
   );
 }
 
 function mergeObjectionJournal(
   prior: readonly VerificationObjectionJournalEntry[] | undefined,
   journal: readonly VerificationObjectionJournalEntry[],
-): readonly VerificationObjectionJournalEntry[] {
+) {
   const byKey = new Map<string, VerificationObjectionJournalEntry>();
   for (const entry of prior ?? []) byKey.set(`${entry.commentId}:${entry.updatedAt}`, entry);
   for (const entry of journal) byKey.set(`${entry.commentId}:${entry.updatedAt}`, entry);
-  return [...byKey.values()];
+  return ((pinnedReturn: readonly VerificationObjectionJournalEntry[]) => pinnedReturn)([
+    ...byKey.values(),
+  ]);
 }
 
 function withObjectionJournal(
   state: VerificationThreadState,
   prior: VerificationThreadState | undefined,
   journal: readonly VerificationObjectionJournalEntry[],
-): VerificationThreadState {
+) {
   const objections = mergeObjectionJournal(prior?.objections, journal);
-  return objections.length > 0 ? { ...state, objections } : state;
+  return ((pinnedReturn: VerificationThreadState) => pinnedReturn)(
+    objections.length > 0 ? { ...state, objections } : state,
+  );
 }
 
 function journalOnlyState(
   prior: VerificationThreadState | undefined,
   verdict: VerificationThreadState["lastVerdict"],
   journal: readonly VerificationObjectionJournalEntry[],
-): VerificationThreadState {
+) {
   const objections = mergeObjectionJournal(prior?.objections, journal);
   const base = prior ?? { lastVerdict: verdict };
-  return objections.length > 0 ? { ...base, objections } : base;
+  return ((pinnedReturn: VerificationThreadState) => pinnedReturn)(
+    objections.length > 0 ? { ...base, objections } : base,
+  );
 }
 
 function objectionAnswerProse(
   decision: Extract<VerificationObjectionDecision, { decision: "concede" | "hold" }>,
   verdict: VerificationVerdict,
   objection: FindingObjection,
-): string {
+) {
   const prose = decision.body.startsWith(VERIFICATION_REPLY_PREFIX)
     ? decision.body
     : `${VERIFICATION_REPLY_PREFIX}\n${decision.body}`;
@@ -545,9 +579,11 @@ function objectionAnswerProse(
     !objection.authorized &&
     !withFix.includes(UNAUTHORIZED_CONCEDE_SENTENCE)
   ) {
-    return `${withFix}\n\n${UNAUTHORIZED_CONCEDE_SENTENCE}`;
+    return ((pinnedReturn: string) => pinnedReturn)(
+      `${withFix}\n\n${UNAUTHORIZED_CONCEDE_SENTENCE}`,
+    );
   }
-  return withFix;
+  return ((pinnedReturn: string) => pinnedReturn)(withFix);
 }
 
 function objectionAnswerBody(
@@ -555,13 +591,15 @@ function objectionAnswerBody(
   verdict: VerificationVerdict,
   objection: FindingObjection,
   operationMarker: string,
-): string {
+) {
   const redacted = withoutObjectionAnswerMarkers(
     redactReviewText(objectionAnswerProse(decision, verdict, objection)),
   ).trimEnd();
   const answerMarker = renderObjectionAnswerMarker(decision.commentId, decision.updatedAt);
   const withAnswer = `${redacted}\n${answerMarker}`;
-  return withAnswer.includes(operationMarker) ? withAnswer : `${withAnswer}\n${operationMarker}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    withAnswer.includes(operationMarker) ? withAnswer : `${withAnswer}\n${operationMarker}`,
+  );
 }
 
 function existingAnswerCommentId(
@@ -569,16 +607,16 @@ function existingAnswerCommentId(
   botLogin: string,
   commentId: number,
   updatedAt: string,
-): number | undefined {
+) {
   const match = snapshot.comments.find(
     (comment) =>
       isBotAuthor(comment.authorLogin, botLogin) &&
       commentCarriesObjectionAnswer(comment.body, commentId, updatedAt),
   );
-  return match?.databaseId;
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(match?.databaseId);
 }
 
-function noteObjectionCounts(counts: ObjectionPublishCounts, posted: ObjectionPostResult): void {
+function noteObjectionCounts(counts: ObjectionPublishCounts, posted: ObjectionPostResult) {
   counts.answered += posted.answered;
   counts.notObjection += posted.notObjection;
   counts.skippedIncomplete += posted.skippedIncomplete;
@@ -594,7 +632,7 @@ async function recoverObjectionAnswer(params: {
   readonly rootCommentId: number;
   readonly objectionCommentId: number;
   readonly updatedAt: string;
-}): Promise<OperationIntentRecovery<number>> {
+}) {
   if (params.publishRecordId != null) {
     const { rows } = await params.pool.query<{ detail: unknown }>(
       `SELECT detail FROM publish_records WHERE id = $1 AND work_item_id = $2
@@ -609,7 +647,10 @@ async function recoverObjectionAnswer(params: {
         objection.updatedAt === params.updatedAt &&
         objection.answerCommentId != null,
     );
-    if (entry?.answerCommentId != null) return { kind: "reconciled", value: entry.answerCommentId };
+    if (entry?.answerCommentId != null)
+      return ((
+        pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
+      ) => pinnedReturn)({ kind: "reconciled", value: entry.answerCommentId });
   }
   const { rows } = await params.pool.query<{
     operation_key: string;
@@ -644,7 +685,9 @@ async function recoverObjectionAnswer(params: {
     ) {
       continue;
     }
-    return { kind: "reconciled", value: detail.__result.commentId };
+    return ((
+      pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
+    ) => pinnedReturn)({ kind: "reconciled", value: detail.__result.commentId });
   }
   const botLogin = await params.prSurface.getBotLogin();
   const listed = await params.prSurface.listReviewComments();
@@ -656,10 +699,15 @@ async function recoverObjectionAnswer(params: {
     renderObjectionAnswerMarker(params.objectionCommentId, params.updatedAt),
     (comment) => isBotAuthor(comment.authorLogin, botLogin),
   );
-  if (commentId != null) return { kind: "reconciled", value: commentId };
+  if (commentId != null)
+    return ((
+      pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
+    ) => pinnedReturn)({ kind: "reconciled", value: commentId });
   if (rows.length >= 16)
     throw new Error("Verification objection answer child receipt recovery is capped");
-  return { kind: "absent" };
+  return ((
+    pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
+  ) => pinnedReturn)({ kind: "absent" });
 }
 
 async function publishObjectionAnswer(params: {
@@ -668,7 +716,7 @@ async function publishObjectionAnswer(params: {
   readonly verdict: VerificationVerdict;
   readonly decision: Extract<VerificationObjectionDecision, { decision: "concede" | "hold" }>;
   readonly objection: FindingObjection;
-}): Promise<number> {
+}) {
   const operationKey = verificationObjectionAnswerOperationKey(
     params.thread.rootCommentId,
     params.decision.commentId,
@@ -748,7 +796,7 @@ async function publishObjectionAnswer(params: {
     objectionCommentId: params.decision.commentId,
     answerCommentId: commentId,
   });
-  return commentId;
+  return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(commentId);
 }
 
 async function postObjectionAnswers(params: {
@@ -756,66 +804,66 @@ async function postObjectionAnswers(params: {
   readonly thread: BotFindingThread;
   readonly verdict: VerificationVerdict;
   readonly decisions: readonly VerificationObjectionDecision[];
-}): Promise<ObjectionPostResult> {
+}) {
   const quiet = notObjectionEntries(params.decisions);
   const answers = params.decisions.flatMap((decision) =>
     decision.decision === "not_objection" ? [] : [decision],
   );
   if (answers.length === 0) {
-    return {
+    return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
       journal: quiet,
       revisionMoved: false,
       pageIncomplete: false,
       answered: 0,
       notObjection: quiet.length,
       skippedIncomplete: 0,
-    };
+    });
   }
   const resolution = params.publish.resolutionByRootCommentId.get(params.thread.rootCommentId);
   if (resolution == null) {
-    return {
+    return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
       journal: quiet,
       revisionMoved: false,
       pageIncomplete: false,
       answered: 0,
       notObjection: quiet.length,
       skippedIncomplete: 0,
-    };
+    });
   }
   const snapshot = await params.publish.prSurface.getReviewThread(resolution.threadNodeId);
   if (snapshot == null) {
-    return {
+    return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
       journal: [],
       revisionMoved: false,
       pageIncomplete: false,
       answered: 0,
       notObjection: 0,
       skippedIncomplete: 0,
-    };
+    });
   }
   const confirmedQuiet = quiet.filter((entry) => {
     const live = snapshot.comments.find((comment) => comment.databaseId === entry.commentId);
     return live != null && live.updatedAt === entry.updatedAt;
   });
   if (!snapshot.commentsComplete) {
-    return {
+    return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
       journal: confirmedQuiet,
       revisionMoved: false,
       pageIncomplete: true,
       answered: 0,
       notObjection: confirmedQuiet.length,
       skippedIncomplete: answers.length,
-    };
+    });
   }
   if (snapshot.isResolved) {
-    return {
+    return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
       journal: confirmedQuiet,
       revisionMoved: false,
       pageIncomplete: false,
       answered: 0,
       notObjection: confirmedQuiet.length,
       skippedIncomplete: 0,
-    };
+    });
   }
   const objections = new Map(
     (params.thread.objections ?? []).map((objection) => [objection.commentId, objection]),
@@ -823,14 +871,14 @@ async function postObjectionAnswers(params: {
   for (const decision of answers) {
     const live = snapshot.comments.find((comment) => comment.databaseId === decision.commentId);
     if (live != null && live.updatedAt !== decision.updatedAt) {
-      return {
+      return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
         journal: [],
         revisionMoved: true,
         pageIncomplete: false,
         answered: 0,
         notObjection: 0,
         skippedIncomplete: 0,
-      };
+      });
     }
   }
   const botLogin = await params.publish.prSurface.getBotLogin();
@@ -870,19 +918,17 @@ async function postObjectionAnswers(params: {
       answerCommentId,
     });
   }
-  return {
+  return ((pinnedReturn: ObjectionPostResult | Promise<ObjectionPostResult>) => pinnedReturn)({
     journal,
     revisionMoved: false,
     pageIncomplete: false,
     answered,
     notObjection: confirmedQuiet.length,
     skippedIncomplete: 0,
-  };
+  });
 }
 
-export async function publishVerification(
-  params: PublishVerificationParams,
-): Promise<VerificationPublishResult> {
+export async function publishVerification(params: PublishVerificationParams) {
   const degradation = new Set<VerificationDegradationReason>();
   if (params.changedFilePathsTruncated === true) degradation.add("compare_files_truncated");
   let ledger = await loadVerificationThreadLedger(params.pool, {
@@ -1195,7 +1241,8 @@ export async function publishVerification(
     }
   }
 
-  return {
+  return ((pinnedReturn: VerificationPublishResult | Promise<VerificationPublishResult>) =>
+    pinnedReturn)({
     degradation: [...degradation],
     ...(objectionCounts.answered > 0 ? { objectionsAnswered: objectionCounts.answered } : {}),
     ...(objectionCounts.notObjection > 0
@@ -1204,5 +1251,5 @@ export async function publishVerification(
     ...(objectionCounts.skippedIncomplete > 0
       ? { objectionsSkippedIncomplete: objectionCounts.skippedIncomplete }
       : {}),
-  };
+  });
 }

@@ -19,9 +19,9 @@ import { buildVerificationRunSetup } from "../src/agent/verification/verificatio
 import { makeTestConfig } from "./helpers/config.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
 
-function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
+function baseParams(overrides: Partial<AskRunParams> = {}) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-  return {
+  return ((pinnedReturn: AskRunParams) => pinnedReturn)({
     cfg: makeTestConfig(),
     prSurface: surface,
     owner: "o",
@@ -33,7 +33,7 @@ function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
     workspace: {} as AskRunParams["workspace"],
     discussion: emptyPullRequestDiscussion(),
     ...overrides,
-  };
+  });
 }
 
 function snapshot(params: {
@@ -46,8 +46,8 @@ function snapshot(params: {
   readonly isOutdated?: boolean;
   readonly commentsComplete?: boolean;
   readonly extra?: ReviewThreadSnapshot["comments"];
-}): ReviewThreadSnapshot {
-  return {
+}) {
+  return ((pinnedReturn: ReviewThreadSnapshot) => pinnedReturn)({
     threadNodeId: `thread-${params.rootCommentId}`,
     isResolved: params.isResolved,
     rootCommentId: params.rootCommentId,
@@ -70,11 +70,11 @@ function snapshot(params: {
       },
       ...(params.extra ?? []),
     ],
-  };
+  });
 }
 
-function discussionFrom(threads: readonly ReviewThreadSnapshot[]): PullRequestDiscussion {
-  return {
+function discussionFrom(threads: readonly ReviewThreadSnapshot[]) {
+  return ((pinnedReturn: PullRequestDiscussion) => pinnedReturn)({
     reviewThreads: {
       byRootCommentId: new Map(
         threads.map((thread) => [
@@ -86,7 +86,7 @@ function discussionFrom(threads: readonly ReviewThreadSnapshot[]): PullRequestDi
       status: "ok",
     },
     conversation: { loaded: true, comments: [], groups: [], truncated: false },
-  };
+  });
 }
 
 describe("buildAskUserContent discussion", () => {

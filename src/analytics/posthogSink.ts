@@ -16,7 +16,7 @@ export type AiCapture = {
 export function createPostHogAiCapture(opts: {
   readonly projectToken: string;
   readonly host: string;
-}): AiCapture {
+}) {
   const client = new PostHog(opts.projectToken, {
     ...(opts.host ? { host: opts.host } : {}),
     flushInterval: 0,
@@ -24,7 +24,7 @@ export function createPostHogAiCapture(opts: {
     enableExceptionAutocapture: false,
     enableFullAiCapture: true,
   });
-  return {
+  return ((pinnedReturn: AiCapture) => pinnedReturn)({
     capture(input) {
       client.captureAi({
         distinctId: input.distinctId,
@@ -38,13 +38,10 @@ export function createPostHogAiCapture(opts: {
     shutdown(timeoutMs) {
       return client.shutdown(timeoutMs);
     },
-  };
+  });
 }
 
-export function createPostHogSink(opts: {
-  readonly projectToken: string;
-  readonly host: string;
-}): AnalyticsSink {
+export function createPostHogSink(opts: { readonly projectToken: string; readonly host: string }) {
   const client = new PostHog(opts.projectToken, {
     ...(opts.host ? { host: opts.host } : {}),
     enableExceptionAutocapture: true,
@@ -60,7 +57,7 @@ export function createPostHogSink(opts: {
     },
   });
 
-  return {
+  return ((pinnedReturn: AnalyticsSink) => pinnedReturn)({
     captureEvent(input) {
       client.capture({
         distinctId: input.distinctId,
@@ -74,5 +71,5 @@ export function createPostHogSink(opts: {
     shutdown() {
       return client.shutdown(ANALYTICS_SHUTDOWN_TIMEOUT_MS);
     },
-  };
+  });
 }

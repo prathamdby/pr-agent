@@ -35,19 +35,19 @@ import type { AgentSessionRole } from "../src/agent/runtime/types.ts";
 
 const ZERO_RATES = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-function reportedUsage(totalTokens: number, input = totalTokens): Usage {
-  return {
+function reportedUsage(totalTokens: number, input = totalTokens) {
+  return ((pinnedReturn: Usage) => pinnedReturn)({
     totalTokens,
     input,
     output: 0,
     cacheRead: 0,
     cacheWrite: 0,
     cost: { ...ZERO_RATES, total: 0 },
-  };
+  });
 }
 
-function openAiModel(contextWindow: number): Model<"openai-completions"> {
-  return {
+function openAiModel(contextWindow: number) {
+  return ((pinnedReturn: Model<"openai-completions">) => pinnedReturn)({
     id: "test",
     name: "test",
     api: "openai-completions",
@@ -58,11 +58,11 @@ function openAiModel(contextWindow: number): Model<"openai-completions"> {
     reasoning: false,
     contextWindow,
     maxTokens: 100_000,
-  };
+  });
 }
 
-function adaptiveModel(): Model<"anthropic-messages"> {
-  return {
+function adaptiveModel() {
+  return ((pinnedReturn: Model<"anthropic-messages">) => pinnedReturn)({
     id: "test",
     name: "test",
     api: "anthropic-messages",
@@ -74,25 +74,23 @@ function adaptiveModel(): Model<"anthropic-messages"> {
     contextWindow: 200_000,
     maxTokens: 100_000,
     compat: { forceAdaptiveThinking: true },
-  };
+  });
 }
 
-function userMessage(
-  content: string | [{ type: "image"; data: string; mimeType: string }],
-): AgentMessage {
-  return { role: "user", content, timestamp: 1 };
+function userMessage(content: string | [{ type: "image"; data: string; mimeType: string }]) {
+  return ((pinnedReturn: AgentMessage) => pinnedReturn)({ role: "user", content, timestamp: 1 });
 }
 
-function systemMessage(content: string): AgentMessage {
-  return { role: "system", content, timestamp: 1 };
+function systemMessage(content: string) {
+  return ((pinnedReturn: AgentMessage) => pinnedReturn)({ role: "system", content, timestamp: 1 });
 }
 
 function assistantMessage(
   content: AssistantMessage["content"],
   stopReason: StopReason,
   usage: Usage = reportedUsage(0),
-): AssistantMessage {
-  return {
+) {
+  return ((pinnedReturn: AssistantMessage) => pinnedReturn)({
     role: "assistant",
     content,
     api: "openai-completions",
@@ -101,18 +99,18 @@ function assistantMessage(
     usage,
     stopReason,
     timestamp: 1,
-  };
+  });
 }
 
-function toolResult(text: string): AgentMessage {
-  return {
+function toolResult(text: string) {
+  return ((pinnedReturn: AgentMessage) => pinnedReturn)({
     role: "toolResult",
     toolCallId: "c",
     toolName: "execute",
     content: [{ type: "text", text }],
     isError: false,
     timestamp: 1,
-  };
+  });
 }
 
 function summaryStream(text: string, stopReason: StopReason = "stop") {

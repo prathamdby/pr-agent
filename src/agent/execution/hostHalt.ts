@@ -34,8 +34,8 @@ export function isCodeModeCapReason(value: string): value is CodeModeCapReason {
   return (CODE_MODE_CAP_REASONS as readonly string[]).includes(value);
 }
 
-export function emptyCodeModeCapHits(): Record<CodeModeCapReason, number> {
-  return {
+export function emptyCodeModeCapHits() {
+  return ((pinnedReturn: Record<CodeModeCapReason, number>) => pinnedReturn)({
     workspace_calls: 0,
     pool_queue: 0,
     pool_wait: 0,
@@ -44,11 +44,13 @@ export function emptyCodeModeCapHits(): Record<CodeModeCapReason, number> {
     source_bytes: 0,
     state_bytes: 0,
     allocation: 0,
-  };
+  });
 }
 
-export function hostCancelHalt(): CodeModeHostHalt {
-  return new CodeModeHostHalt("CANCELLED", CODE_MODE_HOST_CANCEL_MESSAGE);
+export function hostCancelHalt() {
+  return ((pinnedReturn: CodeModeHostHalt) => pinnedReturn)(
+    new CodeModeHostHalt("CANCELLED", CODE_MODE_HOST_CANCEL_MESSAGE),
+  );
 }
 
 export class CodeModeHostHalt extends Error {
@@ -86,9 +88,9 @@ export type EncodedHostCallFailure = {
   readonly error?: string;
 };
 
-export function encodeHostCallFailure(error: unknown): EncodedHostCallFailure {
+export function encodeHostCallFailure(error: unknown) {
   if (isCodeModeHostHalt(error)) {
-    return {
+    return ((pinnedReturn: EncodedHostCallFailure) => pinnedReturn)({
       ok: false,
       halt: {
         code: error.code,
@@ -96,12 +98,12 @@ export function encodeHostCallFailure(error: unknown): EncodedHostCallFailure {
         ...(error.line !== undefined ? { line: error.line } : {}),
         ...(error.reason !== undefined ? { reason: error.reason } : {}),
       },
-    };
+    });
   }
-  return {
+  return ((pinnedReturn: EncodedHostCallFailure) => pinnedReturn)({
     ok: false,
     error: errorMessage(error),
-  };
+  });
 }
 
 export function decodeHostCallFailure(message: {
@@ -112,17 +114,19 @@ export function decodeHostCallFailure(message: {
     readonly reason?: string;
   };
   readonly error?: string;
-}): unknown {
+}) {
   if (message.halt) {
     const code = isCodeModeErrorCode(message.halt.code) ? message.halt.code : "EXECUTION_ERROR";
     const reason =
       message.halt.reason != null && isCodeModeCapReason(message.halt.reason)
         ? message.halt.reason
         : undefined;
-    return new CodeModeHostHalt(code, message.halt.message, {
-      ...(message.halt.line !== undefined ? { line: message.halt.line } : {}),
-      ...(reason !== undefined ? { reason } : {}),
-    });
+    return ((pinnedReturn: unknown) => pinnedReturn)(
+      new CodeModeHostHalt(code, message.halt.message, {
+        ...(message.halt.line !== undefined ? { line: message.halt.line } : {}),
+        ...(reason !== undefined ? { reason } : {}),
+      }),
+    );
   }
-  return new Error(message.error ?? "host call failed");
+  return ((pinnedReturn: unknown) => pinnedReturn)(new Error(message.error ?? "host call failed"));
 }

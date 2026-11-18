@@ -51,16 +51,14 @@ import {
 } from "../src/prWorkspace/repositoryReader.ts";
 import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.ts";
 
-const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;
-
 const execFile = promisify(execFileCb);
 
-async function git(cwd: string, args: readonly string[]): Promise<string> {
+async function git(cwd: string, args: readonly string[]) {
   const { stdout } = await execFile("git", args, { cwd });
-  return stdout.trim();
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(stdout.trim());
 }
 
-async function expectAllocatedWorkspaceRootsRemoved(): Promise<void> {
+async function expectAllocatedWorkspaceRootsRemoved() {
   expect(allocatedWorkspaceRoots).not.toEqual([]);
   await Promise.all(
     allocatedWorkspaceRoots.map((rootDir) =>
@@ -69,11 +67,7 @@ async function expectAllocatedWorkspaceRootsRemoved(): Promise<void> {
   );
 }
 
-async function buildPrFilesFromRepo(
-  repo: string,
-  baseSha: string,
-  headSha: string,
-): Promise<ListPullRequestFilesResult> {
+async function buildPrFilesFromRepo(repo: string, baseSha: string, headSha: string) {
   const nameStatus = await git(repo, [
     "diff",
     "--name-status",
@@ -130,7 +124,8 @@ async function buildPrFilesFromRepo(
     });
   }
 
-  return { files, truncated: false, omittedCountLowerBound: 0, totalChanges };
+  return ((pinnedReturn: ListPullRequestFilesResult | Promise<ListPullRequestFilesResult>) =>
+    pinnedReturn)({ files, truncated: false, omittedCountLowerBound: 0, totalChanges });
 }
 
 describe("local PR workspace", () => {
@@ -165,132 +160,211 @@ describe("local PR workspace", () => {
     });
   });
 
-  it(
-    "uses full checkout below the repo size cap and sparse checkout above it",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-test-"));
-      const repo = join(root, "repo");
-      const remote = join(root, "remote.git");
+  it("uses full checkout below the repo size cap and sparse checkout above it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-test-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await writeFile(join(repo, "delete.txt"), "gone\n");
+      await writeFile(join(repo, "support.txt"), "helper\n");
+      await symlink("support.txt", join(repo, "support-link.txt"));
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "base"]);
+      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+      await git(repo, ["mv", "delete.txt", "renamed.txt"]);
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+      const mappedFiles = {
+        ...prFiles,
+        files: [
+          ...prFiles.files,
+          {
+            filename: ".pr-agent/from-rename.mdc",
+            status: "renamed",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          },
+          {
+            filename: ".pr-agent/from-copy.mdc",
+            status: "copied",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+          },
+        ],
+      };
+      const fullWorkspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles: mappedFiles,
+        repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
+        remoteUrlOverride: remote,
+      });
       try {
-        await git(root, ["init", repo]);
-        await git(repo, ["config", "user.email", "test@example.com"]);
-        await git(repo, ["config", "user.name", "Test"]);
-        await writeFile(join(repo, "src.txt"), "one\n");
-        await writeFile(join(repo, "delete.txt"), "gone\n");
-        await writeFile(join(repo, "support.txt"), "helper\n");
-        await symlink("support.txt", join(repo, "support-link.txt"));
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "base"]);
-        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
-        await git(repo, ["mv", "delete.txt", "renamed.txt"]);
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "head"]);
-        const headSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await git(root, ["init", "--bare", remote]);
-        await git(repo, ["remote", "add", "origin", remote]);
-        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        const mappedFiles = {
-          ...prFiles,
-          files: [
-            ...prFiles.files,
-            {
-              filename: ".pr-agent/from-rename.mdc",
-              status: "renamed",
-              additions: 1,
-              deletions: 0,
-              changes: 1,
-            },
-            {
-              filename: ".pr-agent/from-copy.mdc",
-              status: "copied",
-              additions: 1,
-              deletions: 0,
-              changes: 1,
-            },
-          ],
-        };
-        const fullWorkspace = await prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused",
-          prFiles: mappedFiles,
-          repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-          remoteUrlOverride: remote,
+        expect(fullWorkspace.reader.checkoutMode).toBe("full");
+        expect(fullWorkspace.reader.changedFiles.map((file) => file.path).toSorted()).toEqual([
+          ".pr-agent/from-copy.mdc",
+          ".pr-agent/from-rename.mdc",
+          "renamed.txt",
+          "src.txt",
+        ]);
+        expect(
+          fullWorkspace.reader.changedFiles.find(
+            (file) => file.path === ".pr-agent/from-rename.mdc",
+          ),
+        ).toEqual({ path: ".pr-agent/from-rename.mdc", status: "renamed" });
+        expect(
+          fullWorkspace.reader.changedFiles.find((file) => file.path === ".pr-agent/from-copy.mdc"),
+        ).toEqual({ path: ".pr-agent/from-copy.mdc", status: "copied" });
+        expect(
+          fullWorkspace.reader.changedFiles.find((file) => file.path === "renamed.txt"),
+        ).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
         });
-        try {
-          expect(fullWorkspace.reader.checkoutMode).toBe("full");
-          expect(fullWorkspace.reader.changedFiles.map((file) => file.path).toSorted()).toEqual([
-            ".pr-agent/from-copy.mdc",
-            ".pr-agent/from-rename.mdc",
-            "renamed.txt",
-            "src.txt",
-          ]);
-          expect(
-            fullWorkspace.reader.changedFiles.find(
-              (file) => file.path === ".pr-agent/from-rename.mdc",
-            ),
-          ).toEqual({ path: ".pr-agent/from-rename.mdc", status: "renamed" });
-          expect(
-            fullWorkspace.reader.changedFiles.find(
-              (file) => file.path === ".pr-agent/from-copy.mdc",
-            ),
-          ).toEqual({ path: ".pr-agent/from-copy.mdc", status: "copied" });
-          expect(
-            fullWorkspace.reader.changedFiles.find((file) => file.path === "renamed.txt"),
-          ).toMatchObject({
-            status: "renamed",
-            oldPath: "delete.txt",
-          });
-          expect(fullWorkspace.reader.changedFileByPath.get("renamed.txt")).toMatchObject({
-            status: "renamed",
-            oldPath: "delete.txt",
-          });
-          expect(await readFile(join(fullWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-          expect(fullWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
-          expect(fullWorkspace.reader.sortedCheckoutPaths).toEqual(
-            [...fullWorkspace.reader.checkoutPaths].toSorted(),
-          );
-          expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
-            "helper",
-          );
-          await expect(
-            readFile(join(fullWorkspace.agentCwd, "support-link.txt"), "utf8"),
-          ).rejects.toThrow();
-          await expect(
-            writeFile(join(fullWorkspace.agentCwd, "src.txt"), "mutate"),
-          ).rejects.toThrow();
-          expect(await fullWorkspace.reader.getBlameForPath("src.txt")).toContain("src.txt");
-          expect(fullWorkspace.reader.diffIndex.listPullRequestFilesIngested).toBe(true);
-          expect(
-            fullWorkspace.reader.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
-          ).toBeGreaterThan(0);
-          const fullPartialCloneFilter = await git(root, [
-            "--git-dir",
-            fullWorkspace.privateGitDir,
-            "config",
-            "--get",
-            "remote.origin.partialclonefilter",
-          ]).catch(() => "");
-          expect(fullPartialCloneFilter).toBe("");
-          expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(
-            /traversal/,
-          );
-          expect(fullWorkspace.reader.getCoverage()).toMatchObject({
-            mode: "full",
-            changeSetTruncated: false,
-          });
-        } finally {
-          await fullWorkspace.cleanup();
-        }
+        expect(fullWorkspace.reader.changedFileByPath.get("renamed.txt")).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
+        });
+        expect(await readFile(join(fullWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(fullWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
+        expect(fullWorkspace.reader.sortedCheckoutPaths).toEqual(
+          [...fullWorkspace.reader.checkoutPaths].toSorted(),
+        );
+        expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
+          "helper",
+        );
+        await expect(
+          readFile(join(fullWorkspace.agentCwd, "support-link.txt"), "utf8"),
+        ).rejects.toThrow();
+        await expect(
+          writeFile(join(fullWorkspace.agentCwd, "src.txt"), "mutate"),
+        ).rejects.toThrow();
+        expect(await fullWorkspace.reader.getBlameForPath("src.txt")).toContain("src.txt");
+        expect(fullWorkspace.reader.diffIndex.listPullRequestFilesIngested).toBe(true);
+        expect(
+          fullWorkspace.reader.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
+        ).toBeGreaterThan(0);
+        const fullPartialCloneFilter = await git(root, [
+          "--git-dir",
+          fullWorkspace.privateGitDir,
+          "config",
+          "--get",
+          "remote.origin.partialclonefilter",
+        ]).catch(() => "");
+        expect(fullPartialCloneFilter).toBe("");
+        expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(/traversal/);
+        expect(fullWorkspace.reader.getCoverage()).toMatchObject({
+          mode: "full",
+          changeSetTruncated: false,
+        });
+      } finally {
+        await fullWorkspace.cleanup();
+      }
 
-        const noSizeWorkspace = await prepareLocalPrWorkspace({
+      const noSizeWorkspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(noSizeWorkspace.reader.checkoutMode).toBe("full");
+        expect(noSizeWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
+      } finally {
+        await noSizeWorkspace.cleanup();
+      }
+
+      const sparseWorkspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(sparseWorkspace.reader.checkoutMode).toBe("sparse");
+        const sparsePartialCloneFilter = await git(root, [
+          "--git-dir",
+          sparseWorkspace.privateGitDir,
+          "config",
+          "--get",
+          "remote.origin.partialclonefilter",
+        ]);
+        expect(sparsePartialCloneFilter).toBe("blob:none");
+        expect(await readFile(join(sparseWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(await readFile(join(sparseWorkspace.agentCwd, "renamed.txt"), "utf8")).toContain(
+          "gone",
+        );
+        expect(sparseWorkspace.reader.checkoutPaths.has("support.txt")).toBe(false);
+        await expect(
+          readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
+        ).rejects.toThrow();
+        expect(await sparseWorkspace.reader.getBlameForPath("support.txt")).toBe("");
+        expect(sparseWorkspace.reader.getCoverage()).toMatchObject({
+          mode: "sparse",
+          changeSetTruncated: false,
+        });
+        expect(sparseWorkspace.reader.getCoverage().pathsInCheckout).toBe(
+          sparseWorkspace.reader.checkoutPaths.size,
+        );
+      } finally {
+        await sparseWorkspace.cleanup();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized fetches before checkout and cleans up the workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-fetch-cap-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "base"]);
+      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+
+      await expect(
+        prepareLocalPrWorkspace({
           owner: "owner",
           repo: "repo",
           prNumber: 1,
@@ -298,15 +372,42 @@ describe("local PR workspace", () => {
           installationToken: "unused",
           prFiles,
           remoteUrlOverride: remote,
-        });
-        try {
-          expect(noSizeWorkspace.reader.checkoutMode).toBe("full");
-          expect(noSizeWorkspace.reader.checkoutPaths.has("support.txt")).toBe(true);
-        } finally {
-          await noSizeWorkspace.cleanup();
-        }
+          maxFetchBytes: 1,
+        }),
+      ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
-        const sparseWorkspace = await prepareLocalPrWorkspace({
+      await expectAllocatedWorkspaceRootsRemoved();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized sparse checkouts after blob hydration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fetch-cap-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.txt"), "one\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "base"]);
+      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+
+      await expect(
+        prepareLocalPrWorkspace({
           owner: "owner",
           repo: "repo",
           prNumber: 1,
@@ -315,208 +416,80 @@ describe("local PR workspace", () => {
           prFiles,
           repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
           remoteUrlOverride: remote,
-        });
-        try {
-          expect(sparseWorkspace.reader.checkoutMode).toBe("sparse");
-          const sparsePartialCloneFilter = await git(root, [
-            "--git-dir",
-            sparseWorkspace.privateGitDir,
-            "config",
-            "--get",
-            "remote.origin.partialclonefilter",
-          ]);
-          expect(sparsePartialCloneFilter).toBe("blob:none");
-          expect(await readFile(join(sparseWorkspace.agentCwd, "src.txt"), "utf8")).toContain(
-            "two",
-          );
-          expect(await readFile(join(sparseWorkspace.agentCwd, "renamed.txt"), "utf8")).toContain(
-            "gone",
-          );
-          expect(sparseWorkspace.reader.checkoutPaths.has("support.txt")).toBe(false);
-          await expect(
-            readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
-          ).rejects.toThrow();
-          expect(await sparseWorkspace.reader.getBlameForPath("support.txt")).toBe("");
-          expect(sparseWorkspace.reader.getCoverage()).toMatchObject({
-            mode: "sparse",
-            changeSetTruncated: false,
-          });
-          expect(sparseWorkspace.reader.getCoverage().pathsInCheckout).toBe(
-            sparseWorkspace.reader.checkoutPaths.size,
-          );
-        } finally {
-          await sparseWorkspace.cleanup();
-        }
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    GIT_WORKSPACE_TEST_TIMEOUT_MS,
-  );
+          maxFetchBytes: 1,
+        }),
+      ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
-  it(
-    "rejects oversized fetches before checkout and cleans up the workspace",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-fetch-cap-"));
-      const repo = join(root, "repo");
-      const remote = join(root, "remote.git");
+      await expectAllocatedWorkspaceRootsRemoved();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("builds a symbol index for checkout paths and tolerates index build failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-symbol-index-"));
+    const repo = join(root, "repo");
+    const remote = join(root, "remote.git");
+    try {
+      await git(root, ["init", repo]);
+      await git(repo, ["config", "user.email", "test@example.com"]);
+      await git(repo, ["config", "user.name", "Test"]);
+      await writeFile(join(repo, "src.ts"), "export function foo() { return 1; }\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "base"]);
+      const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await writeFile(join(repo, "src.ts"), "export function foo() { return 2; }\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "head"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await git(root, ["init", "--bare", remote]);
+      await git(repo, ["remote", "add", "origin", remote]);
+      await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
       try {
-        await git(root, ["init", repo]);
-        await git(repo, ["config", "user.email", "test@example.com"]);
-        await git(repo, ["config", "user.name", "Test"]);
-        await writeFile(join(repo, "src.txt"), "one\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "base"]);
-        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "head"]);
-        const headSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await git(root, ["init", "--bare", remote]);
-        await git(repo, ["remote", "add", "origin", remote]);
-        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-
-        await expect(
-          prepareLocalPrWorkspace({
-            owner: "owner",
-            repo: "repo",
-            prNumber: 1,
-            headSha,
-            installationToken: "unused",
-            prFiles,
-            remoteUrlOverride: remote,
-            maxFetchBytes: 1,
-          }),
-        ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
-
-        await expectAllocatedWorkspaceRootsRemoved();
+        expect(workspace.reader.getSymbolIndexStatus().available).toBe(true);
+        expect(workspace.reader.lookupSymbol("foo")).toEqual([
+          { path: "src.ts", line: 1, kind: "function" },
+        ]);
       } finally {
-        await rm(root, { recursive: true, force: true });
+        await workspace.cleanup();
       }
-    },
-    GIT_WORKSPACE_TEST_TIMEOUT_MS,
-  );
 
-  it(
-    "rejects oversized sparse checkouts after blob hydration",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fetch-cap-"));
-      const repo = join(root, "repo");
-      const remote = join(root, "remote.git");
+      const buildSpy = vi
+        .spyOn(symbolIndexModule, "buildSymbolIndex")
+        .mockRejectedValueOnce(new Error("simulated index failure"));
+      const failedWorkspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
       try {
-        await git(root, ["init", repo]);
-        await git(repo, ["config", "user.email", "test@example.com"]);
-        await git(repo, ["config", "user.name", "Test"]);
-        await writeFile(join(repo, "src.txt"), "one\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "base"]);
-        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "head"]);
-        const headSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await git(root, ["init", "--bare", remote]);
-        await git(repo, ["remote", "add", "origin", remote]);
-        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-
-        await expect(
-          prepareLocalPrWorkspace({
-            owner: "owner",
-            repo: "repo",
-            prNumber: 1,
-            headSha,
-            installationToken: "unused",
-            prFiles,
-            repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
-            remoteUrlOverride: remote,
-            maxFetchBytes: 1,
-          }),
-        ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
-
-        await expectAllocatedWorkspaceRootsRemoved();
+        expect(failedWorkspace.reader.getSymbolIndexStatus()).toEqual({ available: false });
+        expect(failedWorkspace.reader.lookupSymbol("foo")).toEqual([]);
       } finally {
-        await rm(root, { recursive: true, force: true });
+        buildSpy.mockRestore();
+        await failedWorkspace.cleanup();
       }
-    },
-    GIT_WORKSPACE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "builds a symbol index for checkout paths and tolerates index build failure",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-symbol-index-"));
-      const repo = join(root, "repo");
-      const remote = join(root, "remote.git");
-      try {
-        await git(root, ["init", repo]);
-        await git(repo, ["config", "user.email", "test@example.com"]);
-        await git(repo, ["config", "user.name", "Test"]);
-        await writeFile(join(repo, "src.ts"), "export function foo() { return 1; }\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "base"]);
-        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await writeFile(join(repo, "src.ts"), "export function foo() { return 2; }\n");
-        await git(repo, ["add", "."]);
-        await git(repo, ["commit", "-m", "head"]);
-        const headSha = await git(repo, ["rev-parse", "HEAD"]);
-
-        await git(root, ["init", "--bare", remote]);
-        await git(repo, ["remote", "add", "origin", remote]);
-        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-
-        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        const workspace = await prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused",
-          prFiles,
-          remoteUrlOverride: remote,
-        });
-        try {
-          expect(workspace.reader.getSymbolIndexStatus().available).toBe(true);
-          expect(workspace.reader.lookupSymbol("foo")).toEqual([
-            { path: "src.ts", line: 1, kind: "function" },
-          ]);
-        } finally {
-          await workspace.cleanup();
-        }
-
-        const buildSpy = vi
-          .spyOn(symbolIndexModule, "buildSymbolIndex")
-          .mockRejectedValueOnce(new Error("simulated index failure"));
-        const failedWorkspace = await prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused",
-          prFiles,
-          remoteUrlOverride: remote,
-        });
-        try {
-          expect(failedWorkspace.reader.getSymbolIndexStatus()).toEqual({ available: false });
-          expect(failedWorkspace.reader.lookupSymbol("foo")).toEqual([]);
-        } finally {
-          buildSpy.mockRestore();
-          await failedWorkspace.cleanup();
-        }
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    GIT_WORKSPACE_TEST_TIMEOUT_MS,
-  );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("releases root and credential files after injected credential-setup failure", async () => {
     credentialHooks.failAfterWrite = true;
@@ -676,7 +649,7 @@ describe("local PR workspace", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  });
 
   it("marks an over-cap object store, an empty allowlist, and a failed blob read", async () => {
     const baseSha = "a".repeat(40);
@@ -920,12 +893,13 @@ type GitHttpServer = {
   readonly close: () => Promise<void>;
 };
 
-function headerText(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value.join(",");
-  return value;
+function headerText(value: string | string[] | undefined) {
+  if (Array.isArray(value))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(value.join(","));
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(value);
 }
 
-function serveGitHttpBackend(projectRoot: string, req: IncomingMessage, res: ServerResponse): void {
+function serveGitHttpBackend(projectRoot: string, req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const protocol = headerText(req.headers["git-protocol"]);
   const encoding = headerText(req.headers["content-encoding"]);
@@ -972,10 +946,7 @@ function serveGitHttpBackend(projectRoot: string, req: IncomingMessage, res: Ser
   cgi.on("error", () => res.destroy());
 }
 
-async function startGitHttpServer(
-  projectRoot: string,
-  decide: (index: number) => GitHttpDecision,
-): Promise<GitHttpServer> {
+async function startGitHttpServer(projectRoot: string, decide: (index: number) => GitHttpDecision) {
   const requests: GitHttpRequestRecord[] = [];
   const server = createServer((req, res) => {
     const record: GitHttpRequestRecord = {
@@ -1001,20 +972,17 @@ async function startGitHttpServer(
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (address == null || typeof address === "string") throw new Error("no listen address");
-  return {
+  return ((pinnedReturn: GitHttpServer | Promise<GitHttpServer>) => pinnedReturn)({
     url: `http://127.0.0.1:${address.port}/remote.git`,
     requests,
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
-  };
+  });
 }
 
-async function makeHttpPrRemote(root: string): Promise<{
-  readonly headSha: string;
-  readonly prFiles: ListPullRequestFilesResult;
-}> {
+async function makeHttpPrRemote(root: string) {
   const repo = join(root, "repo");
   const remote = join(root, "remote.git");
   await git(root, ["init", repo]);
@@ -1033,29 +1001,39 @@ async function makeHttpPrRemote(root: string): Promise<{
   await git(remote, ["config", "uploadpack.allowFilter", "true"]);
   await git(remote, ["config", "uploadpack.allowAnySHA1InWant", "true"]);
   await git(repo, ["push", remote, "HEAD:refs/pull/1/head"]);
-  return { headSha, prFiles: await buildPrFilesFromRepo(repo, baseSha, headSha) };
+  return ((
+    pinnedReturn:
+      | {
+          readonly headSha: string;
+          readonly prFiles: ListPullRequestFilesResult;
+        }
+      | Promise<{
+          readonly headSha: string;
+          readonly prFiles: ListPullRequestFilesResult;
+        }>,
+  ) => pinnedReturn)({ headSha, prFiles: await buildPrFilesFromRepo(repo, baseSha, headSha) });
 }
 
-function isLiveProcess(pid: number): boolean {
+function isLiveProcess(pid: number) {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const state = stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3);
-    return state !== "Z" && state !== "X";
+    return ((pinnedReturn: boolean) => pinnedReturn)(state !== "Z" && state !== "X");
   } catch {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
 }
 
-function appErrorOf(error: unknown): AppError {
+function appErrorOf(error: unknown) {
   if (!isAppError(error)) throw new Error(`expected AppError, got ${String(error)}`);
-  return error;
+  return ((pinnedReturn: AppError) => pinnedReturn)(error);
 }
 
-async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
+async function rejectionOf(promise: Promise<unknown>) {
   try {
     await promise;
   } catch (error) {
-    return error;
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(error);
   }
   throw new Error("expected rejection");
 }
@@ -1068,8 +1046,6 @@ describe("workspace git fetch over HTTP", () => {
   const shimRoot = mkdtempSync(join(tmpdir(), "workspace-git-shim-"));
   const shimLog = join(shimRoot, "invocations.log");
   const originalPath = process.env.PATH ?? "";
-  const testTimeoutMs = 30_000;
-
   beforeAll(() => {
     const realGit = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
     writeFileSync(
@@ -1089,215 +1065,210 @@ describe("workspace git fetch over HTTP", () => {
     rmSync(shimRoot, { recursive: true, force: true });
   });
 
-  function fetchInvocations(): string[] {
-    return readFileSync(shimLog, "utf8")
-      .split("\n")
-      .filter((line) => line.startsWith("-c core.hooksPath=/dev/null") && / fetch /.test(line));
+  function fetchInvocations() {
+    return ((pinnedReturn: string[]) => pinnedReturn)(
+      readFileSync(shimLog, "utf8")
+        .split("\n")
+        .filter((line) => line.startsWith("-c core.hooksPath=/dev/null") && / fetch /.test(line)),
+    );
   }
 
-  it(
-    "falls back to sparse in the same attempt after a silent full fetch times out",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-silent-fetch-"));
-      const { headSha, prFiles } = await makeHttpPrRemote(root);
-      const server = await startGitHttpServer(root, (index) => (index === 0 ? "hold" : "serve"));
+  it("falls back to sparse in the same attempt after a silent full fetch times out", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-silent-fetch-"));
+    const { headSha, prFiles } = await makeHttpPrRemote(root);
+    const server = await startGitHttpServer(root, (index) => (index === 0 ? "hold" : "serve"));
+    try {
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "ghs_SYNTHETICSILENTFETCHTOKEN0000000000",
+        prFiles,
+        remoteUrlOverride: server.url,
+        fetchTimeoutMs: 1_500,
+      });
       try {
-        const workspace = await prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "ghs_SYNTHETICSILENTFETCHTOKEN0000000000",
-          prFiles,
-          remoteUrlOverride: server.url,
-          fetchTimeoutMs: 1_500,
+        const telemetry = workspace.checkoutTelemetry;
+        expect(telemetry.mode).toBe("sparse_fallback");
+        expect(telemetry.fallbackReason).toBe("fetch_timeout");
+        expect(telemetry.fetchAttempts).toHaveLength(2);
+        const [full, sparse] = telemetry.fetchAttempts;
+        expect(full).toMatchObject({
+          checkoutMode: "full",
+          outcome: "failed",
+          errorCode: "pr_workspace.fetch_timeout",
+          failureKind: "timeout",
+          timeoutSource: "process_timer",
+          exitCode: null,
+          signal: "SIGTERM",
+          killed: true,
         });
-        try {
-          const telemetry = workspace.checkoutTelemetry;
-          expect(telemetry.mode).toBe("sparse_fallback");
-          expect(telemetry.fallbackReason).toBe("fetch_timeout");
-          expect(telemetry.fetchAttempts).toHaveLength(2);
-          const [full, sparse] = telemetry.fetchAttempts;
-          expect(full).toMatchObject({
-            checkoutMode: "full",
-            outcome: "failed",
-            errorCode: "pr_workspace.fetch_timeout",
-            failureKind: "timeout",
-            timeoutSource: "process_timer",
-            exitCode: null,
-            signal: "SIGTERM",
-            killed: true,
-          });
-          expect(full?.elapsedMs).toBeGreaterThanOrEqual(1_500);
-          expect(full?.elapsedMs).toBeLessThan(1_500 + 2_000 + 2_000);
-          expect(sparse).toMatchObject({
-            checkoutMode: "sparse",
-            outcome: "succeeded",
-            exitCode: 0,
-            signal: null,
-            killed: false,
-            timeoutSource: null,
-          });
+        expect(full?.elapsedMs).toBeGreaterThanOrEqual(1_500);
+        expect(full?.elapsedMs).toBeLessThan(1_500 + 2_000 + 2_000);
+        expect(sparse).toMatchObject({
+          checkoutMode: "sparse",
+          outcome: "succeeded",
+          exitCode: 0,
+          signal: null,
+          killed: false,
+          timeoutSource: null,
+        });
 
-          const held = server.requests[0];
-          const firstSparseRequest = server.requests.find(
-            (request) => request.index > 0 && request.method === "GET",
-          );
-          expect(held?.closedAt).not.toBeNull();
-          expect(firstSparseRequest).toBeDefined();
-          expect(held?.closedAt ?? Infinity).toBeLessThanOrEqual(firstSparseRequest?.at ?? 0);
+        const held = server.requests[0];
+        const firstSparseRequest = server.requests.find(
+          (request) => request.index > 0 && request.method === "GET",
+        );
+        expect(held?.closedAt).not.toBeNull();
+        expect(firstSparseRequest).toBeDefined();
+        expect(held?.closedAt ?? Infinity).toBeLessThanOrEqual(firstSparseRequest?.at ?? 0);
 
-          const fetches = fetchInvocations();
-          expect(fetches).toHaveLength(2);
-          expect(fetches[0]).not.toContain("--filter=blob:none");
-          expect(fetches[0]).toContain("http.lowSpeedLimit=1000");
-          expect(fetches[0]).toContain("http.lowSpeedTime=20");
-          expect(fetches[1]).toContain("--filter=blob:none");
-          expect(fetches[1]).toContain("http.lowSpeedLimit=1000");
+        const fetches = fetchInvocations();
+        expect(fetches).toHaveLength(2);
+        expect(fetches[0]).not.toContain("--filter=blob:none");
+        expect(fetches[0]).toContain("http.lowSpeedLimit=1000");
+        expect(fetches[0]).toContain("http.lowSpeedTime=20");
+        expect(fetches[1]).toContain("--filter=blob:none");
+        expect(fetches[1]).toContain("http.lowSpeedLimit=1000");
 
-          expect(workspace.reader.checkoutMode).toBe("sparse");
-          expect(workspace.reader.getCoverage()).toMatchObject({ mode: "sparse" });
-          expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-          expect(workspace.reader.checkoutPaths.has("support.txt")).toBe(false);
-          await expect(readFile(join(workspace.agentCwd, "support.txt"), "utf8")).rejects.toThrow();
+        expect(workspace.reader.checkoutMode).toBe("sparse");
+        expect(workspace.reader.getCoverage()).toMatchObject({ mode: "sparse" });
+        expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(workspace.reader.checkoutPaths.has("support.txt")).toBe(false);
+        await expect(readFile(join(workspace.agentCwd, "support.txt"), "utf8")).rejects.toThrow();
 
-          const properties = workspaceCheckoutProperties({ telemetry, reused: false });
-          expect(properties).toMatchObject({
-            workspace_checkout_mode: "sparse_fallback",
-            workspace_fallback_reason: "fetch_timeout",
-            workspace_checkout_reused: false,
-            git_operation: "fetch",
-            git_exit_code: 0,
-            git_signal: null,
-            git_killed: false,
-            git_timeout_source: null,
-            fallback_git_error_code: "pr_workspace.fetch_timeout",
-            fallback_git_error_kind: "timeout",
-            fallback_git_exit_code: null,
-            fallback_git_signal: "SIGTERM",
-            fallback_git_killed: true,
-            fallback_git_timeout_source: "process_timer",
-          });
-          expect(JSON.stringify(telemetry)).not.toContain("SYNTHETICSILENTFETCHTOKEN");
+        const properties = workspaceCheckoutProperties({ telemetry, reused: false });
+        expect(properties).toMatchObject({
+          workspace_checkout_mode: "sparse_fallback",
+          workspace_fallback_reason: "fetch_timeout",
+          workspace_checkout_reused: false,
+          git_operation: "fetch",
+          git_exit_code: 0,
+          git_signal: null,
+          git_killed: false,
+          git_timeout_source: null,
+          fallback_git_error_code: "pr_workspace.fetch_timeout",
+          fallback_git_error_kind: "timeout",
+          fallback_git_exit_code: null,
+          fallback_git_signal: "SIGTERM",
+          fallback_git_killed: true,
+          fallback_git_timeout_source: "process_timer",
+        });
+        expect(JSON.stringify(telemetry)).not.toContain("SYNTHETICSILENTFETCHTOKEN");
 
-          const spans: Array<Record<string, unknown>> = [];
-          const drain = initTraces(
-            makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
-            {
-              capture: (input) => spans.push(input.properties),
-              flush: async () => undefined,
-              shutdown: async () => undefined,
-            },
-          );
-          await startWorkTrace(
-            {
-              executionId: "proof-execution",
-              workItemId: "proof-work-item",
-              owner: "owner",
-              repo: "repo",
-              prNumber: 1,
-              headSha,
-              installationId: 1,
-              provider: "openai",
-              model: "proof-model",
-            },
-            async () => annotateExecution({ extra: properties }),
-          );
-          await drain();
-          const executionSpan = spans.find((span) => span.$ai_span_name === "execution");
-          expect(executionSpan).toMatchObject({ status: "ok", ...properties });
-          expect(executionSpan).not.toHaveProperty("$ai_error");
+        const spans: Array<Record<string, unknown>> = [];
+        const drain = initTraces(
+          makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
+          {
+            capture: (input) => spans.push(input.properties),
+            flush: async () => undefined,
+            shutdown: async () => undefined,
+          },
+        );
+        await startWorkTrace(
+          {
+            executionId: "proof-execution",
+            workItemId: "proof-work-item",
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationId: 1,
+            provider: "openai",
+            model: "proof-model",
+          },
+          async () => annotateExecution({ extra: properties }),
+        );
+        await drain();
+        const executionSpan = spans.find((span) => span.$ai_span_name === "execution");
+        expect(executionSpan).toMatchObject({ status: "ok", ...properties });
+        expect(executionSpan).not.toHaveProperty("$ai_error");
 
-          fetchProof.silentFullFetchFallback = {
-            telemetry,
-            executionSpan,
-            cleanup: {
-              heldRequestClosedBeforeSparseFetch: true,
-              heldRequestClosedAfterMs: Math.round((held?.closedAt ?? 0) - (held?.at ?? 0)),
-              fetchInvocations: fetches.map((line) =>
-                line.includes("--filter=blob:none") ? "sparse" : "full",
-              ),
-            },
-            checkout: {
-              readerCheckoutMode: workspace.reader.checkoutMode,
-              coverage: workspace.reader.getCoverage(),
-              changedFilePresent: true,
-              unrelatedPathAbsent: true,
-            },
-          };
-        } finally {
-          await workspace.cleanup();
-        }
+        fetchProof.silentFullFetchFallback = {
+          telemetry,
+          executionSpan,
+          cleanup: {
+            heldRequestClosedBeforeSparseFetch: true,
+            heldRequestClosedAfterMs: Math.round((held?.closedAt ?? 0) - (held?.at ?? 0)),
+            fetchInvocations: fetches.map((line) =>
+              line.includes("--filter=blob:none") ? "sparse" : "full",
+            ),
+          },
+          checkout: {
+            readerCheckoutMode: workspace.reader.checkoutMode,
+            coverage: workspace.reader.getCoverage(),
+            changedFilePresent: true,
+            unrelatedPathAbsent: true,
+          },
+        };
       } finally {
-        await server.close();
-        await rm(root, { recursive: true, force: true });
+        await workspace.cleanup();
       }
-    },
-    testTimeoutMs,
-  );
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-  it(
-    "falls back to sparse after a generic Git transport failure",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-git-error-fetch-"));
-      const { headSha, prFiles } = await makeHttpPrRemote(root);
-      const server = await startGitHttpServer(root, (index) =>
-        index === 0 ? { status: 500 } : "serve",
-      );
+  it("falls back to sparse after a generic Git transport failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-git-error-fetch-"));
+    const { headSha, prFiles } = await makeHttpPrRemote(root);
+    const server = await startGitHttpServer(root, (index) =>
+      index === 0 ? { status: 500 } : "serve",
+    );
+    try {
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused-token",
+        prFiles,
+        remoteUrlOverride: server.url,
+      });
       try {
-        const workspace = await prepareLocalPrWorkspace({
-          owner: "owner",
-          repo: "repo",
-          prNumber: 1,
-          headSha,
-          installationToken: "unused-token",
-          prFiles,
-          remoteUrlOverride: server.url,
+        expect(workspace.checkoutTelemetry.mode).toBe("sparse_fallback");
+        expect(workspace.checkoutTelemetry.fallbackReason).toBe("git_failed");
+        expect(workspace.checkoutTelemetry.fetchAttempts[0]).toMatchObject({
+          checkoutMode: "full",
+          outcome: "failed",
+          errorCode: "pr_workspace.git_failed",
+          failureKind: "git",
+          exitCode: 128,
+          signal: null,
+          killed: false,
+          timeoutSource: null,
         });
-        try {
-          expect(workspace.checkoutTelemetry.mode).toBe("sparse_fallback");
-          expect(workspace.checkoutTelemetry.fallbackReason).toBe("git_failed");
-          expect(workspace.checkoutTelemetry.fetchAttempts[0]).toMatchObject({
-            checkoutMode: "full",
-            outcome: "failed",
-            errorCode: "pr_workspace.git_failed",
-            failureKind: "git",
-            exitCode: 128,
-            signal: null,
-            killed: false,
-            timeoutSource: null,
-          });
-          expect(workspace.checkoutTelemetry.fetchAttempts[0]?.stderr).toContain(
-            "returned error: 500",
-          );
-          expect(fetchInvocations()).toHaveLength(2);
-          expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-        } finally {
-          await workspace.cleanup();
-        }
+        expect(workspace.checkoutTelemetry.fetchAttempts[0]?.stderr).toContain(
+          "returned error: 500",
+        );
+        expect(fetchInvocations()).toHaveLength(2);
+        expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
       } finally {
-        await server.close();
-        await rm(root, { recursive: true, force: true });
+        await workspace.cleanup();
       }
-    },
-    testTimeoutMs,
-  );
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it.each([
     {
       name: "auth denial",
       prNumber: 1,
-      decide: (): GitHttpDecision => ({
-        status: 401,
-        headers: { "WWW-Authenticate": 'Basic realm="git"' },
-      }),
+      decide: () =>
+        ((pinnedReturn: GitHttpDecision) => pinnedReturn)({
+          status: 401,
+          headers: { "WWW-Authenticate": 'Basic realm="git"' },
+        }),
       failureKind: "auth",
       errorKind: "auth",
     },
     {
       name: "missing ref",
       prNumber: 2,
-      decide: (): GitHttpDecision => "serve",
+      decide: () => ((pinnedReturn: GitHttpDecision) => pinnedReturn)("serve"),
       failureKind: "missing_ref",
       errorKind: "not_found",
     },
@@ -1345,111 +1316,102 @@ describe("workspace git fetch over HTTP", () => {
         await rm(root, { recursive: true, force: true });
       }
     },
-    testTimeoutMs,
   );
 
-  it(
-    "surfaces the sparse failure as primary when the fallback also fails",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-fallback-fail-"));
-      const { headSha, prFiles } = await makeHttpPrRemote(root);
-      const server = await startGitHttpServer(root, (index) =>
-        index === 0 ? "hold" : { status: 502 },
+  it("surfaces the sparse failure as primary when the fallback also fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-fallback-fail-"));
+    const { headSha, prFiles } = await makeHttpPrRemote(root);
+    const server = await startGitHttpServer(root, (index) =>
+      index === 0 ? "hold" : { status: 502 },
+    );
+    try {
+      const error = appErrorOf(
+        await rejectionOf(
+          prepareLocalPrWorkspace({
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationToken: "unused-token",
+            prFiles,
+            remoteUrlOverride: server.url,
+            fetchTimeoutMs: 1_000,
+          }),
+        ),
       );
-      try {
-        const error = appErrorOf(
-          await rejectionOf(
-            prepareLocalPrWorkspace({
-              owner: "owner",
-              repo: "repo",
-              prNumber: 1,
-              headSha,
-              installationToken: "unused-token",
-              prFiles,
-              remoteUrlOverride: server.url,
-              fetchTimeoutMs: 1_000,
-            }),
-          ),
-        );
-        expect(error.code).toBe("pr_workspace.git_failed");
-        expect(error.context).toMatchObject({
-          operation: "fetch",
-          checkoutMode: "sparse",
-          failureKind: "git",
-          exitCode: 128,
-          timeoutSource: null,
-          fallback: {
-            checkoutMode: "full",
-            errorCode: "pr_workspace.fetch_timeout",
-            failureKind: "timeout",
-            timeoutSource: "process_timer",
-            signal: "SIGTERM",
-            killed: true,
-          },
-        });
-        expect(error.cause).toBeUndefined();
-        expect(classifyFailure(error)).toMatchObject({
-          failureDomain: "internal",
-          errorKind: "git",
-        });
-        expect(classifyFailure(error)).not.toHaveProperty("timeoutSource");
-        expect(retryDispositionFor(error)).toBe("transient");
-        expect(fetchInvocations()).toHaveLength(2);
-        expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
-          mode: "sparse_fallback",
-          fallbackReason: "fetch_timeout",
-          fetchAttempts: [
-            { checkoutMode: "full", outcome: "failed", errorCode: "pr_workspace.fetch_timeout" },
-            { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.git_failed" },
-          ],
-        });
-        await expectAllocatedWorkspaceRootsRemoved();
-      } finally {
-        await server.close();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    testTimeoutMs,
-  );
+      expect(error.code).toBe("pr_workspace.git_failed");
+      expect(error.context).toMatchObject({
+        operation: "fetch",
+        checkoutMode: "sparse",
+        failureKind: "git",
+        exitCode: 128,
+        timeoutSource: null,
+        fallback: {
+          checkoutMode: "full",
+          errorCode: "pr_workspace.fetch_timeout",
+          failureKind: "timeout",
+          timeoutSource: "process_timer",
+          signal: "SIGTERM",
+          killed: true,
+        },
+      });
+      expect(error.cause).toBeUndefined();
+      expect(classifyFailure(error)).toMatchObject({
+        failureDomain: "internal",
+        errorKind: "git",
+      });
+      expect(classifyFailure(error)).not.toHaveProperty("timeoutSource");
+      expect(retryDispositionFor(error)).toBe("transient");
+      expect(fetchInvocations()).toHaveLength(2);
+      expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
+        mode: "sparse_fallback",
+        fallbackReason: "fetch_timeout",
+        fetchAttempts: [
+          { checkoutMode: "full", outcome: "failed", errorCode: "pr_workspace.fetch_timeout" },
+          { checkoutMode: "sparse", outcome: "failed", errorCode: "pr_workspace.git_failed" },
+        ],
+      });
+      await expectAllocatedWorkspaceRootsRemoved();
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
-  it(
-    "never creates a second fallback for an initially sparse checkout",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fail-"));
-      const { headSha, prFiles } = await makeHttpPrRemote(root);
-      const server = await startGitHttpServer(root, () => ({ status: 500 }));
-      try {
-        const error = appErrorOf(
-          await rejectionOf(
-            prepareLocalPrWorkspace({
-              owner: "owner",
-              repo: "repo",
-              prNumber: 1,
-              headSha,
-              installationToken: "unused-token",
-              prFiles,
-              repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
-              remoteUrlOverride: server.url,
-            }),
-          ),
-        );
-        expect(error.code).toBe("pr_workspace.git_failed");
-        expect(error.context).toMatchObject({ checkoutMode: "sparse", failureKind: "git" });
-        expect(error.context).not.toHaveProperty("fallback");
-        const fetches = fetchInvocations();
-        expect(fetches).toHaveLength(1);
-        expect(fetches[0]).toContain("--filter=blob:none");
-        expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
-          mode: "sparse",
-          fetchAttempts: [{ checkoutMode: "sparse", outcome: "failed" }],
-        });
-      } finally {
-        await server.close();
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-    testTimeoutMs,
-  );
+  it("never creates a second fallback for an initially sparse checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fail-"));
+    const { headSha, prFiles } = await makeHttpPrRemote(root);
+    const server = await startGitHttpServer(root, () => ({ status: 500 }));
+    try {
+      const error = appErrorOf(
+        await rejectionOf(
+          prepareLocalPrWorkspace({
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationToken: "unused-token",
+            prFiles,
+            repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
+            remoteUrlOverride: server.url,
+          }),
+        ),
+      );
+      expect(error.code).toBe("pr_workspace.git_failed");
+      expect(error.context).toMatchObject({ checkoutMode: "sparse", failureKind: "git" });
+      expect(error.context).not.toHaveProperty("fallback");
+      const fetches = fetchInvocations();
+      expect(fetches).toHaveLength(1);
+      expect(fetches[0]).toContain("--filter=blob:none");
+      expect(workspaceCheckoutTelemetryFromError(error)).toMatchObject({
+        mode: "sparse",
+        fetchAttempts: [{ checkoutMode: "sparse", outcome: "failed" }],
+      });
+    } finally {
+      await server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it.runIf(LOW_SPEED_PROBE)(
     "observes Git's own low-speed exit under the production fetch deadline",
@@ -1491,7 +1453,6 @@ describe("workspace git fetch over HTTP", () => {
         await rm(root, { recursive: true, force: true });
       }
     },
-    90_000,
   );
 
   it("keeps policy snapshot upload-pack POSTs constant as allowlisted files grow", async () => {
@@ -1589,7 +1550,7 @@ describe("workspace git fetch over HTTP", () => {
     expect(counts).toHaveLength(2);
     expect(counts[0]).toBe(counts[1]);
     expect(counts[0]).toBeLessThanOrEqual(4);
-  }, 60_000);
+  });
 });
 
 describe("workspace git process ownership", () => {
@@ -1653,7 +1614,7 @@ describe("workspace git process ownership", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  }, 15_000);
+  });
 
   it("reports spawn failures without a timeout or fallback-eligible kind", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-spawn-fail-"));

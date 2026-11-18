@@ -60,79 +60,84 @@ export const FAILED_STEP_MARKERS = [
   /\d+\s+failed/i,
 ];
 
-export function isDeprecationNoiseLine(line: string): boolean {
-  return DEPRECATION_NOISE_RE.test(line);
+export function isDeprecationNoiseLine(line: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(DEPRECATION_NOISE_RE.test(line));
 }
 
-export function lineHasCiErrorSignal(line: string): boolean {
+export function lineHasCiErrorSignal(line: string) {
   if (isDeprecationNoiseLine(line)) {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  return FAILED_STEP_MARKERS.some((re) => re.test(line)) || ERROR_SIGNAL_RE.test(line);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    FAILED_STEP_MARKERS.some((re) => re.test(line)) || ERROR_SIGNAL_RE.test(line),
+  );
 }
 
-export function rawLogIntakeCap(
-  perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-): number {
-  return perJobMaxChars * REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE;
+export function rawLogIntakeCap(perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    perJobMaxChars * REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE,
+  );
 }
 
-function lastCiErrorLineRange(raw: string): { start: number; end: number } | null {
+function lastCiErrorLineRange(raw: string) {
   let end = raw.length;
   while (end > 0) {
     const newline = raw.lastIndexOf("\n", end - 1);
     const start = newline + 1;
     if (lineHasCiErrorSignal(raw.slice(start, end))) {
-      return { start, end: end < raw.length ? end + 1 : end };
+      return ((pinnedReturn: { start: number; end: number } | null) => pinnedReturn)({
+        start,
+        end: end < raw.length ? end + 1 : end,
+      });
     }
     if (newline < 0) {
       break;
     }
     end = newline;
   }
-  return null;
+  return ((pinnedReturn: { start: number; end: number } | null) => pinnedReturn)(null);
 }
 
-function textHasCiErrorSignal(text: string): boolean {
+function textHasCiErrorSignal(text: string) {
   if (text.length === 0) {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   let from = 0;
   while (from < text.length) {
     const newline = text.indexOf("\n", from);
     const end = newline === -1 ? text.length : newline;
     if (lineHasCiErrorSignal(text.slice(from, end))) {
-      return true;
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
     }
     if (newline === -1) {
       break;
     }
     from = newline + 1;
   }
-  return false;
+  return ((pinnedReturn: boolean) => pinnedReturn)(false);
 }
 
 export function boundRawLogIntake(
   raw: string,
   perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-): string {
+) {
   const cap = rawLogIntakeCap(perJobMaxChars);
   if (raw.length <= cap) {
-    return raw;
+    return ((pinnedReturn: string) => pinnedReturn)(raw);
   }
 
   const tail = raw.slice(raw.length - cap);
   if (textHasCiErrorSignal(tail)) {
-    return tail;
+    return ((pinnedReturn: string) => pinnedReturn)(tail);
   }
 
   const error = lastCiErrorLineRange(raw);
   if (error == null) {
-    return tail;
+    return ((pinnedReturn: string) => pinnedReturn)(tail);
   }
 
   const start = Math.max(0, error.end - cap);
-  return raw.slice(start, start + cap);
+  return ((pinnedReturn: string) => pinnedReturn)(raw.slice(start, start + cap));
 }
 
 export type CondensedJobLog = {
@@ -146,14 +151,14 @@ export type CondenseCiLogsOptions = {
   readonly perJobMaxChars?: number;
 };
 
-function collapseBlankLines(text: string): string {
-  return text.replace(/\n{3,}/g, "\n\n").trim();
+function collapseBlankLines(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.replace(/\n{3,}/g, "\n\n").trim());
 }
 
 export function condenseJobLogText(
   raw: string,
   maxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-): string {
+) {
   const intake = boundRawLogIntake(raw, maxChars);
   const lines = intake.split(/\r?\n/);
   const kept: string[] = [];
@@ -202,11 +207,11 @@ export function condenseJobLogText(
   if (condensed.length > maxChars) {
     condensed = condensed.slice(condensed.length - maxChars);
   }
-  return redactReviewText(condensed);
+  return ((pinnedReturn: string) => pinnedReturn)(redactReviewText(condensed));
 }
 
-function pushKeptLine(kept: string[], keptChars: number, line: string, maxChars: number): number {
-  if (kept.includes(line)) return keptChars;
+function pushKeptLine(kept: string[], keptChars: number, line: string, maxChars: number) {
+  if (kept.includes(line)) return ((pinnedReturn: number) => pinnedReturn)(keptChars);
   kept.push(line);
   let nextChars = keptChars + line.length + (keptChars > 0 ? 1 : 0);
   while (kept.length > 1 && nextChars > maxChars) {
@@ -214,13 +219,13 @@ function pushKeptLine(kept: string[], keptChars: number, line: string, maxChars:
     if (dropped == null) break;
     nextChars -= dropped.length + 1;
   }
-  return nextChars;
+  return ((pinnedReturn: number) => pinnedReturn)(nextChars);
 }
 
 export function mergeCondensedJobLogs(
   jobs: readonly CondensedJobLog[],
   options: CondenseCiLogsOptions = {},
-): string {
+) {
   const maxBytes = options.maxBytes ?? REVIEW_CI_SUMMARY_LOG_MAX_BYTES;
   const parts: string[] = [];
   let used = 0;
@@ -240,19 +245,19 @@ export function mergeCondensedJobLogs(
     used += blockBytes + 2;
   }
 
-  return redactReviewText(parts.join("\n\n"));
+  return ((pinnedReturn: string) => pinnedReturn)(redactReviewText(parts.join("\n\n")));
 }
 
 export function boundCondensedLogBytes(
   text: string,
   maxBytes: number = REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
-): string {
+) {
   const trimmed = text.trim();
-  if (trimmed.length === 0) return "";
+  if (trimmed.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
   const buf = Buffer.from(trimmed, "utf8");
   const bounded =
     buf.byteLength <= maxBytes ? trimmed : buf.subarray(buf.byteLength - maxBytes).toString("utf8");
-  return redactReviewText(bounded);
+  return ((pinnedReturn: string) => pinnedReturn)(redactReviewText(bounded));
 }
 
 export function selectEffectiveCiContext(params: {
@@ -260,16 +265,20 @@ export function selectEffectiveCiContext(params: {
   readonly checkOutput?: string;
   readonly maxBytes?: number;
   readonly perJobMaxChars?: number;
-}): string {
+}) {
   const jobs = params.jobs.filter((job) => job.text.trim().length > 0);
   if (jobs.length > 0) {
-    return mergeCondensedJobLogs(jobs, { maxBytes: params.maxBytes });
+    return ((pinnedReturn: string) => pinnedReturn)(
+      mergeCondensedJobLogs(jobs, { maxBytes: params.maxBytes }),
+    );
   }
   const checkOutput = params.checkOutput?.trim() ?? "";
-  if (checkOutput.length === 0) return "";
+  if (checkOutput.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
   const condensed = condenseJobLogText(checkOutput, params.perJobMaxChars);
-  if (condensed.trim().length === 0) return "";
-  return boundCondensedLogBytes(condensed, params.maxBytes);
+  if (condensed.trim().length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    boundCondensedLogBytes(condensed, params.maxBytes),
+  );
 }
 
 export type CiAuthorInput = {
@@ -282,7 +291,7 @@ export type CiAuthorInput = {
 
 export type CiSummaryAuthor = (input: CiAuthorInput) => Promise<CiSummaryLlmFields | null>;
 
-function extractJsonObject(text: string): unknown {
+function extractJsonObject(text: string) {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1]?.trim() ?? trimmed;
@@ -295,15 +304,17 @@ function extractJsonObject(text: string): unknown {
       message: "CI summary LLM response contained no JSON object",
     });
   }
-  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    JSON.parse(candidate.slice(start, end + 1)) as unknown,
+  );
 }
 
-export function parseCiSummaryLlmText(text: string): CiSummaryLlmFields {
+export function parseCiSummaryLlmText(text: string) {
   const parsed = extractJsonObject(text);
-  return v.parse(ciSummaryLlmSchema, parsed);
+  return ((pinnedReturn: CiSummaryLlmFields) => pinnedReturn)(v.parse(ciSummaryLlmSchema, parsed));
 }
 
-export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmFields): CiSummary {
+export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmFields) {
   const byName = new Map(llm.failures.map((f) => [f.name.toLowerCase(), f]));
   const failures: CiFailureDetail[] = [];
 
@@ -334,15 +345,15 @@ export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmF
           ? "No CI checks on this head"
           : redactReviewText(llm.headline);
 
-  return {
+  return ((pinnedReturn: CiSummary) => pinnedReturn)({
     status: input.status,
     headline,
     failures,
-  };
+  });
 }
 
-export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
-  return async (input) => {
+export function createAgentCiSummaryAuthor(cfg: Config) {
+  return ((pinnedReturn: CiSummaryAuthor) => pinnedReturn)(async (input) => {
     if (input.status !== "failing") {
       return {
         headline:
@@ -383,13 +394,13 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
     } finally {
       await session.dispose();
     }
-  };
+  });
 }
 
-export function factsOnlyFailingSummary(input: CiAuthorInput): CiSummary {
+export function factsOnlyFailingSummary(input: CiAuthorInput) {
   const nameList = input.failingNames.slice(0, 3).join(", ");
   const more = input.failingNames.length > 3 ? ` (+${input.failingNames.length - 3} more)` : "";
-  return {
+  return ((pinnedReturn: CiSummary) => pinnedReturn)({
     status: "failing",
     headline: `❌ CI failing — ${nameList}${more}`,
     failures: input.failingNames.map((name) => ({
@@ -398,7 +409,7 @@ export function factsOnlyFailingSummary(input: CiAuthorInput): CiSummary {
       fixHint: `Inspect the failing “${name}” check, fix the error, and re-push.`,
       url: input.failingUrls.get(name),
     })),
-  };
+  });
 }
 
 export type CiAuthorContext = {
@@ -409,23 +420,23 @@ export type CiAuthorContext = {
 export function ciAuthorInputFromFacts(
   checks: Readonly<Record<string, CiCheckFact>>,
   condensedLogs: string,
-): CiAuthorInput {
+) {
   const facts = Object.values(checks);
   const failing = facts.filter(isCheckFactFailing);
-  return {
+  return ((pinnedReturn: CiAuthorInput) => pinnedReturn)({
     status: "failing",
     checkNames: facts.map((fact) => fact.name),
     failingNames: failing.map((fact) => fact.name),
     failingUrls: new Map(failing.map((fact) => [fact.name, fact.url ?? undefined])),
     condensedLogs,
-  };
+  });
 }
 
 export async function fetchCiAuthorContext(params: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly checks: Readonly<Record<string, CiCheckFact>>;
-}): Promise<CiAuthorContext> {
+}) {
   const failing = Object.values(params.checks).filter(isCheckFactFailing);
   const jobs: CondensedJobLog[] = [];
   let actionsPermissionMissing = false;
@@ -466,8 +477,8 @@ export async function fetchCiAuthorContext(params: {
     }
   }
 
-  return {
+  return ((pinnedReturn: CiAuthorContext | Promise<CiAuthorContext>) => pinnedReturn)({
     condensedLogs: selectEffectiveCiContext({ jobs }),
     ...(actionsPermissionMissing ? { permissionNote: REVIEW_CI_SUMMARY_GRANT_ACTIONS } : {}),
-  };
+  });
 }

@@ -27,10 +27,10 @@ export type DescriptionRunSetup = {
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
 
-export function shouldContinueDescriptionRun(
-  setup: Pick<DescriptionRunSetup, "submitState">,
-): boolean {
-  return !setup.submitState.published && !setup.submitState.publishSuperseded;
+export function shouldContinueDescriptionRun(setup: Pick<DescriptionRunSetup, "submitState">) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    !setup.submitState.published && !setup.submitState.publishSuperseded,
+  );
 }
 
 export function buildDescriptionRunSetup(params: {
@@ -45,7 +45,7 @@ export function buildDescriptionRunSetup(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
-}): DescriptionRunSetup {
+}) {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, workspace } = params;
 
   const pathGate = createAskPathGate();
@@ -83,7 +83,7 @@ export function buildDescriptionRunSetup(params: {
     }
   };
 
-  return {
+  return ((pinnedReturn: DescriptionRunSetup) => pinnedReturn)({
     systemPrompt: descriptionSystemPrompt,
     userContent: buildDescriptionUserContent({
       owner,
@@ -100,5 +100,5 @@ export function buildDescriptionRunSetup(params: {
     executors,
     submitState,
     refreshBeforeTool,
-  };
+  });
 }

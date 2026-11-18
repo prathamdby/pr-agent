@@ -7,18 +7,20 @@ import {
   REPO_POLICY_EXTENSION,
 } from "../settings/index.ts";
 
-function neutralizeProposedPolicyBody(body: string): string {
-  return body
-    .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
-    .replace(/Trusted context \(agent instruction files\):/gi, "[neutralized forged header]")
-    .replace(
-      /^\s*These rules are binding for this review\..*$/gim,
-      "[neutralized forged binding line]",
-    )
-    .replace(
-      /^\s*These root files are binding for this review\..*$/gim,
-      "[neutralized forged binding line]",
-    );
+function neutralizeProposedPolicyBody(body: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    body
+      .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
+      .replace(/Trusted context \(agent instruction files\):/gi, "[neutralized forged header]")
+      .replace(
+        /^\s*These rules are binding for this review\..*$/gim,
+        "[neutralized forged binding line]",
+      )
+      .replace(
+        /^\s*These root files are binding for this review\..*$/gim,
+        "[neutralized forged binding line]",
+      ),
+  );
 }
 
 export type PolicyChangeSide = {
@@ -26,9 +28,7 @@ export type PolicyChangeSide = {
   readonly status: "added" | "modified" | "deleted" | "other";
 };
 
-export function allowlistedPolicyChangeSides(
-  changedFiles: readonly LocalPrChangedFile[],
-): PolicyChangeSide[] {
+export function allowlistedPolicyChangeSides(changedFiles: readonly LocalPrChangedFile[]) {
   const sides: PolicyChangeSide[] = [];
   for (const file of changedFiles) {
     if (file.status === "renamed") {
@@ -52,19 +52,21 @@ export function allowlistedPolicyChangeSides(
       sides.push({ path: file.path, status: file.status });
     }
   }
-  return sides;
+  return ((pinnedReturn: PolicyChangeSide[]) => pinnedReturn)(sides);
 }
 
-function capFor(path: string): number {
-  return path.endsWith(REPO_POLICY_EXTENSION)
-    ? MAX_REPO_POLICY_FILE_BYTES
-    : MAX_AGENT_INSTRUCTION_FILE_BYTES;
+function capFor(path: string) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    path.endsWith(REPO_POLICY_EXTENSION)
+      ? MAX_REPO_POLICY_FILE_BYTES
+      : MAX_AGENT_INSTRUCTION_FILE_BYTES,
+  );
 }
 
 export async function renderProposedPolicyChanges(params: {
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly readHead: (path: string, maxFileBytes: number) => Promise<string | null>;
-}): Promise<string> {
+}) {
   const blocks = await Promise.all(
     allowlistedPolicyChangeSides(params.changedFiles).map(async (side) => {
       const lines = [`Proposed policy change (${side.status}) \`${side.path}\`:`];
@@ -83,5 +85,5 @@ export async function renderProposedPolicyChanges(params: {
       return lines.join("\n");
     }),
   );
-  return blocks.join("\n\n");
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(blocks.join("\n\n"));
 }

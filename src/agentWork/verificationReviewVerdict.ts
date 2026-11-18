@@ -22,10 +22,12 @@ import type { VerificationDegradationReason } from "./verificationPublishGate.ts
 export function verificationReviewEvent(
   check: FindingCheck,
   standing: "APPROVED" | "CHANGES_REQUESTED" | undefined,
-): GithubReviewEvent | undefined {
-  if (check.conclusion === "success" && standing === "CHANGES_REQUESTED") return "APPROVE";
-  if (check.conclusion === "failure" && standing === "APPROVED") return "REQUEST_CHANGES";
-  return undefined;
+) {
+  if (check.conclusion === "success" && standing === "CHANGES_REQUESTED")
+    return ((pinnedReturn: GithubReviewEvent | undefined) => pinnedReturn)("APPROVE");
+  if (check.conclusion === "failure" && standing === "APPROVED")
+    return ((pinnedReturn: GithubReviewEvent | undefined) => pinnedReturn)("REQUEST_CHANGES");
+  return ((pinnedReturn: GithubReviewEvent | undefined) => pinnedReturn)(undefined);
 }
 
 const DEGRADED_APPROVE_REASONS = new Set<VerificationDegradationReason>([
@@ -35,14 +37,16 @@ const DEGRADED_APPROVE_REASONS = new Set<VerificationDegradationReason>([
   "objection_detection_incomplete",
 ]);
 
-function everyOwnedReviewThreadResolved(inventory: FindingInventory): boolean {
+function everyOwnedReviewThreadResolved(inventory: FindingInventory) {
   for (const finding of inventory.findings.values()) {
-    if (finding.source === "thread" && finding.state === "open") return false;
+    if (finding.source === "thread" && finding.state === "open")
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   for (const copy of inventory.sameIdCopies) {
-    if (copy.source === "thread" && copy.state === "open") return false;
+    if (copy.source === "thread" && copy.state === "open")
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
-  return true;
+  return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
 export async function refreshReviewVerdictAfterVerification(params: {
@@ -55,7 +59,7 @@ export async function refreshReviewVerdictAfterVerification(params: {
   readonly leaseEpoch: number | null;
   readonly canPublish: () => Promise<boolean>;
   readonly degradation: readonly VerificationDegradationReason[];
-}): Promise<void> {
+}) {
   const { prSurface, pool, resourceKey, workItemId } = params;
   const skip = (reason: string) =>
     logInfo("verification_review_verdict_skipped", { workItemId, resourceKey, reason });

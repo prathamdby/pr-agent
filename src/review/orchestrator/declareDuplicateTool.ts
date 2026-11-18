@@ -56,26 +56,24 @@ export type DeclareDuplicateToolResult =
 export function buildDeclareDuplicateTool(params: {
   readonly phaseRef: OrchestratorPhaseRef;
   readonly session: ReviewPublishSession;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<DeclareDuplicateToolResult>;
-} {
+}) {
   const piTool: PiTool = {
     name: "declare_duplicate",
     description:
       "Declare that two or more open findings in the finding inventory describe the same defect. The server checks the group, keeps one thread as the canonical finding, links each copy to it, and resolves copies nobody has replied to. The server picks the canonical thread, so ID order does not matter.",
     parameters: toToolParameters(declareDuplicateSchema),
   };
-  const executor = async (args: Record<string, unknown>): Promise<DeclareDuplicateToolResult> => {
+  const executor = async (args: Record<string, unknown>) => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "declare_duplicate");
     if (!gate.ok) {
-      return {
+      return ((pinnedReturn: DeclareDuplicateToolResult | Promise<DeclareDuplicateToolResult>) =>
+        pinnedReturn)({
         kind: "wrong_phase",
         code: gate.code,
         phase: gate.phase,
         allowed: gate.allowed,
         error: gate.error,
-      };
+      });
     }
     const parsed = parseToolInput(declareDuplicateSchema, args, {
       toolName: "declare_duplicate",
@@ -94,9 +92,15 @@ export function buildDeclareDuplicateTool(params: {
       findingIds.length === ids.length
         ? params.session.duplicateCleanup.declare(findingIds)
         : { kind: "refused", reason: "unknown_finding" };
-    return declared.kind === "accepted"
-      ? declared
-      : { ...declared, error: REFUSAL_GUIDANCE[declared.reason] };
+    return ((pinnedReturn: DeclareDuplicateToolResult | Promise<DeclareDuplicateToolResult>) =>
+      pinnedReturn)(
+      declared.kind === "accepted"
+        ? declared
+        : { ...declared, error: REFUSAL_GUIDANCE[declared.reason] },
+    );
   };
-  return { piTool, executor };
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: (args: Record<string, unknown>) => Promise<DeclareDuplicateToolResult>;
+  }) => pinnedReturn)({ piTool, executor });
 }

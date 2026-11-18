@@ -19,31 +19,40 @@ type ReconcilePendingIntentsResult = {
 const TRIAGE_THREAD_KEY = /^triage:thread:(\d+)(?::resolve)?$/;
 const VERIFICATION_THREAD_KEY = /^verification:thread:(\d+)$/;
 
-function triageThreadRootFromOperationKey(operationKey: string): {
-  readonly rootCommentId: number;
-  readonly isResolve: boolean;
-} | null {
+function triageThreadRootFromOperationKey(operationKey: string) {
   const match = TRIAGE_THREAD_KEY.exec(operationKey);
-  if (!match) return null;
-  return {
+  if (!match)
+    return ((
+      pinnedReturn: {
+        readonly rootCommentId: number;
+        readonly isResolve: boolean;
+      } | null,
+    ) => pinnedReturn)(null);
+  return ((
+    pinnedReturn: {
+      readonly rootCommentId: number;
+      readonly isResolve: boolean;
+    } | null,
+  ) => pinnedReturn)({
     rootCommentId: Number(match[1]),
     isResolve: operationKey.endsWith(":resolve"),
-  };
+  });
 }
 
-function verificationThreadRootFromOperationKey(operationKey: string): number | null {
+function verificationThreadRootFromOperationKey(operationKey: string) {
   const match = VERIFICATION_THREAD_KEY.exec(operationKey);
-  return match ? Number(match[1]) : null;
+  return ((pinnedReturn: number | null) => pinnedReturn)(match ? Number(match[1]) : null);
 }
 
 export async function findCompletedPublishRecordId(
   client: Pool | PoolClient,
   workItemId: string,
   intent: OperationIntentRow,
-): Promise<string | null> {
+) {
   const detail = intent.detail;
   const step = detail.step;
-  if (typeof step !== "string") return null;
+  if (typeof step !== "string")
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
 
   const triageThread = triageThreadRootFromOperationKey(intent.operationKey);
   const verificationRoot = verificationThreadRootFromOperationKey(intent.operationKey);
@@ -53,10 +62,10 @@ export async function findCompletedPublishRecordId(
       typeof detail.verdict !== "string" ||
       typeof detail.requiresStub !== "boolean")
   ) {
-    return null;
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   }
   if (triageThread?.isResolve) {
-    return null;
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   }
 
   const values: unknown[] = [workItemId, step];
@@ -124,16 +133,18 @@ export async function findCompletedPublishRecordId(
         requiresStub: detail.requiresStub,
       })
     )
-      return null;
+      return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   }
-  return row?.id ?? null;
+  return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
+    row?.id ?? null,
+  );
 }
 
 export async function reconcilePendingIntents(
   client: Pool | PoolClient,
   workItemId: string,
   leaseEpoch?: number | null,
-): Promise<ReconcilePendingIntentsResult> {
+) {
   const pending = await listPendingOperationIntents(client, workItemId);
   let reconciled = 0;
 
@@ -161,5 +172,6 @@ export async function reconcilePendingIntents(
     });
   }
 
-  return { reconciled, stillPending };
+  return ((pinnedReturn: ReconcilePendingIntentsResult | Promise<ReconcilePendingIntentsResult>) =>
+    pinnedReturn)({ reconciled, stillPending });
 }

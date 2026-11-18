@@ -14,30 +14,35 @@ export function askReplyBodyWithOperationMarker(
   body: string,
   operationKey: string,
   operationInstance: string,
-): string {
-  return `${operationIntentMarker(operationKey, operationInstance)}\n${body}`;
+) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${operationIntentMarker(operationKey, operationInstance)}\n${body}`,
+  );
 }
 
-export function askReplyCommentIdFromIntentDetail(
-  detail: Record<string, unknown> | undefined,
-): number | null {
-  if (!detail || !("__result" in detail)) return null;
+export function askReplyCommentIdFromIntentDetail(detail: Record<string, unknown> | undefined) {
+  if (!detail || !("__result" in detail))
+    return ((pinnedReturn: number | null) => pinnedReturn)(null);
   const result = detail.__result;
-  if (!isRecord(result)) return null;
-  return typeof result.commentId === "number" ? result.commentId : null;
+  if (!isRecord(result)) return ((pinnedReturn: number | null) => pinnedReturn)(null);
+  return ((pinnedReturn: number | null) => pinnedReturn)(
+    typeof result.commentId === "number" ? result.commentId : null,
+  );
 }
 
 export function askReplyBodyMatchesQuestion(
   body: string,
   question: string,
   replyTarget: ReplyTarget,
-): boolean {
+) {
   if (replyTarget.kind === "inlineReviewThread") {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   const redactedQuestion = redactOutboundSecrets(question.trim());
-  if (!redactedQuestion) return false;
-  return body.includes(`**Question:** ${redactedQuestion}`) && body.includes("**Answer:**");
+  if (!redactedQuestion) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    body.includes(`**Question:** ${redactedQuestion}`) && body.includes("**Answer:**"),
+  );
 }
 
 export async function findExistingAskReplyComment(params: {
@@ -47,7 +52,7 @@ export async function findExistingAskReplyComment(params: {
   readonly botLogin: string;
   readonly operationKey?: string;
   readonly operationInstance?: string;
-}): Promise<RecoveredAskReply | null> {
+}) {
   const { prSurface, replyTarget, question, botLogin, operationKey, operationInstance } = params;
 
   const comments =
@@ -68,21 +73,26 @@ export async function findExistingAskReplyComment(params: {
       );
     });
     if (commentId != null) {
-      return { commentId, targetKind: replyTarget.kind };
+      return ((pinnedReturn: (RecoveredAskReply | null) | Promise<RecoveredAskReply | null>) =>
+        pinnedReturn)({ commentId, targetKind: replyTarget.kind });
     }
   }
 
-  if (operationKey != null) return null;
+  if (operationKey != null)
+    return ((pinnedReturn: (RecoveredAskReply | null) | Promise<RecoveredAskReply | null>) =>
+      pinnedReturn)(null);
 
   for (let i = comments.length - 1; i >= 0; i -= 1) {
     const comment = comments[i];
     if (!comment || comment.authorLogin !== botLogin) continue;
     if (replyTarget.kind !== "prConversation") continue;
     if (!askReplyBodyMatchesQuestion(comment.body ?? "", question, replyTarget)) continue;
-    return {
+    return ((pinnedReturn: (RecoveredAskReply | null) | Promise<RecoveredAskReply | null>) =>
+      pinnedReturn)({
       commentId: comment.id,
       targetKind: replyTarget.kind,
-    };
+    });
   }
-  return null;
+  return ((pinnedReturn: (RecoveredAskReply | null) | Promise<RecoveredAskReply | null>) =>
+    pinnedReturn)(null);
 }

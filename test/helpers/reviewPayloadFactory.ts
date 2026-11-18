@@ -5,9 +5,9 @@ const DEFAULT_REVIEW_PAYLOAD: ReviewPayload = {
   size: "S",
 };
 
-export function makeReviewPayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return {
+export function makeReviewPayload(overrides: Partial<ReviewPayload> = {}) {
+  return ((pinnedReturn: ReviewPayload) => pinnedReturn)({
     ...DEFAULT_REVIEW_PAYLOAD,
     ...overrides,
-  };
+  });
 }

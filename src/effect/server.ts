@@ -10,8 +10,8 @@ import type { Config } from "../settings/index.ts";
 import { createOperationLogger } from "../evlog.ts";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.ts";
 
-function singleHeader(v: string | string[] | undefined): string | undefined {
-  return Array.isArray(v) ? v.join(", ") : v;
+function singleHeader(v: string | string[] | undefined) {
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(Array.isArray(v) ? v.join(", ") : v);
 }
 
 type BodyReadResult =
@@ -20,71 +20,76 @@ type BodyReadResult =
 
 const BODY_TOO_LARGE = { kind: "too_large" } satisfies BodyReadResult;
 
-function parseContentLength(value: string | undefined): number | undefined {
-  if (!value) return undefined;
+function parseContentLength(value: string | undefined) {
+  if (!value) return ((pinnedReturn: number | undefined) => pinnedReturn)(undefined);
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function readRawBody(
-  req: HttpServerRequest.HttpServerRequest,
-  maxBodyBytes: number,
-): Effect.Effect<BodyReadResult, unknown> {
-  const contentLength = parseContentLength(singleHeader(req.headers["content-length"]));
-  if (contentLength !== undefined && contentLength > maxBodyBytes) {
-    return Effect.succeed(BODY_TOO_LARGE);
-  }
-
-  return Effect.tryPromise(() =>
-    readNodeRawBody(NodeHttpServerRequest.toIncomingMessage(req), maxBodyBytes),
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(
+    Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined,
   );
 }
 
-function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<BodyReadResult> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let totalBytes = 0;
-    let settled = false;
+function readRawBody(req: HttpServerRequest.HttpServerRequest, maxBodyBytes: number) {
+  const contentLength = parseContentLength(singleHeader(req.headers["content-length"]));
+  if (contentLength !== undefined && contentLength > maxBodyBytes) {
+    return ((pinnedReturn: Effect.Effect<BodyReadResult, unknown>) => pinnedReturn)(
+      Effect.succeed(BODY_TOO_LARGE),
+    );
+  }
 
-    function cleanup() {
-      req.off("data", onData);
-      req.off("end", onEnd);
-      req.off("error", onError);
-    }
+  return ((pinnedReturn: Effect.Effect<BodyReadResult, unknown>) => pinnedReturn)(
+    Effect.tryPromise(() =>
+      readNodeRawBody(NodeHttpServerRequest.toIncomingMessage(req), maxBodyBytes),
+    ),
+  );
+}
 
-    function settle(result: BodyReadResult) {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(result);
-    }
+function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number) {
+  return ((pinnedReturn: Promise<BodyReadResult>) => pinnedReturn)(
+    new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      let settled = false;
 
-    function onData(chunk: Buffer | string) {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      totalBytes += buffer.length;
-      if (totalBytes > maxBodyBytes) {
-        req.destroy();
-        settle(BODY_TOO_LARGE);
-        return;
+      function cleanup() {
+        req.off("data", onData);
+        req.off("end", onEnd);
+        req.off("error", onError);
       }
-      chunks.push(buffer);
-    }
 
-    function onEnd() {
-      settle({ kind: "ok", rawBody: Buffer.concat(chunks) });
-    }
+      function settle(result: BodyReadResult) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      }
 
-    function onError(error: Error) {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    }
+      function onData(chunk: Buffer | string) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.length;
+        if (totalBytes > maxBodyBytes) {
+          req.destroy();
+          settle(BODY_TOO_LARGE);
+          return;
+        }
+        chunks.push(buffer);
+      }
 
-    req.on("data", onData);
-    req.once("end", onEnd);
-    req.once("error", onError);
-  });
+      function onEnd() {
+        settle({ kind: "ok", rawBody: Buffer.concat(chunks) });
+      }
+
+      function onError(error: Error) {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      }
+
+      req.on("data", onData);
+      req.once("end", onEnd);
+      req.once("error", onError);
+    }),
+  );
 }
 
 function buildEffectWebhookApp(cfg: Config) {

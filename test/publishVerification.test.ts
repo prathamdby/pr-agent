@@ -60,10 +60,10 @@ beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
 vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
-  threadMutationLock:
-    (): import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock =>
-    (apply) =>
-      apply(),
+  threadMutationLock: () =>
+    ((
+      pinnedReturn: import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock,
+    ) => pinnedReturn)((apply) => apply()),
 }));
 vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
@@ -153,8 +153,8 @@ describe("verification failure projection transitions", () => {
 const OBJECTION_UPDATED_AT = "2026-01-01T14:32:47Z";
 const ROOT_CREATED_AT = "2026-01-01T14:00:00Z";
 
-function findingObjection(overrides: Partial<FindingObjection> = {}): FindingObjection {
-  return {
+function findingObjection(overrides: Partial<FindingObjection> = {}) {
+  return ((pinnedReturn: FindingObjection) => pinnedReturn)({
     commentId: 50,
     createdAt: OBJECTION_UPDATED_AT,
     updatedAt: OBJECTION_UPDATED_AT,
@@ -163,10 +163,10 @@ function findingObjection(overrides: Partial<FindingObjection> = {}): FindingObj
     authorized: false,
     body: "The lock is held outside the write.",
     ...overrides,
-  };
+  });
 }
 
-function seedLiveObjection(updatedAt = OBJECTION_UPDATED_AT, body = findingObjection().body): void {
+function seedLiveObjection(updatedAt = OBJECTION_UPDATED_AT, body = findingObjection().body) {
   controls.setReviewComments([
     {
       id: 1,
@@ -203,8 +203,10 @@ function seedLiveObjection(updatedAt = OBJECTION_UPDATED_AT, body = findingObjec
   ]);
 }
 
-function objectionIntentMarker(updatedAt = OBJECTION_UPDATED_AT): string {
-  return operationIntentMarker(verificationObjectionAnswerOperationKey(1, 50, updatedAt), "wi");
+function objectionIntentMarker(updatedAt = OBJECTION_UPDATED_AT) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    operationIntentMarker(verificationObjectionAnswerOperationKey(1, 50, updatedAt), "wi"),
+  );
 }
 
 const thread = {
@@ -234,21 +236,19 @@ const thirdThread = {
   titleSnippet: "P1 · Unchanged path",
 } satisfies BotFindingThread;
 
-function pool(detail?: unknown): Pool {
+function pool(detail?: unknown) {
   const client = {
     query: vi.fn(async () => ({ rows: [] })),
     release: vi.fn(),
   };
-  return {
+  return ((pinnedReturn: Pool) => pinnedReturn)({
     query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
     connect: vi.fn(async () => client),
-  } as unknown as Pool;
+  } as unknown as Pool);
 }
 
-function resolutionMap(
-  entries: readonly [number, ReviewThreadResolution][],
-): Map<number, ReviewThreadResolution> {
-  return new Map(entries);
+function resolutionMap(entries: readonly [number, ReviewThreadResolution][]) {
+  return ((pinnedReturn: Map<number, ReviewThreadResolution>) => pinnedReturn)(new Map(entries));
 }
 
 let controls: import("../src/github/fakePrSurface.ts").FakePrSurfaceControls;
@@ -1522,10 +1522,7 @@ describe("publishVerification", () => {
 
 const HEAD_SHA = "a".repeat(40);
 
-function reviewSummaryBody(params: {
-  readonly withCiCell: boolean;
-  readonly headSha?: string;
-}): string {
+function reviewSummaryBody(params: { readonly withCiCell: boolean; readonly headSha?: string }) {
   const ci = params.withCiCell
     ? `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
         status: "passing",
@@ -1533,13 +1530,15 @@ function reviewSummaryBody(params: {
         failures: [],
       })}</td></tr>`
     : "";
-  return [
-    REVIEW_SUMMARY_SENTINEL,
-    "",
-    `<table>${ci}</table>`,
-    "",
-    `<!-- pr-agent:review-meta headSha=${params.headSha ?? HEAD_SHA} lens=review stale=false -->`,
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      `<table>${ci}</table>`,
+      "",
+      `<!-- pr-agent:review-meta headSha=${params.headSha ?? HEAD_SHA} lens=review stale=false -->`,
+    ].join("\n"),
+  );
 }
 
 type ConversationEdit = {
@@ -1548,7 +1547,7 @@ type ConversationEdit = {
   readonly body?: string;
 };
 
-function conversationEdits(): ConversationEdit[] {
+function conversationEdits() {
   const edits: ConversationEdit[] = [];
   for (const event of controls.events) {
     if (event.kind === "editComment") {
@@ -1557,7 +1556,7 @@ function conversationEdits(): ConversationEdit[] {
       edits.push({ kind: event.kind, body: event.body });
     }
   }
-  return edits;
+  return ((pinnedReturn: ConversationEdit[]) => pinnedReturn)(edits);
 }
 
 describe("publishVerificationFailure", () => {

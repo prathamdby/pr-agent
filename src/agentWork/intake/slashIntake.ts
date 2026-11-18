@@ -69,8 +69,10 @@ export type SlashCommandInput = {
   readonly botLogin?: string;
 };
 
-function clampStoredCommentText(text: string): string {
-  return text.split("\u0000").join("").slice(0, MAX_STORED_COMMENT_TEXT_LEN);
+function clampStoredCommentText(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text.split("\u0000").join("").slice(0, MAX_STORED_COMMENT_TEXT_LEN),
+  );
 }
 
 type SlashIntakeContext = {
@@ -93,7 +95,7 @@ type SlashIntakeContext = {
 async function enqueueSlashAck(
   ctx: SlashIntakeContext,
   extra: Partial<Pick<AckJobData, "workItemId" | "progress" | "cancelProgress" | "reply">>,
-): Promise<void> {
+) {
   await enqueueAck(ctx.boss, ctx.client, {
     ...ctx.baseAck,
     ...ctx.correlation,
@@ -101,13 +103,13 @@ async function enqueueSlashAck(
   });
 }
 
-async function handleSlashHelp(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashHelp(ctx: SlashIntakeContext) {
   await enqueueSlashAck(ctx, {
     reply: { target: ctx.input.replyTarget, body: slashHelpBody(ctx.features.reviewCadence) },
   });
 }
 
-async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashAsk(ctx: SlashIntakeContext) {
   const outcome = await promoteAskFromWebhookEvent(
     ctx.boss,
     ctx.client,
@@ -164,7 +166,7 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
   }
 }
 
-async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashDescribe(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const insert = await createDescriptionWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
@@ -198,7 +200,7 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashTriage(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const parsed = parseTriageCommand(ctx.input.body) ?? { kind: "apply" as const };
   if (parsed.kind === "invalid") {
@@ -232,7 +234,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   const rejectActiveTriage = async (existing: {
     id: string;
     payload: { scope?: "all" | "thread" };
-  }): Promise<void> => {
+  }) => {
     const activeScope = existing.payload.scope ?? "all";
     const body =
       triageScope === "thread" && activeScope === "all"
@@ -286,7 +288,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashReview(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   if (ctx.reviewRefused != null) {
     await enqueueSlashAck(ctx, {
@@ -389,7 +391,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashCancel(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const attribution = {
     kind: "user" as const,
@@ -441,7 +443,7 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashVerify(ctx: SlashIntakeContext): Promise<void> {
+async function handleSlashVerify(ctx: SlashIntakeContext) {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const active = await fetchActiveVerificationWorkItem(ctx.client, resourceKey);
   if (active) {
@@ -477,7 +479,7 @@ async function handleSlashVerify(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
+async function handleSlashUnknown(ctx: SlashIntakeContext, command: string) {
   await enqueueSlashAck(ctx, {
     reply: {
       target: ctx.input.replyTarget,
@@ -510,7 +512,7 @@ export async function applySlashCommandIntake(
   input: SlashCommandInput,
   features: Features,
   askQuota: AskQuotaConfig = defaultAskQuotaConfig(),
-): Promise<DeferredIntakeEvent[]> {
+) {
   const client = tx.client;
   const events: DeferredIntakeEvent[] = [];
   const command = input.command;
@@ -525,7 +527,10 @@ export async function applySlashCommandIntake(
   const event = await tx.insert(
     reviewRefused == null ? `slash_${command}` : `ignored_slash_review_pr_${reviewRefused}`,
   );
-  if (event.duplicate) return events;
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
 
   const correlation = jobCorrelation(event.id, input.headers);
   const ref: PrRef = {
@@ -578,13 +583,18 @@ export async function applySlashCommandIntake(
         reply: { target: input.replyTarget, body: slashDisabledBody(command) },
       });
       events.push({ name: "ignored_disabled_slash_command", fields: { command } });
-      return events;
+      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
+        pinnedReturn)(events);
     }
     await handler(ctx);
-    return events;
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
   }
   await handleSlashUnknown(ctx, command);
-  return events;
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
 }
 
 const ONCE_CADENCE_NOTE =
@@ -593,35 +603,37 @@ const ONCE_CADENCE_NOTE =
 const EVERY_PUSH_CADENCE_NOTE =
   "What runs automatically depends on the `FEATURE_*` settings, see docs/features.md. Review and describe fire on PR open in `auto` mode. With `FEATURE_REVIEW_CADENCE=every_push`, each later push to an open admitted pull request starts a review. A running `/review` finishes, and one follow-up then reviews the newest head.";
 
-function slashHelpBody(reviewCadence: Features["reviewCadence"]): string {
-  return slashHelpLines(
-    reviewCadence === "every_push" ? EVERY_PUSH_CADENCE_NOTE : ONCE_CADENCE_NOTE,
+function slashHelpBody(reviewCadence: Features["reviewCadence"]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    slashHelpLines(reviewCadence === "every_push" ? EVERY_PUSH_CADENCE_NOTE : ONCE_CADENCE_NOTE),
   );
 }
 
-function slashHelpLines(cadenceNote: string): string {
-  return [
-    "### PR Agent help",
-    "",
-    "Commands (first line of a **new** comment):",
-    "- `/help` - show this message",
-    "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
-    "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
-    "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
-    "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
-    "- `/cancel` - cancel a queued or in-progress review on this PR",
-    "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
-    "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
-    "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
-    "- `/verify` - verify open findings against the current pull request head",
-    "",
-    "Notes:",
-    `- ${cadenceNote}`,
-    "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
-    "- `/ask` and App-bot mentions load the shared discussion. They do not change finding severity, dismiss a finding, or edit a review summary.",
-    "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
-    "- Edited comments are ignored for slash parsing in v1.",
-  ].join("\n");
+function slashHelpLines(cadenceNote: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "### PR Agent help",
+      "",
+      "Commands (first line of a **new** comment):",
+      "- `/help` - show this message",
+      "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+      "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+      "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+      "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+      "- `/cancel` - cancel a queued or in-progress review on this PR",
+      "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+      "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+      "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+      "- `/verify` - verify open findings against the current pull request head",
+      "",
+      "Notes:",
+      `- ${cadenceNote}`,
+      "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+      "- `/ask` and App-bot mentions load the shared discussion. They do not change finding severity, dismiss a finding, or edit a review summary.",
+      "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+      "- Edited comments are ignored for slash parsing in v1.",
+    ].join("\n"),
+  );
 }
 
 const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
@@ -637,6 +649,8 @@ const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";
 const SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY =
   "A `/verify` run is already queued or in progress for this pull request.";
 
-function slashDisabledBody(command: string): string {
-  return `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`;
+function slashDisabledBody(command: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`,
+  );
 }

@@ -55,17 +55,22 @@ export async function tryLightweightAutoReviewCompletion(
     boss?: PgBoss;
     checkFailSeverity: "P0" | "P1" | "P2" | "P3";
   },
-): Promise<LightweightAutoReviewResult> {
-  if (params.item.source !== "auto") return { handled: false };
+) {
+  if (params.item.source !== "auto")
+    return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
+      pinnedReturn)({ handled: false });
 
   const trivial = evaluateTrivialChangeExemption({
     files: params.preflight.files,
     truncated: params.preflight.truncated,
   });
-  if (!trivial.exempt) return { handled: false };
+  if (!trivial.exempt)
+    return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
+      pinnedReturn)({ handled: false });
 
   if (await shouldSkipWork(pool, params.item)) {
-    return { handled: true, published: false, reason: "skipped" };
+    return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
+      pinnedReturn)({ handled: true, published: false, reason: "skipped" });
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
@@ -194,5 +199,6 @@ export async function tryLightweightAutoReviewCompletion(
     repo: params.item.repo,
     prNumber: params.item.prNumber,
   });
-  return { handled: true, published: true, summaryId: summary.id, check };
+  return ((pinnedReturn: LightweightAutoReviewResult | Promise<LightweightAutoReviewResult>) =>
+    pinnedReturn)({ handled: true, published: true, summaryId: summary.id, check });
 }

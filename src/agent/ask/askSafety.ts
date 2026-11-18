@@ -3,16 +3,19 @@ import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
-export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
+export function classifyAskQuestionIntent(question: string) {
   for (const pattern of BOT_META_PATTERNS) {
-    if (pattern.test(question.trim())) return "bot_meta";
+    if (pattern.test(question.trim()))
+      return ((pinnedReturn: AskQuestionIntent) => pinnedReturn)("bot_meta");
   }
-  return "code";
+  return ((pinnedReturn: AskQuestionIntent) => pinnedReturn)("code");
 }
 
-export function isSensitivePath(path: string): boolean {
+export function isSensitivePath(path: string) {
   const normalized = path.replace(/\\/g, "/");
-  return SENSITIVE_PATH_PATTERNS.some((p) => p.test(normalized));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    SENSITIVE_PATH_PATTERNS.some((p) => p.test(normalized)),
+  );
 }
 
 export type AskPathGate = {
@@ -20,23 +23,23 @@ export type AskPathGate = {
   readonly addPaths: (paths: Iterable<string>) => void;
 };
 
-export function createAskPathGate(): AskPathGate {
+export function createAskPathGate() {
   const prChangedPaths = new Set<string>();
-  return {
+  return ((pinnedReturn: AskPathGate) => pinnedReturn)({
     prChangedPaths,
     addPaths(paths: Iterable<string>) {
       for (const p of paths) prChangedPaths.add(p.replace(/\\/g, "/"));
     },
-  };
+  });
 }
 
-export function pathAllowedForAsk(path: string, gate: AskPathGate): boolean {
+export function pathAllowedForAsk(path: string, gate: AskPathGate) {
   const normalized = path.replace(/\\/g, "/");
-  if (!isSensitivePath(normalized)) return true;
-  return gate.prChangedPaths.has(normalized);
+  if (!isSensitivePath(normalized)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(gate.prChangedPaths.has(normalized));
 }
 
-export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
+export function assertPathAllowedForAsk(path: string, gate: AskPathGate) {
   const normalized = path.replace(/\\/g, "/");
   if (pathAllowedForAsk(normalized, gate)) return;
   throw new AppError({
@@ -47,8 +50,9 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   });
 }
 
-function redactEmailsInJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactEmailsInJson);
+const redactEmailsInJson: (value: unknown) => unknown = (value: unknown) => {
+  if (Array.isArray(value))
+    return ((pinnedReturn: unknown) => pinnedReturn)(value.map(redactEmailsInJson));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
@@ -58,16 +62,19 @@ function redactEmailsInJson(value: unknown): unknown {
         out[k] = redactEmailsInJson(v);
       }
     }
-    return out;
+    return ((pinnedReturn: unknown) => pinnedReturn)(out);
   }
-  return value;
+  return ((pinnedReturn: unknown) => pinnedReturn)(value);
+};
+
+export function sanitizeToolResultForAsk(toolName: string, result: unknown) {
+  if (toolName === "getWorkspaceBlame")
+    return ((pinnedReturn: unknown) => pinnedReturn)(redactEmailsInJson(result));
+  return ((pinnedReturn: unknown) => pinnedReturn)(result);
 }
 
-export function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
-  if (toolName === "getWorkspaceBlame") return redactEmailsInJson(result);
-  return result;
-}
-
-export function redactPorcelainBlame(text: string): string {
-  return text.replace(/^author-mail .+$/gm, "author-mail [redacted]");
+export function redactPorcelainBlame(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text.replace(/^author-mail .+$/gm, "author-mail [redacted]"),
+  );
 }

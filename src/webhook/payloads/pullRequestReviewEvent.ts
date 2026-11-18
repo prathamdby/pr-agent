@@ -31,6 +31,8 @@ export const pullRequestReviewWebhookSchema = v.object({
 
 export type PullRequestReviewWebhookPayload = v.InferOutput<typeof pullRequestReviewWebhookSchema>;
 
-export function isApprovalReview(data: PullRequestReviewWebhookPayload): boolean {
-  return data.action === "submitted" && data.review.state.toLowerCase() === "approved";
+export function isApprovalReview(data: PullRequestReviewWebhookPayload) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    data.action === "submitted" && data.review.state.toLowerCase() === "approved",
+  );
 }

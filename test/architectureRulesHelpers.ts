@@ -25,24 +25,25 @@ export type CodeRow = {
   mustCatch: string[];
 };
 
-function specifierMatches(row: CodeRow, specifier: string): boolean {
-  return (
+function specifierMatches(row: CodeRow, specifier: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     row.specifierPrefix != null &&
-    (specifier === row.specifierPrefix || specifier.startsWith(row.specifierPrefix))
+      (specifier === row.specifierPrefix || specifier.startsWith(row.specifierPrefix)),
   );
 }
 
-function assignsWorkItemStatus(text: string): boolean {
-  if (!/update\s+agent_work_items/i.test(text)) return false;
+function assignsWorkItemStatus(text: string) {
+  if (!/update\s+agent_work_items/i.test(text))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const setAt = text.search(/\bset\b/i);
-  if (setAt < 0) return false;
+  if (setAt < 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const afterSet = text.slice(setAt);
   const whereAt = afterSet.search(/\bwhere\b/i);
   const clause = whereAt < 0 ? afterSet : afterSet.slice(0, whereAt);
-  return /\bstatus\s*=/.test(clause);
+  return ((pinnedReturn: boolean) => pinnedReturn)(/\bstatus\s*=/.test(clause));
 }
 
-export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: string): boolean {
+export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: string) {
   void fileName;
   let typeOnlyStatement = false;
   let lastWord = "";
@@ -51,10 +52,11 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
   let sawDot = false;
   let i = 0;
 
-  const hitSpecifier = (specifier: string): boolean => {
-    if (row.kind !== "module") return false;
-    if (row.skipTypeOnly && typeOnlyStatement) return false;
-    return specifierMatches(row, specifier);
+  const hitSpecifier = (specifier: string) => {
+    if (row.kind !== "module") return ((pinnedReturn: boolean) => pinnedReturn)(false);
+    if (row.skipTypeOnly && typeOnlyStatement)
+      return ((pinnedReturn: boolean) => pinnedReturn)(false);
+    return ((pinnedReturn: boolean) => pinnedReturn)(specifierMatches(row, specifier));
   };
 
   while (i < text.length) {
@@ -111,15 +113,18 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
             else if (current === "}") depth -= 1;
             if (depth > 0) i += 1;
           }
-          if (sourceMatchesCodeRow(row, fileName, text.slice(start, i))) return true;
+          if (sourceMatchesCodeRow(row, fileName, text.slice(start, i)))
+            return ((pinnedReturn: boolean) => pinnedReturn)(true);
           i += 1;
           continue;
         }
         body += c;
         i += 1;
       }
-      if (pendingSpecifier && hitSpecifier(body)) return true;
-      if (row.kind === "sql-status" && assignsWorkItemStatus(body)) return true;
+      if (pendingSpecifier && hitSpecifier(body))
+        return ((pinnedReturn: boolean) => pinnedReturn)(true);
+      if (row.kind === "sql-status" && assignsWorkItemStatus(body))
+        return ((pinnedReturn: boolean) => pinnedReturn)(true);
       pendingSpecifier = false;
       lastWord = "";
       continue;
@@ -145,28 +150,33 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
       }
       if (word === "from" || word === "require") pendingSpecifier = true;
       if (word === "import") pendingSpecifier = true;
-      if (row.kind === "identifier" && word === row.identifier) return true;
+      if (row.kind === "identifier" && word === row.identifier)
+        return ((pinnedReturn: boolean) => pinnedReturn)(true);
       if (row.kind === "process-env" && word === "process") {
         const rest = text.slice(i);
-        if (/^\s*\.\s*env\b/.test(rest) || /^\s*\[\s*["']env["']\s*\]/.test(rest)) return true;
+        if (/^\s*\.\s*env\b/.test(rest) || /^\s*\[\s*["']env["']\s*\]/.test(rest))
+          return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "escape-call" && word === "escape" && lastWord !== "function") {
-        if (/^\s*(?:<[^;\n]*>)?\s*\(/.test(text.slice(i))) return true;
+        if (/^\s*(?:<[^;\n]*>)?\s*\(/.test(text.slice(i)))
+          return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "console-call" && word === "console") {
-        if (/^\s*\.\s*(?:log|error|warn|info|debug|trace)\s*\(/.test(text.slice(i))) return true;
+        if (/^\s*\.\s*(?:log|error|warn|info|debug|trace)\s*\(/.test(text.slice(i)))
+          return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "call" && word === row.identifier && lastWord !== "function") {
-        if (/^\s*\(/.test(text.slice(i))) return true;
+        if (/^\s*\(/.test(text.slice(i))) return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "member-call" && word === row.method && lastWord === row.receiver) {
-        if (/^\s*\(/.test(text.slice(i))) return true;
+        if (/^\s*\(/.test(text.slice(i))) return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "optional-field" && (row.identifiers ?? []).includes(word)) {
-        if (/^\s*\?/.test(text.slice(i))) return true;
+        if (/^\s*\?/.test(text.slice(i))) return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (row.kind === "fence-literal" && word === "kind") {
-        if (/^\s*:\s*["'](?:unleased|unfenced)["']/.test(text.slice(i))) return true;
+        if (/^\s*:\s*["'](?:unleased|unfenced)["']/.test(text.slice(i)))
+          return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (
         row.kind === "github-list" &&
@@ -174,7 +184,7 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
         word.startsWith("list") &&
         /^\s*\(/.test(text.slice(i))
       ) {
-        return true;
+        return ((pinnedReturn: boolean) => pinnedReturn)(true);
       }
       if (sawDot && word === "rest") restChain = true;
       else if (!/^\s*\./.test(text.slice(i))) restChain = false;
@@ -187,23 +197,23 @@ export function sourceMatchesCodeRow(row: CodeRow, fileName: string, text: strin
     else if (!/\s/.test(ch)) sawDot = false;
     i += 1;
   }
-  return false;
+  return ((pinnedReturn: boolean) => pinnedReturn)(false);
 }
 
-export function isCodeRowAllowed(rel: string, allow: readonly string[]): boolean {
-  return allow.some((pattern) =>
-    pattern.endsWith("/") ? rel.startsWith(pattern) : rel === pattern,
+export function isCodeRowAllowed(rel: string, allow: readonly string[]) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    allow.some((pattern) => (pattern.endsWith("/") ? rel.startsWith(pattern) : rel === pattern)),
   );
 }
 
-export function exportedSignatureTexts(text: string): string[] {
+export function exportedSignatureTexts(text: string) {
   const lines = text.split("\n");
   const signatures: string[] = [];
   let collecting = false;
   let buffer = "";
   let depth = 0;
 
-  const updateDepth = (chunk: string): void => {
+  const updateDepth = (chunk: string) => {
     for (const ch of chunk) {
       if (ch === "(" || ch === "{") depth += 1;
       if (ch === ")" || ch === "}") depth -= 1;
@@ -236,29 +246,33 @@ export function exportedSignatureTexts(text: string): string[] {
     }
   }
 
-  return signatures;
+  return ((pinnedReturn: string[]) => pinnedReturn)(signatures);
 }
 
-function functionParameterList(signature: string): string | null {
+function functionParameterList(signature: string) {
   const open = signature.indexOf("(");
-  if (open < 0) return null;
+  if (open < 0) return ((pinnedReturn: string | null) => pinnedReturn)(null);
   let depth = 0;
   for (let i = open; i < signature.length; i++) {
     const ch = signature[i];
     if (ch === "(") depth += 1;
     if (ch === ")") {
       depth -= 1;
-      if (depth === 0) return signature.slice(open + 1, i);
+      if (depth === 0)
+        return ((pinnedReturn: string | null) => pinnedReturn)(signature.slice(open + 1, i));
     }
   }
-  return null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(null);
 }
 
-export function forbiddenExportedParam(text: string): string | undefined {
+export function forbiddenExportedParam(text: string) {
   const params = functionParameterList(text);
   const scope = params ?? text;
-  if (/\btoken:\s*string\b/.test(scope)) return "token: string";
-  if (/\bexpiresAtTs\b/.test(scope)) return "expiresAtTs";
-  if (/\btokenExpiresAtTs\b/.test(scope)) return "tokenExpiresAtTs";
-  return undefined;
+  if (/\btoken:\s*string\b/.test(scope))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)("token: string");
+  if (/\bexpiresAtTs\b/.test(scope))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)("expiresAtTs");
+  if (/\btokenExpiresAtTs\b/.test(scope))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)("tokenExpiresAtTs");
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }

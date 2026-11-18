@@ -19,8 +19,8 @@ export class AgentWorkExecutions extends Context.Service<AgentWorkExecutions, Ex
   "AgentWorkExecutions",
 ) {}
 
-function openWorkerTraces(cfg: Config): () => Promise<void> {
-  return initTraces(cfg);
+function openWorkerTraces(cfg: Config) {
+  return ((pinnedReturn: () => Promise<void>) => pinnedReturn)(initTraces(cfg));
 }
 
 export const AgentWorkExecutionsLive = (

@@ -54,13 +54,17 @@ export const GUEST_CAPABILITY_SPECS: readonly GuestCapabilitySpec[] =
 
 export function installedGuestCapabilities(
   installed: ReadonlySet<string> | readonly string[] | CodeModeCapabilityExecutors,
-): readonly GuestCapabilitySpec[] {
+) {
   const names = capabilityNameSet(installed);
-  return GUEST_CAPABILITY_SPECS.filter((spec) => names.has(spec.name));
+  return ((pinnedReturn: readonly GuestCapabilitySpec[]) => pinnedReturn)(
+    GUEST_CAPABILITY_SPECS.filter((spec) => names.has(spec.name)),
+  );
 }
 
-export function renderGuestCatalogue(specs: readonly GuestCapabilitySpec[]): string {
-  return specs.map((spec) => `- \`${spec.call}\`. ${spec.rule}`).join("\n");
+export function renderGuestCatalogue(specs: readonly GuestCapabilitySpec[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    specs.map((spec) => `- \`${spec.call}\`. ${spec.rule}`).join("\n"),
+  );
 }
 
 const FAN_OUT_CALLS: readonly {
@@ -101,7 +105,7 @@ const SHORT_FAN_OUT = new Set<CodeModeWorkspaceToolName>([
 function collectFanOutCalls(
   specs: readonly GuestCapabilitySpec[],
   allowed: ReadonlySet<CodeModeWorkspaceToolName>,
-): { readonly bindings: string[]; readonly calls: string[] } {
+) {
   const installed = new Set(specs.map((spec) => spec.name));
   const bindings: string[] = [];
   const calls: string[] = [];
@@ -111,26 +115,31 @@ function collectFanOutCalls(
     bindings.push(row.binding);
     calls.push(row.call);
   }
-  return { bindings, calls };
+  return ((pinnedReturn: { readonly bindings: string[]; readonly calls: string[] }) =>
+    pinnedReturn)({ bindings, calls });
 }
 
-function renderPromiseAll(bindings: readonly string[], calls: readonly string[]): string {
-  return [
-    `const [${bindings.join(", ")}] = await Promise.all([`,
-    ...calls.map((call) => `  ${call},`),
-    "]);",
-  ].join("\n");
+function renderPromiseAll(bindings: readonly string[], calls: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `const [${bindings.join(", ")}] = await Promise.all([`,
+      ...calls.map((call) => `  ${call},`),
+      "]);",
+    ].join("\n"),
+  );
 }
 
-export function renderFanOutExampleShort(specs: readonly GuestCapabilitySpec[]): string {
+export function renderFanOutExampleShort(specs: readonly GuestCapabilitySpec[]) {
   const { bindings, calls } = collectFanOutCalls(specs, SHORT_FAN_OUT);
-  return calls.length === 0 ? "" : renderPromiseAll(bindings, calls);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    calls.length === 0 ? "" : renderPromiseAll(bindings, calls),
+  );
 }
 
-export function renderFanOutExample(specs: readonly GuestCapabilitySpec[]): string {
+export function renderFanOutExample(specs: readonly GuestCapabilitySpec[]) {
   const names = new Set(specs.map((spec) => spec.name));
   const { bindings, calls } = collectFanOutCalls(specs, names);
-  if (calls.length === 0) return "";
+  if (calls.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
 
   const lines = [renderPromiseAll(bindings, calls)];
 
@@ -160,10 +169,10 @@ export function renderFanOutExample(specs: readonly GuestCapabilitySpec[]): stri
   if (names.has("getWorkspaceDiff")) resultFields.push("diffTrunc: diff.truncation");
   lines.push(resultFields.length > 0 ? `({ ${resultFields.join(", ")} })` : "({ done: true })");
 
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-export function renderExecuteDescription(capabilities: CodeModeCapabilityExecutors): string {
+export function renderExecuteDescription(capabilities: CodeModeCapabilityExecutors) {
   const specs = installedGuestCapabilities(capabilities);
   const catalogue = renderGuestCatalogue(specs);
   const example = renderFanOutExample(specs);
@@ -180,17 +189,21 @@ export function renderExecuteDescription(capabilities: CodeModeCapabilityExecuto
   if (example.length > 0) {
     parts.push(`Example: one cell, many host calls.\n\`\`\`js\n${example}\n\`\`\``);
   }
-  return parts.join("\n\n");
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join("\n\n"));
 }
 
 function capabilityNameSet(
   installed: ReadonlySet<string> | readonly string[] | CodeModeCapabilityExecutors,
-): ReadonlySet<string> {
-  if (installed instanceof Set) return installed;
-  if (Array.isArray(installed)) return new Set(installed);
-  return new Set(
-    Object.entries(installed)
-      .filter(([, executor]) => executor)
-      .map(([name]) => name),
+) {
+  if (installed instanceof Set)
+    return ((pinnedReturn: ReadonlySet<string>) => pinnedReturn)(installed);
+  if (Array.isArray(installed))
+    return ((pinnedReturn: ReadonlySet<string>) => pinnedReturn)(new Set(installed));
+  return ((pinnedReturn: ReadonlySet<string>) => pinnedReturn)(
+    new Set(
+      Object.entries(installed)
+        .filter(([, executor]) => executor)
+        .map(([name]) => name),
+    ),
   );
 }

@@ -12,8 +12,10 @@ import {
 
 const STALE_AGE_MS = 3_600_000;
 
-async function workspaceDirs(prefix: string): Promise<string[]> {
-  return (await readdir(tmpdir())).filter((name) => name.startsWith(prefix));
+async function workspaceDirs(prefix: string) {
+  return ((pinnedReturn: string[] | Promise<string[]>) => pinnedReturn)(
+    (await readdir(tmpdir())).filter((name) => name.startsWith(prefix)),
+  );
 }
 
 describe("WorkspaceResource", () => {

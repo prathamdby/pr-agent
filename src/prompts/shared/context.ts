@@ -6,39 +6,43 @@ import type {
 import type { ReviewThreadSnapshot } from "../../github/reviewThreadResolution.ts";
 import { wrapUntrustedBlock } from "./safety.ts";
 
-function escapeUntrustedReplyText(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+function escapeUntrustedReplyText(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
+  );
 }
 
-function formatReplyBlock(label: string, reply: string, index: number): string[] {
-  return [
+function formatReplyBlock(label: string, reply: string, index: number) {
+  return ((pinnedReturn: string[]) => pinnedReturn)([
     `  ${label} ${index + 1}:`,
     wrapUntrustedBlock("maintainer_reply", escapeUntrustedReplyText(reply))
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),
-  ];
+  ]);
 }
 
 export function formatHumanReplies(thread: {
   readonly humanReplies: readonly string[];
   readonly authorizedReplies?: readonly string[];
   readonly untrustedReplies?: readonly string[];
-}): string[] {
+}) {
   if (thread.authorizedReplies == null && thread.untrustedReplies == null) {
-    return thread.humanReplies.flatMap((reply, index) =>
-      formatReplyBlock("Maintainer reply", reply, index),
+    return ((pinnedReturn: string[]) => pinnedReturn)(
+      thread.humanReplies.flatMap((reply, index) =>
+        formatReplyBlock("Maintainer reply", reply, index),
+      ),
     );
   }
 
-  return [
+  return ((pinnedReturn: string[]) => pinnedReturn)([
     ...(thread.authorizedReplies ?? []).flatMap((reply, index) =>
       formatReplyBlock("Authorized maintainer decision evidence", reply, index),
     ),
     ...(thread.untrustedReplies ?? []).flatMap((reply, index) =>
       formatReplyBlock("Untrusted commenter evidence", reply, index),
     ),
-  ];
+  ]);
 }
 
 export function formatFindingThreadInventoryLines(
@@ -55,8 +59,8 @@ export function formatFindingThreadInventoryLines(
     readonly untrustedReplies?: readonly string[];
   },
   index: number,
-): string[] {
-  return [
+) {
+  return ((pinnedReturn: string[]) => pinnedReturn)([
     "",
     `${index + 1}. threadRootCommentId=${thread.rootCommentId}`,
     `  Lens: ${thread.lens}`,
@@ -65,7 +69,7 @@ export function formatFindingThreadInventoryLines(
     `  Finding: ${thread.titleSnippet}`,
     `  Thread: ${thread.threadUrl}`,
     ...formatHumanReplies(thread),
-  ];
+  ]);
 }
 
 export const DISCUSSION_INCOMPLETE_NOTICE = "Discussion list is incomplete.";
@@ -77,22 +81,22 @@ export const DISCUSSION_OMISSION_MARKER = "…(earlier thread omitted)…";
 const INLINE_HEADER = "Inline review threads:";
 const CONVERSATION_HEADER = "Conversation:";
 
-function redactDiscussionText(text: string): string {
+function redactDiscussionText(text: string) {
   let out = text;
   for (const pattern of BOT_SECRET_PATTERNS) {
     out = out.replace(pattern, "[redacted]");
   }
-  return out;
+  return ((pinnedReturn: string) => pinnedReturn)(out);
 }
 
-function oneLineTitle(body: string): string {
+function oneLineTitle(body: string) {
   const line = redactDiscussionText(body).split("\n")[0]?.replace(/\s+/g, " ").trim() ?? "";
-  return line.length > 0 ? line : "(empty)";
+  return ((pinnedReturn: string) => pinnedReturn)(line.length > 0 ? line : "(empty)");
 }
 
-function authorLogin(login: string | null | undefined): string {
+function authorLogin(login: string | null | undefined) {
   const trimmed = login?.trim() ?? "";
-  return trimmed.length > 0 ? trimmed : "unknown";
+  return ((pinnedReturn: string) => pinnedReturn)(trimmed.length > 0 ? trimmed : "unknown");
 }
 
 type DiscussionBodyLine = {
@@ -108,18 +112,20 @@ type DiscussionItem = {
 
 function discussionBodyLines(
   comments: readonly { readonly author: string | null; readonly body: string }[],
-): DiscussionBodyLine[] {
-  return comments.map((comment) => ({
-    author: authorLogin(comment.author),
-    body: redactDiscussionText(comment.body.trim()) || "(empty)",
-  }));
+) {
+  return ((pinnedReturn: DiscussionBodyLine[]) => pinnedReturn)(
+    comments.map((comment) => ({
+      author: authorLogin(comment.author),
+      body: redactDiscussionText(comment.body.trim()) || "(empty)",
+    })),
+  );
 }
 
-function formatDiscussionBody(lines: readonly DiscussionBodyLine[], share: number): string {
-  if (share <= 0 || lines.length === 0) return "";
+function formatDiscussionBody(lines: readonly DiscussionBodyLine[], share: number) {
+  if (share <= 0 || lines.length === 0) return ((pinnedReturn: string) => pinnedReturn)("");
   const rendered = lines.map((line) => `${line.author}:\n${line.body}`);
   const full = rendered.join("\n\n");
-  if (full.length <= share) return full;
+  if (full.length <= share) return ((pinnedReturn: string) => pinnedReturn)(full);
   const root = rendered[0] ?? "";
   const sep = "\n\n";
   const budget = share - root.length - 2 * sep.length - DISCUSSION_OMISSION_MARKER.length;
@@ -136,10 +142,12 @@ function formatDiscussionBody(lines: readonly DiscussionBodyLine[], share: numbe
     tail.length > 0
       ? `${root}${sep}${DISCUSSION_OMISSION_MARKER}${sep}${tail}`
       : root.slice(0, share);
-  return text.length <= share ? text : text.slice(0, share);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text.length <= share ? text : text.slice(0, share),
+  );
 }
 
-function inlineIdentity(thread: ReviewThreadSnapshot, trigger?: DiscussionTrigger): string {
+function inlineIdentity(thread: ReviewThreadSnapshot, trigger?: DiscussionTrigger) {
   const root = thread.comments[0];
   const marked =
     trigger?.kind === "inline" &&
@@ -158,32 +166,31 @@ function inlineIdentity(thread: ReviewThreadSnapshot, trigger?: DiscussionTrigge
   if (url.length > 0) parts.push(`url=${url}`);
   if (marked) parts.push("trigger");
   if (!thread.commentsComplete) parts.push("comments incomplete");
-  return parts.join(" ");
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join(" "));
 }
 
 function conversationIdentity(
   group: readonly { readonly id: number; readonly authorLogin: string; readonly body: string }[],
   trigger?: DiscussionTrigger,
-): string {
+) {
   const root = group[0];
   const marked =
     trigger?.kind === "conversation" && group.some((comment) => comment.id === trigger.commentId);
-  return [
-    `root=${root?.id ?? ""}`,
-    "path=",
-    "line=",
-    "state=",
-    "outdated=",
-    `author=${authorLogin(root?.authorLogin)}`,
-    `title=${oneLineTitle(root?.body ?? "")}`,
-    ...(marked ? ["trigger"] : []),
-  ].join(" ");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      `root=${root?.id ?? ""}`,
+      "path=",
+      "line=",
+      "state=",
+      "outdated=",
+      `author=${authorLogin(root?.authorLogin)}`,
+      `title=${oneLineTitle(root?.body ?? "")}`,
+      ...(marked ? ["trigger"] : []),
+    ].join(" "),
+  );
 }
 
-function discussionItems(
-  discussion: PullRequestDiscussion,
-  trigger?: DiscussionTrigger,
-): DiscussionItem[] {
+function discussionItems(discussion: PullRequestDiscussion, trigger?: DiscussionTrigger) {
   const inline = discussion.reviewThreads.threads.map((thread) => ({
     kind: "inline" as const,
     identity: inlineIdentity(thread, trigger),
@@ -191,7 +198,8 @@ function discussionItems(
       thread.comments.map((comment) => ({ author: comment.authorLogin, body: comment.body })),
     ),
   }));
-  if (!discussion.conversation.loaded) return inline;
+  if (!discussion.conversation.loaded)
+    return ((pinnedReturn: DiscussionItem[]) => pinnedReturn)(inline);
   const conversation = discussion.conversation.groups.map((group) => ({
     kind: "conversation" as const,
     identity: conversationIdentity(group, trigger),
@@ -199,15 +207,15 @@ function discussionItems(
       group.map((comment) => ({ author: comment.authorLogin, body: comment.body })),
     ),
   }));
-  return [...inline, ...conversation];
+  return ((pinnedReturn: DiscussionItem[]) => pinnedReturn)([...inline, ...conversation]);
 }
 
 export function formatPullRequestDiscussion(
   discussion: PullRequestDiscussion,
   trigger?: DiscussionTrigger,
   maxChars: number = MAX_ASK_THREAD_TRANSCRIPT_CHARS,
-): string {
-  if (maxChars <= 0) return "";
+) {
+  if (maxChars <= 0) return ((pinnedReturn: string) => pinnedReturn)("");
   const review = discussion.reviewThreads;
   const conversation = discussion.conversation;
   const reviewFailed = review.status !== "ok";
@@ -220,27 +228,34 @@ export function formatPullRequestDiscussion(
   if (!conversation.loaded) prefix.push(DISCUSSION_CONVERSATION_NOT_LOADED);
 
   const items = discussionItems(discussion, trigger);
-  const chrome = (showNotice: boolean): string[] => {
+  const chrome = (showNotice: boolean) => {
     const lines = [...prefix];
     if (showNotice) lines.push(DISCUSSION_INCOMPLETE_NOTICE);
     lines.push(INLINE_HEADER);
     if (review.threads.length === 0 && !reviewFailed) lines.push("none");
     lines.push(CONVERSATION_HEADER);
     if (conversation.loaded && conversation.groups.length === 0) lines.push("none");
-    return lines;
+    return ((pinnedReturn: string[]) => pinnedReturn)(lines);
   };
 
-  const takeNamed = (showNotice: boolean): { named: DiscussionItem[]; stopped: boolean } => {
+  const takeNamed = (showNotice: boolean) => {
     const room = Math.max(0, maxChars - chrome(showNotice).join("\n").length);
     const named: DiscussionItem[] = [];
     let used = 0;
     for (const item of items) {
       const cost = item.identity.length + 1;
-      if (used + cost > room) return { named, stopped: true };
+      if (used + cost > room)
+        return ((pinnedReturn: { named: DiscussionItem[]; stopped: boolean }) => pinnedReturn)({
+          named,
+          stopped: true,
+        });
       named.push(item);
       used += cost;
     }
-    return { named, stopped: false };
+    return ((pinnedReturn: { named: DiscussionItem[]; stopped: boolean }) => pinnedReturn)({
+      named,
+      stopped: false,
+    });
   };
 
   let showNotice = knownIncomplete;
@@ -289,5 +304,7 @@ export function formatPullRequestDiscussion(
     }
   }
   const text = lines.join("\n");
-  return text.length <= maxChars ? text : text.slice(0, maxChars);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    text.length <= maxChars ? text : text.slice(0, maxChars),
+  );
 }

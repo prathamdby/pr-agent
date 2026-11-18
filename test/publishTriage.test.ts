@@ -60,10 +60,10 @@ beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });
 vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
-  threadMutationLock:
-    (): import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock =>
-    (apply) =>
-      apply(),
+  threadMutationLock: () =>
+    ((
+      pinnedReturn: import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock,
+    ) => pinnedReturn)((apply) => apply()),
 }));
 vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
@@ -137,8 +137,8 @@ const secondThread = {
   titleSnippet: "P2 · Already fixed",
 };
 
-function checkout(push: () => Promise<void>): WritablePrCheckout {
-  return {
+function checkout(push: () => Promise<void>) {
+  return ((pinnedReturn: WritablePrCheckout) => pinnedReturn)({
     dir: "/tmp/checkout",
     reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
@@ -149,11 +149,11 @@ function checkout(push: () => Promise<void>): WritablePrCheckout {
     listCommittedDetails: () => [
       { sha: "abcdef123456", subject: "fix: guard user", diff: "+ok\n" },
     ],
-  };
+  });
 }
 
-function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
-  return {
+function emptyCheckout(push: () => Promise<void>) {
+  return ((pinnedReturn: WritablePrCheckout) => pinnedReturn)({
     dir: "/tmp/checkout",
     reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
@@ -162,27 +162,29 @@ function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
     push,
     listCommittedShas: () => [],
     listCommittedDetails: () => [],
-  };
+  });
 }
 
-function pool(detail?: unknown): Pool {
-  return {
+function pool(detail?: unknown) {
+  return ((pinnedReturn: Pool) => pinnedReturn)({
     query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
-  } as unknown as Pool;
+  } as unknown as Pool);
 }
 
-function poolWithPriorRunActedIds(): Pool {
-  return {
+function poolWithPriorRunActedIds() {
+  return ((pinnedReturn: Pool) => pinnedReturn)({
     query: vi.fn(async (_sql, args: readonly unknown[]) => ({
       rows: args[0] === "wi" ? [] : [{ detail: { actedThreadIds: [1] } }],
     })),
-  } as unknown as Pool;
+  } as unknown as Pool);
 }
 
-function triagePushRecords(): Array<Record<string, unknown> | undefined> {
-  return vi
-    .mocked(recordPublishStep)
-    .mock.calls.flatMap(([, params]) => (params.step === "triage_push" ? [params.detail] : []));
+function triagePushRecords() {
+  return ((pinnedReturn: Array<Record<string, unknown> | undefined>) => pinnedReturn)(
+    vi
+      .mocked(recordPublishStep)
+      .mock.calls.flatMap(([, params]) => (params.step === "triage_push" ? [params.detail] : [])),
+  );
 }
 
 const closedLifecycles = [

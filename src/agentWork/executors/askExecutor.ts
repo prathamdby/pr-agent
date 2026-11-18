@@ -28,17 +28,20 @@ import { errorMessage } from "../../errors/errorMessage.ts";
 function replyTargetKindFromIntentDetail(
   value: unknown,
   fallback: AskWorkItem["payload"]["replyTarget"]["kind"],
-): AskWorkItem["payload"]["replyTarget"]["kind"] {
-  return value === "inlineReviewThread" || value === "prConversation" ? value : fallback;
+) {
+  return ((pinnedReturn: AskWorkItem["payload"]["replyTarget"]["kind"]) => pinnedReturn)(
+    value === "inlineReviewThread" || value === "prConversation" ? value : fallback,
+  );
 }
 
-function askReplyLookupKeys(resourceKey: string, operationKey: string): readonly string[] {
+function askReplyLookupKeys(resourceKey: string, operationKey: string) {
   const scopedKey = askReplyOperationKey(resourceKey);
-  if (operationKey === scopedKey) return [operationKey];
+  if (operationKey === scopedKey)
+    return ((pinnedReturn: readonly string[]) => pinnedReturn)([operationKey]);
   if (operationKey.startsWith(`ask:reply:${resourceKey}`)) {
-    return [operationKey, scopedKey];
+    return ((pinnedReturn: readonly string[]) => pinnedReturn)([operationKey, scopedKey]);
   }
-  return [operationKey];
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)([operationKey]);
 }
 
 async function findAskReplyOnAnyTarget(params: {
@@ -80,13 +83,17 @@ async function publishAskAnswer(
   answer: string,
   operationKey: string,
   alreadySanitized = false,
-): Promise<{ commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }> {
+) {
   const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
   const replyTarget = item.payload.replyTarget;
   const markedBody = askReplyBodyWithOperationMarker(body, operationKey, item.id);
   try {
     const posted = await prSurface.replyAt(replyTarget, markedBody);
-    return { ...posted, targetKind: replyTarget.kind };
+    return ((
+      pinnedReturn:
+        | { commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }
+        | Promise<{ commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }>,
+    ) => pinnedReturn)({ ...posted, targetKind: replyTarget.kind });
   } catch (e) {
     if (replyTarget.kind !== "inlineReviewThread") throw e;
     const bot = await getBotIdentity();
@@ -103,7 +110,14 @@ async function publishAskAnswer(
       if (recovered != null) break;
     }
     if (recovered != null) {
-      return { commentId: recovered.commentId, targetKind: recovered.targetKind };
+      return ((
+        pinnedReturn:
+          | { commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }
+          | Promise<{
+              commentId: number;
+              targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
+            }>,
+      ) => pinnedReturn)({ commentId: recovered.commentId, targetKind: recovered.targetKind });
     }
     const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
     logWarn("ask_inline_reply_failed", {
@@ -123,7 +137,11 @@ async function publishAskAnswer(
         item.id,
       ),
     );
-    return { ...fallback, targetKind: "prConversation" };
+    return ((
+      pinnedReturn:
+        | { commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }
+        | Promise<{ commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }>,
+    ) => pinnedReturn)({ ...fallback, targetKind: "prConversation" });
   }
 }
 
@@ -146,24 +164,24 @@ async function recoverDeliveredAskReplyCommentId(params: {
   readonly pool: Pool;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
-}): Promise<AskReplyRecovery> {
+}) {
   const { pool, prSurface, item } = params;
   const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
   const intent = await getOperationIntent(pool, item.id, operationKey);
   const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
   if (stashed != null) {
-    return {
+    return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)({
       kind: "recovered",
       commentId: stashed,
       targetKind: replyTargetKindFromIntentDetail(
         intent?.detail.replyTargetKind,
         item.payload.replyTarget.kind,
       ),
-    };
+    });
   }
 
   if (intent == null || (intent.status !== "pending" && intent.status !== "outcome_unknown")) {
-    return null;
+    return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)(null);
   }
 
   const bot = await params.getBotIdentity();
@@ -175,9 +193,11 @@ async function recoverDeliveredAskReplyCommentId(params: {
     operationInstance: item.id,
   });
   if (recovered == null) {
-    return intent.status === "outcome_unknown" || intent.detail.__mutating === true
-      ? { kind: "outcome_unknown" }
-      : null;
+    return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)(
+      intent.status === "outcome_unknown" || intent.detail.__mutating === true
+        ? { kind: "outcome_unknown" }
+        : null,
+    );
   }
 
   await createPublishContext(pool, {
@@ -192,11 +212,11 @@ async function recoverDeliveredAskReplyCommentId(params: {
     detail: { replyTargetKind: recovered.targetKind ?? item.payload.replyTarget.kind },
     hasUsableResult: (detail) => askReplyCommentIdFromIntentDetail(detail) != null,
   });
-  return {
+  return ((pinnedReturn: AskReplyRecovery | Promise<AskReplyRecovery>) => pinnedReturn)({
     kind: "recovered",
     commentId: recovered.commentId,
     targetKind: recovered.targetKind ?? item.payload.replyTarget.kind,
-  };
+  });
 }
 
 type AskFailureReplyDecision = "skip" | "publish";
@@ -206,7 +226,7 @@ async function decideAskFailureReply(params: {
   readonly pool: Pool;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
-}): Promise<AskFailureReplyDecision> {
+}) {
   const { pool, prSurface, item } = params;
   if (
     await createPublishContext(pool, {
@@ -215,7 +235,8 @@ async function decideAskFailureReply(params: {
       reviewLens: ASK_PUBLISH_LENS,
     }).completed("ask_reply")
   ) {
-    return "skip";
+    return ((pinnedReturn: AskFailureReplyDecision | Promise<AskFailureReplyDecision>) =>
+      pinnedReturn)("skip");
   }
   const recovered = await recoverDeliveredAskReplyCommentId({
     getBotIdentity: params.getBotIdentity,
@@ -223,7 +244,8 @@ async function decideAskFailureReply(params: {
     prSurface,
     item,
   });
-  return recovered?.kind === "recovered" ? "skip" : "publish";
+  return ((pinnedReturn: AskFailureReplyDecision | Promise<AskFailureReplyDecision>) =>
+    pinnedReturn)(recovered?.kind === "recovered" ? "skip" : "publish");
 }
 
 async function finalizeAskReplyPublish(params: {
@@ -232,7 +254,7 @@ async function finalizeAskReplyPublish(params: {
   readonly commentId: number;
   readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
   readonly leaseEpoch: number | null;
-}): Promise<"ok" | "degraded"> {
+}) {
   const { pool, item, commentId, targetKind, leaseEpoch } = params;
   await publishOnce({
     client: pool,
@@ -261,7 +283,7 @@ async function finalizeAskReplyPublish(params: {
       leaseEpoch,
       reviewLens: "ask",
     }).record();
-    return "ok";
+    return ((pinnedReturn: ("ok" | "degraded") | Promise<"ok" | "degraded">) => pinnedReturn)("ok");
   } catch (e) {
     const failure = classifyFailure(e, { phase: "publish" });
     logWarn("ask_publish_record_failed", {
@@ -272,7 +294,9 @@ async function finalizeAskReplyPublish(params: {
       message: errorMessage(e),
       ...classifiedFailureLogFields(failure),
     });
-    return "degraded";
+    return ((pinnedReturn: ("ok" | "degraded") | Promise<"ok" | "degraded">) => pinnedReturn)(
+      "degraded",
+    );
   }
 }
 
@@ -280,9 +304,9 @@ export function createAskWorkExecution({
   cfg,
   pool,
   installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies): WorkExecution<"ask"> {
+}: WorkExecutionDependencies) {
   const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return {
+  return ((pinnedReturn: WorkExecution<"ask">) => pinnedReturn)({
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
@@ -535,5 +559,5 @@ export function createAskWorkExecution({
         },
       });
     },
-  };
+  });
 }

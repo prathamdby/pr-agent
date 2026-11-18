@@ -6,8 +6,8 @@ import {
 } from "../src/analytics/workCompleted.ts";
 import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.ts";
 
-function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunMetricsSnapshot {
-  return {
+function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}) {
+  return ((pinnedReturn: ReviewRunMetricsSnapshot) => pinnedReturn)({
     provider: "openai",
     model: "test",
     mode: "review",
@@ -72,7 +72,7 @@ function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunM
     generationMs: 0,
     tokenCoverage: "orchestrator_only",
     ...overrides,
-  };
+  });
 }
 
 describe("reviewWorkOutcome", () => {

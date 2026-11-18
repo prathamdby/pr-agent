@@ -69,12 +69,14 @@ export type PublishOnceParams<T> = {
 
 const operationIntentFrame = new AsyncLocalStorage<{ readonly operationKey: string }>();
 
-export function runInOperationIntentFrame<T>(operationKey: string, fn: () => T): T {
-  return operationIntentFrame.run({ operationKey }, fn);
+export function runInOperationIntentFrame<T>(operationKey: string, fn: () => T) {
+  return ((pinnedReturn: T) => pinnedReturn)(operationIntentFrame.run({ operationKey }, fn));
 }
 
-export function currentOperationIntentKey(): string | undefined {
-  return operationIntentFrame.getStore()?.operationKey;
+export function currentOperationIntentKey() {
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    operationIntentFrame.getStore()?.operationKey,
+  );
 }
 
 export type OperationIntentRecovery<T> =
@@ -91,33 +93,39 @@ export const OPERATION_INTENT_SEND_STARTED_KEY = "__sendStarted";
 export const OPERATION_INTENT_MUTATING_EPOCH_KEY = "__mutatingEpoch";
 export const OPERATION_INTENT_RESULT_KEY = "__result";
 
-export function askReplyOperationKey(resourceKey: string, targetCommentId?: number): string {
-  return targetCommentId == null
-    ? `ask:reply:${resourceKey}`
-    : `ask:reply:${resourceKey}:${targetCommentId}`;
+export function askReplyOperationKey(resourceKey: string, targetCommentId?: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    targetCommentId == null
+      ? `ask:reply:${resourceKey}`
+      : `ask:reply:${resourceKey}:${targetCommentId}`,
+  );
 }
 
-export function askFailureReplyOperationKey(resourceKey: string, targetCommentId?: number): string {
-  return targetCommentId == null
-    ? `ask:failure_reply:${resourceKey}`
-    : `ask:failure_reply:${resourceKey}:${targetCommentId}`;
+export function askFailureReplyOperationKey(resourceKey: string, targetCommentId?: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    targetCommentId == null
+      ? `ask:failure_reply:${resourceKey}`
+      : `ask:failure_reply:${resourceKey}:${targetCommentId}`,
+  );
 }
 
-export function descriptionPrBodyOperationKey(resourceKey: string): string {
-  return `description:pr_body:${resourceKey}`;
+export function descriptionPrBodyOperationKey(resourceKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`description:pr_body:${resourceKey}`);
 }
 
-export function reviewInlineBatchOperationKey(batchId: string): string {
-  return `review:inline:${batchId}`;
+export function reviewInlineBatchOperationKey(batchId: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`review:inline:${batchId}`);
 }
 
 export function deterministicInlineBatchId(params: {
   readonly workItemId: string;
   readonly headSha: string;
   readonly findingIds: readonly string[];
-}): string {
+}) {
   const material = [params.workItemId, params.headSha, ...params.findingIds.toSorted()].join("\0");
-  return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    crypto.createHash("sha256").update(material).digest("hex").slice(0, 32),
+  );
 }
 
 export function reviewDuplicateOperationKey(step: {
@@ -125,81 +133,92 @@ export function reviewDuplicateOperationKey(step: {
   readonly duplicateId: string;
   readonly canonicalId: string;
   readonly threadId: string;
-}): string {
-  return `review:${step.kind}:${step.duplicateId}:${step.canonicalId}:${step.threadId}`;
+}) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `review:${step.kind}:${step.duplicateId}:${step.canonicalId}:${step.threadId}`,
+  );
 }
 
-export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string): string {
-  return `review:summary:${reviewLens}:${resourceKey}`;
+export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`review:summary:${reviewLens}:${resourceKey}`);
 }
 
-export function triagePushOperationKey(resourceKey: string): string {
-  return `triage:push:${resourceKey}`;
+export function triagePushOperationKey(resourceKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`triage:push:${resourceKey}`);
 }
 
-export function triageThreadOperationKey(rootCommentId: number): string {
-  return `triage:thread:${rootCommentId}`;
+export function triageThreadOperationKey(rootCommentId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`triage:thread:${rootCommentId}`);
 }
 
-export function triageReportOperationKey(resourceKey: string): string {
-  return `triage:report:${resourceKey}`;
+export function triageReportOperationKey(resourceKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`triage:report:${resourceKey}`);
 }
 
-export function triagePreviewOperationKey(resourceKey: string): string {
-  return `triage:preview:${resourceKey}`;
+export function triagePreviewOperationKey(resourceKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`triage:preview:${resourceKey}`);
 }
 
-export function verificationThreadOperationKey(rootCommentId: number): string {
-  return `verification:thread:${rootCommentId}`;
+export function verificationThreadOperationKey(rootCommentId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`verification:thread:${rootCommentId}`);
 }
 
 export function verificationObjectionAnswerOperationKey(
   rootCommentId: number,
   objectionCommentId: number,
   updatedAt: string,
-): string {
+) {
   const revision = crypto.createHash("sha256").update(updatedAt).digest("hex").slice(0, 16);
-  return `verification:objection:${rootCommentId}:${objectionCommentId}:${revision}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `verification:objection:${rootCommentId}:${objectionCommentId}:${revision}`,
+  );
 }
 
-export function reviewCheckOperationKey(workItemId: string): string {
-  return `review:check_run:${workItemId}`;
+export function reviewCheckOperationKey(workItemId: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`review:check_run:${workItemId}`);
 }
 
 export function reviewCommitStatusOperationKey(
   resourceKey: string,
   headSha: string,
   state: "pending" | "success" | "failure" | "error",
-): string {
-  return `review:commit_status:${resourceKey}:${headSha}:${state}`;
+) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `review:commit_status:${resourceKey}:${headSha}:${state}`,
+  );
 }
 
-export function reviewLabelsOperationKey(resourceKey: string): string {
-  return `review:labels:${resourceKey}`;
+export function reviewLabelsOperationKey(resourceKey: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`review:labels:${resourceKey}`);
 }
 
-export function reviewVerdictReviewOperationKey(workItemId: string): string {
-  return `review:verdict_review:${workItemId}`;
+export function reviewVerdictReviewOperationKey(workItemId: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`review:verdict_review:${workItemId}`);
 }
 
-export function operationIntentMarker(operationKey: string, operationInstance: string): string {
-  return `<!-- pr-agent:operation-intent ${crypto
-    .createHash("sha256")
-    .update(`${operationKey}\0${operationInstance}`)
-    .digest("hex")
-    .slice(0, 24)} -->`;
+export function operationIntentMarker(operationKey: string, operationInstance: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `<!-- pr-agent:operation-intent ${crypto
+      .createHash("sha256")
+      .update(`${operationKey}\0${operationInstance}`)
+      .digest("hex")
+      .slice(0, 24)} -->`,
+  );
 }
 
 function resolveReconcileDetail<T>(
   params: PublishOnceParams<T>,
   result?: { readonly value: unknown },
-): Record<string, unknown> {
-  if (typeof params.reconcileDetail !== "function") return params.reconcileDetail ?? {};
-  if (result === undefined) return {};
+) {
+  if (typeof params.reconcileDetail !== "function")
+    return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(params.reconcileDetail ?? {});
+  if (result === undefined) return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({});
   if (params.decodeResult === undefined)
     throw new Error("A result-dependent reconciliation requires a result decoder");
-  return params.reconcileDetail(
-    decodePublishResult({ ...params, decodeResult: params.decodeResult }, result.value),
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+    params.reconcileDetail(
+      decodePublishResult({ ...params, decodeResult: params.decodeResult }, result.value),
+    ),
   );
 }
 
@@ -208,10 +227,10 @@ function decodePublishResult<T>(
   value: unknown,
 ): T;
 function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown): unknown;
-function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown): unknown {
-  if (params.decodeResult === undefined) return value;
+function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown) {
+  if (params.decodeResult === undefined) return ((pinnedReturn: unknown) => pinnedReturn)(value);
   try {
-    return params.decodeResult(value);
+    return ((pinnedReturn: unknown) => pinnedReturn)(params.decodeResult(value));
   } catch (error) {
     throw unknownOutcomeError(
       params,
@@ -222,25 +241,30 @@ function decodePublishResult<T>(params: PublishOnceParams<T>, value: unknown): u
   }
 }
 
-function isRemoteMutationError(error: unknown): boolean {
-  if (httpStatus(error) != null) return true;
-  if (typeof error !== "object" || error == null) return false;
-  return "response" in error && typeof error.response === "object" && error.response != null;
+function isRemoteMutationError(error: unknown) {
+  if (httpStatus(error) != null) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (typeof error !== "object" || error == null)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    "response" in error && typeof error.response === "object" && error.response != null,
+  );
 }
 
-function hasStashedResult(detail: Record<string, unknown>): boolean {
-  return Object.hasOwn(detail, OPERATION_INTENT_RESULT_KEY);
+function hasStashedResult(detail: Record<string, unknown>) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    Object.hasOwn(detail, OPERATION_INTENT_RESULT_KEY),
+  );
 }
 
-function stashedResultValue(detail: Record<string, unknown>): unknown {
+function stashedResultValue(detail: Record<string, unknown>) {
   const value = detail[OPERATION_INTENT_RESULT_KEY];
-  return value === null ? undefined : value;
+  return ((pinnedReturn: unknown) => pinnedReturn)(value === null ? undefined : value);
 }
 
-function leaseEpochDetail<T>(
-  params: PublishOnceParams<T>,
-): { readonly leaseEpoch: number } | Record<string, never> {
-  return params.leaseEpoch == null ? {} : { leaseEpoch: params.leaseEpoch };
+function leaseEpochDetail<T>(params: PublishOnceParams<T>) {
+  return ((pinnedReturn: { readonly leaseEpoch: number } | Record<string, never>) => pinnedReturn)(
+    params.leaseEpoch == null ? {} : { leaseEpoch: params.leaseEpoch },
+  );
 }
 
 function inFlightReconcileTarget<T>(params: PublishOnceParams<T>, intent: OperationIntentRow) {
@@ -252,14 +276,16 @@ function inFlightReconcileTarget<T>(params: PublishOnceParams<T>, intent: Operat
   };
 }
 
-function allowsUndefinedSuccess<T>(params: PublishOnceParams<T>): boolean {
-  return params.allowsUndefinedResult === true || params.recover == null;
+function allowsUndefinedSuccess<T>(params: PublishOnceParams<T>) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    params.allowsUndefinedResult === true || params.recover == null,
+  );
 }
 
 async function finishWithStashedResult<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
-): Promise<unknown> {
+) {
   const value = decodePublishResult(params, stashedResultValue(intent.detail));
   if (intent.status !== "reconciled") {
     await assertMutationReady(params);
@@ -273,7 +299,7 @@ async function finishWithStashedResult<T>(
       },
     });
   }
-  return value;
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(value);
 }
 
 type RecoveryAttempt =
@@ -284,8 +310,11 @@ async function recoverByExactEvidence<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
   publishRecordId: string | null,
-): Promise<RecoveryAttempt> {
-  if (params.recover == null) return { found: false };
+) {
+  if (params.recover == null)
+    return ((pinnedReturn: RecoveryAttempt | Promise<RecoveryAttempt>) => pinnedReturn)({
+      found: false,
+    });
   let recovery: OperationIntentRecovery<unknown>;
   try {
     recovery = await params.recover(intent, publishRecordId);
@@ -304,7 +333,10 @@ async function recoverByExactEvidence<T>(
     });
   }
   await assertMutationReady(params);
-  if (recovery.kind !== "reconciled") return { found: false };
+  if (recovery.kind !== "reconciled")
+    return ((pinnedReturn: RecoveryAttempt | Promise<RecoveryAttempt>) => pinnedReturn)({
+      found: false,
+    });
   const value = decodePublishResult(params, recovery.value);
 
   const resultDetail = {
@@ -318,7 +350,10 @@ async function recoverByExactEvidence<T>(
     publishRecordId: recovery.publishRecordId ?? publishRecordId,
     detail: resultDetail,
   });
-  return { found: true, value };
+  return ((pinnedReturn: RecoveryAttempt | Promise<RecoveryAttempt>) => pinnedReturn)({
+    found: true,
+    value,
+  });
 }
 
 async function finishVoidSuccess<T>(
@@ -326,7 +361,7 @@ async function finishVoidSuccess<T>(
   intent: OperationIntentRow,
   extraDetail: Record<string, unknown>,
   publishRecordId?: string | null,
-): Promise<unknown> {
+) {
   const value = decodePublishResult(params, undefined);
   await assertMutationReady(params);
   await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
@@ -339,7 +374,7 @@ async function finishVoidSuccess<T>(
       [OPERATION_INTENT_RESULT_KEY]: null,
     },
   });
-  return value;
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(value);
 }
 
 const UNKNOWN_MUTATION_MESSAGE =
@@ -352,25 +387,27 @@ function unknownOutcomeError<T>(
   message: string,
   terminal: boolean,
   cause?: unknown,
-): AppError {
-  return new AppError({
-    domain: "operation_intent",
-    kind: "mutation_outcome_unknown",
-    message,
-    cause,
-    context: {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      mutationKind: params.mutationKind,
-      ...(terminal ? { unknownResolution: "terminal" } : {}),
-    },
-  });
+) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "operation_intent",
+      kind: "mutation_outcome_unknown",
+      message,
+      cause,
+      context: {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        mutationKind: params.mutationKind,
+        ...(terminal ? { unknownResolution: "terminal" } : {}),
+      },
+    }),
+  );
 }
 
 async function recoverAfterMutatingWithoutResult<T>(
   params: PublishOnceParams<T>,
   intent: OperationIntentRow,
-): Promise<unknown> {
+) {
   let publishRecordId: string | null;
   try {
     publishRecordId = await findCompletedPublishRecordId(params.client, intent.workItemId, intent);
@@ -396,17 +433,20 @@ async function recoverAfterMutatingWithoutResult<T>(
     if (!isAppError(error) || error.code !== "operation_intent.recovery_failed") throw error;
     observationError = error;
   }
-  if (recovered.found) return recovered.value;
+  if (recovered.found)
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
 
   if (publishRecordId != null && allowsUndefinedSuccess(params)) {
-    return finishVoidSuccess(
-      params,
-      intent,
-      {
-        reconciledFromPublishRecord: true,
-        recoveredAfterMutating: true,
-      },
-      publishRecordId,
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      finishVoidSuccess(
+        params,
+        intent,
+        {
+          reconciledFromPublishRecord: true,
+          recoveredAfterMutating: true,
+        },
+        publishRecordId,
+      ),
     );
   }
   await assertMutationReady(params);
@@ -444,7 +484,7 @@ async function recoverAfterMutatingWithoutResult<T>(
 export function throwIfExecutionAborted(
   signal: AbortSignal | undefined,
   context: Record<string, unknown>,
-): void {
+) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
   if (isAppError(reason)) throw reason;
@@ -459,7 +499,7 @@ export function throwIfExecutionAborted(
   });
 }
 
-async function assertMutationReady<T>(params: PublishOnceParams<T>): Promise<void> {
+async function assertMutationReady<T>(params: PublishOnceParams<T>) {
   throwIfExecutionAborted(params.signal, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
@@ -469,14 +509,14 @@ async function assertMutationReady<T>(params: PublishOnceParams<T>): Promise<voi
   }
 }
 
-async function withRetainedDescriptionIdentity<T>(
-  params: PublishOnceParams<T>,
-): Promise<PublishOnceParams<T>> {
+async function withRetainedDescriptionIdentity<T>(params: PublishOnceParams<T>) {
   if (
     params.mutationKind !== "github.pr_surface.publishDescription" ||
     params.detail?.surfaceMethod !== "publishDescription"
   )
-    return params;
+    return ((pinnedReturn: PublishOnceParams<T> | Promise<PublishOnceParams<T>>) => pinnedReturn)(
+      params,
+    );
   await assertMutationReady(params);
   const retained = await (
     params.store ?? postgresPublishStore
@@ -490,15 +530,18 @@ async function withRetainedDescriptionIdentity<T>(
     operationMarker:
       typeof params.detail.operationMarker === "string" ? params.detail.operationMarker : undefined,
   });
-  if (retained == null) return params;
-  return {
+  if (retained == null)
+    return ((pinnedReturn: PublishOnceParams<T> | Promise<PublishOnceParams<T>>) => pinnedReturn)(
+      params,
+    );
+  return ((pinnedReturn: PublishOnceParams<T> | Promise<PublishOnceParams<T>>) => pinnedReturn)({
     ...params,
     operationKey: retained.operationKey,
     detail: { ...params.detail, inputHash: retained.inputHash },
-  };
+  });
 }
 
-function assertFenceAgrees<T>(params: PublishOnceParams<T>): void {
+function assertFenceAgrees<T>(params: PublishOnceParams<T>) {
   const fenceEpoch = params.fence.kind === "lease" ? params.fence.epoch : null;
   if (fenceEpoch !== (params.leaseEpoch ?? null)) {
     throw new Error("publish fence does not match leaseEpoch");
@@ -509,11 +552,13 @@ export function publishOnce<T>(
   requested: PublishOnceParams<T> & { readonly decodeResult: (value: unknown) => T },
 ): Promise<T>;
 export function publishOnce<T>(requested: PublishOnceParams<T>): Promise<unknown>;
-export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<unknown> {
+export async function publishOnce<T>(requested: PublishOnceParams<T>) {
   assertFenceAgrees(requested);
   const params = await withRetainedDescriptionIdentity(requested);
   if (params.delegation == null)
-    return runInOperationIntentFrame(params.operationKey, () => publishOnceBody(params));
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      runInOperationIntentFrame(params.operationKey, () => publishOnceBody(params)),
+    );
   const parent = await (params.store ?? postgresPublishStore).persistOperationIntent(
     params.client,
     {
@@ -545,33 +590,35 @@ export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<u
       detail: { __mutating: false },
     });
   }
-  return runInOperationIntentFrame(params.operationKey, () =>
-    publishOnceBody({
-      ...params,
-      mutate: async () => {
-        const marked = await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(
-          params.client,
-          {
-            workItemId: params.workItemId,
-            operationKey: params.operationKey,
-            leaseEpoch: params.leaseEpoch,
-            detail: { delegationEntered: true },
-          },
-        );
-        if (marked == null)
-          throw new AppError({
-            domain: "operation_intent",
-            kind: "reconcile_no_row",
-            message: "Own verdict delegation marker returned no row",
-            context: { workItemId: params.workItemId },
-          });
-        return params.mutate();
-      },
-    }),
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    runInOperationIntentFrame(params.operationKey, () =>
+      publishOnceBody({
+        ...params,
+        mutate: async () => {
+          const marked = await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(
+            params.client,
+            {
+              workItemId: params.workItemId,
+              operationKey: params.operationKey,
+              leaseEpoch: params.leaseEpoch,
+              detail: { delegationEntered: true },
+            },
+          );
+          if (marked == null)
+            throw new AppError({
+              domain: "operation_intent",
+              kind: "reconcile_no_row",
+              message: "Own verdict delegation marker returned no row",
+              context: { workItemId: params.workItemId },
+            });
+          return params.mutate();
+        },
+      }),
+    ),
   );
 }
 
-async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown> {
+async function publishOnceBody<T>(params: PublishOnceParams<T>) {
   await assertMutationReady(params);
   const intent = await (params.store ?? postgresPublishStore).persistOperationIntent(
     params.client,
@@ -586,7 +633,9 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
   await assertMutationReady(params);
 
   if (hasStashedResult(intent.detail)) {
-    return finishWithStashedResult(params, intent);
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      finishWithStashedResult(params, intent),
+    );
   }
 
   if (intent.status === "outcome_unknown" && intent.detail.unknownResolution === "terminal") {
@@ -595,15 +644,20 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
 
   if (intent.status === "reconciled") {
     const recovered = await recoverByExactEvidence(params, intent, null);
-    if (recovered.found) return recovered.value;
+    if (recovered.found)
+      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
     if (allowsUndefinedSuccess(params)) {
-      return finishVoidSuccess(params, intent, {}, intent.publishRecordId);
+      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+        finishVoidSuccess(params, intent, {}, intent.publishRecordId),
+      );
     }
     throw unknownOutcomeError(params, RECONCILED_REMUTATE_MESSAGE, true);
   }
 
   if (intent.status === "outcome_unknown") {
-    return recoverAfterMutatingWithoutResult(params, intent);
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      recoverAfterMutatingWithoutResult(params, intent),
+    );
   }
 
   const inFlight = await (params.store ?? postgresPublishStore).findInFlightMutatingIntent(
@@ -611,7 +665,9 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
     { workItemId: params.workItemId, operationKey: params.operationKey },
   );
   if (inFlight != null) {
-    return recoverAfterMutatingWithoutResult(params, inFlight);
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      recoverAfterMutatingWithoutResult(params, inFlight),
+    );
   }
 
   await (params.store ?? postgresPublishStore).mergeOperationIntentDetail(params.client, {
@@ -677,7 +733,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
       ...leaseEpochDetail(params),
       detail: resultDetail,
     });
-    return result;
+    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(result);
   } catch (error) {
     if (
       !sendStarted &&
@@ -715,7 +771,8 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<unknown
           detail: params.detail,
         });
         const recovered = await recoverByExactEvidence(params, intentForRecovery, null);
-        if (recovered.found) return recovered.value;
+        if (recovered.found)
+          return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
       }
       await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
         workItemId: params.workItemId,
@@ -761,7 +818,7 @@ async function getLatestCompletedPublishStepDetail(
   resourceKey: string,
   reviewLens: PublishLens,
   step: PublishStep,
-): Promise<Record<string, unknown> | null> {
+) {
   const row = await queryOne<{ detail: Record<string, unknown> | null }>(
     pool,
     `SELECT detail
@@ -774,7 +831,9 @@ async function getLatestCompletedPublishStepDetail(
 		  LIMIT 1`,
     [resourceKey, reviewLens, step],
   );
-  return row?.detail ?? null;
+  return ((
+    pinnedReturn: (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>,
+  ) => pinnedReturn)(row?.detail ?? null);
 }
 
 async function getCompletedPublishStepDetail(
@@ -783,7 +842,7 @@ async function getCompletedPublishStepDetail(
   resourceKey: string,
   reviewLens: PublishLens,
   step: PublishStep,
-): Promise<Record<string, unknown> | null> {
+) {
   const row = await queryOne<{ detail: Record<string, unknown> | null }>(
     pool,
     `SELECT detail
@@ -796,7 +855,9 @@ async function getCompletedPublishStepDetail(
 		  LIMIT 1`,
     [workItemId, resourceKey, reviewLens, step],
   );
-  return row?.detail ?? null;
+  return ((
+    pinnedReturn: (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>,
+  ) => pinnedReturn)(row?.detail ?? null);
 }
 
 async function getCompletedPublishStepDetailWithoutNewerStep(
@@ -805,7 +866,7 @@ async function getCompletedPublishStepDetailWithoutNewerStep(
   reviewLens: PublishLens,
   step: PublishStep,
   newerStep: PublishStep,
-): Promise<Record<string, unknown> | null> {
+) {
   const row = await queryOne<{ detail: Record<string, unknown> | null }>(
     pool,
     `SELECT current_step.detail
@@ -827,7 +888,9 @@ async function getCompletedPublishStepDetailWithoutNewerStep(
       LIMIT 1`,
     [resourceKey, reviewLens, step, newerStep],
   );
-  return row?.detail ?? null;
+  return ((
+    pinnedReturn: (Record<string, unknown> | null) | Promise<Record<string, unknown> | null>,
+  ) => pinnedReturn)(row?.detail ?? null);
 }
 
 async function recordPublishStep(
@@ -841,7 +904,7 @@ async function recordPublishStep(
     detail?: Record<string, unknown>;
     leaseEpoch: number | null;
   },
-): Promise<void> {
+) {
   const detail =
     publishStepSpecs[params.step].merge === "batches" && typeof params.detail?.batchId === "string"
       ? { batches: [params.detail] }
@@ -936,7 +999,7 @@ async function recordAskPublishStep(
     detail?: Record<string, unknown>;
     leaseEpoch: number | null;
   },
-): Promise<void> {
+) {
   await fencedWrite(
     pool,
     params.workItemId,
@@ -1064,7 +1127,7 @@ export function createPublishContext(
   };
   const completed = (step: PublishStep) =>
     records.completed(client, workItemId(), identity.resourceKey, identity.reviewLens, step);
-  const record = async (input?: CompletionRecord): Promise<void> => {
+  const record = async (input?: CompletionRecord) => {
     const value = input ?? identity;
     if (value.step == null)
       throw new AppError({
@@ -1109,7 +1172,7 @@ export function createPublishContext(
         fence: fenceForEpoch(identity.leaseEpoch),
         store: identity.store,
       }),
-    failClosed: async (intent: OperationIntentRow): Promise<never> => {
+    failClosed: async (intent: OperationIntentRow) => {
       const params = {
         client,
         workItemId: workItemId(),
@@ -1159,7 +1222,7 @@ export function createPublishContext(
       readonly result: unknown;
       readonly detail: Record<string, unknown>;
       readonly hasUsableResult: (detail: Record<string, unknown>) => boolean;
-    }): Promise<void> => {
+    }) => {
       const intent = await (identity.store ?? postgresPublishStore).getOperationIntent(
         client,
         workItemId(),

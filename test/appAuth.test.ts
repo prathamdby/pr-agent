@@ -203,13 +203,15 @@ describe("installationOctokit", () => {
     "retains usable scoped auth with unknown access after metadata failure $status",
     async ({ status, message }) => {
       const cfg = makeTestConfig();
-      const lookupInstallation = vi.fn(async (): Promise<unknown> => ({
-        id: 42,
-        app_id: cfg.github.appId,
-        suspended_at: null,
-        repository_selection: "selected",
-        permissions: { contents: "read", pull_requests: "write" },
-      }));
+      const lookupInstallation = vi.fn(async () =>
+        ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)({
+          id: 42,
+          app_id: cfg.github.appId,
+          suspended_at: null,
+          repository_selection: "selected",
+          permissions: { contents: "read", pull_requests: "write" },
+        }),
+      );
       const mintToken = vi.fn(async () => ({
         token: "cached",
         expiresAtTs: Date.now() + 3_600_000,
@@ -242,13 +244,15 @@ describe("installationOctokit", () => {
     { repository_selection: "unexpected" },
   ])("does not turn malformed metadata into denial or mint auth: %j", async (invalid) => {
     const cfg = makeTestConfig();
-    const lookupInstallation = vi.fn(async (): Promise<unknown> => ({
-      id: 42,
-      app_id: cfg.github.appId,
-      suspended_at: null,
-      repository_selection: "selected",
-      permissions: { contents: "read", pull_requests: "write" },
-    }));
+    const lookupInstallation = vi.fn(async () =>
+      ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)({
+        id: 42,
+        app_id: cfg.github.appId,
+        suspended_at: null,
+        repository_selection: "selected",
+        permissions: { contents: "read", pull_requests: "write" },
+      }),
+    );
     const mintToken = vi.fn(async () => ({
       token: "cached",
       expiresAtTs: Date.now() + 3_600_000,
@@ -306,13 +310,15 @@ describe("installationOctokit", () => {
 
   it("uses a still-valid near-expiry cached token for unknown-access managed reads without refreshing", async () => {
     const cfg = makeTestConfig();
-    const lookupInstallation = vi.fn(async (): Promise<unknown> => ({
-      id: 42,
-      app_id: cfg.github.appId,
-      suspended_at: null,
-      repository_selection: "selected",
-      permissions: { contents: "read", pull_requests: "write" },
-    }));
+    const lookupInstallation = vi.fn(async () =>
+      ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)({
+        id: 42,
+        app_id: cfg.github.appId,
+        suspended_at: null,
+        repository_selection: "selected",
+        permissions: { contents: "read", pull_requests: "write" },
+      }),
+    );
     const mintToken = vi.fn(async () => ({
       token: "cached",
       expiresAtTs: Date.now() + 10_000,
@@ -477,11 +483,19 @@ describe("installationOctokit", () => {
       ttlMs: number;
       repositories: string[];
     }) => void;
+    const minted = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
     const mintToken = vi
       .fn()
       .mockImplementationOnce(
         () =>
           new Promise((resolve) => {
+            minted.resolve();
             oldMint = resolve;
           }),
       )
@@ -510,7 +524,7 @@ describe("installationOctokit", () => {
     const failure = adapter
       .preflight({ ...params, signal: controller.signal })
       .catch((error: unknown) => error);
-    await vi.waitFor(() => expect(mintToken).toHaveBeenCalledTimes(1));
+    await minted.promise;
     controller.abort(new Error("cancelled"));
     await failure;
     const newer = await adapter.preflight(params);

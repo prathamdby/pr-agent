@@ -23,14 +23,11 @@ type CircuitRow = {
   last_error_kind: string;
 };
 
-function createMemorySharedCircuitStore(): {
-  poolA: Pool;
-  poolB: Pool;
-} {
+function createMemorySharedCircuitStore() {
   const rows = new Map<number, CircuitRow>();
 
-  function makePool(): Pool {
-    return {
+  function makePool() {
+    return ((pinnedReturn: Pool) => pinnedReturn)({
       query: async (text: string, values: unknown[] = []) => {
         if (text.includes("INSERT INTO github_installation_rate_limit_circuits")) {
           const installationId = Number(values[0]);
@@ -58,10 +55,13 @@ function createMemorySharedCircuitStore(): {
         }
         throw new Error(`unexpected SQL in memory store: ${text.slice(0, 80)}`);
       },
-    } as unknown as Pool;
+    } as unknown as Pool);
   }
 
-  return { poolA: makePool(), poolB: makePool() };
+  return ((pinnedReturn: { poolA: Pool; poolB: Pool }) => pinnedReturn)({
+    poolA: makePool(),
+    poolB: makePool(),
+  });
 }
 
 describe("sharedRateLimitCircuit (cross-client MVP)", () => {
@@ -151,7 +151,16 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
   });
 
   it("best-effort open guards invalid input and swallows write failure", async () => {
-    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    const warned = (() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation((event) => {
+      if (event === "github_shared_rate_limit_circuit_upsert_failed") warned.resolve();
+    });
     const query = vi.fn().mockRejectedValue(new Error("db down"));
     const pool = { query } as unknown as Pool;
 
@@ -169,16 +178,15 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
       installationId: 42,
       lastErrorKind: "primary",
     });
-    await vi.waitFor(() => {
-      expect(logWarn).toHaveBeenCalledWith(
-        "github_shared_rate_limit_circuit_upsert_failed",
-        expect.objectContaining({
-          installationId: 42,
-          kind: "primary",
-          message: "db down",
-        }),
-      );
-    });
+    await warned.promise;
+    expect(logWarn).toHaveBeenCalledWith(
+      "github_shared_rate_limit_circuit_upsert_failed",
+      expect.objectContaining({
+        installationId: 42,
+        kind: "primary",
+        message: "db down",
+      }),
+    );
   });
 
   it("openRunRateLimitCircuit hydrates a run that starts inside an open shared window", async () => {

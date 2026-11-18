@@ -27,21 +27,21 @@ export type AgentEventsContext = {
   readonly attemptCount?: number;
 };
 
-function baseInsertRow(context: AgentEventsContext): Omit<AgentEventInsertRow, "eventKind"> {
-  return {
+function baseInsertRow(context: AgentEventsContext) {
+  return ((pinnedReturn: Omit<AgentEventInsertRow, "eventKind">) => pinnedReturn)({
     workItemId: context.workItemId,
     installationId: context.installationId,
     owner: context.owner,
     repo: context.repo,
     prNumber: context.prNumber,
-  };
+  });
 }
 
 export function lifecycleAuditToInsertRow(
   context: AgentEventsContext,
   record: AgentAuditRecord,
   sessionRole?: AgentSessionRole,
-): AgentEventInsertRow {
+) {
   const detail: Record<string, unknown> = {};
   if (record.sessionId != null) detail.sessionId = record.sessionId;
   if (record.generationId != null) detail.generationId = record.generationId;
@@ -69,7 +69,7 @@ export function lifecycleAuditToInsertRow(
     detail.errorCode = record.failureCode;
   }
 
-  return {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     ...baseInsertRow(context),
     sessionRole: sessionRole ?? record.role,
     eventKind: record.kind,
@@ -81,7 +81,7 @@ export function lifecycleAuditToInsertRow(
     ok: record.ok ?? null,
     failureCode: record.failureCode ?? null,
     detail,
-  };
+  });
 }
 
 export function decisionEventRow(
@@ -105,7 +105,7 @@ export function decisionEventRow(
       readonly note?: string;
     }[];
   },
-): AgentEventInsertRow {
+) {
   const detail: Record<string, unknown> = {
     specialist: params.specialist,
     submittedCount: params.submittedCount,
@@ -119,13 +119,13 @@ export function decisionEventRow(
   if (params.degradedReason != null) detail.degradedReason = params.degradedReason;
   if (params.turnEnd != null) detail.turnEnd = params.turnEnd;
 
-  return {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     ...baseInsertRow(context),
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "decision",
     phase: params.phase ?? "judgment",
     detail,
-  };
+  });
 }
 
 export function publishEventRow(
@@ -140,7 +140,7 @@ export function publishEventRow(
     readonly capDowngraded?: number;
     readonly anchorDropped?: number;
   },
-): AgentEventInsertRow {
+) {
   const detail: Record<string, unknown> = {
     specialist: params.specialist,
     batchId: params.batchId,
@@ -150,13 +150,13 @@ export function publishEventRow(
   if (params.capDowngraded != null) detail.capDowngraded = params.capDowngraded;
   if (params.anchorDropped != null) detail.anchorDropped = params.anchorDropped;
 
-  return {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     ...baseInsertRow(context),
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "publish",
     phase: params.phase ?? "judgment",
     detail,
-  };
+  });
 }
 
 export function checkoutCoverageEventRow(
@@ -168,20 +168,20 @@ export function checkoutCoverageEventRow(
     readonly pathsInCheckout: number;
     readonly truncated: boolean;
   },
-): AgentEventInsertRow {
+) {
   const detail: Record<string, unknown> = {
     coverageMode: params.coverageMode,
     pathsInCheckout: params.pathsInCheckout,
     truncated: params.truncated,
   };
 
-  return {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     ...baseInsertRow(context),
     sessionRole: params.sessionRole ?? "review",
     eventKind: "coverage",
     phase: params.phase ?? "prepare",
     detail,
-  };
+  });
 }
 
 export function evidenceRejectEventRow(
@@ -193,27 +193,27 @@ export function evidenceRejectEventRow(
     readonly rejectedCount: number;
     readonly reasonCode: string;
   },
-): AgentEventInsertRow {
+) {
   const detail: Record<string, unknown> = {
     rejectedCount: params.rejectedCount,
     reasonCode: params.reasonCode,
   };
   if (params.specialist != null) detail.specialist = params.specialist;
 
-  return {
+  return ((pinnedReturn: AgentEventInsertRow) => pinnedReturn)({
     ...baseInsertRow(context),
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "evidence_reject",
     phase: params.phase ?? null,
     detail,
-  };
+  });
 }
 
 export function createDurableLifecycleEventSink(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
-): (event: AgentLifecycleEvent) => void {
-  return (event) => {
+) {
+  return ((pinnedReturn: (event: AgentLifecycleEvent) => void) => pinnedReturn)((event) => {
     const record = agentAuditRecordFromLifecycleEvent(event);
     const row = lifecycleAuditToInsertRow(context, record, event.role);
     safeEmitAgentEvent(context, cfg, row);
@@ -246,10 +246,10 @@ export function createDurableLifecycleEventSink(
         ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
       }),
     );
-  };
+  });
 }
 
-function recordNonGenerationSpan(span: WorkSpan): void {
+function recordNonGenerationSpan(span: WorkSpan) {
   if (span.kind === "llm_generation") return;
   const extra: Record<string, string | number | boolean | null> = {};
   if (span.kind === "publish_span") extra.publish_step = span.publishStep;
@@ -281,7 +281,7 @@ export function emitWorkSpan(
   context: AgentEventsContext | null,
   cfg: Pick<Config, "agentEvents">,
   span: WorkSpan,
-): void {
+) {
   recordNonGenerationSpan(span);
   if (!context) return;
   safeEmitAgentEvent(context, cfg, projectWorkSpanToAgentEventRow(context, span));
@@ -291,7 +291,7 @@ export function safeEmitAgentEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
   row: AgentEventInsertRow,
-): void {
+) {
   try {
     safeAppendAgentEvents(context.pool, cfg, [row]);
   } catch {}
@@ -301,7 +301,7 @@ export function safeEmitDecisionEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof decisionEventRow>[1],
-): void {
+) {
   safeEmitAgentEvent(context, cfg, decisionEventRow(context, params));
 }
 
@@ -312,7 +312,7 @@ export function safeEmitPublishEvent(
     readonly latencyMs: number;
     readonly parentSpanId?: string | null;
   },
-): void {
+) {
   const span = publishSpanFromContext({
     context,
     publishStep: params.batchId,
@@ -337,7 +337,7 @@ export function safeEmitCoverageEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof checkoutCoverageEventRow>[1],
-): void {
+) {
   safeEmitAgentEvent(context, cfg, checkoutCoverageEventRow(context, params));
 }
 
@@ -345,7 +345,7 @@ export function safeEmitEvidenceRejectEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof evidenceRejectEventRow>[1],
-): void {
+) {
   safeEmitAgentEvent(context, cfg, evidenceRejectEventRow(context, params));
 }
 
@@ -361,11 +361,12 @@ export function resolveAgentEventsContext(
     readonly executionId?: string;
     readonly attemptCount?: number;
   },
-): AgentEventsContext | null {
-  if (!sessionContext) return null;
+) {
+  if (!sessionContext) return ((pinnedReturn: AgentEventsContext | null) => pinnedReturn)(null);
   const { owner, repo, prNumber } = sessionContext;
-  if (!owner || !repo || prNumber == null) return null;
-  return {
+  if (!owner || !repo || prNumber == null)
+    return ((pinnedReturn: AgentEventsContext | null) => pinnedReturn)(null);
+  return ((pinnedReturn: AgentEventsContext | null) => pinnedReturn)({
     pool: sessionContext.pool,
     workItemId: sessionContext.workItemId,
     installationId: sessionContext.installationId,
@@ -374,5 +375,5 @@ export function resolveAgentEventsContext(
     prNumber,
     ...(sessionContext.executionId != null ? { executionId: sessionContext.executionId } : {}),
     ...(sessionContext.attemptCount != null ? { attemptCount: sessionContext.attemptCount } : {}),
-  };
+  });
 }

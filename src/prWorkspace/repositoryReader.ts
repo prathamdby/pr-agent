@@ -50,15 +50,15 @@ export function buildCheckoutCoverage(workspace: {
     readonly warning?: string;
   };
   readonly searchTruncated?: boolean;
-}): CheckoutCoverage {
-  return {
+}) {
+  return ((pinnedReturn: CheckoutCoverage) => pinnedReturn)({
     mode: workspace.checkoutMode,
     pathsInCheckout: workspace.checkoutPaths.size,
     changedFileCount: workspace.changedFiles.length,
     changeSetTruncated: workspace.stats.truncated,
     ...(workspace.searchTruncated ? { searchTruncated: true } : {}),
     ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
-  };
+  });
 }
 
 export type LocalPrChangedFile = {
@@ -104,47 +104,67 @@ function classifyPinnedPrDiff(input: {
   readonly patchByPath: ReadonlyMap<string, string>;
   readonly patchOmittedByCapPaths: ReadonlySet<string>;
   readonly truncated: boolean;
-}): WorkspacePathDiff {
+}) {
   const normalized = input.path.replace(/\\/g, "/");
   if (input.changedFileByPath.has(normalized)) {
     if (input.patchOmittedByCapPaths.has(normalized)) {
-      return { availability: "unavailable", reason: "patch_byte_cap", diff: PATCH_BYTE_CAP_DIFF };
+      return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
+        availability: "unavailable",
+        reason: "patch_byte_cap",
+        diff: PATCH_BYTE_CAP_DIFF,
+      });
     }
     const patch = input.patchByPath.get(normalized);
     if (patch == null) {
-      return { availability: "unavailable", reason: "upstream_patch_missing", diff: "" };
+      return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
+        availability: "unavailable",
+        reason: "upstream_patch_missing",
+        diff: "",
+      });
     }
     if (patch.length === 0) {
-      return { availability: "unavailable", reason: "upstream_patch_empty", diff: "" };
+      return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
+        availability: "unavailable",
+        reason: "upstream_patch_empty",
+        diff: "",
+      });
     }
     if (patch.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES) {
-      return {
+      return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
         availability: "available",
         reason: "workspace_diff_byte_cap",
         diff: `${patch.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[diff truncated]`,
-      };
+      });
     }
-    return { availability: "available", reason: null, diff: patch };
+    return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
+      availability: "available",
+      reason: null,
+      diff: patch,
+    });
   }
   const renamed = input.changedFiles.find(
     (file) => file.status === "renamed" && file.oldPath === normalized,
   );
   if (renamed) {
-    return {
+    return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
       availability: "unavailable",
       reason: "rename_previous_path",
       diff: "",
       currentPath: renamed.path,
-    };
+    });
   }
   if (input.truncated) {
-    return { availability: "unavailable", reason: "change_set_truncated", diff: "" };
+    return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
+      availability: "unavailable",
+      reason: "change_set_truncated",
+      diff: "",
+    });
   }
-  return {
+  return ((pinnedReturn: WorkspacePathDiff) => pinnedReturn)({
     availability: "unchanged",
     reason: "absent_from_complete_change_set",
     diff: "",
-  };
+  });
 }
 
 export type PinnedRepositoryReader = RepositoryReader & {
@@ -191,7 +211,7 @@ type GitGrepWorkspaceMatch = {
   readonly text: string;
 };
 
-export function assertWorkspacePath(root: string, requestedPath: string): string {
+export function assertWorkspacePath(root: string, requestedPath: string) {
   const normalized = requestedPath.replace(/\\/g, "/");
   if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
     throw new AppError({
@@ -210,19 +230,16 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
       context: { path: requestedPath },
     });
   }
-  return resolved;
+  return ((pinnedReturn: string) => pinnedReturn)(resolved);
 }
 
-export async function assertContainedWorkspacePath(
-  root: string,
-  requestedPath: string,
-): Promise<string> {
+export async function assertContainedWorkspacePath(root: string, requestedPath: string) {
   const fullPath = assertWorkspacePath(root, requestedPath);
   const entry = await lstat(fullPath).catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
   });
-  if (entry == null) return fullPath;
+  if (entry == null) return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(fullPath);
   if (entry.isSymbolicLink()) {
     throw new AppError({
       domain: "pr_workspace",
@@ -241,7 +258,7 @@ export async function assertContainedWorkspacePath(
       context: { path: requestedPath },
     });
   }
-  return fullPath;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(fullPath);
 }
 
 export type WorkspaceGitOperation = (typeof WORKSPACE_GIT_OPERATIONS)[number] | "other";
@@ -301,7 +318,7 @@ const GIT_MISSING_REF_PATTERN =
 const CREDENTIAL_URL_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]*@/gi;
 const MIN_REDACTED_SECRET_LENGTH = 4;
 
-function workspaceGitOperation(args: readonly string[]): WorkspaceGitOperation {
+function workspaceGitOperation(args: readonly string[]) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] ?? "";
     if (arg === "-c" || arg === "-C") {
@@ -309,47 +326,58 @@ function workspaceGitOperation(args: readonly string[]): WorkspaceGitOperation {
       continue;
     }
     if (arg.startsWith("-")) continue;
-    return WORKSPACE_GIT_OPERATIONS.find((operation) => operation === arg) ?? "other";
+    return ((pinnedReturn: WorkspaceGitOperation) => pinnedReturn)(
+      WORKSPACE_GIT_OPERATIONS.find((operation) => operation === arg) ?? "other",
+    );
   }
-  return "other";
+  return ((pinnedReturn: WorkspaceGitOperation) => pinnedReturn)("other");
 }
 
-function redactGitText(text: string, secrets: readonly string[]): string {
+function redactGitText(text: string, secrets: readonly string[]) {
   let out = text.split("\0").join("");
   for (const secret of [...secrets].toSorted((a, b) => b.length - a.length)) {
     if (secret.length < MIN_REDACTED_SECRET_LENGTH) continue;
     out = out.split(secret).join("[redacted]");
   }
-  return redactOutboundSecrets(out.replace(CREDENTIAL_URL_PATTERN, "$1[redacted]@"));
+  return ((pinnedReturn: string) => pinnedReturn)(
+    redactOutboundSecrets(out.replace(CREDENTIAL_URL_PATTERN, "$1[redacted]@")),
+  );
 }
 
-function completeLines(text: string): string {
+function completeLines(text: string) {
   const end = text.lastIndexOf("\n");
-  return end < 0 ? "" : text.slice(0, end + 1);
+  return ((pinnedReturn: string) => pinnedReturn)(end < 0 ? "" : text.slice(0, end + 1));
 }
 
-function stderrDiagnostic(stderr: string): string {
-  if (stderr.length <= LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS) return stderr.trimEnd();
+function stderrDiagnostic(stderr: string) {
+  if (stderr.length <= LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS)
+    return ((pinnedReturn: string) => pinnedReturn)(stderr.trimEnd());
   const window = stderr.slice(-LOCAL_WORKSPACE_GIT_STDERR_DIAGNOSTIC_CHARS);
   const lineStart = window.indexOf("\n");
-  return (lineStart < 0 ? "" : window.slice(lineStart + 1)).trimEnd();
+  return ((pinnedReturn: string) => pinnedReturn)(
+    (lineStart < 0 ? "" : window.slice(lineStart + 1)).trimEnd(),
+  );
 }
 
-function gitFailureKind(result: GitProcessResult, stderr: string): WorkspaceGitFailureKind {
-  if (result.timedOut) return "timeout";
-  if (result.spawnErrorCode != null || result.outputLimited) return "git";
-  if (GIT_LOW_SPEED_PATTERN.test(stderr)) return "timeout";
-  if (GIT_AUTH_PATTERN.test(stderr)) return "auth";
-  if (GIT_MISSING_REF_PATTERN.test(stderr)) return "missing_ref";
-  return "git";
+function gitFailureKind(result: GitProcessResult, stderr: string) {
+  if (result.timedOut) return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("timeout");
+  if (result.spawnErrorCode != null || result.outputLimited)
+    return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("git");
+  if (GIT_LOW_SPEED_PATTERN.test(stderr))
+    return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("timeout");
+  if (GIT_AUTH_PATTERN.test(stderr))
+    return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("auth");
+  if (GIT_MISSING_REF_PATTERN.test(stderr))
+    return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("missing_ref");
+  return ((pinnedReturn: WorkspaceGitFailureKind) => pinnedReturn)("git");
 }
 
-function gitTimeoutSource(
-  result: GitProcessResult,
-  failureKind: WorkspaceGitFailureKind,
-): WorkspaceGitTimeoutSource | null {
-  if (failureKind !== "timeout") return null;
-  return result.timedOut ? "process_timer" : "git_low_speed";
+function gitTimeoutSource(result: GitProcessResult, failureKind: WorkspaceGitFailureKind) {
+  if (failureKind !== "timeout")
+    return ((pinnedReturn: WorkspaceGitTimeoutSource | null) => pinnedReturn)(null);
+  return ((pinnedReturn: WorkspaceGitTimeoutSource | null) => pinnedReturn)(
+    result.timedOut ? "process_timer" : "git_low_speed",
+  );
 }
 
 function gitDiagnostics(
@@ -357,8 +385,8 @@ function gitDiagnostics(
   operation: WorkspaceGitOperation,
   opts: Pick<WorkspaceGitOptions, "checkoutMode">,
   timeoutSource: WorkspaceGitTimeoutSource | null,
-): WorkspaceGitDiagnostics {
-  return {
+) {
+  return ((pinnedReturn: WorkspaceGitDiagnostics) => pinnedReturn)({
     operation,
     checkoutMode: opts.checkoutMode ?? null,
     elapsedMs: result.elapsedMs,
@@ -366,14 +394,14 @@ function gitDiagnostics(
     signal: result.signal,
     killed: result.killed,
     timeoutSource,
-  };
+  });
 }
 
 function workspaceGitFailure(
   result: GitProcessResult,
   operation: WorkspaceGitOperation,
   opts: Pick<WorkspaceGitOptions, "checkoutMode" | "timeoutMs" | "redactSecrets">,
-): AppError {
+) {
   const rawStderr = result.stderr.toString("utf8");
   const redacted = redactGitText(
     result.stderrLimited ? completeLines(rawStderr) : rawStderr,
@@ -392,19 +420,23 @@ function workspaceGitFailure(
     stderr: stderrDiagnostic(redacted),
   };
   if (result.timedOut && operation === "fetch") {
-    return new AppError({
-      domain: "pr_workspace",
-      kind: "fetch_timeout",
-      message: `git fetch timed out after ${opts.timeoutMs} ms`,
-      context,
-    });
+    return ((pinnedReturn: AppError) => pinnedReturn)(
+      new AppError({
+        domain: "pr_workspace",
+        kind: "fetch_timeout",
+        message: `git fetch timed out after ${opts.timeoutMs} ms`,
+        context,
+      }),
+    );
   }
-  return new AppError({
-    domain: "pr_workspace",
-    kind: "git_failed",
-    message: workspaceGitFailureMessage(operation, result, failureKind, opts.timeoutMs),
-    context,
-  });
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "pr_workspace",
+      kind: "git_failed",
+      message: workspaceGitFailureMessage(operation, result, failureKind, opts.timeoutMs),
+      context,
+    }),
+  );
 }
 
 function workspaceGitFailureMessage(
@@ -412,19 +444,27 @@ function workspaceGitFailureMessage(
   result: GitProcessResult,
   failureKind: WorkspaceGitFailureKind,
   timeoutMs: number,
-): string {
+) {
   if (result.spawnErrorCode != null) {
-    return `git ${operation} could not start (${result.spawnErrorCode})`;
+    return ((pinnedReturn: string) => pinnedReturn)(
+      `git ${operation} could not start (${result.spawnErrorCode})`,
+    );
   }
-  if (result.timedOut) return `git ${operation} timed out after ${timeoutMs} ms`;
-  if (result.outputLimited) return `git ${operation} exceeded its output limit`;
+  if (result.timedOut)
+    return ((pinnedReturn: string) => pinnedReturn)(
+      `git ${operation} timed out after ${timeoutMs} ms`,
+    );
+  if (result.outputLimited)
+    return ((pinnedReturn: string) => pinnedReturn)(`git ${operation} exceeded its output limit`);
   const status =
     result.exitCode != null
       ? `exit code ${result.exitCode}`
       : `signal ${result.signal ?? "unknown"}`;
-  return failureKind === "git"
-    ? `git ${operation} failed with ${status}`
-    : `git ${operation} failed with ${status} (${failureKind})`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    failureKind === "git"
+      ? `git ${operation} failed with ${status}`
+      : `git ${operation} failed with ${status} (${failureKind})`,
+  );
 }
 
 const WORKSPACE_GIT_INHERITED_ENV = [
@@ -451,13 +491,13 @@ const WORKSPACE_GIT_INHERITED_ENV = [
   "no_proxy",
 ] as const;
 
-function workspaceGitEnv(opts: WorkspaceGitOptions): NodeJS.ProcessEnv {
+function workspaceGitEnv(opts: WorkspaceGitOptions) {
   const env: NodeJS.ProcessEnv = {};
   for (const name of WORKSPACE_GIT_INHERITED_ENV) {
     const value = process.env[name];
     if (value !== undefined) env[name] = value;
   }
-  return {
+  return ((pinnedReturn: NodeJS.ProcessEnv) => pinnedReturn)({
     ...env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
@@ -467,64 +507,72 @@ function workspaceGitEnv(opts: WorkspaceGitOptions): NodeJS.ProcessEnv {
     ...(opts.workTree ? { GIT_WORK_TREE: opts.workTree } : {}),
     ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
     ...opts.extraEnv,
-  };
-}
-
-function startWorkspaceGit(
-  args: readonly string[],
-  opts: WorkspaceGitOptions,
-): Promise<GitProcessResult> {
-  return runGitProcess(["-c", "core.hooksPath=/dev/null", ...args], {
-    cwd: opts.processCwd ?? opts.cwd,
-    env: workspaceGitEnv(opts),
-    timeoutMs: opts.timeoutMs,
-    maxBufferBytes: opts.maxBufferBytes ?? LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
-    stdin: opts.stdin,
   });
 }
 
-function isCleanExit(result: GitProcessResult): boolean {
-  return (
-    result.exitCode === 0 &&
-    !result.timedOut &&
-    !result.outputLimited &&
-    result.spawnErrorCode == null &&
-    result.cleanup !== "failed"
+function startWorkspaceGit(args: readonly string[], opts: WorkspaceGitOptions) {
+  return ((pinnedReturn: Promise<GitProcessResult>) => pinnedReturn)(
+    runGitProcess(["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: opts.processCwd ?? opts.cwd,
+      env: workspaceGitEnv(opts),
+      timeoutMs: opts.timeoutMs,
+      maxBufferBytes: opts.maxBufferBytes ?? LOCAL_WORKSPACE_GIT_MAX_BUFFER_BYTES,
+      stdin: opts.stdin,
+    }),
   );
 }
 
-export async function runWorkspaceGit(
-  args: readonly string[],
-  opts: WorkspaceGitOptions,
-): Promise<{
-  stdout: string;
-  stdoutBuffer: Buffer;
-  stderr: string;
-  diagnostics: WorkspaceGitDiagnostics;
-}> {
+function isCleanExit(result: GitProcessResult) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    result.exitCode === 0 &&
+      !result.timedOut &&
+      !result.outputLimited &&
+      result.spawnErrorCode == null &&
+      result.cleanup !== "failed",
+  );
+}
+
+export async function runWorkspaceGit(args: readonly string[], opts: WorkspaceGitOptions) {
   const operation = workspaceGitOperation(args);
   const result = await startWorkspaceGit(args, opts);
   if (!isCleanExit(result)) throw workspaceGitFailure(result, operation, opts);
-  return {
+  return ((
+    pinnedReturn:
+      | {
+          stdout: string;
+          stdoutBuffer: Buffer;
+          stderr: string;
+          diagnostics: WorkspaceGitDiagnostics;
+        }
+      | Promise<{
+          stdout: string;
+          stdoutBuffer: Buffer;
+          stderr: string;
+          diagnostics: WorkspaceGitDiagnostics;
+        }>,
+  ) => pinnedReturn)({
     stdout: result.stdout.toString("utf8"),
     stdoutBuffer: result.stdout,
     stderr: result.stderr.toString("utf8"),
     diagnostics: gitDiagnostics(result, operation, opts, null),
-  };
+  });
 }
 
-export function workspaceGitFailureKind(error: unknown): WorkspaceGitFailureKind | null {
-  if (!isAppError(error)) return null;
+export function workspaceGitFailureKind(error: unknown) {
+  if (!isAppError(error))
+    return ((pinnedReturn: WorkspaceGitFailureKind | null) => pinnedReturn)(null);
   if (error.code !== "pr_workspace.fetch_timeout" && error.code !== "pr_workspace.git_failed") {
-    return null;
+    return ((pinnedReturn: WorkspaceGitFailureKind | null) => pinnedReturn)(null);
   }
   const kind = error.context.failureKind;
-  return kind === "timeout" || kind === "auth" || kind === "missing_ref" || kind === "git"
-    ? kind
-    : "git";
+  return ((pinnedReturn: WorkspaceGitFailureKind | null) => pinnedReturn)(
+    kind === "timeout" || kind === "auth" || kind === "missing_ref" || kind === "git"
+      ? kind
+      : "git",
+  );
 }
 
-function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
+function parseGitGrepOutput(stdout: string) {
   const matches: GitGrepWorkspaceMatch[] = [];
   let offset = 0;
   while (offset < stdout.length) {
@@ -544,11 +592,11 @@ function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
     }
     offset = textEnd < 0 ? stdout.length : textEnd + 1;
   }
-  return matches;
+  return ((pinnedReturn: GitGrepWorkspaceMatch[]) => pinnedReturn)(matches);
 }
 
-function pathspecChunks(paths?: readonly string[]): string[][] {
-  if (paths == null) return [["."]];
+function pathspecChunks(paths?: readonly string[]) {
+  if (paths == null) return ((pinnedReturn: string[][]) => pinnedReturn)([["."]]);
   const chunks: string[][] = [];
   for (let i = 0; i < paths.length; i += LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE) {
     chunks.push(
@@ -557,14 +605,14 @@ function pathspecChunks(paths?: readonly string[]): string[][] {
         .map((path) => `:(literal)${path}`),
     );
   }
-  return chunks;
+  return ((pinnedReturn: string[][]) => pinnedReturn)(chunks);
 }
 
 async function gitGrepWorkspaceChunk(
   workspace: { readonly privateGitDir: string; readonly agentCwd: string },
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
   pathspecs: readonly string[],
-): Promise<GitGrepChunkResult> {
+) {
   const args = ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs];
   const opts: WorkspaceGitOptions = {
     cwd: workspace.privateGitDir,
@@ -577,11 +625,11 @@ async function gitGrepWorkspaceChunk(
   const result = await startWorkspaceGit(args, opts);
   if (isCleanExit(result)) {
     const stdout = result.stdout.toString("utf8");
-    return {
+    return ((pinnedReturn: GitGrepChunkResult | Promise<GitGrepChunkResult>) => pinnedReturn)({
       matches: parseGitGrepOutput(stdout),
       truncated: false,
       stdoutBytes: result.stdout.length,
-    };
+    });
   }
   if (
     result.exitCode === 1 &&
@@ -590,7 +638,11 @@ async function gitGrepWorkspaceChunk(
     result.spawnErrorCode == null &&
     result.stderr.length === 0
   ) {
-    return { matches: [], truncated: false, stdoutBytes: 0 };
+    return ((pinnedReturn: GitGrepChunkResult | Promise<GitGrepChunkResult>) => pinnedReturn)({
+      matches: [],
+      truncated: false,
+      stdoutBytes: 0,
+    });
   }
   if (
     result.outputLimited &&
@@ -598,11 +650,11 @@ async function gitGrepWorkspaceChunk(
     result.cleanup !== "failed" &&
     !result.stderrLimited
   ) {
-    return {
+    return ((pinnedReturn: GitGrepChunkResult | Promise<GitGrepChunkResult>) => pinnedReturn)({
       matches: parseGitGrepOutput(result.stdout.toString("utf8")),
       truncated: true,
       stdoutBytes: result.stdout.length,
-    };
+    });
   }
   throw workspaceGitFailure(result, "grep", opts);
 }
@@ -610,8 +662,10 @@ async function gitGrepWorkspaceChunk(
 export async function gitGrepWorkspace(
   workspace: { readonly privateGitDir: string; readonly agentCwd: string },
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
-): Promise<GitGrepWorkspaceResult> {
-  if (params.paths?.length === 0) return { matches: [], truncated: false };
+) {
+  if (params.paths?.length === 0)
+    return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) =>
+      pinnedReturn)({ matches: [], truncated: false });
   const matches: GitGrepWorkspaceMatch[] = [];
   let truncated = false;
   let outputBytes = 0;
@@ -634,7 +688,9 @@ export async function gitGrepWorkspace(
       break;
     }
   }
-  return { matches, truncated };
+  return ((pinnedReturn: GitGrepWorkspaceResult | Promise<GitGrepWorkspaceResult>) => pinnedReturn)(
+    { matches, truncated },
+  );
 }
 
 export function createPinnedRepositoryReader(params: {
@@ -651,7 +707,7 @@ export function createPinnedRepositoryReader(params: {
   readonly patchByPath: ReadonlyMap<string, string>;
   readonly patchOmittedByCapPaths: ReadonlySet<string>;
   readonly symbolIndex: SymbolIndex | null;
-}): { readonly reader: PinnedRepositoryReader; readonly dispose: () => void } {
+}) {
   const {
     agentCwd,
     privateGitDir,
@@ -676,44 +732,49 @@ export function createPinnedRepositoryReader(params: {
     });
   const blameCache = new Map<string, Promise<string>>();
 
-  function isPathInCheckout(path: string): boolean {
-    return checkoutPaths.has(path.replace(/\\/g, "/"));
+  function isPathInCheckout(path: string) {
+    return ((pinnedReturn: boolean) => pinnedReturn)(checkoutPaths.has(path.replace(/\\/g, "/")));
   }
 
-  function getCoverage(): CheckoutCoverage {
-    return buildCheckoutCoverage({
-      checkoutMode,
-      checkoutPaths,
-      changedFiles,
-      stats: {
+  function getCoverage() {
+    return ((pinnedReturn: CheckoutCoverage) => pinnedReturn)(
+      buildCheckoutCoverage({
+        checkoutMode,
+        checkoutPaths,
+        changedFiles,
+        stats: {
+          truncated: stats.truncated,
+          warning: stats.warning,
+        },
+      }),
+    );
+  }
+
+  async function getDiffForPath(path: string) {
+    return ((pinnedReturn: WorkspacePathDiff | Promise<WorkspacePathDiff>) => pinnedReturn)(
+      classifyPinnedPrDiff({
+        path,
+        changedFileByPath,
+        changedFiles,
+        patchByPath,
+        patchOmittedByCapPaths,
         truncated: stats.truncated,
-        warning: stats.warning,
-      },
-    });
+      }),
+    );
   }
 
-  async function getDiffForPath(path: string): Promise<WorkspacePathDiff> {
-    return classifyPinnedPrDiff({
-      path,
-      changedFileByPath,
-      changedFiles,
-      patchByPath,
-      patchOmittedByCapPaths,
-      truncated: stats.truncated,
-    });
-  }
-
-  async function getBlameForPath(path: string): Promise<string> {
+  async function getBlameForPath(path: string) {
     const normalized = path.replace(/\\/g, "/");
     const changed = changedFileByPath.get(normalized);
     if (changed?.status === "deleted") {
-      return "";
+      return ((pinnedReturn: string | Promise<string>) => pinnedReturn)("");
     }
     if (!isPathInCheckout(normalized)) {
-      return "";
+      return ((pinnedReturn: string | Promise<string>) => pinnedReturn)("");
     }
     const cached = blameCache.get(normalized);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined)
+      return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(cached);
     const pending = (async () => {
       const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
       return stdout.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
@@ -722,7 +783,7 @@ export function createPinnedRepositoryReader(params: {
     })();
     blameCache.set(normalized, pending);
     try {
-      return await pending;
+      return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(await pending);
     } catch (error) {
       if (blameCache.get(normalized) === pending) blameCache.delete(normalized);
       throw error;
@@ -764,14 +825,17 @@ export function createPinnedRepositoryReader(params: {
     lookupSymbol,
     getSymbolIndexStatus,
   };
-  return {
+  return ((pinnedReturn: {
+    readonly reader: PinnedRepositoryReader;
+    readonly dispose: () => void;
+  }) => pinnedReturn)({
     reader,
     dispose: () => {
       symbolIndex = null;
       blameCache.clear();
       fffSearch.dispose();
     },
-  };
+  });
 }
 
 export type RepositoryReader = {
@@ -791,42 +855,45 @@ export type RepositoryReader = {
   readonly getDiffForPath: (path: string) => Promise<WorkspacePathDiff>;
 };
 
-export async function readRepositorySource(
-  root: string,
-  path: string,
-  maxFileBytes: number,
-): Promise<string | null> {
+export async function readRepositorySource(root: string, path: string, maxFileBytes: number) {
   const safePath = assertWorkspacePath(root, path.replace(/\\/g, "/"));
   const info = await stat(safePath).catch(() => null);
-  if (!info?.isFile() || info.size > maxFileBytes) return null;
+  if (!info?.isFile() || info.size > maxFileBytes)
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   const buf = await readFile(safePath).catch(() => null);
-  if (!buf || buf.subarray(0, Math.min(buf.length, 8192)).includes(0)) return null;
-  return buf.toString("utf8");
+  if (!buf || buf.subarray(0, Math.min(buf.length, 8192)).includes(0))
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
+  return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
+    buf.toString("utf8"),
+  );
 }
 
-function filesystemReader(
-  root: string,
-): Pick<RepositoryReader, "readSource" | "readFile" | "refuseFile"> {
-  return {
+function filesystemReader(root: string) {
+  return ((pinnedReturn: Pick<RepositoryReader, "readSource" | "readFile" | "refuseFile">) =>
+    pinnedReturn)({
     readSource: (path, maxFileBytes) => readRepositorySource(root, path, maxFileBytes),
     readFile: async (path, policy, opts) =>
       readBudgetedWorkspaceTextFile(await policy.resolveRead(path), opts),
     refuseFile: async (path, policy, maxFileBytes) =>
       refuseWorkspaceTextFileRead(await policy.resolveRead(path), maxFileBytes),
-  };
+  });
 }
 
-function workspaceGitOptions(root: string): WorkspaceGitOptions {
-  return { cwd: root, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS };
+function workspaceGitOptions(root: string) {
+  return ((pinnedReturn: WorkspaceGitOptions) => pinnedReturn)({
+    cwd: root,
+    timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  });
 }
 
-async function untrackedFileDiff(root: string, rel: string): Promise<string | null> {
+async function untrackedFileDiff(root: string, rel: string) {
   const status = await runWorkspaceGit(
     ["status", "--porcelain", "-z", "--untracked-files=all", "--", rel],
     workspaceGitOptions(root),
   );
   const untracked = status.stdout.split("\0").some((entry) => entry === `?? ${rel}`);
-  if (!untracked) return null;
+  if (!untracked)
+    return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(null);
   const result = await startWorkspaceGit(
     ["diff", "--no-index", "--", "/dev/null", rel],
     workspaceGitOptions(root),
@@ -838,11 +905,13 @@ async function untrackedFileDiff(root: string, rel: string): Promise<string | nu
     result.cleanup !== "failed" &&
     (result.exitCode === 0 || result.exitCode === 1);
   if (!usable) throw workspaceGitFailure(result, "diff", workspaceGitOptions(root));
-  return result.stdout.toString("utf8");
+  return ((pinnedReturn: (string | null) | Promise<string | null>) => pinnedReturn)(
+    result.stdout.toString("utf8"),
+  );
 }
 
-export function createWritableRepositoryReader(root: string): RepositoryReader {
-  return {
+export function createWritableRepositoryReader(root: string) {
+  return ((pinnedReturn: RepositoryReader) => pinnedReturn)({
     ...filesystemReader(root),
     agentCwd: root,
     grepLiteral: (params) =>
@@ -866,7 +935,7 @@ export function createWritableRepositoryReader(root: string): RepositoryReader {
       }
       return { availability: "unchanged", reason: "matches_head", diff: "" };
     },
-  };
+  });
 }
 
 export type PathPolicy = {

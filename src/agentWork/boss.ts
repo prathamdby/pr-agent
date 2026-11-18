@@ -40,8 +40,8 @@ const RETIRED_CI_REFRESH_QUEUE = "agent-work-ci-refresh";
 const RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 const RETIRED_CODE_INDEX_BUILD_QUEUE = "code-index-build";
 
-function queueDefaults(cfg: QueueConfig): QueueOptions {
-  return {
+function queueDefaults(cfg: QueueConfig) {
+  return ((pinnedReturn: QueueOptions) => pinnedReturn)({
     retryLimit: cfg.queue.retryLimit,
     retryDelay: cfg.queue.retryDelaySeconds,
     retryBackoff: true,
@@ -50,41 +50,43 @@ function queueDefaults(cfg: QueueConfig): QueueOptions {
     heartbeatSeconds: cfg.queue.heartbeatSeconds,
     retentionSeconds: cfg.queue.retentionSeconds,
     deleteAfterSeconds: cfg.queue.deleteAfterSeconds,
-  };
+  });
 }
 
-export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
+export function bossConstructorOptions(cfg: BossConfig) {
   const workerOwnsMaintenance = cfg.runtime.role === "worker";
-  return {
+  return ((pinnedReturn: ConstructorOptions) => pinnedReturn)({
     connectionString: cfg.runtime.databaseUrl,
     application_name: "pr-agent",
     max: workerOwnsMaintenance ? PG_BOSS_POOL_MAX_WORKER : PG_BOSS_POOL_MAX_WEB,
     schedule: workerOwnsMaintenance,
     supervise: workerOwnsMaintenance,
-  };
+  });
 }
 
-export function createPgBossEventGate(
-  windowMs: number,
-): (key: string, now?: number) => number | null {
+export function createPgBossEventGate(windowMs: number) {
   const windows = new Map<string, { windowStart: number; repeats: number }>();
-  return (key, now = Date.now()) => {
-    const window = windows.get(key);
-    if (window == null || now - window.windowStart >= windowMs) {
-      const previousRepeats = window?.repeats ?? 0;
-      windows.set(key, { windowStart: now, repeats: 0 });
-      return previousRepeats;
-    }
-    window.repeats += 1;
-    return null;
-  };
+  return ((pinnedReturn: (key: string, now?: number) => number | null) => pinnedReturn)(
+    (key, now = Date.now()) => {
+      const window = windows.get(key);
+      if (window == null || now - window.windowStart >= windowMs) {
+        const previousRepeats = window?.repeats ?? 0;
+        windows.set(key, { windowStart: now, repeats: 0 });
+        return previousRepeats;
+      }
+      window.repeats += 1;
+      return null;
+    },
+  );
 }
 
-function pgBossEventKey(error: { message: string; code?: unknown }): string {
-  return typeof error.code === "string" && error.code.length > 0 ? error.code : error.message;
+function pgBossEventKey(error: { message: string; code?: unknown }) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    typeof error.code === "string" && error.code.length > 0 ? error.code : error.message,
+  );
 }
 
-export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
+export async function createStartedBoss(cfg: BossConfig) {
   const boss = new PgBoss(bossConstructorOptions(cfg));
   const eventGate = createPgBossEventGate(PG_BOSS_EVENT_LOG_WINDOW_MS);
   boss.on("error", (error) => {
@@ -103,10 +105,10 @@ export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
     await boss.stop({ close: true, graceful: false, timeout: 1_000 }).catch(() => undefined);
     throw error;
   }
-  return boss;
+  return ((pinnedReturn: PgBoss | Promise<PgBoss>) => pinnedReturn)(boss);
 }
 
-export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise<void> {
+export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig) {
   const defaults = queueDefaults(cfg);
   const dlq: QueueOptions = {
     retryLimit: 0,
@@ -148,17 +150,17 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   await ensureJobNameSingletonKeyIndex(boss);
 }
 
-function isDuplicateRelationError(error: unknown): boolean {
-  return (
+function isDuplicateRelationError(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code === "42P07"
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      error.code === "42P07",
   );
 }
 
-async function ensureJobNameSingletonKeyIndex(boss: Pick<PgBoss, "getDb">): Promise<void> {
+async function ensureJobNameSingletonKeyIndex(boss: Pick<PgBoss, "getDb">) {
   try {
     await boss.getDb().executeSql(
       `CREATE INDEX IF NOT EXISTS job_name_singleton_key_idx
@@ -182,11 +184,13 @@ function retiredQueueLiveCount(
       }
     | null
     | undefined,
-): number {
-  return (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + (stats?.deferredCount ?? 0);
+) {
+  return ((pinnedReturn: number) => pinnedReturn)(
+    (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + (stats?.deferredCount ?? 0),
+  );
 }
 
-export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Promise<void> {
+export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss) {
   for (const name of [RETIRED_CI_REFRESH_QUEUE, RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE]) {
     try {
       const queue = await boss.getQueue(name);
@@ -208,7 +212,7 @@ export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Pro
   }
 }
 
-export async function retireCodeIndexBuildQueue(boss: RetiredQueueBoss): Promise<void> {
+export async function retireCodeIndexBuildQueue(boss: RetiredQueueBoss) {
   const name = RETIRED_CODE_INDEX_BUILD_QUEUE;
   try {
     const queue = await boss.getQueue(name);
@@ -221,6 +225,6 @@ export async function retireCodeIndexBuildQueue(boss: RetiredQueueBoss): Promise
   }
 }
 
-export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
+export async function stopBoss(boss: PgBoss, drainTimeoutMs: number) {
   await boss.stop({ close: true, graceful: true, timeout: drainTimeoutMs });
 }

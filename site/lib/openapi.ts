@@ -27,7 +27,7 @@ function plainTextResponse(description: string) {
   };
 }
 
-export function renderOpenApiDocument(): Record<string, unknown> {
+export function renderOpenApiDocument() {
   const queryParameter = {
     name: "query",
     in: "query",
@@ -45,7 +45,7 @@ export function renderOpenApiDocument(): Record<string, unknown> {
     schema: { type: "string" },
   };
 
-  return {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     openapi: "3.1.0",
     info: {
       title: "PR Agent site API",
@@ -331,5 +331,5 @@ export function renderOpenApiDocument(): Record<string, unknown> {
       mediaType: resource.mediaType,
       description: resource.description,
     })),
-  };
+  });
 }

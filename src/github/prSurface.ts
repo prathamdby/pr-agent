@@ -38,13 +38,13 @@ export { createFakePrSurface } from "./fakePrSurface.ts";
 export type { FakePrSurfaceControls, FakePrSurfaceEvent } from "./fakePrSurface.ts";
 export { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.ts";
 
-export function createPrSurface(params: FencedPrSurfaceParams): PrSurface {
+export function createPrSurface(params: FencedPrSurfaceParams) {
   const mutationBoundary = isUnfencedSurface(params.mutationBoundary)
     ? undefined
     : params.mutationBoundary;
   const { mutationBoundary: _fence, ...rest } = params;
   const surface = createPrSurfaceImpl(rest);
-  return mutationBoundary == null
-    ? surface
-    : withPrSurfaceMutationBoundary(surface, mutationBoundary);
+  return ((pinnedReturn: PrSurface) => pinnedReturn)(
+    mutationBoundary == null ? surface : withPrSurfaceMutationBoundary(surface, mutationBoundary),
+  );
 }

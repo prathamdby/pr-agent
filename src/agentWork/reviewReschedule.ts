@@ -36,28 +36,34 @@ type ReviewRescheduleWorkItem = {
   readonly headSha: string;
 };
 
-export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
-  return isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable";
+export function isStaleHeadParentNotReschedulable(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable",
+  );
 }
 
-export function isStaleHeadReplacementExhausted(error: unknown): boolean {
-  return isAppError(error) && error.code === "review.stale_head_replacement_exhausted";
+export function isStaleHeadReplacementExhausted(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isAppError(error) && error.code === "review.stale_head_replacement_exhausted",
+  );
 }
 
-export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
-  return new AppError({
-    domain: "review",
-    kind: "stale_head_replacement_exhausted",
-    message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
-    context: { workItemId: item.id, resourceKey: item.resourceKey },
-  });
+export function staleHeadReplacementExhaustedError(item: ReviewWorkItem) {
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      domain: "review",
+      kind: "stale_head_replacement_exhausted",
+      message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+      context: { workItemId: item.id, resourceKey: item.resourceKey },
+    }),
+  );
 }
 
 export async function cancelPendingStaleHeadReplacement(
   pool: Pool,
   parent: ReviewWorkItem,
   error: unknown,
-): Promise<void> {
+) {
   let replacementWorkItemId: string | undefined;
   try {
     const current = await getWorkItem(pool, parent.id);
@@ -93,13 +99,14 @@ export async function buildStaleReviewRescheduleResult(
   item: ReviewWorkItem,
   leaseEpoch: number,
   boss: PgBoss,
-): Promise<StaleReviewRescheduleResult> {
+) {
   const replacement = await createReviewRescheduleWorkItem(pool, item, leaseEpoch, boss);
-  return {
+  return ((pinnedReturn: StaleReviewRescheduleResult | Promise<StaleReviewRescheduleResult>) =>
+    pinnedReturn)({
     kind: "rescheduled",
     replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async () => {},
-  };
+  });
 }
 
 export async function tryBuildStaleReviewRescheduleResult(
@@ -107,11 +114,20 @@ export async function tryBuildStaleReviewRescheduleResult(
   item: ReviewWorkItem,
   leaseEpoch: number,
   boss: PgBoss,
-): Promise<StaleReviewRescheduleResult | null> {
+) {
   try {
-    return await buildStaleReviewRescheduleResult(pool, item, leaseEpoch, boss);
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(await buildStaleReviewRescheduleResult(pool, item, leaseEpoch, boss));
   } catch (error) {
-    if (isStaleHeadParentNotReschedulable(error)) return null;
+    if (isStaleHeadParentNotReschedulable(error))
+      return ((
+        pinnedReturn:
+          | (StaleReviewRescheduleResult | null)
+          | Promise<StaleReviewRescheduleResult | null>,
+      ) => pinnedReturn)(null);
     throw error;
   }
 }
@@ -121,50 +137,52 @@ export async function createReviewRescheduleWorkItem(
   item: ReviewWorkItem,
   leaseEpoch: number,
   boss?: PgBoss,
-): Promise<ReviewRescheduleWorkItem> {
-  return inTransaction(pool, async (client) => {
-    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
-    const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
-    if (lifecycle?.state === "closed" || lifecycle?.state === "merged") {
-      throw new AppError({
-        domain: "agent_work",
-        kind: "stale_head_parent_not_reschedulable",
-        message: `Pull request is ${lifecycle.state}; stale-head replacement is not permitted`,
-        context: { workItemId: item.id, resourceKey: item.resourceKey },
-      });
-    }
-    await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
-    const parentLive = await client.query<{ id: string }>(
-      `SELECT id FROM agent_work_items
+) {
+  return ((pinnedReturn: ReviewRescheduleWorkItem | Promise<ReviewRescheduleWorkItem>) =>
+    pinnedReturn)(
+    inTransaction(pool, async (client) => {
+      await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
+      const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
+      if (lifecycle?.state === "closed" || lifecycle?.state === "merged") {
+        throw new AppError({
+          domain: "agent_work",
+          kind: "stale_head_parent_not_reschedulable",
+          message: `Pull request is ${lifecycle.state}; stale-head replacement is not permitted`,
+          context: { workItemId: item.id, resourceKey: item.resourceKey },
+        });
+      }
+      await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
+      const parentLive = await client.query<{ id: string }>(
+        `SELECT id FROM agent_work_items
         WHERE id = $1
           AND status = 'running'
           AND cancel_requested_at IS NULL
         FOR UPDATE`,
-      [item.id],
-    );
-    if ((parentLive.rowCount ?? 0) === 0) {
-      throw new AppError({
-        domain: "agent_work",
-        kind: "stale_head_parent_not_reschedulable",
-        message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
-        context: { workItemId: item.id },
-      });
-    }
+        [item.id],
+      );
+      if ((parentLive.rowCount ?? 0) === 0) {
+        throw new AppError({
+          domain: "agent_work",
+          kind: "stale_head_parent_not_reschedulable",
+          message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
+          context: { workItemId: item.id },
+        });
+      }
 
-    const payload = item.payload;
-    const reviewLens = item.reviewLens;
-    let replacementWorkItemId = payload.staleHeadReplacement?.replacementWorkItemId;
+      const payload = item.payload;
+      const reviewLens = item.reviewLens;
+      let replacementWorkItemId = payload.staleHeadReplacement?.replacementWorkItemId;
 
-    if (!replacementWorkItemId) {
-      replacementWorkItemId = crypto.randomUUID();
-      const marker = JSON.stringify({
-        staleHeadReplacement: {
-          replacementWorkItemId,
-          state: "pending-enqueue",
-        } satisfies StaleHeadReplacement,
-      });
-      const updateResult = await client.query<{ replacement_id: string }>(
-        `UPDATE agent_work_items
+      if (!replacementWorkItemId) {
+        replacementWorkItemId = crypto.randomUUID();
+        const marker = JSON.stringify({
+          staleHeadReplacement: {
+            replacementWorkItemId,
+            state: "pending-enqueue",
+          } satisfies StaleHeadReplacement,
+        });
+        const updateResult = await client.query<{ replacement_id: string }>(
+          `UPDATE agent_work_items
          SET payload = (payload
                - 'staleHeadReplacementWorkItemId'
                - 'staleHeadReplacementEnqueued')
@@ -173,37 +191,37 @@ export async function createReviewRescheduleWorkItem(
        WHERE id = $1
          AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NULL
        RETURNING ${STALE_HEAD_REPLACEMENT_ID_SQL} AS replacement_id`,
-        [item.id, marker],
-      );
-      if ((updateResult.rowCount ?? 0) === 0) {
-        const refreshed = await getWorkItem(client, item.id);
-        const persistedId =
-          refreshed?.type === "review"
-            ? refreshed.payload.staleHeadReplacement?.replacementWorkItemId
-            : undefined;
-        if (!persistedId) {
-          throw new AppError({
-            domain: "agent_work",
-            kind: "stale_head_marker_persist_failed",
-            message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
-            context: { workItemId: item.id },
-          });
+          [item.id, marker],
+        );
+        if ((updateResult.rowCount ?? 0) === 0) {
+          const refreshed = await getWorkItem(client, item.id);
+          const persistedId =
+            refreshed?.type === "review"
+              ? refreshed.payload.staleHeadReplacement?.replacementWorkItemId
+              : undefined;
+          if (!persistedId) {
+            throw new AppError({
+              domain: "agent_work",
+              kind: "stale_head_marker_persist_failed",
+              message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
+              context: { workItemId: item.id },
+            });
+          }
+          replacementWorkItemId = persistedId;
+        } else {
+          replacementWorkItemId = updateResult.rows[0].replacement_id;
         }
-        replacementWorkItemId = persistedId;
-      } else {
-        replacementWorkItemId = updateResult.rows[0].replacement_id;
       }
-    }
 
-    const { staleHeadReplacement: _parentReplacement, ...replacementBase } = payload;
-    const nextPayload: ReviewWorkPayload = {
-      ...replacementBase,
-      source: item.source,
-      staleHeadRescheduled: true,
-    };
+      const { staleHeadReplacement: _parentReplacement, ...replacementBase } = payload;
+      const nextPayload: ReviewWorkPayload = {
+        ...replacementBase,
+        source: item.source,
+        staleHeadRescheduled: true,
+      };
 
-    const insertResult = await client.query<{ head_sha: string }>(
-      `INSERT INTO agent_work_items (
+      const insertResult = await client.query<{ head_sha: string }>(
+        `INSERT INTO agent_work_items (
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
@@ -212,42 +230,43 @@ export async function createReviewRescheduleWorkItem(
        payload = EXCLUDED.payload || agent_work_items.payload,
        updated_at = now()
      RETURNING head_sha`,
-      [
-        replacementWorkItemId,
-        item.webhookEventId,
-        item.source,
-        item.owner,
-        item.repo,
-        item.prNumber,
-        item.installationId,
-        DEFERRED_HEAD_SHA,
+        [
+          replacementWorkItemId,
+          item.webhookEventId,
+          item.source,
+          item.owner,
+          item.repo,
+          item.prNumber,
+          item.installationId,
+          DEFERRED_HEAD_SHA,
+          reviewLens,
+          item.resourceKey,
+          JSON.stringify(nextPayload),
+        ],
+      );
+      await transferProgressCommentOwnership(client, {
+        workItemId: replacementWorkItemId,
+        resourceKey: item.resourceKey,
         reviewLens,
-        item.resourceKey,
-        JSON.stringify(nextPayload),
-      ],
-    );
-    await transferProgressCommentOwnership(client, {
-      workItemId: replacementWorkItemId,
-      resourceKey: item.resourceKey,
-      reviewLens,
-    });
-    const headSha = insertResult.rows[0].head_sha;
-    if (boss) {
-      await writeReviewRescheduleJobs(client, boss, item, replacementWorkItemId, headSha);
-    }
+      });
+      const headSha = insertResult.rows[0].head_sha;
+      if (boss) {
+        await writeReviewRescheduleJobs(client, boss, item, replacementWorkItemId, headSha);
+      }
 
-    return {
-      replacementWorkItemId,
-      headSha,
-    };
-  });
+      return {
+        replacementWorkItemId,
+        headSha,
+      };
+    }),
+  );
 }
 
 async function markStaleHeadReplacementEnqueued(
   client: PoolClient,
   parentId: string,
   replacementWorkItemId: string,
-): Promise<void> {
+) {
   const enqueued: StaleHeadReplacement = {
     replacementWorkItemId,
     state: "enqueued",
@@ -271,7 +290,7 @@ async function ensureDeterministicJob(
   data: ReviewJobData | AckJobData,
   options: Parameters<PgBoss["send"]>[2],
   db: ReturnType<typeof pgBossDb>,
-): Promise<void> {
+) {
   const workItemId = data.workItemId;
   const existing = await boss.findJobs(queue, { db, id: workItemId });
   if (existing.length > 0) return;
@@ -293,7 +312,7 @@ async function writeReviewRescheduleJobs(
   item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
-): Promise<void> {
+) {
   const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
   const db = pgBossDb(client);
@@ -346,7 +365,7 @@ export async function enqueueReviewReschedule(
   workItemId: string,
   replacementHeadSha: string,
   leaseEpoch: number,
-): Promise<void> {
+) {
   const reviewLens = item.reviewLens;
 
   await inTransaction(pool, async (client) => {
@@ -368,21 +387,21 @@ export async function enqueueReviewReschedule(
 
 const PUSH_FOLLOW_UP_ID_SQL = `payload->'pushFollowUp'->>'replacementWorkItemId'`;
 
-function pushFollowUpChildPayload(payload: ReviewWorkPayload): ReviewWorkPayload {
+function pushFollowUpChildPayload(payload: ReviewWorkPayload) {
   const {
     pushFollowUp: _followUp,
     staleHeadReplacement: _replacement,
     staleHeadRescheduled: _stale,
     ...rest
   } = payload;
-  return { ...rest, source: "auto" };
+  return ((pinnedReturn: ReviewWorkPayload) => pinnedReturn)({ ...rest, source: "auto" });
 }
 
 export async function cancelPendingPushFollowUp(
   pool: Pool,
   parent: ReviewWorkItem,
   error: unknown,
-): Promise<void> {
+) {
   let replacementWorkItemId: string | undefined;
   try {
     const current = await getWorkItem(pool, parent.id);
@@ -422,17 +441,52 @@ export async function schedulePushFollowUp(args: {
   readonly leaseEpoch: number | null;
   readonly pullRequestClosed: boolean;
   readonly boss: PgBoss;
-}): Promise<StaleReviewRescheduleResult | null> {
-  if (args.reviewCadence !== "every_push") return null;
-  if (args.payload.source !== "slash") return null;
-  if (args.payload.staleHeadReplacement != null) return null;
+}) {
+  if (args.reviewCadence !== "every_push")
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
+  if (args.payload.source !== "slash")
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
+  if (args.payload.staleHeadReplacement != null)
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
   const leaseEpoch = args.leaseEpoch;
-  if (leaseEpoch == null) return null;
-  if (args.pullRequestClosed) return null;
+  if (leaseEpoch == null)
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
+  if (args.pullRequestClosed)
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
   const liveHeadSha = await args.prSurface.getHeadSha();
-  if (liveHeadSha === args.boundHeadSha) return null;
+  if (liveHeadSha === args.boundHeadSha)
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
   const created = await createPushFollowUpWorkItem(args.pool, args.item, leaseEpoch, args.boss);
-  if (created == null) return null;
+  if (created == null)
+    return ((
+      pinnedReturn:
+        | (StaleReviewRescheduleResult | null)
+        | Promise<StaleReviewRescheduleResult | null>,
+    ) => pinnedReturn)(null);
   logInfo("review_push_follow_up_scheduled", {
     owner: args.item.owner,
     repo: args.item.repo,
@@ -443,11 +497,15 @@ export async function schedulePushFollowUp(args: {
     previousHeadSha: args.item.headSha,
     replacementHeadSha: DEFERRED_HEAD_SHA,
   });
-  return {
+  return ((
+    pinnedReturn:
+      | (StaleReviewRescheduleResult | null)
+      | Promise<StaleReviewRescheduleResult | null>,
+  ) => pinnedReturn)({
     kind: "rescheduled",
     replacementWorkItemId: created.replacementWorkItemId,
     afterComplete: async () => {},
-  };
+  });
 }
 
 async function createPushFollowUpWorkItem(
@@ -455,100 +513,112 @@ async function createPushFollowUpWorkItem(
   item: ReviewWorkItem,
   leaseEpoch: number,
   boss: PgBoss,
-): Promise<{ replacementWorkItemId: string; webhookEventId: string } | null> {
-  return inTransaction(pool, async (client) => {
-    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
-    const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
-    if (lifecycle?.state === "closed" || lifecycle?.state === "merged") return null;
-    try {
-      await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
-    } catch (error) {
-      if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") return null;
-      throw error;
-    }
-    const parent = await client.query<{ payload: unknown }>(
-      `SELECT payload FROM agent_work_items
+) {
+  return ((
+    pinnedReturn:
+      | ({ replacementWorkItemId: string; webhookEventId: string } | null)
+      | Promise<{ replacementWorkItemId: string; webhookEventId: string } | null>,
+  ) => pinnedReturn)(
+    inTransaction(pool, async (client) => {
+      await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
+      const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
+      if (lifecycle?.state === "closed" || lifecycle?.state === "merged") return null;
+      try {
+        await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
+      } catch (error) {
+        if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") return null;
+        throw error;
+      }
+      const parent = await client.query<{ payload: unknown }>(
+        `SELECT payload FROM agent_work_items
         WHERE id = $1
           AND status = 'running'
           AND cancel_requested_at IS NULL
         FOR UPDATE`,
-      [item.id],
-    );
-    if ((parent.rowCount ?? 0) === 0) return null;
-    const payload = parseWorkItemPayload("review", parent.rows[0].payload);
-    if (payload.source !== "slash" || payload.staleHeadReplacement != null) return null;
-    const followUp = payload.pushFollowUp;
-    if (followUp == null) return null;
-    if (followUp.state === "enqueued" && followUp.replacementWorkItemId != null) {
-      return {
-        replacementWorkItemId: followUp.replacementWorkItemId,
-        webhookEventId: followUp.webhookEventId,
-      };
-    }
-
-    let replacementWorkItemId = followUp.replacementWorkItemId;
-    if (!replacementWorkItemId) {
-      replacementWorkItemId = crypto.randomUUID();
-      const marker = JSON.stringify({
-        pushFollowUp: {
+        [item.id],
+      );
+      if ((parent.rowCount ?? 0) === 0) return null;
+      const payload = parseWorkItemPayload("review", parent.rows[0].payload);
+      if (payload.source !== "slash" || payload.staleHeadReplacement != null) return null;
+      const followUp = payload.pushFollowUp;
+      if (followUp == null) return null;
+      if (followUp.state === "enqueued" && followUp.replacementWorkItemId != null) {
+        return {
+          replacementWorkItemId: followUp.replacementWorkItemId,
           webhookEventId: followUp.webhookEventId,
-          replacementWorkItemId,
-          state: "pending-enqueue",
-        } satisfies PushFollowUp,
-      });
-      const updateResult = await client.query<{ replacement_id: string }>(
-        `UPDATE agent_work_items
+        };
+      }
+
+      let replacementWorkItemId = followUp.replacementWorkItemId;
+      if (!replacementWorkItemId) {
+        replacementWorkItemId = crypto.randomUUID();
+        const marker = JSON.stringify({
+          pushFollowUp: {
+            webhookEventId: followUp.webhookEventId,
+            replacementWorkItemId,
+            state: "pending-enqueue",
+          } satisfies PushFollowUp,
+        });
+        const updateResult = await client.query<{ replacement_id: string }>(
+          `UPDATE agent_work_items
             SET payload = payload || $2::jsonb, updated_at = now()
           WHERE id = $1
             AND ${PUSH_FOLLOW_UP_ID_SQL} IS NULL
         RETURNING ${PUSH_FOLLOW_UP_ID_SQL} AS replacement_id`,
-        [item.id, marker],
-      );
-      if ((updateResult.rowCount ?? 0) === 0) {
-        const refreshed = await getWorkItem(client, item.id);
-        const persistedId =
-          refreshed?.type === "review"
-            ? refreshed.payload.pushFollowUp?.replacementWorkItemId
-            : undefined;
-        if (!persistedId) return null;
-        replacementWorkItemId = persistedId;
-      } else {
-        replacementWorkItemId = updateResult.rows[0].replacement_id;
+          [item.id, marker],
+        );
+        if ((updateResult.rowCount ?? 0) === 0) {
+          const refreshed = await getWorkItem(client, item.id);
+          const persistedId =
+            refreshed?.type === "review"
+              ? refreshed.payload.pushFollowUp?.replacementWorkItemId
+              : undefined;
+          if (!persistedId) return null;
+          replacementWorkItemId = persistedId;
+        } else {
+          replacementWorkItemId = updateResult.rows[0].replacement_id;
+        }
       }
-    }
 
-    const childPayload = pushFollowUpChildPayload(payload);
-    const inserted = await client.query<{ id: string }>(
-      `INSERT INTO agent_work_items (
+      const childPayload = pushFollowUpChildPayload(payload);
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO agent_work_items (
          id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, priority, payload
        )
        VALUES ($1, $2, 'review', 'auto', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
        ON CONFLICT (id) DO NOTHING
        RETURNING id`,
-      [
+        [
+          replacementWorkItemId,
+          followUp.webhookEventId,
+          item.owner,
+          item.repo,
+          item.prNumber,
+          item.installationId,
+          DEFERRED_HEAD_SHA,
+          item.reviewLens,
+          item.resourceKey,
+          JSON.stringify(childPayload),
+        ],
+      );
+      if ((inserted.rowCount ?? 0) > 0) {
+        await transferProgressCommentOwnership(client, {
+          workItemId: replacementWorkItemId,
+          resourceKey: item.resourceKey,
+          reviewLens: item.reviewLens,
+        });
+      }
+      await writePushFollowUpJobs(
+        client,
+        boss,
+        item,
         replacementWorkItemId,
         followUp.webhookEventId,
-        item.owner,
-        item.repo,
-        item.prNumber,
-        item.installationId,
-        DEFERRED_HEAD_SHA,
-        item.reviewLens,
-        item.resourceKey,
-        JSON.stringify(childPayload),
-      ],
-    );
-    if ((inserted.rowCount ?? 0) > 0) {
-      await transferProgressCommentOwnership(client, {
-        workItemId: replacementWorkItemId,
-        resourceKey: item.resourceKey,
-        reviewLens: item.reviewLens,
-      });
-    }
-    await writePushFollowUpJobs(client, boss, item, replacementWorkItemId, followUp.webhookEventId);
-    return { replacementWorkItemId, webhookEventId: followUp.webhookEventId };
-  });
+      );
+      return { replacementWorkItemId, webhookEventId: followUp.webhookEventId };
+    }),
+  );
 }
 
 async function markPushFollowUpEnqueued(
@@ -556,7 +626,7 @@ async function markPushFollowUpEnqueued(
   parentId: string,
   replacementWorkItemId: string,
   webhookEventId: string,
-): Promise<void> {
+) {
   const enqueued: PushFollowUp = {
     webhookEventId,
     replacementWorkItemId,
@@ -577,7 +647,7 @@ async function writePushFollowUpJobs(
   item: ReviewWorkItem,
   workItemId: string,
   webhookEventId: string,
-): Promise<void> {
+) {
   const reviewLens = item.reviewLens;
   const db = pgBossDb(client);
   const reviewData: ReviewJobData = {

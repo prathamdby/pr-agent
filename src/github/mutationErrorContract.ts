@@ -2,28 +2,29 @@ import { httpStatus } from "./httpStatus.ts";
 import { isAppError } from "../errors/appError.ts";
 import { isProvenInlineAnchorRejection } from "./githubErrors.ts";
 
-export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
-  if (isProvenInlineAnchorRejection(error)) return true;
+export function isKnownNoAcceptanceMutationError(error: unknown) {
+  if (isProvenInlineAnchorRejection(error)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
   if (
     isAppError(error) &&
     error.code === "github.review_thread_resolution_denied" &&
     error.context.mutationAccepted === false
   ) {
-    return true;
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
-  if (typeof error !== "object" || error == null) return false;
+  if (typeof error !== "object" || error == null)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   if (
     ("accepted" in error && error.accepted === false) ||
     ("mutationAccepted" in error && error.mutationAccepted === false)
   )
-    return true;
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   const response: unknown = "response" in error ? error.response : undefined;
   if (typeof response === "object" && response != null) {
     if (
       ("accepted" in response && response.accepted === false) ||
       ("mutationAccepted" in response && response.mutationAccepted === false)
     ) {
-      return true;
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
     }
     const data: unknown = "data" in response ? response.data : undefined;
     if (typeof data === "object" && data != null) {
@@ -31,9 +32,11 @@ export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
         ("accepted" in data && data.accepted === false) ||
         ("mutationAccepted" in data && data.mutationAccepted === false)
       )
-        return true;
+        return ((pinnedReturn: boolean) => pinnedReturn)(true);
     }
   }
   const status = httpStatus(error);
-  return status === 400 || status === 401 || status === 403 || status === 404;
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    status === 400 || status === 401 || status === 403 || status === 404,
+  );
 }

@@ -20,9 +20,11 @@ export type CiSourceAvailability = {
   readonly statuses: CiSourceAvailabilityState;
 };
 
-export function ciSourcesComplete(availability: CiSourceAvailability): boolean {
-  return [availability.checks, availability.statuses].every(
-    (source) => source.access === "available" && !source.listingRequired,
+export function ciSourcesComplete(availability: CiSourceAvailability) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    [availability.checks, availability.statuses].every(
+      (source) => source.access === "available" && !source.listingRequired,
+    ),
   );
 }
 
@@ -88,9 +90,12 @@ export type OwnCheckIdentity = {
 export function isOwnCiCheck(
   identity: OwnCheckIdentity,
   fact: Pick<CiCheckFact, "app_id" | "external_id">,
-): boolean {
-  if (fact.app_id != null && String(fact.app_id) === identity.githubAppId) return true;
-  return identity.workItemId != null && fact.external_id === identity.workItemId;
+) {
+  if (fact.app_id != null && String(fact.app_id) === identity.githubAppId)
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    identity.workItemId != null && fact.external_id === identity.workItemId,
+  );
 }
 
 export const FAILING_CHECK_CONCLUSIONS = new Set([
@@ -114,35 +119,37 @@ export const PENDING_LEGACY_STATES = new Set(["pending"]);
 
 const SNAPSHOT_OBSERVED_AT = "1970-01-01T00:00:00.000Z";
 
-export function isCheckFactFailing(fact: CiCheckFact): boolean {
-  if (fact.source === "status") return FAILING_LEGACY_STATES.has(fact.status);
-  return (
+export function isCheckFactFailing(fact: CiCheckFact) {
+  if (fact.source === "status")
+    return ((pinnedReturn: boolean) => pinnedReturn)(FAILING_LEGACY_STATES.has(fact.status));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     fact.status === "completed" &&
-    fact.conclusion != null &&
-    FAILING_CHECK_CONCLUSIONS.has(fact.conclusion)
+      fact.conclusion != null &&
+      FAILING_CHECK_CONCLUSIONS.has(fact.conclusion),
   );
 }
 
-export function isCheckFactPending(fact: CiCheckFact): boolean {
-  if (fact.source === "status") return PENDING_LEGACY_STATES.has(fact.status);
-  return (
+export function isCheckFactPending(fact: CiCheckFact) {
+  if (fact.source === "status")
+    return ((pinnedReturn: boolean) => pinnedReturn)(PENDING_LEGACY_STATES.has(fact.status));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     fact.status !== "completed" &&
-    (PENDING_CHECK_STATUSES.has(fact.status) || fact.conclusion == null)
+      (PENDING_CHECK_STATUSES.has(fact.status) || fact.conclusion == null),
   );
 }
 
-export function classifySnapshot(facts: readonly CiCheckFact[]): CiRollup {
-  if (facts.length === 0) return "none";
-  if (facts.some(isCheckFactFailing)) return "failing";
-  if (facts.some(isCheckFactPending)) return "pending";
-  return "passing";
+export function classifySnapshot(facts: readonly CiCheckFact[]) {
+  if (facts.length === 0) return ((pinnedReturn: CiRollup) => pinnedReturn)("none");
+  if (facts.some(isCheckFactFailing)) return ((pinnedReturn: CiRollup) => pinnedReturn)("failing");
+  if (facts.some(isCheckFactPending)) return ((pinnedReturn: CiRollup) => pinnedReturn)("pending");
+  return ((pinnedReturn: CiRollup) => pinnedReturn)("passing");
 }
 
 export function checkRunSnapshotToFact(
   run: CiCheckRunSnapshot,
   observedAt: string = SNAPSHOT_OBSERVED_AT,
-): CiCheckFact {
-  return {
+) {
+  return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
     name: run.name,
     source: "check_run",
     status: run.status,
@@ -152,14 +159,14 @@ export function checkRunSnapshotToFact(
     app_id: run.appId ?? null,
     check_run_id: run.id,
     observed_at: observedAt,
-  };
+  });
 }
 
 export function legacyStatusToFact(
   status: CiLegacyStatus,
   observedAt: string = SNAPSHOT_OBSERVED_AT,
-): CiCheckFact {
-  return {
+) {
+  return ((pinnedReturn: CiCheckFact) => pinnedReturn)({
     name: status.context,
     source: "status",
     status: status.state,
@@ -169,40 +176,42 @@ export function legacyStatusToFact(
     app_id: null,
     check_run_id: null,
     observed_at: observedAt,
-  };
+  });
 }
 
 export function classifyGithubSnapshot(
   checks: readonly CiCheckRunSnapshot[],
   statuses: readonly CiLegacyStatus[],
-): CiRollup {
-  return classifySnapshot([
-    ...checks.map((run) => checkRunSnapshotToFact(run)),
-    ...statuses.map((status) => legacyStatusToFact(status)),
-  ]);
+) {
+  return ((pinnedReturn: CiRollup) => pinnedReturn)(
+    classifySnapshot([
+      ...checks.map((run) => checkRunSnapshotToFact(run)),
+      ...statuses.map((status) => legacyStatusToFact(status)),
+    ]),
+  );
 }
 
-export function observedAtFromGithub(...candidates: Array<string | null | undefined>): string {
+export function observedAtFromGithub(...candidates: Array<string | null | undefined>) {
   for (const value of candidates) {
     if (value != null && value.length > 0 && !Number.isNaN(Date.parse(value))) {
-      return new Date(value).toISOString();
+      return ((pinnedReturn: string) => pinnedReturn)(new Date(value).toISOString());
     }
   }
-  return new Date().toISOString();
+  return ((pinnedReturn: string) => pinnedReturn)(new Date().toISOString());
 }
 
 export function applyCiCheckFact(
   current: Readonly<Record<string, CiCheckFact>>,
   incoming: CiCheckFact,
   maxChecks: number,
-): {
-  readonly checks: Record<string, CiCheckFact>;
-  readonly accepted: boolean;
-  readonly truncated: boolean;
-} {
+) {
   const existing = current[incoming.name];
   if (existing != null && existing.observed_at >= incoming.observed_at) {
-    return { checks: { ...current }, accepted: false, truncated: false };
+    return ((pinnedReturn: {
+      readonly checks: Record<string, CiCheckFact>;
+      readonly accepted: boolean;
+      readonly truncated: boolean;
+    }) => pinnedReturn)({ checks: { ...current }, accepted: false, truncated: false });
   }
   const next: Record<string, CiCheckFact> = { ...current, [incoming.name]: incoming };
   let truncated = false;
@@ -220,41 +229,43 @@ export function applyCiCheckFact(
     if (evict == null) break;
     delete next[evict];
   }
-  return { checks: next, accepted: true, truncated };
+  return ((pinnedReturn: {
+    readonly checks: Record<string, CiCheckFact>;
+    readonly accepted: boolean;
+    readonly truncated: boolean;
+  }) => pinnedReturn)({ checks: next, accepted: true, truncated });
 }
 
 export function coerceRollupForIncompleteListing(
   rollup: CiRollup,
   checkRunsComplete: boolean | undefined,
-): CiRollup {
+) {
   if (checkRunsComplete === false && (rollup === "none" || rollup === "passing")) {
-    return "unknown";
+    return ((pinnedReturn: CiRollup) => pinnedReturn)("unknown");
   }
-  return rollup;
+  return ((pinnedReturn: CiRollup) => pinnedReturn)(rollup);
 }
 
-export function isMaterialCiFactChange(
-  previous: CiCheckFact | undefined,
-  next: CiCheckFact,
-): boolean {
-  if (previous == null) return true;
-  return (
+export function isMaterialCiFactChange(previous: CiCheckFact | undefined, next: CiCheckFact) {
+  if (previous == null) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     previous.status !== next.status ||
-    previous.conclusion !== next.conclusion ||
-    previous.check_run_id !== next.check_run_id
+      previous.conclusion !== next.conclusion ||
+      previous.check_run_id !== next.check_run_id,
   );
 }
 
 export function pickSnapshotFactForName(
   facts: readonly CiCheckFact[],
   stored: CiCheckFact | undefined,
-): CiCheckFact | undefined {
-  if (facts.length === 0) return undefined;
+) {
+  if (facts.length === 0)
+    return ((pinnedReturn: CiCheckFact | undefined) => pinnedReturn)(undefined);
   if (stored?.check_run_id != null && isCheckFactPending(stored)) {
     const match = facts.find((fact) => fact.check_run_id === stored.check_run_id);
-    if (match != null) return match;
+    if (match != null) return ((pinnedReturn: CiCheckFact | undefined) => pinnedReturn)(match);
   }
-  return facts[facts.length - 1];
+  return ((pinnedReturn: CiCheckFact | undefined) => pinnedReturn)(facts[facts.length - 1]);
 }
 
 export type GithubSnapshotObservation = "epoch" | "github";
@@ -264,7 +275,7 @@ export function buildCiFactsFromGithubSnapshot(
   legacyStatuses: readonly CiLegacyStatus[],
   identity: OwnCheckIdentity,
   observation: GithubSnapshotObservation,
-): CiCheckFact[] {
+) {
   const facts: CiCheckFact[] = [];
   for (const run of checkRuns) {
     const observedAt =
@@ -283,7 +294,7 @@ export function buildCiFactsFromGithubSnapshot(
         : SNAPSHOT_OBSERVED_AT;
     facts.push(legacyStatusToFact(status, observedAt));
   }
-  return facts;
+  return ((pinnedReturn: CiCheckFact[]) => pinnedReturn)(facts);
 }
 
 export type GithubSnapshotMergeMode = "initial-seed" | "pending-refresh";
@@ -297,12 +308,7 @@ export function mergeGithubSnapshotIntoChecks(input: {
   readonly checkRunsComplete?: boolean;
   readonly maxChecks: number;
   readonly mode: GithubSnapshotMergeMode;
-}): {
-  readonly checks: Record<string, CiCheckFact>;
-  readonly truncated: boolean;
-  readonly rollup: CiRollup;
-  readonly materialChange: boolean;
-} {
+}) {
   const facts = buildCiFactsFromGithubSnapshot(
     input.checkRuns,
     input.legacyStatuses,
@@ -340,7 +346,12 @@ export function mergeGithubSnapshotIntoChecks(input: {
     }
   }
 
-  return {
+  return ((pinnedReturn: {
+    readonly checks: Record<string, CiCheckFact>;
+    readonly truncated: boolean;
+    readonly rollup: CiRollup;
+    readonly materialChange: boolean;
+  }) => pinnedReturn)({
     checks,
     truncated,
     rollup: coerceRollupForIncompleteListing(
@@ -348,27 +359,29 @@ export function mergeGithubSnapshotIntoChecks(input: {
       input.checkRunsComplete,
     ),
     materialChange,
-  };
+  });
 }
 
-function isCheckFailing(run: CiCheckRunSnapshot): boolean {
-  return isCheckFactFailing(checkRunSnapshotToFact(run));
+function isCheckFailing(run: CiCheckRunSnapshot) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(isCheckFactFailing(checkRunSnapshotToFact(run)));
 }
 
-function isLegacyFailing(status: CiLegacyStatus): boolean {
-  return isCheckFactFailing(legacyStatusToFact(status));
+function isLegacyFailing(status: CiLegacyStatus) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(isCheckFactFailing(legacyStatusToFact(status)));
 }
 
-function unavailableSummary(headline: string): CiSummary {
-  return {
+function unavailableSummary(headline: string) {
+  return ((pinnedReturn: CiSummary) => pinnedReturn)({
     status: "unavailable",
     headline,
     failures: [],
-  };
+  });
 }
 
-function withPartialCiView(headline: string): string {
-  return headline.includes("(partial CI view)") ? headline : `${headline} (partial CI view)`;
+function withPartialCiView(headline: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    headline.includes("(partial CI view)") ? headline : `${headline} (partial CI view)`,
+  );
 }
 
 export function summarizeCiSnapshot(params: {
@@ -378,7 +391,7 @@ export function summarizeCiSnapshot(params: {
   readonly checkRunsComplete?: boolean;
   readonly legacyStatusesComplete?: boolean;
   readonly sourceAvailability?: CiSourceAvailability;
-}): CiSummary {
+}) {
   const state = classifyGithubSnapshot(params.checks, params.statuses);
   const unavailableSources =
     params.sourceAvailability == null
@@ -402,33 +415,33 @@ export function summarizeCiSnapshot(params: {
     params.legacyStatusesComplete === false ||
     unavailableSources.length > 0;
   if (incomplete && (state === "none" || state === "passing")) {
-    return {
+    return ((pinnedReturn: CiSummary) => pinnedReturn)({
       ...unavailableSummary(REVIEW_CI_SUMMARY_INCOMPLETE),
       ...(permissionNote != null ? { permissionNote } : {}),
-    };
+    });
   }
   switch (state) {
     case "none":
-      return {
+      return ((pinnedReturn: CiSummary) => pinnedReturn)({
         status: "none",
         headline: "No CI checks on this head",
         failures: [],
         ...(permissionNote != null ? { permissionNote } : {}),
-      };
+      });
     case "pending":
-      return {
+      return ((pinnedReturn: CiSummary) => pinnedReturn)({
         status: "pending",
         headline: incomplete ? withPartialCiView("⏳ CI still running") : "⏳ CI still running",
         failures: [],
         ...(permissionNote != null ? { permissionNote } : {}),
-      };
+      });
     case "passing":
-      return {
+      return ((pinnedReturn: CiSummary) => pinnedReturn)({
         status: "passing",
         headline: "✅ All CI is passing",
         failures: [],
         ...(permissionNote != null ? { permissionNote } : {}),
-      };
+      });
     case "failing": {
       const failures = params.failures ?? [];
       const failingNames = [
@@ -439,23 +452,23 @@ export function summarizeCiSnapshot(params: {
       const nameList = uniqueNames.slice(0, 3).join(", ");
       const more = uniqueNames.length > 3 ? ` (+${uniqueNames.length - 3} more)` : "";
       const headline = `❌ CI failing — ${nameList}${more}`;
-      return {
+      return ((pinnedReturn: CiSummary) => pinnedReturn)({
         status: "failing",
         headline: incomplete ? withPartialCiView(headline) : headline,
         failures,
         ...(permissionNote != null ? { permissionNote } : {}),
-      };
+      });
     }
     case "unknown":
-      return {
+      return ((pinnedReturn: CiSummary) => pinnedReturn)({
         status: "unavailable",
         headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
         failures: [],
         ...(permissionNote != null ? { permissionNote } : {}),
-      };
+      });
     default: {
       const exhaustive: never = state;
-      return exhaustive;
+      return ((pinnedReturn: CiSummary) => pinnedReturn)(exhaustive);
     }
   }
 }
@@ -466,7 +479,7 @@ export function summarizeCiFacts(
     readonly checkRunsComplete?: boolean;
     readonly sourceAvailability?: CiSourceAvailability;
   },
-): CiSummary {
+) {
   const checkRuns: CiCheckRunSnapshot[] = [];
   const statuses: CiLegacyStatus[] = [];
   for (const fact of Object.values(checks)) {
@@ -491,12 +504,14 @@ export function summarizeCiFacts(
       });
     }
   }
-  return summarizeCiSnapshot({
-    checks: checkRuns,
-    statuses,
-    checkRunsComplete: options?.checkRunsComplete,
-    sourceAvailability: options?.sourceAvailability,
-  });
+  return ((pinnedReturn: CiSummary) => pinnedReturn)(
+    summarizeCiSnapshot({
+      checks: checkRuns,
+      statuses,
+      checkRunsComplete: options?.checkRunsComplete,
+      sourceAvailability: options?.sourceAvailability,
+    }),
+  );
 }
 
 export type CiAuthoredCache = {
@@ -522,16 +537,20 @@ const authoredSchema = v.object({
   authoredAt: v.pipe(v.string(), v.minLength(1)),
 });
 
-export function hashCiFacts(checks: Readonly<Record<string, CiCheckFact>>): string {
+export function hashCiFacts(checks: Readonly<Record<string, CiCheckFact>>) {
   const lines = Object.values(checks)
     .map((fact) => [fact.name, fact.source, fact.status, fact.conclusion ?? ""].join("\0"))
     .toSorted();
-  return createHash("sha256").update(lines.join("\n")).digest("hex");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    createHash("sha256").update(lines.join("\n")).digest("hex"),
+  );
 }
 
-export function parseCiAuthoredCache(value: unknown): CiAuthoredCache | null {
+export function parseCiAuthoredCache(value: unknown) {
   const parsed = v.safeParse(authoredSchema, value);
-  return parsed.success ? parsed.output : null;
+  return ((pinnedReturn: CiAuthoredCache | null) => pinnedReturn)(
+    parsed.success ? parsed.output : null,
+  );
 }
 
 export const WAITING_FOR_CI_SUMMARY: CiSummary = {
@@ -545,8 +564,8 @@ export type RenderableHeadCi = {
   readonly version: number;
 };
 
-export function headCiFactsAreComplete(rollup: CiRollup): boolean {
-  return rollup !== "unknown";
+export function headCiFactsAreComplete(rollup: CiRollup) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(rollup !== "unknown");
 }
 
 export function ciSummaryFromFacts(
@@ -557,11 +576,11 @@ export function ciSummaryFromFacts(
     readonly checkRunsComplete?: boolean;
     readonly sourceAvailability?: CiSourceAvailability;
   },
-): RenderableHeadCi {
+) {
   const facts = summarizeCiFacts(checks, options);
   const cache = parseCiAuthoredCache(authored);
   if (facts.status === "failing" && cache != null && cache.factsHash === hashCiFacts(checks)) {
-    return {
+    return ((pinnedReturn: RenderableHeadCi) => pinnedReturn)({
       summary: {
         status: "failing",
         headline: facts.headline.includes("(partial CI view)")
@@ -575,11 +594,14 @@ export function ciSummaryFromFacts(
             : {}),
       },
       version,
-    };
+    });
   }
-  return { summary: facts, version };
+  return ((pinnedReturn: RenderableHeadCi) => pinnedReturn)({ summary: facts, version });
 }
 
-export function waitingCiSummary(version = 0): RenderableHeadCi {
-  return { summary: WAITING_FOR_CI_SUMMARY, version };
+export function waitingCiSummary(version = 0) {
+  return ((pinnedReturn: RenderableHeadCi) => pinnedReturn)({
+    summary: WAITING_FOR_CI_SUMMARY,
+    version,
+  });
 }

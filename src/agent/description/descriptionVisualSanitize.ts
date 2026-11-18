@@ -7,64 +7,73 @@ import {
 
 const FENCE_BREAKER_RE = /```/g;
 
-export function fenceLanguageForVisual(visual: DescriptionVisual): string {
+export function fenceLanguageForVisual(visual: DescriptionVisual) {
   switch (visual.kind) {
     case "pseudocode":
     case "call_tree":
     case "file_tree":
-      return "text";
+      return ((pinnedReturn: string) => pinnedReturn)("text");
     case "component_tree":
-      return visual.language === "ts" ? "ts" : "tsx";
+      return ((pinnedReturn: string) => pinnedReturn)(visual.language === "ts" ? "ts" : "tsx");
     case "mermaid":
-      return "mermaid";
+      return ((pinnedReturn: string) => pinnedReturn)("mermaid");
     case "diff":
-      return "diff";
+      return ((pinnedReturn: string) => pinnedReturn)("diff");
     case "full_block":
-      return visual.language ?? "text";
+      return ((pinnedReturn: string) => pinnedReturn)(visual.language ?? "text");
     default: {
       const unreachable: never = visual.kind;
-      return unreachable;
+      return ((pinnedReturn: string) => pinnedReturn)(unreachable);
     }
   }
 }
 
-export function isMermaidVisual(visual: DescriptionVisual): boolean {
-  return visual.kind === "mermaid" || fenceLanguageForVisual(visual) === "mermaid";
+export function isMermaidVisual(visual: DescriptionVisual) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    visual.kind === "mermaid" || fenceLanguageForVisual(visual) === "mermaid",
+  );
 }
 
-export function stripOuterMarkdownFence(content: string): string {
+export function stripOuterMarkdownFence(content: string) {
   const trimmed = content.trim();
-  if (!trimmed.startsWith("```")) return trimmed;
+  if (!trimmed.startsWith("```")) return ((pinnedReturn: string) => pinnedReturn)(trimmed);
   const newline = trimmed.indexOf("\n");
   if (newline < 0) {
-    return trimmed.replace(/^```\w*/, "").trim();
+    return ((pinnedReturn: string) => pinnedReturn)(trimmed.replace(/^```\w*/, "").trim());
   }
   let body = trimmed.slice(newline + 1);
   if (body.trimEnd().endsWith("```")) {
     body = body.replace(/\n?```\s*$/, "");
   }
-  return body.trim();
+  return ((pinnedReturn: string) => pinnedReturn)(body.trim());
 }
 
-function escapeFenceBreakers(text: string): string {
-  return text.replace(FENCE_BREAKER_RE, "\\`\\`\\`");
+function escapeFenceBreakers(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.replace(FENCE_BREAKER_RE, "\\`\\`\\`"));
 }
 
-export function sanitizeDescriptionVisual(visual: DescriptionVisual): DescriptionVisual {
+export function sanitizeDescriptionVisual(visual: DescriptionVisual) {
   const stripped = stripOuterMarkdownFence(visual.content);
   if (isMermaidVisual(visual)) {
     const fence = ["```mermaid", stripped, "```"].join("\n");
     const sanitizedFence = sanitizeMermaidDiagram(fence);
     const body = extractMermaidDiagramBody(sanitizedFence || fence);
-    return { ...visual, content: body, language: "mermaid" };
+    return ((pinnedReturn: DescriptionVisual) => pinnedReturn)({
+      ...visual,
+      content: body,
+      language: "mermaid",
+    });
   }
-  return { ...visual, content: escapeFenceBreakers(stripped) };
+  return ((pinnedReturn: DescriptionVisual) => pinnedReturn)({
+    ...visual,
+    content: escapeFenceBreakers(stripped),
+  });
 }
 
-export function renderDescriptionVisual(visual: DescriptionVisual): string {
+export function renderDescriptionVisual(visual: DescriptionVisual) {
   const language = fenceLanguageForVisual(visual);
   const body = escapeFenceBreakers(stripOuterMarkdownFence(visual.content));
-  return ["```" + language, body, "```"].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(["```" + language, body, "```"].join("\n"));
 }
 
 export type DescriptionVisualValidationError = {
@@ -72,9 +81,7 @@ export type DescriptionVisualValidationError = {
   readonly message: string;
 };
 
-export function validateDescriptionVisuals(
-  visuals: readonly DescriptionVisual[],
-): DescriptionVisualValidationError[] {
+export function validateDescriptionVisuals(visuals: readonly DescriptionVisual[]) {
   const issues: DescriptionVisualValidationError[] = [];
   visuals.forEach((visual, index) => {
     if (!visual.content.trim()) {
@@ -93,26 +100,28 @@ export function validateDescriptionVisuals(
       }
     }
   });
-  return issues;
+  return ((pinnedReturn: DescriptionVisualValidationError[]) => pinnedReturn)(issues);
 }
 
 export function formatDescriptionVisualValidationError(
   issues: readonly DescriptionVisualValidationError[],
-): string {
+) {
   const lines = issues.map((issue) => `- ${issue.message}`);
-  return [
-    "visuals validation failed:",
-    ...lines,
-    "",
-    "Repair the reported visuals. Omit visuals only when the inspected diff has no sketchable shape.",
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "visuals validation failed:",
+      ...lines,
+      "",
+      "Repair the reported visuals. Omit visuals only when the inspected diff has no sketchable shape.",
+    ].join("\n"),
+  );
 }
 
-export function enforceDescriptionVisualPayload(payload: DescriptionPayload): DescriptionPayload {
+export function enforceDescriptionVisualPayload(payload: DescriptionPayload) {
   const raw = payload.visuals;
   if (!raw || raw.length === 0) {
     const { visuals: _removed, ...rest } = payload;
-    return rest;
+    return ((pinnedReturn: DescriptionPayload) => pinnedReturn)(rest);
   }
 
   const sanitized = raw
@@ -121,8 +130,8 @@ export function enforceDescriptionVisualPayload(payload: DescriptionPayload): De
 
   if (sanitized.length === 0) {
     const { visuals: _removed, ...rest } = payload;
-    return rest;
+    return ((pinnedReturn: DescriptionPayload) => pinnedReturn)(rest);
   }
 
-  return { ...payload, visuals: sanitized };
+  return ((pinnedReturn: DescriptionPayload) => pinnedReturn)({ ...payload, visuals: sanitized });
 }

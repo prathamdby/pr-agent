@@ -36,8 +36,8 @@ export type WorkspaceCheckoutProperties = Readonly<
 export function succeededFetchAttempt(
   checkoutMode: LocalPrWorkspaceCheckoutMode,
   diagnostics: WorkspaceGitDiagnostics,
-): WorkspaceFetchAttempt {
-  return {
+) {
+  return ((pinnedReturn: WorkspaceFetchAttempt) => pinnedReturn)({
     checkoutMode,
     outcome: "succeeded",
     errorCode: null,
@@ -48,35 +48,38 @@ export function succeededFetchAttempt(
     killed: diagnostics.killed,
     elapsedMs: diagnostics.elapsedMs,
     stderr: null,
-  };
+  });
 }
 
-function contextString(context: Record<string, unknown>, key: string): string | null {
+function contextString(context: Record<string, unknown>, key: string) {
   const value = context[key];
-  return typeof value === "string" ? value : null;
+  return ((pinnedReturn: string | null) => pinnedReturn)(typeof value === "string" ? value : null);
 }
 
-function contextNumber(context: Record<string, unknown>, key: string): number | null {
+function contextNumber(context: Record<string, unknown>, key: string) {
   const value = context[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return ((pinnedReturn: number | null) => pinnedReturn)(
+    typeof value === "number" && Number.isFinite(value) ? value : null,
+  );
 }
 
-function failureKindOf(value: string | null): WorkspaceGitFailureKind | null {
-  return value === "timeout" || value === "auth" || value === "missing_ref" || value === "git"
-    ? value
-    : null;
+function failureKindOf(value: string | null) {
+  return ((pinnedReturn: WorkspaceGitFailureKind | null) => pinnedReturn)(
+    value === "timeout" || value === "auth" || value === "missing_ref" || value === "git"
+      ? value
+      : null,
+  );
 }
 
-function timeoutSourceOf(value: string | null): WorkspaceGitTimeoutSource | null {
-  return value === "process_timer" || value === "git_low_speed" ? value : null;
+function timeoutSourceOf(value: string | null) {
+  return ((pinnedReturn: WorkspaceGitTimeoutSource | null) => pinnedReturn)(
+    value === "process_timer" || value === "git_low_speed" ? value : null,
+  );
 }
 
-export function failedFetchAttempt(
-  checkoutMode: LocalPrWorkspaceCheckoutMode,
-  error: unknown,
-): WorkspaceFetchAttempt {
+export function failedFetchAttempt(checkoutMode: LocalPrWorkspaceCheckoutMode, error: unknown) {
   const context = isAppError(error) ? error.context : {};
-  return {
+  return ((pinnedReturn: WorkspaceFetchAttempt) => pinnedReturn)({
     checkoutMode,
     outcome: "failed",
     errorCode: isAppError(error) ? error.code : null,
@@ -87,14 +90,11 @@ export function failedFetchAttempt(
     killed: context.killed === true,
     elapsedMs: contextNumber(context, "elapsedMs"),
     stderr: contextString(context, "stderr"),
-  };
+  });
 }
 
-function attemptProperties(
-  prefix: string,
-  attempt: WorkspaceFetchAttempt,
-): Record<string, string | number | boolean | null> {
-  return {
+function attemptProperties(prefix: string, attempt: WorkspaceFetchAttempt) {
+  return ((pinnedReturn: Record<string, string | number | boolean | null>) => pinnedReturn)({
     [`${prefix}git_operation`]: "fetch",
     [`${prefix}git_checkout_mode`]: attempt.checkoutMode,
     [`${prefix}git_outcome`]: attempt.outcome,
@@ -105,23 +105,23 @@ function attemptProperties(
     [`${prefix}git_killed`]: attempt.killed,
     [`${prefix}git_timeout_source`]: attempt.timeoutSource,
     [`${prefix}git_elapsed_ms`]: attempt.elapsedMs,
-  };
+  });
 }
 
 export function workspaceCheckoutProperties(input: {
   readonly telemetry: WorkspaceCheckoutTelemetry;
   readonly reused: boolean;
-}): WorkspaceCheckoutProperties {
+}) {
   const { telemetry, reused } = input;
   const attempts = telemetry.fetchAttempts;
   const last = attempts.at(-1);
   const fallback = attempts.length > 1 ? attempts[0] : undefined;
-  return {
+  return ((pinnedReturn: WorkspaceCheckoutProperties) => pinnedReturn)({
     workspace_checkout_mode: telemetry.mode,
     workspace_fallback_reason: telemetry.fallbackReason,
     workspace_checkout_reused: reused,
     workspace_fetch_attempts: attempts.length,
     ...(last != null ? attemptProperties("", last) : {}),
     ...(fallback != null ? attemptProperties("fallback_", fallback) : {}),
-  };
+  });
 }

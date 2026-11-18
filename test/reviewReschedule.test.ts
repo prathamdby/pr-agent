@@ -38,10 +38,8 @@ vi.mock("../src/agentWork/intake/workItemRepository.ts", async (importOriginal) 
   loadReviewLifecycle: mocks.loadReviewLifecycle,
 }));
 vi.mock("../src/db/postgres.ts", () => ({
-  inTransaction: async (
-    pool: Pool,
-    fn: (client: PoolClient) => Promise<unknown>,
-  ): Promise<unknown> => fn(pool as unknown as PoolClient),
+  inTransaction: async (pool: Pool, fn: (client: PoolClient) => Promise<unknown>) =>
+    ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(fn(pool as unknown as PoolClient)),
   pgBossDb: (client: PoolClient) => ({
     executeSql: (text: string, values?: unknown[]) => client.query(text, values),
   }),
@@ -57,8 +55,8 @@ import * as evlog from "../src/evlog.ts";
 
 const LEASE_EPOCH = 7;
 
-function fakePool(query: ReturnType<typeof vi.fn> = vi.fn()): Pool {
-  return { query } as unknown as Pool;
+function fakePool(query: ReturnType<typeof vi.fn> = vi.fn()) {
+  return ((pinnedReturn: Pool) => pinnedReturn)({ query } as unknown as Pool);
 }
 
 function pendingReplacement(replacementWorkItemId: string) {
@@ -81,13 +79,15 @@ function enqueuedReplacement(replacementWorkItemId: string) {
 
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { attemptCount?: number } = {},
-): ReviewWorkItem {
-  return makeReviewWorkItem({
-    id: "parent-wi",
-    source: "slash",
-    attemptCount: 1,
-    ...overrides,
-  });
+) {
+  return ((pinnedReturn: ReviewWorkItem) => pinnedReturn)(
+    makeReviewWorkItem({
+      id: "parent-wi",
+      source: "slash",
+      attemptCount: 1,
+      ...overrides,
+    }),
+  );
 }
 
 beforeEach(() => {

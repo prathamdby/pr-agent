@@ -209,8 +209,8 @@ export type TriageWorkPayload = {
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
-export function triageMode(payload: Pick<TriageWorkPayload, "mode">): TriageMode {
-  return payload.mode ?? "apply";
+export function triageMode(payload: Pick<TriageWorkPayload, "mode">) {
+  return ((pinnedReturn: TriageMode) => pinnedReturn)(payload.mode ?? "apply");
 }
 
 export type VerificationWorkPayload = {
@@ -293,16 +293,16 @@ export function isWorkItemType<T extends WorkType>(
   item: AgentWorkItemCore,
   type: T,
 ): item is Extract<AgentWorkItemCore, { type: T }>;
-export function isWorkItemType(item: AgentWorkItem | AgentWorkItemCore, type: WorkType): boolean {
-  return item.type === type;
+export function isWorkItemType(item: AgentWorkItem | AgentWorkItemCore, type: WorkType) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(item.type === type);
 }
 
 export type QueueConfig = Pick<Config, "queue" | "concurrency">;
 
-export function prResourceKey(owner: string, repo: string, prNumber: number): string {
-  return `${owner}/${repo}#${prNumber}`;
+export function prResourceKey(owner: string, repo: string, prNumber: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${owner}/${repo}#${prNumber}`);
 }
 
-export function installationGroupId(installationId: number): string {
-  return String(installationId);
+export function installationGroupId(installationId: number) {
+  return ((pinnedReturn: string) => pinnedReturn)(String(installationId));
 }

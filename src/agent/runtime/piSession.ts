@@ -19,6 +19,8 @@ export type {
   PromptCacheRetention,
 } from "./promptCachePolicy.ts";
 
-export async function createPiSession(params: PiSessionCreateParams): Promise<PiSession> {
-  return createPiSessionImpl(params);
+export async function createPiSession(params: PiSessionCreateParams) {
+  return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(
+    createPiSessionImpl(params),
+  );
 }

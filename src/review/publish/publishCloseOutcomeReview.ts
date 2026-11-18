@@ -27,14 +27,16 @@ async function submitTerminalReview(params: {
   readonly event: GithubReviewEvent;
   readonly body: string;
   readonly headSha: string;
-}): Promise<GithubReviewEvent> {
+}) {
   try {
     await params.prSurface.publishThreadBatch({
       body: params.body,
       event: params.event,
       commitId: params.headSha,
     });
-    return params.event;
+    return ((pinnedReturn: GithubReviewEvent | Promise<GithubReviewEvent>) => pinnedReturn)(
+      params.event,
+    );
   } catch (error) {
     if (
       (params.event === "APPROVE" || params.event === "REQUEST_CHANGES") &&
@@ -45,13 +47,15 @@ async function submitTerminalReview(params: {
         event: "COMMENT",
         commitId: params.headSha,
       });
-      return "COMMENT";
+      return ((pinnedReturn: GithubReviewEvent | Promise<GithubReviewEvent>) => pinnedReturn)(
+        "COMMENT",
+      );
     }
     throw error;
   }
 }
 
-async function dismissStandingVerdicts(prSurface: PrSurface): Promise<void> {
+async function dismissStandingVerdicts(prSurface: PrSurface) {
   const botLogin = await prSurface.getBotLogin();
   const reviews = await prSurface.listPullRequestReviews();
   let firstError: unknown;
@@ -77,7 +81,7 @@ export async function publishCloseOutcomeReview(params: {
   readonly workItemId?: string;
   readonly pool?: Pool | PoolClient;
   readonly leaseEpoch?: number | null;
-}): Promise<void> {
+}) {
   const event = githubReviewEventFromCloseOutcome(params.outcome);
   if (event == null) return;
   await publishReviewVerdictEvent({ ...params, event });
@@ -91,7 +95,7 @@ export async function publishReviewVerdictEvent(params: {
   readonly pool?: Pool | PoolClient;
   readonly leaseEpoch?: number | null;
   readonly operationKey?: string;
-}): Promise<void> {
+}) {
   const { event } = params;
   if (params.pool == null || params.workItemId == null) {
     const submitted = await submitTerminalReview({
@@ -160,7 +164,7 @@ export async function tryPublishCloseOutcomeReview(
     readonly repo: string;
     readonly prNumber: number;
   },
-): Promise<void> {
+) {
   try {
     await threadMutationLock(
       params.pool,

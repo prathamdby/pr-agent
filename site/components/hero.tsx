@@ -15,8 +15,10 @@ const PILL_AT = HERO_TAGLINE.indexOf(HERO_HEADING_PILL);
 const HERO_LEAD = HERO_TAGLINE.slice(0, PILL_AT).trimEnd();
 const HERO_TAIL = HERO_TAGLINE.slice(PILL_AT + HERO_HEADING_PILL.length).trimStart();
 
-function setupPrompt(): string {
-  return renderSetupPrompt(typeof window === "undefined" ? SITE_ORIGIN : window.location.origin);
+function setupPrompt() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    renderSetupPrompt(typeof window === "undefined" ? SITE_ORIGIN : window.location.origin),
+  );
 }
 
 function AssistantMarks() {

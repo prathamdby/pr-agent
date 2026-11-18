@@ -102,7 +102,7 @@ function reportOnlyBody(params: {
   readonly previouslyResolvedCount: number;
   readonly scope: TriageWorkPayload["scope"];
   readonly threadRootCommentId?: number;
-}): string {
+}) {
   const lines = [
     TRIAGE_SUMMARY_SENTINEL,
     "",
@@ -119,17 +119,14 @@ function reportOnlyBody(params: {
     `Inventory items: ${params.inventoryCount}`,
     `Previously resolved: ${params.previouslyResolvedCount}`,
   );
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
-function triageReportContext(
-  payload: TriageWorkPayload,
-  threadRootCommentId?: number,
-): TriageReportContext {
-  return {
+function triageReportContext(payload: TriageWorkPayload, threadRootCommentId?: number) {
+  return ((pinnedReturn: TriageReportContext) => pinnedReturn)({
     scope: payload.scope ?? "all",
     threadRootCommentId: payload.scope === "thread" ? threadRootCommentId : undefined,
-  };
+  });
 }
 
 async function resolveScopedThreadRootId(params: {
@@ -138,10 +135,12 @@ async function resolveScopedThreadRootId(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly anchorCommentId: number;
-}): Promise<number> {
+}) {
   try {
     const { comments } = await params.prSurface.listReviewComments();
-    return resolveReviewThreadRootId(comments, params.anchorCommentId) ?? params.anchorCommentId;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(
+      resolveReviewThreadRootId(comments, params.anchorCommentId) ?? params.anchorCommentId,
+    );
   } catch (error) {
     const errorObj = toError(error);
     logWarn("triage_thread_root_resolution_failed", {
@@ -151,27 +150,29 @@ async function resolveScopedThreadRootId(params: {
       anchorCommentId: params.anchorCommentId,
       message: errorObj.message,
     });
-    return params.anchorCommentId;
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(params.anchorCommentId);
   }
 }
 
-function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
+function completedFromPublish(publish: PublishTriageResult) {
   const reasons: TriageDegradationReason[] = [];
   if (publish.pushOutcome === "stale") reasons.push("push_stale");
   if (publish.pushOutcome === "closed") reasons.push("push_closed");
   if (publish.missingThreadAction) reasons.push("thread_action_missing");
   if (publish.partialBulk === true) reasons.push("bulk_partial");
-  return reasons.length === 0 ? { kind: "completed" } : { kind: "completed", degradation: reasons };
+  return ((pinnedReturn: TriageExecuteResult) => pinnedReturn)(
+    reasons.length === 0 ? { kind: "completed" } : { kind: "completed", degradation: reasons },
+  );
 }
 
-async function ensureTriageNotCancelled(env: DurableExecutionContext): Promise<void> {
+async function ensureTriageNotCancelled(env: DurableExecutionContext) {
   if (await env.shouldAbortPublish()) throw new TriageCancelledError();
 }
 
 async function ensureTriageWriteAllowed(params: {
   readonly env: DurableExecutionContext;
   readonly prSurface: PrSurface;
-}): Promise<void> {
+}) {
   await ensureTriageNotCancelled(params.env);
   await assertTriagePullRequestWritable(params.prSurface);
 }
@@ -180,14 +181,18 @@ function resolveEmptyInventoryOutcome(params: {
   readonly scope: TriageWorkPayload["scope"];
   readonly scopedThreadRootId: number | undefined;
   readonly threads: readonly BotFindingThread[];
-}): EmptyInventoryOutcome {
+}) {
   if (params.scope === "thread") {
     const threadMatchesKnownFinding =
       params.scopedThreadRootId != null &&
       params.threads.some((thread) => thread.rootCommentId === params.scopedThreadRootId);
-    return threadMatchesKnownFinding ? "all_resolved" : "thread_not_eligible";
+    return ((pinnedReturn: EmptyInventoryOutcome) => pinnedReturn)(
+      threadMatchesKnownFinding ? "all_resolved" : "thread_not_eligible",
+    );
   }
-  return params.threads.length === 0 ? "no_eligible_findings" : "all_resolved";
+  return ((pinnedReturn: EmptyInventoryOutcome) => pinnedReturn)(
+    params.threads.length === 0 ? "no_eligible_findings" : "all_resolved",
+  );
 }
 
 async function handleForkPrReport(params: {
@@ -198,7 +203,7 @@ async function handleForkPrReport(params: {
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly leaseEpoch: number | null;
-}): Promise<TriageExecuteResult> {
+}) {
   await ensureTriageNotCancelled(params.env);
   await publishTriageReportOnly({
     pool: params.pool,
@@ -221,7 +226,9 @@ async function handleForkPrReport(params: {
       scope: params.scope,
     }),
   });
-  return { kind: "completed" };
+  return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) => pinnedReturn)({
+    kind: "completed",
+  });
 }
 
 async function resolveInventoryAndScope(params: {
@@ -231,7 +238,7 @@ async function resolveInventoryAndScope(params: {
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-}): Promise<InventoryAndScope> {
+}) {
   const payload = params.item.payload;
   const botIdentity = await params.getBotIdentity();
   const eligibleReviews = await listTriageEligibleInlineReviews(
@@ -291,7 +298,7 @@ async function resolveInventoryAndScope(params: {
       inventory = [];
     }
   }
-  return {
+  return ((pinnedReturn: InventoryAndScope | Promise<InventoryAndScope>) => pinnedReturn)({
     botIdentity,
     threads,
     resolutionByRootCommentId,
@@ -299,7 +306,7 @@ async function resolveInventoryAndScope(params: {
     inventory,
     scopedThreadRootId,
     reportContext: triageReportContext(payload, scopedThreadRootId),
-  };
+  });
 }
 
 async function publishEmptyInventoryReport(params: {
@@ -315,7 +322,7 @@ async function publishEmptyInventoryReport(params: {
   readonly scopedThreadRootId: number | undefined;
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
-}): Promise<TriageExecuteResult> {
+}) {
   await ensureTriageNotCancelled(params.env);
   const outcome = resolveEmptyInventoryOutcome({
     scope: params.scope,
@@ -346,7 +353,9 @@ async function publishEmptyInventoryReport(params: {
       threadRootCommentId: params.scopedThreadRootId,
     }),
   });
-  return { kind: "completed" };
+  return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) => pinnedReturn)({
+    kind: "completed",
+  });
 }
 
 async function tryResumeStoredPush(params: {
@@ -363,7 +372,7 @@ async function tryResumeStoredPush(params: {
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
-}): Promise<TriageExecuteResult | null> {
+}) {
   const publish = await recoverTriagePublication({
     pool: params.pool,
     workItemId: params.item.id,
@@ -383,28 +392,36 @@ async function tryResumeStoredPush(params: {
     signal: params.signal,
     ...params.reportContext,
   });
-  if (publish == null) return null;
-  return completedFromPublish(publish);
+  if (publish == null)
+    return ((pinnedReturn: (TriageExecuteResult | null) | Promise<TriageExecuteResult | null>) =>
+      pinnedReturn)(null);
+  return ((pinnedReturn: (TriageExecuteResult | null) | Promise<TriageExecuteResult | null>) =>
+    pinnedReturn)(completedFromPublish(publish));
 }
 
 async function resolveTriggererGitPerson(params: {
   readonly prSurface: PrSurface;
   readonly commenterId?: number;
   readonly botIdentity: BotIdentity;
-}): Promise<GitPerson | null> {
-  if (params.commenterId == null) return null;
-  if (params.commenterId === params.botIdentity.userId) return null;
+}) {
+  if (params.commenterId == null)
+    return ((pinnedReturn: (GitPerson | null) | Promise<GitPerson | null>) => pinnedReturn)(null);
+  if (params.commenterId === params.botIdentity.userId)
+    return ((pinnedReturn: (GitPerson | null) | Promise<GitPerson | null>) => pinnedReturn)(null);
   try {
     const data = await params.prSurface.lookupGitHubUser(params.commenterId);
-    if (data == null) return null;
-    return gitPersonFromGithubUser(data);
+    if (data == null)
+      return ((pinnedReturn: (GitPerson | null) | Promise<GitPerson | null>) => pinnedReturn)(null);
+    return ((pinnedReturn: (GitPerson | null) | Promise<GitPerson | null>) => pinnedReturn)(
+      gitPersonFromGithubUser(data),
+    );
   } catch (error) {
     const errorObj = toError(error);
     logWarn("triage_commit_identity_lookup_failed", {
       commenterId: params.commenterId,
       message: errorObj.message,
     });
-    return null;
+    return ((pinnedReturn: (GitPerson | null) | Promise<GitPerson | null>) => pinnedReturn)(null);
   }
 }
 
@@ -426,7 +443,7 @@ async function runFreshTriageAgent(params: {
   readonly signal: AbortSignal;
   readonly mode: "apply" | "preview";
   readonly escalation?: EscalationPlan;
-}): Promise<TriageExecuteResult> {
+}) {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
     commenterId: params.item.payload.commenterId,
@@ -438,152 +455,154 @@ async function runFreshTriageAgent(params: {
   });
   const { token } = await params.prSurface.gitCredentialAuth();
   const preview = params.mode === "preview";
-  return withWritablePrCheckout(
-    {
-      owner: params.item.owner,
-      repo: params.item.repo,
-      headRef: params.headRef,
-      headSha: params.headSha,
-      installationToken: token,
-      botIdentity: params.botIdentity,
-      commitAttribution,
-      beforeCommit: preview
-        ? () => ensureTriageNotCancelled(params.env)
-        : () =>
-            ensureTriageWriteAllowed({
-              env: params.env,
-              prSurface: params.prSurface,
+  return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) => pinnedReturn)(
+    withWritablePrCheckout(
+      {
+        owner: params.item.owner,
+        repo: params.item.repo,
+        headRef: params.headRef,
+        headSha: params.headSha,
+        installationToken: token,
+        botIdentity: params.botIdentity,
+        commitAttribution,
+        beforeCommit: preview
+          ? () => ensureTriageNotCancelled(params.env)
+          : () =>
+              ensureTriageWriteAllowed({
+                env: params.env,
+                prSurface: params.prSurface,
+              }),
+        beforePush: preview
+          ? async () => {
+              throw new AppError({
+                domain: "triage",
+                kind: "preview_push_blocked",
+                message: "Triage preview cannot push",
+              });
+            }
+          : () =>
+              ensureTriageWriteAllowed({
+                env: params.env,
+                prSurface: params.prSurface,
+              }),
+      },
+      async (checkout) => {
+        let result: Awaited<ReturnType<typeof runFullPrTriage>>;
+        try {
+          result = await runFullPrTriage({
+            cfg: params.cfg,
+            owner: params.item.owner,
+            repo: params.item.repo,
+            prNumber: params.item.prNumber,
+            headSha: params.headSha,
+            checkout,
+            inventory: params.inventory,
+            cwd: checkout.dir,
+            scope: params.scope,
+            refreshBeforeTool: async () => ensureTriageNotCancelled(params.env),
+            escalation: params.escalation,
+            sessionContext: params.env.durability,
+            signal: params.signal,
+          });
+        } catch (error) {
+          if (!(error instanceof TriageClosedPullRequestError)) throw error;
+          await publishTriageReportOnly({
+            pool: params.pool,
+            workItemId: params.item.id,
+            resourceKey: params.item.resourceKey,
+            installationId: params.item.installationId,
+            prSurface: params.prSurface,
+            owner: params.item.owner,
+            repo: params.item.repo,
+            prNumber: params.item.prNumber,
+            headSha: params.headSha,
+            inventory: params.inventory,
+            previouslyResolvedCount: params.previouslyResolvedCount,
+            leaseEpoch: params.leaseEpoch,
+            ...params.reportContext,
+            body: reportOnlyBody({
+              message: TRIAGE_CLOSED_PR_NOTICE,
+              headSha: params.headSha,
+              inventoryCount: params.inventory.length,
+              previouslyResolvedCount: params.previouslyResolvedCount,
+              scope: params.scope,
+              threadRootCommentId: params.reportContext.threadRootCommentId,
             }),
-      beforePush: preview
-        ? async () => {
-            throw new AppError({
-              domain: "triage",
-              kind: "preview_push_blocked",
-              message: "Triage preview cannot push",
-            });
-          }
-        : () =>
-            ensureTriageWriteAllowed({
-              env: params.env,
-              prSurface: params.prSurface,
-            }),
-    },
-    async (checkout) => {
-      let result: Awaited<ReturnType<typeof runFullPrTriage>>;
-      try {
-        result = await runFullPrTriage({
-          cfg: params.cfg,
+          });
+          return {
+            kind: "completed",
+            degradation: ["push_closed"] satisfies readonly TriageDegradationReason[],
+          };
+        }
+        await ensureTriageNotCancelled(params.env);
+        const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
+        if (!result.submitted || !result.payload) {
+          const error = new AppError({
+            domain: "triage",
+            kind: "missing_submit",
+            message: "Triage run ended without submitTriage",
+          });
+          throw error;
+        }
+        if (preview) {
+          const detailBySha = new Map(
+            checkout.listCommittedDetails().map((commit) => [commit.sha.toLowerCase(), commit]),
+          );
+          const hunks = [...commitByThreadRootCommentId.entries()].flatMap(
+            ([threadRootCommentId, sha]) => {
+              const detail = detailBySha.get(sha.toLowerCase());
+              return detail == null
+                ? []
+                : [
+                    {
+                      threadRootCommentId,
+                      subject: detail.subject,
+                      diff: detail.diff,
+                    },
+                  ];
+            },
+          );
+          await publishTriagePreview({
+            pool: params.pool,
+            workItemId: params.item.id,
+            resourceKey: params.item.resourceKey,
+            installationId: params.item.installationId,
+            prSurface: params.prSurface,
+            owner: params.item.owner,
+            repo: params.item.repo,
+            prNumber: params.item.prNumber,
+            headSha: params.headSha,
+            inventory: params.inventory,
+            previouslyResolvedCount: params.previouslyResolvedCount,
+            leaseEpoch: params.leaseEpoch,
+            hunks,
+            payload: result.payload,
+            ...params.reportContext,
+          });
+          return { kind: "completed" };
+        }
+        const publish = await publishTriage({
+          pool: params.pool,
+          workItemId: params.item.id,
+          resourceKey: params.item.resourceKey,
+          installationId: params.item.installationId,
+          prSurface: params.prSurface,
           owner: params.item.owner,
           repo: params.item.repo,
           prNumber: params.item.prNumber,
           headSha: params.headSha,
           checkout,
           inventory: params.inventory,
-          cwd: checkout.dir,
-          scope: params.scope,
-          refreshBeforeTool: async () => ensureTriageNotCancelled(params.env),
-          escalation: params.escalation,
-          sessionContext: params.env.durability,
-          signal: params.signal,
-        });
-      } catch (error) {
-        if (!(error instanceof TriageClosedPullRequestError)) throw error;
-        await publishTriageReportOnly({
-          pool: params.pool,
-          workItemId: params.item.id,
-          resourceKey: params.item.resourceKey,
-          installationId: params.item.installationId,
-          prSurface: params.prSurface,
-          owner: params.item.owner,
-          repo: params.item.repo,
-          prNumber: params.item.prNumber,
-          headSha: params.headSha,
-          inventory: params.inventory,
-          previouslyResolvedCount: params.previouslyResolvedCount,
-          leaseEpoch: params.leaseEpoch,
-          ...params.reportContext,
-          body: reportOnlyBody({
-            message: TRIAGE_CLOSED_PR_NOTICE,
-            headSha: params.headSha,
-            inventoryCount: params.inventory.length,
-            previouslyResolvedCount: params.previouslyResolvedCount,
-            scope: params.scope,
-            threadRootCommentId: params.reportContext.threadRootCommentId,
-          }),
-        });
-        return {
-          kind: "completed",
-          degradation: ["push_closed"] satisfies readonly TriageDegradationReason[],
-        };
-      }
-      await ensureTriageNotCancelled(params.env);
-      const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
-      if (!result.submitted || !result.payload) {
-        const error = new AppError({
-          domain: "triage",
-          kind: "missing_submit",
-          message: "Triage run ended without submitTriage",
-        });
-        throw error;
-      }
-      if (preview) {
-        const detailBySha = new Map(
-          checkout.listCommittedDetails().map((commit) => [commit.sha.toLowerCase(), commit]),
-        );
-        const hunks = [...commitByThreadRootCommentId.entries()].flatMap(
-          ([threadRootCommentId, sha]) => {
-            const detail = detailBySha.get(sha.toLowerCase());
-            return detail == null
-              ? []
-              : [
-                  {
-                    threadRootCommentId,
-                    subject: detail.subject,
-                    diff: detail.diff,
-                  },
-                ];
-          },
-        );
-        await publishTriagePreview({
-          pool: params.pool,
-          workItemId: params.item.id,
-          resourceKey: params.item.resourceKey,
-          installationId: params.item.installationId,
-          prSurface: params.prSurface,
-          owner: params.item.owner,
-          repo: params.item.repo,
-          prNumber: params.item.prNumber,
-          headSha: params.headSha,
-          inventory: params.inventory,
-          previouslyResolvedCount: params.previouslyResolvedCount,
-          leaseEpoch: params.leaseEpoch,
-          hunks,
+          resolutionByRootCommentId: params.resolutionByRootCommentId,
           payload: result.payload,
+          previouslyResolvedCount: params.previouslyResolvedCount,
+          leaseEpoch: params.leaseEpoch,
+          signal: params.signal,
           ...params.reportContext,
         });
-        return { kind: "completed" };
-      }
-      const publish = await publishTriage({
-        pool: params.pool,
-        workItemId: params.item.id,
-        resourceKey: params.item.resourceKey,
-        installationId: params.item.installationId,
-        prSurface: params.prSurface,
-        owner: params.item.owner,
-        repo: params.item.repo,
-        prNumber: params.item.prNumber,
-        headSha: params.headSha,
-        checkout,
-        inventory: params.inventory,
-        resolutionByRootCommentId: params.resolutionByRootCommentId,
-        payload: result.payload,
-        previouslyResolvedCount: params.previouslyResolvedCount,
-        leaseEpoch: params.leaseEpoch,
-        signal: params.signal,
-        ...params.reportContext,
-      });
-      return completedFromPublish(publish);
-    },
+        return completedFromPublish(publish);
+      },
+    ),
   );
 }
 
@@ -612,7 +631,7 @@ async function runBulkFromPreview(params: {
   readonly approvedIds: ReadonlySet<number>;
   readonly excludedIds: ReadonlySet<number>;
   readonly notInPreviewIds: ReadonlySet<number>;
-}): Promise<TriageExecuteResult> {
+}) {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
     commenterId: params.item.payload.commenterId,
@@ -623,73 +642,75 @@ async function runBulkFromPreview(params: {
     triggerer,
   });
   const { token } = await params.prSurface.gitCredentialAuth();
-  return withWritablePrCheckout(
-    {
-      owner: params.item.owner,
-      repo: params.item.repo,
-      headRef: params.headRef,
-      headSha: params.headSha,
-      installationToken: token,
-      botIdentity: params.botIdentity,
-      commitAttribution,
-      beforeCommit: () =>
-        ensureTriageWriteAllowed({
-          env: params.env,
-          prSurface: params.prSurface,
-        }),
-      beforePush: () =>
-        ensureTriageWriteAllowed({
-          env: params.env,
-          prSurface: params.prSurface,
-        }),
-    },
-    async (checkout) => {
-      const replayed = await replayPreviewHunks({
-        checkout,
-        hunks: params.approvedHunks,
-      });
-      const payload = remapBulkPayload({
-        payload: params.preview.payload,
-        approvedIds: params.approvedIds,
-        appliedCommits: replayed.commitByThreadRootCommentId,
-      });
-      await ensureTriageNotCancelled(params.env);
-      const publish = await publishTriage({
-        pool: params.pool,
-        workItemId: params.item.id,
-        resourceKey: params.item.resourceKey,
-        installationId: params.item.installationId,
-        prSurface: params.prSurface,
+  return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) => pinnedReturn)(
+    withWritablePrCheckout(
+      {
         owner: params.item.owner,
         repo: params.item.repo,
-        prNumber: params.item.prNumber,
+        headRef: params.headRef,
         headSha: params.headSha,
-        checkout,
-        inventory: params.inventory,
-        resolutionByRootCommentId: params.resolutionByRootCommentId,
-        payload,
-        previouslyResolvedCount: params.previouslyResolvedCount,
-        leaseEpoch: params.leaseEpoch,
-        signal: params.signal,
-        bulkClassification: {
-          excludedIds: params.excludedIds,
-          notInPreviewIds: params.notInPreviewIds,
-          commitByThreadRootCommentId: replayed.commitByThreadRootCommentId,
-          commitErrors: replayed.commitErrors,
-        },
-        ...params.reportContext,
-      });
-      const completed = completedFromPublish(publish);
-      const replayDegradation: readonly TriageDegradationReason[] =
-        replayed.commitErrors.length > 0 ? ["replay_commit_errors"] : [];
-      if (replayDegradation.length > 0 || publish.partialBulk === true) {
-        return {
-          kind: "completed",
-          degradation: [...(completed.degradation ?? []), ...replayDegradation],
-        };
-      }
-      return completed;
-    },
+        installationToken: token,
+        botIdentity: params.botIdentity,
+        commitAttribution,
+        beforeCommit: () =>
+          ensureTriageWriteAllowed({
+            env: params.env,
+            prSurface: params.prSurface,
+          }),
+        beforePush: () =>
+          ensureTriageWriteAllowed({
+            env: params.env,
+            prSurface: params.prSurface,
+          }),
+      },
+      async (checkout) => {
+        const replayed = await replayPreviewHunks({
+          checkout,
+          hunks: params.approvedHunks,
+        });
+        const payload = remapBulkPayload({
+          payload: params.preview.payload,
+          approvedIds: params.approvedIds,
+          appliedCommits: replayed.commitByThreadRootCommentId,
+        });
+        await ensureTriageNotCancelled(params.env);
+        const publish = await publishTriage({
+          pool: params.pool,
+          workItemId: params.item.id,
+          resourceKey: params.item.resourceKey,
+          installationId: params.item.installationId,
+          prSurface: params.prSurface,
+          owner: params.item.owner,
+          repo: params.item.repo,
+          prNumber: params.item.prNumber,
+          headSha: params.headSha,
+          checkout,
+          inventory: params.inventory,
+          resolutionByRootCommentId: params.resolutionByRootCommentId,
+          payload,
+          previouslyResolvedCount: params.previouslyResolvedCount,
+          leaseEpoch: params.leaseEpoch,
+          signal: params.signal,
+          bulkClassification: {
+            excludedIds: params.excludedIds,
+            notInPreviewIds: params.notInPreviewIds,
+            commitByThreadRootCommentId: replayed.commitByThreadRootCommentId,
+            commitErrors: replayed.commitErrors,
+          },
+          ...params.reportContext,
+        });
+        const completed = completedFromPublish(publish);
+        const replayDegradation: readonly TriageDegradationReason[] =
+          replayed.commitErrors.length > 0 ? ["replay_commit_errors"] : [];
+        if (replayDegradation.length > 0 || publish.partialBulk === true) {
+          return {
+            kind: "completed",
+            degradation: [...(completed.degradation ?? []), ...replayDegradation],
+          };
+        }
+        return completed;
+      },
+    ),
   );
 }
 
@@ -697,12 +718,12 @@ export function createTriageWorkExecution({
   cfg,
   pool,
   installationSurface = productionInstallationSurface,
-}: WorkExecutionDependencies): WorkExecution<"triage"> {
+}: WorkExecutionDependencies) {
   const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return {
+  return ((pinnedReturn: WorkExecution<"triage">) => pinnedReturn)({
     execute: async (item, env) => {
       let omitTerminal = false;
-      const result = await (async (): Promise<TriageExecuteResult> => {
+      const result = await (async () => {
         const scope = item.payload.scope ?? "all";
         const mode = triageMode(item.payload);
         const { prSurface } = env;
@@ -711,15 +732,18 @@ export function createTriageWorkExecution({
         const branch = pullRequestBranchInfo((await prSurface.getHead()).pullRequest);
         await ensureTriageNotCancelled(env);
         if (!branch.sameRepo && mode !== "preview") {
-          return handleForkPrReport({
-            env,
-            pool,
-            item,
-            prSurface,
-            headSha,
-            scope,
-            leaseEpoch: env.leaseEpoch,
-          });
+          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+            pinnedReturn)(
+            handleForkPrReport({
+              env,
+              pool,
+              item,
+              prSurface,
+              headSha,
+              scope,
+              leaseEpoch: env.leaseEpoch,
+            }),
+          );
         }
 
         let storedPreview: StoredTriagePreviewDetail | null = null;
@@ -752,7 +776,8 @@ export function createTriageWorkExecution({
                 scope,
               }),
             });
-            return { kind: "completed" };
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)({ kind: "completed" });
           }
           if (storedPreview.headSha.toLowerCase() !== headSha.toLowerCase()) {
             await publishTriageReportOnly({
@@ -776,7 +801,8 @@ export function createTriageWorkExecution({
                 scope,
               }),
             });
-            return { kind: "completed" };
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)({ kind: "completed" });
           }
         }
 
@@ -810,7 +836,8 @@ export function createTriageWorkExecution({
           }).completed(doneStep)
         ) {
           omitTerminal = true;
-          return { kind: "completed" };
+          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+            pinnedReturn)({ kind: "completed" });
         }
 
         await ensureTriageNotCancelled(env);
@@ -834,24 +861,29 @@ export function createTriageWorkExecution({
 
         if (mode !== "preview") {
           const resumed = await tryResumeStoredPush(resumeParams);
-          if (resumed != null) return resumed;
+          if (resumed != null)
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)(resumed);
         }
 
         if (currentInventory.length === 0) {
-          return publishEmptyInventoryReport({
-            env,
-            pool,
-            item,
-            prSurface,
-            headSha,
-            scope,
-            threads: discovered.threads,
-            inventory: discovered.inventory,
-            previouslyResolvedCount: discovered.previouslyResolvedCount,
-            scopedThreadRootId: discovered.scopedThreadRootId,
-            reportContext: discovered.reportContext,
-            leaseEpoch: env.leaseEpoch,
-          });
+          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+            pinnedReturn)(
+            publishEmptyInventoryReport({
+              env,
+              pool,
+              item,
+              prSurface,
+              headSha,
+              scope,
+              threads: discovered.threads,
+              inventory: discovered.inventory,
+              previouslyResolvedCount: discovered.previouslyResolvedCount,
+              scopedThreadRootId: discovered.scopedThreadRootId,
+              reportContext: discovered.reportContext,
+              leaseEpoch: env.leaseEpoch,
+            }),
+          );
         }
 
         if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
@@ -879,7 +911,8 @@ export function createTriageWorkExecution({
               scope,
             }),
           });
-          return { kind: "completed" };
+          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+            pinnedReturn)({ kind: "completed" });
         }
 
         switch (mode) {
@@ -892,33 +925,40 @@ export function createTriageWorkExecution({
               });
             }
             await env.beginAttempt();
-            return runBulkFromPreview({
-              ...resumeParams,
-              cfg,
-              botIdentity: discovered.botIdentity,
-              scope,
-              inventory: currentInventory,
-              approvedHunks: approval.approvedHunks,
-              preview: storedPreview,
-              approvedIds: approval.approvedIds,
-              excludedIds: approval.excludedIds,
-              notInPreviewIds: approval.notInPreviewIds,
-            });
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)(
+              runBulkFromPreview({
+                ...resumeParams,
+                cfg,
+                botIdentity: discovered.botIdentity,
+                scope,
+                inventory: currentInventory,
+                approvedHunks: approval.approvedHunks,
+                preview: storedPreview,
+                approvedIds: approval.approvedIds,
+                excludedIds: approval.excludedIds,
+                notInPreviewIds: approval.notInPreviewIds,
+              }),
+            );
           case "preview":
           case "apply":
             await env.beginAttempt();
-            return runFreshTriageAgent({
-              ...resumeParams,
-              inventory: currentInventory,
-              cfg,
-              botIdentity: discovered.botIdentity,
-              scope,
-              mode,
-              escalation: env.escalation,
-            });
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)(
+              runFreshTriageAgent({
+                ...resumeParams,
+                inventory: currentInventory,
+                cfg,
+                botIdentity: discovered.botIdentity,
+                scope,
+                mode,
+                escalation: env.escalation,
+              }),
+            );
           default: {
             const exhaustive: never = mode;
-            return exhaustive;
+            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
+              pinnedReturn)(exhaustive);
           }
         }
       })();
@@ -953,5 +993,5 @@ export function createTriageWorkExecution({
         TRIAGE_FAILURE_MESSAGE,
       );
     },
-  };
+  });
 }

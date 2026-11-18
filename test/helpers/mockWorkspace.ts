@@ -11,13 +11,13 @@ export function mockLocalPrWorkspace(
       "checkoutMode" | "checkoutPaths" | "changedFiles" | "stats" | "headSha"
     >
   >,
-): LocalPrWorkspace {
+) {
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const changedFiles = overrides?.changedFiles ?? [];
   const checkoutPaths = overrides?.checkoutPaths ?? new Set<string>();
   const stats = overrides?.stats ?? { truncated: false, totalChanges: 0, fileCount: 0 };
   const headSha = overrides?.headSha ?? "a".repeat(40);
-  return {
+  return ((pinnedReturn: LocalPrWorkspace) => pinnedReturn)({
     rootDir: agentCwd,
     privateGitDir: `${agentCwd}/.git`,
     agentCwd,
@@ -50,5 +50,5 @@ export function mockLocalPrWorkspace(
       getSymbolIndexStatus: () => ({ available: false }),
     },
     cleanup: async () => {},
-  };
+  });
 }

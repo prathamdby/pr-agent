@@ -32,7 +32,7 @@ export function specialistExecuteCalls(input: {
     readonly toolCallId: string;
     readonly text: string;
   }[];
-}): RepeatedExecuteCall[] {
+}) {
   const textById = new Map(input.results.map((result) => [result.toolCallId, result.text]));
   const calls: RepeatedExecuteCall[] = [];
   for (const call of input.calls) {
@@ -42,7 +42,7 @@ export function specialistExecuteCalls(input: {
     if (result === undefined) continue;
     calls.push({ toolName: call.name, code: call.arguments.code, result });
   }
-  return calls;
+  return ((pinnedReturn: RepeatedExecuteCall[]) => pinnedReturn)(calls);
 }
 
 export function createSpecialistExecuteRepeat() {
@@ -50,10 +50,10 @@ export function createSpecialistExecuteRepeat() {
   let pendingCodes: string[] = [];
 
   return {
-    observe(observation: SpecialistExecuteObservation): "stop" | "continue" {
+    observe(observation: SpecialistExecuteObservation) {
       if (observation.refused) {
         pendingCodes = [];
-        return "continue";
+        return ((pinnedReturn: "stop" | "continue") => pinnedReturn)("continue");
       }
       const nudgeCodes: string[] = [];
       let stop = false;
@@ -69,16 +69,18 @@ export function createSpecialistExecuteRepeat() {
         if (count >= SPECIALIST_EXECUTE_STOP_AT) stop = true;
       }
       pendingCodes = stop ? [] : nudgeCodes;
-      return stop ? "stop" : "continue";
+      return ((pinnedReturn: "stop" | "continue") => pinnedReturn)(stop ? "stop" : "continue");
     },
-    takeNudges(): readonly string[] {
+    takeNudges() {
       const codes = pendingCodes;
       pendingCodes = [];
       for (const code of codes) {
         const streak = streaks.get(code);
         if (streak) streaks.set(code, { ...streak, nudged: true });
       }
-      return codes.length > 0 ? [SPECIALIST_REPEATED_EXECUTE_NUDGE] : [];
+      return ((pinnedReturn: readonly string[]) => pinnedReturn)(
+        codes.length > 0 ? [SPECIALIST_REPEATED_EXECUTE_NUDGE] : [],
+      );
     },
   };
 }

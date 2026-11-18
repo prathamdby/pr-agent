@@ -75,22 +75,26 @@ export const TRIAGE_SAFE_NEW_FILE_PATTERNS: readonly RegExp[] = [
   /\.md$/i,
 ];
 
-export function normalizeRepoRelativePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
-}
-
-export function isTriageControlPath(path: string): boolean {
-  const normalized = normalizeRepoRelativePath(path);
-  return (
-    SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(normalized)) ||
-    TRIAGE_CONTROL_PATH_PATTERNS.some((pattern) => pattern.test(normalized))
+export function normalizeRepoRelativePath(path: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    path.replace(/\\/g, "/").replace(/^(?:\.\/)+/, ""),
   );
 }
 
-export function isTriageSafeNewFilePath(path: string): boolean {
+export function isTriageControlPath(path: string) {
   const normalized = normalizeRepoRelativePath(path);
-  if (isTriageControlPath(normalized)) return false;
-  return TRIAGE_SAFE_NEW_FILE_PATTERNS.some((pattern) => pattern.test(normalized));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+      TRIAGE_CONTROL_PATH_PATTERNS.some((pattern) => pattern.test(normalized)),
+  );
+}
+
+export function isTriageSafeNewFilePath(path: string) {
+  const normalized = normalizeRepoRelativePath(path);
+  if (isTriageControlPath(normalized)) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    TRIAGE_SAFE_NEW_FILE_PATTERNS.some((pattern) => pattern.test(normalized)),
+  );
 }
 
 function throwBlocked(kind: AppErrorKind<"triage">, message: string, path: string): never {
@@ -102,7 +106,7 @@ function throwBlocked(kind: AppErrorKind<"triage">, message: string, path: strin
   });
 }
 
-async function assertResolvedInsideRoot(root: string, candidate: string): Promise<string> {
+async function assertResolvedInsideRoot(root: string, candidate: string) {
   const realRoot = await realpath(root);
   const realCandidate = await realpath(candidate);
   if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
@@ -112,7 +116,7 @@ async function assertResolvedInsideRoot(root: string, candidate: string): Promis
       candidate,
     );
   }
-  return realCandidate;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(realCandidate);
 }
 
 export async function assertTriageWritablePath(params: {
@@ -120,7 +124,7 @@ export async function assertTriageWritablePath(params: {
   readonly path: string;
   readonly mode: "edit" | "create" | "stage";
   readonly implicatedPaths: ReadonlySet<string>;
-}): Promise<{ readonly fullPath: string; readonly relativePath: string }> {
+}) {
   const normalized = normalizeRepoRelativePath(params.path);
   const implicated = new Set(
     [...params.implicatedPaths].map((entry) => normalizeRepoRelativePath(entry)),
@@ -169,26 +173,32 @@ export async function assertTriageWritablePath(params: {
     await assertResolvedInsideRoot(params.root, probePath);
   }
 
-  return {
+  return ((
+    pinnedReturn:
+      | { readonly fullPath: string; readonly relativePath: string }
+      | Promise<{ readonly fullPath: string; readonly relativePath: string }>,
+  ) => pinnedReturn)({
     fullPath,
     relativePath: relative(params.root, fullPath).replace(/\\/g, "/"),
-  };
+  });
 }
 
 export function assertTriageStagePaths(params: {
   readonly root: string;
   readonly files: readonly string[];
   readonly implicatedPaths: ReadonlySet<string>;
-}): Promise<readonly string[]> {
-  return Promise.all(
-    params.files.map(async (file) => {
-      const resolved = await assertTriageWritablePath({
-        root: params.root,
-        path: file,
-        mode: "stage",
-        implicatedPaths: params.implicatedPaths,
-      });
-      return resolved.relativePath;
-    }),
+}) {
+  return ((pinnedReturn: Promise<readonly string[]>) => pinnedReturn)(
+    Promise.all(
+      params.files.map(async (file) => {
+        const resolved = await assertTriageWritablePath({
+          root: params.root,
+          path: file,
+          mode: "stage",
+          implicatedPaths: params.implicatedPaths,
+        });
+        return resolved.relativePath;
+      }),
+    ),
   );
 }

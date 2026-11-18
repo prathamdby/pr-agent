@@ -59,46 +59,45 @@ const TOKEN_COUNT_KEYS: Record<string, true> = {
   totalTokens: true,
 };
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+function asString(value: unknown) {
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(
+    typeof value === "string" && value.length > 0 ? value : undefined,
+  );
 }
 
-function asFiniteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function asFiniteNumber(value: unknown) {
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(
+    typeof value === "number" && Number.isFinite(value) ? value : undefined,
+  );
 }
 
-function sanitizeStableCode(value: unknown): string | undefined {
+function sanitizeStableCode(value: unknown) {
   const raw = asString(value);
-  if (!raw) return undefined;
-  if (!/^[a-z][a-z0-9_.]{0,127}$/i.test(raw)) return undefined;
-  return raw;
+  if (!raw) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (!/^[a-z][a-z0-9_.]{0,127}$/i.test(raw))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(raw);
 }
 
-function sanitizeToolName(value: unknown): string | undefined {
+function sanitizeToolName(value: unknown) {
   const raw = asString(value);
-  if (!raw) return undefined;
-  if (!/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/.test(raw)) return undefined;
-  return raw;
+  if (!raw) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (!/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/.test(raw))
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(raw);
 }
 
-function sanitizeReason(value: unknown): string | undefined {
+function sanitizeReason(value: unknown) {
   const raw = asString(value);
-  if (!raw) return undefined;
+  if (!raw) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   const cleaned = sanitizeLogMessage(raw);
-  if (!cleaned) return undefined;
-  if (cleaned.length > 64) return cleaned.slice(0, 64);
-  return cleaned;
+  if (!cleaned) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
+  if (cleaned.length > 64)
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(cleaned.slice(0, 64));
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(cleaned);
 }
 
-function tokenAndDurationFields(raw: Record<string, unknown>): {
-  readonly durationMs?: number;
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly cacheReadTokens?: number;
-  readonly cacheWriteTokens?: number;
-  readonly cacheWrite1hTokens?: number;
-  readonly totalTokens?: number;
-} {
+function tokenAndDurationFields(raw: Record<string, unknown>) {
   const durationMs = asFiniteNumber(raw.durationMs);
   const inputTokens = asFiniteNumber(raw.inputTokens);
   const outputTokens = asFiniteNumber(raw.outputTokens);
@@ -106,7 +105,15 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
   const cacheWriteTokens = asFiniteNumber(raw.cacheWriteTokens);
   const cacheWrite1hTokens = asFiniteNumber(raw.cacheWrite1hTokens);
   const totalTokens = asFiniteNumber(raw.totalTokens);
-  return {
+  return ((pinnedReturn: {
+    readonly durationMs?: number;
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly cacheReadTokens?: number;
+    readonly cacheWriteTokens?: number;
+    readonly cacheWrite1hTokens?: number;
+    readonly totalTokens?: number;
+  }) => pinnedReturn)({
     ...(durationMs != null ? { durationMs } : {}),
     ...(inputTokens != null ? { inputTokens } : {}),
     ...(outputTokens != null ? { outputTokens } : {}),
@@ -114,26 +121,31 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
     ...(cacheWriteTokens != null ? { cacheWriteTokens } : {}),
     ...(cacheWrite1hTokens != null ? { cacheWrite1hTokens } : {}),
     ...(totalTokens != null ? { totalTokens } : {}),
-  };
+  });
 }
 
-export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
-  if (!isPlainObject(raw)) return null;
+export function sanitizeAgentLifecycleEvent(raw: unknown) {
+  if (!isPlainObject(raw))
+    return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
   for (const key of Object.keys(raw)) {
     if (Object.hasOwn(TOKEN_COUNT_KEYS, key)) continue;
-    if (FORBIDDEN_KEY_RE.test(key)) return null;
+    if (FORBIDDEN_KEY_RE.test(key))
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
   }
 
   const kind = asString(raw.kind);
-  if (!kind || !isAgentLifecycleEventKind(kind)) return null;
+  if (!kind || !isAgentLifecycleEventKind(kind))
+    return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
 
   const role = asString(raw.role);
-  if (!role || !isAgentSessionRole(role)) return null;
+  if (!role || !isAgentSessionRole(role))
+    return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
   const typedRole = role;
 
   const provider = asString(raw.provider);
   const model = asString(raw.model);
-  if (!provider || !model) return null;
+  if (!provider || !model)
+    return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
 
   const phaseRaw = asString(raw.phase);
   const phase = phaseRaw && isAgentSessionPhase(phaseRaw) ? phaseRaw : undefined;
@@ -141,13 +153,21 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
 
   switch (kind) {
     case "turn": {
-      if (!phase || !checkpointId) return null;
-      return { kind, role: typedRole, phase, checkpointId, provider, model };
+      if (!phase || !checkpointId)
+        return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
+        kind,
+        role: typedRole,
+        phase,
+        checkpointId,
+        provider,
+        model,
+      });
     }
     case "tool": {
       const toolName = sanitizeToolName(raw.toolName);
-      if (!toolName) return null;
-      return {
+      if (!toolName) return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         ...(phase ? { phase } : {}),
@@ -156,12 +176,12 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         ...(typeof raw.ok === "boolean" ? { ok: raw.ok } : {}),
         provider,
         model,
-      };
+      });
     }
     case "retry": {
       const reason = sanitizeReason(raw.reason);
-      if (!reason) return null;
-      return {
+      if (!reason) return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         ...(checkpointId ? { checkpointId } : {}),
@@ -169,30 +189,42 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         model,
         ...(asFiniteNumber(raw.attempt) != null ? { attempt: asFiniteNumber(raw.attempt) } : {}),
         reason,
-      };
+      });
     }
     case "compaction": {
       const reason = sanitizeReason(raw.reason);
-      if (!reason) return null;
-      return { kind, role: typedRole, provider, model, reason };
+      if (!reason) return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
+        kind,
+        role: typedRole,
+        provider,
+        model,
+        reason,
+      });
     }
     case "usage": {
-      return {
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         ...(phase ? { phase } : {}),
         provider,
         model,
         ...tokenAndDurationFields(raw),
-      };
+      });
     }
     case "cancellation": {
       const reason = sanitizeReason(raw.reason) ?? "abort";
-      return { kind, role: typedRole, provider, model, reason };
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
+        kind,
+        role: typedRole,
+        provider,
+        model,
+        reason,
+      });
     }
     case "completion": {
       const end = asString(raw.end);
-      return {
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         ...(phase ? { phase } : {}),
@@ -202,12 +234,12 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         ok: true,
         ...(end && isTurnEnd(end) ? { end } : {}),
         ...tokenAndDurationFields(raw),
-      };
+      });
     }
     case "failure": {
       const failureCode = sanitizeStableCode(raw.failureCode);
-      if (!failureCode) return null;
-      return {
+      if (!failureCode) return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         ...(phase ? { phase } : {}),
@@ -223,7 +255,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
           ? { errorKind: sanitizeStableCode(raw.errorKind) }
           : {}),
         ...tokenAndDurationFields(raw),
-      };
+      });
     }
     case "execution": {
       const outcome = asString(raw.outcome);
@@ -233,7 +265,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         outcome !== "cancelled" &&
         outcome !== "budget"
       ) {
-        return null;
+        return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
       }
       const durationMs = asFiniteNumber(raw.durationMs);
       const admittedHostCalls = asFiniteNumber(raw.admittedHostCalls);
@@ -249,9 +281,9 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         outputBytes == null ||
         !terminationReason
       ) {
-        return null;
+        return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
       }
-      return {
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)({
         kind,
         role: typedRole,
         provider,
@@ -266,21 +298,19 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         transferredBytes,
         outputBytes,
         terminationReason,
-      };
+      });
     }
     default: {
       const _exhaustive: never = kind;
       logWarn("agent_lifecycle_unexpected_kind", { kind: String(_exhaustive) });
-      return null;
+      return ((pinnedReturn: AgentLifecycleEvent | null) => pinnedReturn)(null);
     }
   }
 }
 
-export function createSanitizedEventSink(
-  sink: (event: AgentLifecycleEvent) => void,
-): (raw: unknown) => void {
-  return (raw) => {
+export function createSanitizedEventSink(sink: (event: AgentLifecycleEvent) => void) {
+  return ((pinnedReturn: (raw: unknown) => void) => pinnedReturn)((raw) => {
     const sanitized = sanitizeAgentLifecycleEvent(raw);
     if (sanitized) sink(sanitized);
-  };
+  });
 }

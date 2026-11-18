@@ -11,8 +11,10 @@ import {
 } from "../src/agent/triage/triageWritePolicy.ts";
 
 describe("triageWritePolicy", () => {
-  async function tempRoot(): Promise<string> {
-    return mkdtemp(join(tmpdir(), "triage-write-policy-"));
+  async function tempRoot() {
+    return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(
+      mkdtemp(join(tmpdir(), "triage-write-policy-")),
+    );
   }
 
   it("normalizes repo-relative paths", () => {

@@ -21,11 +21,8 @@ import {
   replaceCiRollupMarkerIfNewer,
 } from "../src/review/ci/ciSummaryCell.ts";
 
-function thread(
-  rootCommentId: number,
-  overrides: Partial<BotFindingThread> = {},
-): BotFindingThread {
-  return {
+function thread(rootCommentId: number, overrides: Partial<BotFindingThread> = {}) {
+  return ((pinnedReturn: BotFindingThread) => pinnedReturn)({
     rootCommentId,
     lens: "review",
     path: "src/app.ts",
@@ -35,7 +32,7 @@ function thread(
     humanReplies: [],
     threadUrl: "https://github.test/thread",
     ...overrides,
-  };
+  });
 }
 
 describe("renderTriageReport policy suggestion footer", () => {

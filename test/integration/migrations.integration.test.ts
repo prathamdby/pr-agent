@@ -64,10 +64,12 @@ const EXPECTED_MIGRATIONS = [
   "044_agent_feedback.sql",
 ].toSorted();
 
-function migrationFilesOnDisk(): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((name) => name.endsWith(".sql"))
-    .toSorted();
+function migrationFilesOnDisk() {
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    readdirSync(MIGRATIONS_DIR)
+      .filter((name) => name.endsWith(".sql"))
+      .toSorted(),
+  );
 }
 
 describe("migrations inventory", () => {

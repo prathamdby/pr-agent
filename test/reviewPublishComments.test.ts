@@ -10,13 +10,8 @@ import type { ReviewFinding } from "../src/review/reviewSchema.ts";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.ts";
 import type { PrReviewComment } from "../src/github/prSurface.ts";
 
-function reviewComment(c: {
-  path: string;
-  line: number;
-  id: number;
-  url: string;
-}): PrReviewComment {
-  return {
+function reviewComment(c: { path: string; line: number; id: number; url: string }) {
+  return ((pinnedReturn: PrReviewComment) => pinnedReturn)({
     id: c.id,
     inReplyToId: null,
     pullRequestReviewId: null,
@@ -27,11 +22,11 @@ function reviewComment(c: {
     originalLine: c.line,
     htmlUrl: c.url,
     authorLogin: "pr-agent[bot]",
-  };
+  });
 }
 
-function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
-  return {
+function finding(overrides: Partial<ReviewFinding> = {}) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P1",
     file: "src/x.ts",
     startLine: 4,
@@ -40,19 +35,19 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     detail: "Bad logic.",
     fixPrompt: "Fix it.",
     ...overrides,
-  };
+  });
 }
 
 function placement(
   f: ReviewFinding,
   opts: { inlinePosted?: boolean; inlineLine?: number | null } = {},
-): InlinePlacement {
+) {
   const inlinePosted = opts.inlinePosted ?? true;
-  return {
+  return ((pinnedReturn: InlinePlacement) => pinnedReturn)({
     finding: f,
     inlineLine: inlinePosted ? (opts.inlineLine ?? f.startLine) : null,
     inlinePosted,
-  };
+  });
 }
 
 describe("published inline comment links", () => {

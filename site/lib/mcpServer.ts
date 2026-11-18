@@ -37,37 +37,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function rpcId(value: unknown): RpcId | undefined {
+function rpcId(value: unknown) {
   if (value === undefined) {
-    return undefined;
+    return ((pinnedReturn: RpcId | undefined) => pinnedReturn)(undefined);
   }
   if (value === null || typeof value === "string" || typeof value === "number") {
-    return value;
+    return ((pinnedReturn: RpcId | undefined) => pinnedReturn)(value);
   }
-  return undefined;
+  return ((pinnedReturn: RpcId | undefined) => pinnedReturn)(undefined);
 }
 
-function parseRpc(raw: string): ParsedRpc {
+function parseRpc(raw: string) {
   let value: unknown;
   try {
     value = JSON.parse(raw);
   } catch {
-    return { kind: "parse_error" };
+    return ((pinnedReturn: ParsedRpc) => pinnedReturn)({ kind: "parse_error" });
   }
   if (!isRecord(value) || value.jsonrpc !== "2.0" || typeof value.method !== "string") {
-    return { kind: "invalid" };
+    return ((pinnedReturn: ParsedRpc) => pinnedReturn)({ kind: "invalid" });
   }
   if (!Object.hasOwn(value, "id")) {
-    return { kind: "notification", method: value.method, params: value.params };
+    return ((pinnedReturn: ParsedRpc) => pinnedReturn)({
+      kind: "notification",
+      method: value.method,
+      params: value.params,
+    });
   }
   const id = rpcId(value.id);
   if (id === undefined) {
-    return { kind: "invalid" };
+    return ((pinnedReturn: ParsedRpc) => pinnedReturn)({ kind: "invalid" });
   }
-  return { kind: "request", id, method: value.method, params: value.params };
+  return ((pinnedReturn: ParsedRpc) => pinnedReturn)({
+    kind: "request",
+    id,
+    method: value.method,
+    params: value.params,
+  });
 }
 
-function jsonResponse(status: number, body: unknown, extra?: HeadersInit): Response {
+function jsonResponse(status: number, body: unknown, extra?: HeadersInit) {
   const headers = new Headers(JSON_HEADERS);
   if (extra !== undefined) {
     const more = new Headers(extra);
@@ -75,144 +84,170 @@ function jsonResponse(status: number, body: unknown, extra?: HeadersInit): Respo
       headers.set(name, value);
     }
   }
-  return new Response(JSON.stringify(body), { status, headers });
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    new Response(JSON.stringify(body), { status, headers }),
+  );
 }
 
-function rpcResult(id: RpcId, result: unknown): Response {
-  return jsonResponse(200, { jsonrpc: "2.0", id, result });
+function rpcResult(id: RpcId, result: unknown) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    jsonResponse(200, { jsonrpc: "2.0", id, result }),
+  );
 }
 
-function rpcError(id: RpcId, code: number, message: string): Response {
+function rpcError(id: RpcId, code: number, message: string) {
   const status = code === -32700 || code === -32600 ? 400 : 200;
-  return jsonResponse(status, { jsonrpc: "2.0", id, error: { code, message } });
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    jsonResponse(status, { jsonrpc: "2.0", id, error: { code, message } }),
+  );
 }
 
-function protocolVersion(params: unknown): string {
+function protocolVersion(params: unknown) {
   if (!isRecord(params) || typeof params.protocolVersion !== "string") {
-    return SERVER_PROTOCOL;
+    return ((pinnedReturn: string) => pinnedReturn)(SERVER_PROTOCOL);
   }
   const requested = params.protocolVersion;
   for (const supported of SUPPORTED_PROTOCOLS) {
     if (supported === requested) {
-      return requested;
+      return ((pinnedReturn: string) => pinnedReturn)(requested);
     }
   }
-  return SERVER_PROTOCOL;
+  return ((pinnedReturn: string) => pinnedReturn)(SERVER_PROTOCOL);
 }
 
-function toolArguments(params: unknown): Record<string, unknown> | null {
+function toolArguments(params: unknown) {
   if (params === undefined) {
-    return {};
+    return ((pinnedReturn: Record<string, unknown> | null) => pinnedReturn)({});
   }
   if (!isRecord(params)) {
-    return null;
+    return ((pinnedReturn: Record<string, unknown> | null) => pinnedReturn)(null);
   }
   const args = params.arguments;
   if (args === undefined) {
-    return {};
+    return ((pinnedReturn: Record<string, unknown> | null) => pinnedReturn)({});
   }
   if (!isRecord(args)) {
-    return null;
+    return ((pinnedReturn: Record<string, unknown> | null) => pinnedReturn)(null);
   }
-  return args;
+  return ((pinnedReturn: Record<string, unknown> | null) => pinnedReturn)(args);
 }
 
-function toolName(params: unknown): string | null {
+function toolName(params: unknown) {
   if (!isRecord(params) || typeof params.name !== "string" || params.name === "") {
-    return null;
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
   }
-  return params.name;
+  return ((pinnedReturn: string | null) => pinnedReturn)(params.name);
 }
 
-function toolText(text: string, isError = false): Record<string, unknown> {
-  return {
+function toolText(text: string, isError = false) {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     content: [{ type: "text", text }],
     isError,
-  };
+  });
 }
 
-function callTool(name: string, args: Record<string, unknown>): Record<string, unknown> {
+function callTool(name: string, args: Record<string, unknown>) {
   switch (name) {
     case QUERY_TOOL_NAME: {
       const query = args.query;
       if (typeof query !== "string") {
-        return toolText("query must be a string", true);
+        return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+          toolText("query must be a string", true),
+        );
       }
-      return toolText(renderAnswerText(answerAgentQuery(parseAgentQuery(query))));
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+        toolText(renderAnswerText(answerAgentQuery(parseAgentQuery(query)))),
+      );
     }
     case LIST_TOOL_NAME:
-      return toolText(renderResourceLinks());
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+        toolText(renderResourceLinks()),
+      );
     default:
-      return toolText(`Unknown tool: ${name}`, true);
+      return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(
+        toolText(`Unknown tool: ${name}`, true),
+      );
   }
 }
 
-function toolDescriptor(tool: AgentToolDefinition): Record<string, unknown> {
-  return {
+function toolDescriptor(tool: AgentToolDefinition) {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema,
-  };
+  });
 }
 
-function handleRequest(message: Extract<ParsedRpc, { kind: "request" }>): Response {
+function handleRequest(message: Extract<ParsedRpc, { kind: "request" }>) {
   const { id, method, params } = message;
   switch (method) {
     case "initialize":
-      return rpcResult(id, {
-        protocolVersion: protocolVersion(params),
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-        instructions:
-          "Read-only. query_pr_agent answers from this site's profile. No authentication.",
-      });
+      return ((pinnedReturn: Response) => pinnedReturn)(
+        rpcResult(id, {
+          protocolVersion: protocolVersion(params),
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+          instructions:
+            "Read-only. query_pr_agent answers from this site's profile. No authentication.",
+        }),
+      );
     case "ping":
-      return rpcResult(id, {});
+      return ((pinnedReturn: Response) => pinnedReturn)(rpcResult(id, {}));
     case "tools/list":
-      return rpcResult(id, { tools: MCP_TOOLS.map(toolDescriptor) });
+      return ((pinnedReturn: Response) => pinnedReturn)(
+        rpcResult(id, { tools: MCP_TOOLS.map(toolDescriptor) }),
+      );
     case "tools/call": {
       const name = toolName(params);
       const args = toolArguments(params);
       if (name === null || args === null) {
-        return rpcError(id, -32602, "tools/call needs a tool name and object arguments");
+        return ((pinnedReturn: Response) => pinnedReturn)(
+          rpcError(id, -32602, "tools/call needs a tool name and object arguments"),
+        );
       }
-      return rpcResult(id, callTool(name, args));
+      return ((pinnedReturn: Response) => pinnedReturn)(rpcResult(id, callTool(name, args)));
     }
     default:
-      return rpcError(id, -32601, `method not found: ${method}`);
+      return ((pinnedReturn: Response) => pinnedReturn)(
+        rpcError(id, -32601, `method not found: ${method}`),
+      );
   }
 }
 
-export function mcpMethodNotAllowed(): Response {
-  return jsonResponse(
-    405,
-    {
-      error: "method_not_allowed",
-      detail: "POST a single JSON-RPC message. This server does not open an SSE stream.",
-    },
-    { Allow: "POST" },
+export function mcpMethodNotAllowed() {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    jsonResponse(
+      405,
+      {
+        error: "method_not_allowed",
+        detail: "POST a single JSON-RPC message. This server does not open an SSE stream.",
+      },
+      { Allow: "POST" },
+    ),
   );
 }
 
-function declaredBodyTooLarge(request: Request): boolean {
+function declaredBodyTooLarge(request: Request) {
   const header = request.headers.get("content-length");
   if (header === null) {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
   if (!/^\d+$/.test(header)) {
-    return true;
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
   }
-  return Number(header) > MAX_BODY_BYTES;
+  return ((pinnedReturn: boolean) => pinnedReturn)(Number(header) > MAX_BODY_BYTES);
 }
 
-async function readCappedBody(request: Request): Promise<Uint8Array | null> {
+async function readCappedBody(request: Request) {
   if (declaredBodyTooLarge(request)) {
     await request.body?.cancel();
-    return null;
+    return ((pinnedReturn: (Uint8Array | null) | Promise<Uint8Array | null>) => pinnedReturn)(null);
   }
   const body = request.body;
   if (body === null) {
-    return new Uint8Array();
+    return ((pinnedReturn: (Uint8Array | null) | Promise<Uint8Array | null>) => pinnedReturn)(
+      new Uint8Array(),
+    );
   }
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
@@ -224,7 +259,9 @@ async function readCappedBody(request: Request): Promise<Uint8Array | null> {
     }
     if (total + value.byteLength > MAX_BODY_BYTES) {
       await reader.cancel();
-      return null;
+      return ((pinnedReturn: (Uint8Array | null) | Promise<Uint8Array | null>) => pinnedReturn)(
+        null,
+      );
     }
     chunks.push(value);
     total += value.byteLength;
@@ -235,27 +272,35 @@ async function readCappedBody(request: Request): Promise<Uint8Array | null> {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return bytes;
+  return ((pinnedReturn: (Uint8Array | null) | Promise<Uint8Array | null>) => pinnedReturn)(bytes);
 }
 
-export async function mcpPostResponse(request: Request): Promise<Response> {
+export async function mcpPostResponse(request: Request) {
   const bytes = await readCappedBody(request);
   if (bytes === null) {
-    return rpcError(null, -32600, "request is too large");
+    return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(
+      rpcError(null, -32600, "request is too large"),
+    );
   }
   const message = parseRpc(new TextDecoder().decode(bytes));
   switch (message.kind) {
     case "parse_error":
-      return rpcError(null, -32700, "parse error");
+      return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(
+        rpcError(null, -32700, "parse error"),
+      );
     case "invalid":
-      return rpcError(null, -32600, "invalid request");
+      return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(
+        rpcError(null, -32600, "invalid request"),
+      );
     case "notification":
-      return new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } });
+      return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(
+        new Response(null, { status: 202, headers: { "Cache-Control": "no-store" } }),
+      );
     case "request":
-      return handleRequest(message);
+      return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(handleRequest(message));
     default: {
       const _exhaustive: never = message;
-      return _exhaustive;
+      return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(_exhaustive);
     }
   }
 }

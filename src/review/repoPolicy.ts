@@ -44,7 +44,7 @@ export type RepoPolicyResult =
   | { kind: "invalid"; reason: string; drops?: readonly RepoPolicyDrop[] }
   | { kind: "ok"; policy: RepoPolicy; drops?: readonly RepoPolicyDrop[] };
 
-function matchesPathGlob(filename: string, pattern: string): boolean {
+function matchesPathGlob(filename: string, pattern: string) {
   const normalizedPattern = pattern.replace(/\\/g, "/");
   const globstarMiddle = "\0GLOBSTAR_MIDDLE\0";
   const globstarTrailing = "\0GLOBSTAR_TRAILING\0";
@@ -64,41 +64,49 @@ function matchesPathGlob(filename: string, pattern: string): boolean {
     .replaceAll(globstarTrailing, "/.*")
     .replaceAll(globstarLeading, "(?:^|.*/)")
     .replaceAll(globstarStandalone, ".*");
-  return new RegExp(`^${regexString}$`).test(filename.replace(/\\/g, "/"));
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    new RegExp(`^${regexString}$`).test(filename.replace(/\\/g, "/")),
+  );
 }
 
-function sanitizeRenderedPolicyText(value: string): string {
-  return value.split(/\r?\n/).join(" ").trim();
+function sanitizeRenderedPolicyText(value: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(value.split(/\r?\n/).join(" ").trim());
 }
 
-function normalizeGlobs(value: string | string[] | undefined): string[] {
-  if (value == null) return [];
+function normalizeGlobs(value: string | string[] | undefined) {
+  if (value == null) return ((pinnedReturn: string[]) => pinnedReturn)([]);
   const raw = Array.isArray(value) ? value : [value];
-  return raw
-    .map((glob) => glob.trim().slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS))
-    .filter((glob) => glob.length > 0);
+  return ((pinnedReturn: string[]) => pinnedReturn)(
+    raw
+      .map((glob) => glob.trim().slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS))
+      .filter((glob) => glob.length > 0),
+  );
 }
 
 function effectiveAlwaysApply(params: {
   readonly alwaysApply: boolean | undefined;
   readonly globs: readonly string[];
-}): boolean {
-  if (params.alwaysApply === true) return true;
-  if (params.alwaysApply === false) return false;
-  return params.globs.length === 0;
+}) {
+  if (params.alwaysApply === true) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  if (params.alwaysApply === false) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(params.globs.length === 0);
 }
 
-function globMatchesFile(rule: RepoPolicyRule, file: string): boolean {
-  return rule.globs.some((pattern) => matchesPathGlob(file, pattern));
+function globMatchesFile(rule: RepoPolicyRule, file: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    rule.globs.some((pattern) => matchesPathGlob(file, pattern)),
+  );
 }
 
-export function ruleConsidersFile(rule: RepoPolicyRule, file: string): boolean {
-  return rule.alwaysApply || globMatchesFile(rule, file);
+export function ruleConsidersFile(rule: RepoPolicyRule, file: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(rule.alwaysApply || globMatchesFile(rule, file));
 }
 
-function ruleApplies(rule: RepoPolicyRule, changedFiles?: readonly string[]): boolean {
-  if (!changedFiles) return true;
-  return changedFiles.some((filename) => ruleConsidersFile(rule, filename));
+function ruleApplies(rule: RepoPolicyRule, changedFiles?: readonly string[]) {
+  if (!changedFiles) return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    changedFiles.some((filename) => ruleConsidersFile(rule, filename)),
+  );
 }
 
 export type PolicyCandidatePair<T extends { readonly file: string }> = {
@@ -109,9 +117,9 @@ export type PolicyCandidatePair<T extends { readonly file: string }> = {
 export function candidatePolicyPairs<T extends { readonly file: string }>(params: {
   readonly policy: RepoPolicyResult;
   readonly findings: readonly T[];
-}): readonly PolicyCandidatePair<T>[] {
+}) {
   if (params.policy.kind !== "ok") {
-    return [];
+    return ((pinnedReturn: readonly PolicyCandidatePair<T>[]) => pinnedReturn)([]);
   }
   const pairs: PolicyCandidatePair<T>[] = [];
   for (const finding of params.findings) {
@@ -121,14 +129,10 @@ export function candidatePolicyPairs<T extends { readonly file: string }>(params
       }
     }
   }
-  return pairs;
+  return ((pinnedReturn: readonly PolicyCandidatePair<T>[]) => pinnedReturn)(pairs);
 }
 
-function parseMdcContent(
-  raw: string,
-):
-  | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string; omittedChars: number }
-  | { kind: "invalid"; reason: string } {
+function parseMdcContent(raw: string) {
   const trimmed = raw.replace(/^\uFEFF/, "");
   let frontmatterRaw: string | undefined;
   let bodyRaw: string;
@@ -136,7 +140,17 @@ function parseMdcContent(
   if (trimmed.startsWith("---")) {
     const end = trimmed.indexOf("\n---", 3);
     if (end === -1) {
-      return { kind: "invalid", reason: "unclosed frontmatter" };
+      return ((
+        pinnedReturn:
+          | {
+              kind: "ok";
+              alwaysApply: boolean;
+              globs: string[];
+              body: string;
+              omittedChars: number;
+            }
+          | { kind: "invalid"; reason: string },
+      ) => pinnedReturn)({ kind: "invalid", reason: "unclosed frontmatter" });
     }
     frontmatterRaw = trimmed.slice(3, end).replace(/^\r?\n/, "");
     bodyRaw = trimmed.slice(end + 4).replace(/^\r?\n/, "");
@@ -151,14 +165,44 @@ function parseMdcContent(
     try {
       parsed = parseYaml(frontmatterRaw);
     } catch {
-      return { kind: "invalid", reason: "malformed frontmatter yaml" };
+      return ((
+        pinnedReturn:
+          | {
+              kind: "ok";
+              alwaysApply: boolean;
+              globs: string[];
+              body: string;
+              omittedChars: number;
+            }
+          | { kind: "invalid"; reason: string },
+      ) => pinnedReturn)({ kind: "invalid", reason: "malformed frontmatter yaml" });
     }
     if (parsed != null && (typeof parsed !== "object" || Array.isArray(parsed))) {
-      return { kind: "invalid", reason: "frontmatter must be a mapping" };
+      return ((
+        pinnedReturn:
+          | {
+              kind: "ok";
+              alwaysApply: boolean;
+              globs: string[];
+              body: string;
+              omittedChars: number;
+            }
+          | { kind: "invalid"; reason: string },
+      ) => pinnedReturn)({ kind: "invalid", reason: "frontmatter must be a mapping" });
     }
     const validated = v.safeParse(frontmatterSchema, parsed ?? {});
     if (!validated.success) {
-      return { kind: "invalid", reason: "frontmatter schema validation failed" };
+      return ((
+        pinnedReturn:
+          | {
+              kind: "ok";
+              alwaysApply: boolean;
+              globs: string[];
+              body: string;
+              omittedChars: number;
+            }
+          | { kind: "invalid"; reason: string },
+      ) => pinnedReturn)({ kind: "invalid", reason: "frontmatter schema validation failed" });
     }
     alwaysApply = validated.output.alwaysApply;
     globs = normalizeGlobs(validated.output.globs);
@@ -167,21 +211,29 @@ function parseMdcContent(
   const trimmedBody = bodyRaw.trim();
   const body = trimmedBody.slice(0, MAX_REPO_POLICY_INSTRUCTION_CHARS);
   if (!body) {
-    return { kind: "invalid", reason: "empty body" };
+    return ((
+      pinnedReturn:
+        | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string; omittedChars: number }
+        | { kind: "invalid"; reason: string },
+    ) => pinnedReturn)({ kind: "invalid", reason: "empty body" });
   }
 
-  return {
+  return ((
+    pinnedReturn:
+      | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string; omittedChars: number }
+      | { kind: "invalid"; reason: string },
+  ) => pinnedReturn)({
     kind: "ok",
     alwaysApply: effectiveAlwaysApply({ alwaysApply, globs }),
     globs,
     body,
     omittedChars: trimmedBody.length - body.length,
-  };
+  });
 }
 
-function policySlugFromPath(filePath: string): string {
+function policySlugFromPath(filePath: string) {
   const parts = filePath.split("/").filter((part) => part.length > 0);
-  if (parts.length === 0) return "policy";
+  if (parts.length === 0) return ((pinnedReturn: string) => pinnedReturn)("policy");
   const raw = parts
     .map((part, index) => (index === parts.length - 1 ? part.replace(/\.[^.]+$/, "") : part))
     .join("-");
@@ -189,24 +241,26 @@ function policySlugFromPath(filePath: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug || "policy";
+  return ((pinnedReturn: string) => pinnedReturn)(slug || "policy");
 }
 
-function defaultGlobsForPath(filePath: string): string[] {
+function defaultGlobsForPath(filePath: string) {
   const sanitized = sanitizeRenderedPolicyText(filePath).slice(
     0,
     MAX_REPO_POLICY_PATH_PATTERN_CHARS,
   );
-  if (!sanitized) return ["**/*"];
-  return [sanitized];
+  if (!sanitized) return ((pinnedReturn: string[]) => pinnedReturn)(["**/*"]);
+  return ((pinnedReturn: string[]) => pinnedReturn)([sanitized]);
 }
 
-function errnoCode(error: unknown): string | undefined {
+function errnoCode(error: unknown) {
   if (error && typeof error === "object" && "code" in error) {
     const code = error.code;
-    return typeof code === "string" ? code : undefined;
+    return ((pinnedReturn: string | undefined) => pinnedReturn)(
+      typeof code === "string" ? code : undefined,
+    );
   }
-  return undefined;
+  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
 }
 
 export type RepoPolicyCandidate = {
@@ -214,17 +268,22 @@ export type RepoPolicyCandidate = {
   readonly body: string;
 };
 
-function policyFilename(path: string): string {
+function policyFilename(path: string) {
   const slash = path.lastIndexOf("/");
-  return slash < 0 ? path : path.slice(slash + 1);
+  return ((pinnedReturn: string) => pinnedReturn)(slash < 0 ? path : path.slice(slash + 1));
 }
 
 export async function loadRepoPolicy(
   source: string | readonly RepoPolicyCandidate[],
   maxBytes: number = MAX_REPO_POLICY_BYTES,
-): Promise<RepoPolicyResult> {
-  if (typeof source !== "string") return loadRepoPolicyCandidates(source, maxBytes);
-  return loadRepoPolicyFromCheckout(source, maxBytes);
+) {
+  if (typeof source !== "string")
+    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
+      loadRepoPolicyCandidates(source, maxBytes),
+    );
+  return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
+    loadRepoPolicyFromCheckout(source, maxBytes),
+  );
 }
 
 type PolicyBodySource = {
@@ -234,11 +293,12 @@ type PolicyBodySource = {
   readonly read: () => Promise<string>;
 };
 
-async function parseRepoPolicySources(
-  sources: readonly PolicyBodySource[],
-  maxBytes: number,
-): Promise<RepoPolicyResult> {
-  if (sources.length === 0) return { kind: "absent", drops: [] };
+async function parseRepoPolicySources(sources: readonly PolicyBodySource[], maxBytes: number) {
+  if (sources.length === 0)
+    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+      kind: "absent",
+      drops: [],
+    });
 
   const rules: RepoPolicyRule[] = [];
   const drops: RepoPolicyDrop[] = [];
@@ -310,15 +370,23 @@ async function parseRepoPolicySources(
   }
 
   if (rules.length === 0) {
-    return { kind: "invalid", reason: "no usable .mdc rules", drops };
+    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+      kind: "invalid",
+      reason: "no usable .mdc rules",
+      drops,
+    });
   }
-  return { kind: "ok", policy: { rules }, drops };
+  return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+    kind: "ok",
+    policy: { rules },
+    drops,
+  });
 }
 
 async function loadRepoPolicyCandidates(
   candidates: readonly RepoPolicyCandidate[],
   maxBytes: number,
-): Promise<RepoPolicyResult> {
+) {
   const sources = candidates
     .filter(
       (file) => isAllowlistedPolicyPath(file.path) && file.path.endsWith(REPO_POLICY_EXTENSION),
@@ -330,13 +398,15 @@ async function loadRepoPolicyCandidates(
       read: async () => file.body,
     }))
     .toSorted((a, b) => a.relativePath.localeCompare(b.relativePath));
-  return parseRepoPolicySources(sources, maxBytes);
+  return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
+    parseRepoPolicySources(sources, maxBytes),
+  );
 }
 
 async function loadRepoPolicyFromCheckout(
   agentCwd: string,
   maxBytes: number = MAX_REPO_POLICY_BYTES,
-): Promise<RepoPolicyResult> {
+) {
   const policyDir = join(agentCwd, REPO_POLICY_DIRNAME);
   let entries;
   try {
@@ -344,13 +414,24 @@ async function loadRepoPolicyFromCheckout(
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT") {
-      return { kind: "absent", drops: [] };
+      return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+        kind: "absent",
+        drops: [],
+      });
     }
     if (code === "ENOTDIR") {
-      return { kind: "invalid", reason: "not a directory", drops: [] };
+      return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+        kind: "invalid",
+        reason: "not a directory",
+        drops: [],
+      });
     }
     const message = errorMessage(error);
-    return { kind: "invalid", reason: message, drops: [] };
+    return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
+      kind: "invalid",
+      reason: message,
+      drops: [],
+    });
   }
 
   const sources = entries
@@ -369,24 +450,26 @@ async function loadRepoPolicyFromCheckout(
         read: () => readFile(absolutePath, "utf8"),
       };
     });
-  return parseRepoPolicySources(sources, maxBytes);
+  return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)(
+    parseRepoPolicySources(sources, maxBytes),
+  );
 }
 
 export function renderRepoPolicyBlock(params: {
   policy: RepoPolicy;
   changedFiles?: readonly string[];
-}): string {
+}) {
   const { policy, changedFiles } = params;
   const applicableRules = policy.rules.filter((rule) => ruleApplies(rule, changedFiles));
   if (applicableRules.length === 0) {
-    return "";
+    return ((pinnedReturn: string) => pinnedReturn)("");
   }
 
   const lines = renderRepoPolicyTrustGuidance();
   for (const rule of applicableRules) {
     lines.push(`- Rule \`${rule.relativePath}\`: ${sanitizeRenderedPolicyText(rule.body)}`);
   }
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 function renderNewMdcSuggestion(params: {
@@ -394,7 +477,7 @@ function renderNewMdcSuggestion(params: {
   readonly globs: readonly string[];
   readonly instruction: string;
   readonly preamble?: string;
-}): string {
+}) {
   const lines = [
     ...(params.preamble ? [params.preamble] : []),
     `Create \`${params.relativePath}\` with:`,
@@ -409,14 +492,14 @@ function renderNewMdcSuggestion(params: {
     params.instruction,
     "```",
   ];
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 export function renderPolicySuggestionForDismissed(params: {
   readonly filePath: string;
   readonly dismissalEvidence: string;
   readonly policyResult?: RepoPolicyResult;
-}): string {
+}) {
   const policyResult = params.policyResult ?? { kind: "absent" as const };
   const instruction = sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
     0,
@@ -431,19 +514,21 @@ export function renderPolicySuggestionForDismissed(params: {
     );
     if (matches.length === 1) {
       const target = matches[0];
-      return [`Append this to \`${target.relativePath}\`:`, "", "```md", instruction, "```"].join(
-        "\n",
+      return ((pinnedReturn: string) => pinnedReturn)(
+        [`Append this to \`${target.relativePath}\`:`, "", "```md", instruction, "```"].join("\n"),
       );
     }
   }
 
-  return renderNewMdcSuggestion({
-    relativePath: newRelativePath,
-    globs,
-    instruction,
-    preamble:
-      policyResult.kind === "invalid"
-        ? `\`${REPO_POLICY_DIRNAME}/\` exists but could not be used (${policyResult.reason}).`
-        : undefined,
-  });
+  return ((pinnedReturn: string) => pinnedReturn)(
+    renderNewMdcSuggestion({
+      relativePath: newRelativePath,
+      globs,
+      instruction,
+      preamble:
+        policyResult.kind === "invalid"
+          ? `\`${REPO_POLICY_DIRNAME}/\` exists but could not be used (${policyResult.reason}).`
+          : undefined,
+    }),
+  );
 }

@@ -49,128 +49,144 @@ export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
 }
 
-function stringifyCause(value: unknown, fallback: string): string {
-  if (typeof value === "string") return value;
+function stringifyCause(value: unknown, fallback: string) {
+  if (typeof value === "string") return ((pinnedReturn: string) => pinnedReturn)(value);
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
+    return ((pinnedReturn: string) => pinnedReturn)(String(value));
   }
-  if (typeof value === "symbol") return value.description ?? "Symbol";
+  if (typeof value === "symbol")
+    return ((pinnedReturn: string) => pinnedReturn)(value.description ?? "Symbol");
   try {
-    return JSON.stringify(value) ?? fallback;
+    return ((pinnedReturn: string) => pinnedReturn)(JSON.stringify(value) ?? fallback);
   } catch {
-    return fallback;
+    return ((pinnedReturn: string) => pinnedReturn)(fallback);
   }
 }
 
-function causeMessage(cause: unknown): string {
-  return stringifyCause(cause, Object.prototype.toString.call(cause));
+function causeMessage(cause: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    stringifyCause(cause, Object.prototype.toString.call(cause)),
+  );
 }
 
-function jsonSafeRawValue(value: unknown): unknown {
+function jsonSafeRawValue(value: unknown) {
   if (
     value === null ||
     typeof value === "string" ||
     typeof value === "number" ||
     typeof value === "boolean"
   ) {
-    return value;
+    return ((pinnedReturn: unknown) => pinnedReturn)(value);
   }
-  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "bigint") return ((pinnedReturn: unknown) => pinnedReturn)(value.toString());
   const serialized = stringifyCause(value, "");
   try {
-    return JSON.parse(serialized);
+    return ((pinnedReturn: unknown) => pinnedReturn)(JSON.parse(serialized));
   } catch {
-    return typeof value;
+    return ((pinnedReturn: unknown) => pinnedReturn)(typeof value);
   }
 }
 
-function safeCauseMessage(value: unknown): string {
-  return stringifyCause(value, "[unsupported]");
+function safeCauseMessage(value: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(stringifyCause(value, "[unsupported]"));
 }
 
 export function toAppError(
   error: unknown,
   fallback: AppErrorShape & { readonly context?: AppErrorContext },
-): AppError {
-  if (isAppError(error)) return error;
+) {
+  if (isAppError(error)) return ((pinnedReturn: AppError) => pinnedReturn)(error);
   if (error instanceof Error) {
-    return new AppError({
-      ...fallback,
-      message: error.message,
-      cause: error,
-    });
+    return ((pinnedReturn: AppError) => pinnedReturn)(
+      new AppError({
+        ...fallback,
+        message: error.message,
+        cause: error,
+      }),
+    );
   }
-  return new AppError({
-    ...fallback,
-    message: causeMessage(error),
-    context: { ...fallback.context, rawValue: jsonSafeRawValue(error) },
-  });
+  return ((pinnedReturn: AppError) => pinnedReturn)(
+    new AppError({
+      ...fallback,
+      message: causeMessage(error),
+      context: { ...fallback.context, rawValue: jsonSafeRawValue(error) },
+    }),
+  );
 }
 
-function serializeCause(
+const serializeCause: (
   cause: unknown,
   ancestors: WeakSet<object>,
-): SerializedAppError["errorCause"] {
-  if (cause === undefined || cause === null) return undefined;
-  if (isAppError(cause)) return serializeAppErrorInternal(cause, ancestors);
+) => SerializedAppError["errorCause"] = (cause: unknown, ancestors: WeakSet<object>) => {
+  if (cause === undefined || cause === null)
+    return ((pinnedReturn: SerializedAppError["errorCause"]) => pinnedReturn)(undefined);
+  if (isAppError(cause))
+    return ((pinnedReturn: SerializedAppError["errorCause"]) => pinnedReturn)(
+      serializeAppErrorInternal(cause, ancestors),
+    );
   if (cause instanceof Error) {
-    if (ancestors.has(cause)) return { errorMessage: "[circular]" };
+    if (ancestors.has(cause))
+      return ((pinnedReturn: SerializedAppError["errorCause"]) => pinnedReturn)({
+        errorMessage: "[circular]",
+      });
     ancestors.add(cause);
     try {
       const errorCause = serializeCause(cause.cause, ancestors);
-      return {
+      return ((pinnedReturn: SerializedAppError["errorCause"]) => pinnedReturn)({
         errorMessage: sanitizeTelemetryString(cause.message),
         errorName: sanitizeTelemetryString(cause.name),
         ...(errorCause !== undefined ? { errorCause } : {}),
-      };
+      });
     } finally {
       ancestors.delete(cause);
     }
   }
   const rawValue = sanitizeTelemetryValue(cause);
   const errorMessage = safeCauseMessage(rawValue);
-  return {
+  return ((pinnedReturn: SerializedAppError["errorCause"]) => pinnedReturn)({
     errorMessage,
     ...(typeof rawValue === "object" && rawValue !== null ? { rawValue } : {}),
-  };
-}
+  });
+};
 
-function sanitizedContext(value: unknown): AppErrorContext {
+function sanitizedContext(value: unknown) {
   const context = sanitizeTelemetryValue(value);
-  return isRecord(context) ? context : {};
+  return ((pinnedReturn: AppErrorContext) => pinnedReturn)(isRecord(context) ? context : {});
 }
 
-function serializeAppErrorInternal(
+const serializeAppErrorInternal: (
   error: AppError,
   ancestors: WeakSet<object>,
-): SerializedAppError {
+) => SerializedAppError = (error: AppError, ancestors: WeakSet<object>) => {
   if (ancestors.has(error)) {
-    return {
+    return ((pinnedReturn: SerializedAppError) => pinnedReturn)({
       errorCode: error.code,
       errorMessage: "[circular]",
       errorContext: {},
-    };
+    });
   }
 
   ancestors.add(error);
   try {
     const errorCause = serializeCause(error.cause, ancestors);
-    return {
+    return ((pinnedReturn: SerializedAppError) => pinnedReturn)({
       errorCode: error.code,
       errorMessage: sanitizeTelemetryString(error.message),
       errorContext: sanitizedContext(error.context),
       ...(errorCause !== undefined ? { errorCause } : {}),
-    };
+    });
   } finally {
     ancestors.delete(error);
   }
+};
+
+export function serializeAppError(error: AppError) {
+  return ((pinnedReturn: SerializedAppError) => pinnedReturn)(
+    serializeAppErrorInternal(error, new WeakSet<object>()),
+  );
 }
 
-export function serializeAppError(error: AppError): SerializedAppError {
-  return serializeAppErrorInternal(error, new WeakSet<object>());
-}
-
-function setSafeProperty(target: Error, key: string, value: unknown): void {
+function setSafeProperty(target: Error, key: string, value: unknown) {
   Object.defineProperty(target, key, {
     configurable: true,
     enumerable: true,
@@ -179,7 +195,7 @@ function setSafeProperty(target: Error, key: string, value: unknown): void {
   });
 }
 
-export function sanitizeErrorForTelemetry(error: unknown): Error {
+export function sanitizeErrorForTelemetry(error: unknown) {
   const serialized = isAppError(error) ? serializeAppError(error) : undefined;
   const sanitizedRawValue = error instanceof Error ? undefined : sanitizeTelemetryValue(error);
   const message =
@@ -202,7 +218,7 @@ export function sanitizeErrorForTelemetry(error: unknown): Error {
       setSafeProperty(safe, "cause", serialized.errorCause);
       setSafeProperty(safe, "errorCause", serialized.errorCause);
     }
-    return safe;
+    return ((pinnedReturn: Error) => pinnedReturn)(safe);
   }
 
   if (error instanceof Error) {
@@ -216,14 +232,14 @@ export function sanitizeErrorForTelemetry(error: unknown): Error {
   } else if (typeof error === "object" && error !== null) {
     setSafeProperty(safe, "rawValue", sanitizedRawValue);
   }
-  return safe;
+  return ((pinnedReturn: Error) => pinnedReturn)(safe);
 }
 
-export function errorAnalyticsFields(error: unknown): Record<string, unknown> {
-  return { ...errorLogFields(error) };
+export function errorAnalyticsFields(error: unknown) {
+  return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)({ ...errorLogFields(error) });
 }
 
-export function errorLogFields(error: unknown): Partial<SerializedAppError> {
-  if (!isAppError(error)) return {};
-  return serializeAppError(error);
+export function errorLogFields(error: unknown) {
+  if (!isAppError(error)) return ((pinnedReturn: Partial<SerializedAppError>) => pinnedReturn)({});
+  return ((pinnedReturn: Partial<SerializedAppError>) => pinnedReturn)(serializeAppError(error));
 }

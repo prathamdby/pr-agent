@@ -37,47 +37,50 @@ export type FindingSnapshot = {
   readonly detail?: string;
 };
 
-export function sha256Hex(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+export function sha256Hex(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(createHash("sha256").update(text).digest("hex"));
 }
 
-export function safeJson(value: unknown): string {
+export function safeJson(value: unknown) {
   try {
-    return JSON.stringify(value) ?? "";
+    return ((pinnedReturn: string) => pinnedReturn)(JSON.stringify(value) ?? "");
   } catch {
-    return TRACE_CONTENT_TRUNCATED;
+    return ((pinnedReturn: string) => pinnedReturn)(TRACE_CONTENT_TRUNCATED);
   }
 }
 
-export function boundText(
-  text: string,
-  limit: number,
-): { readonly text: string; readonly truncated: boolean } {
-  if (text.length <= limit) return { text, truncated: false };
+export function boundText(text: string, limit: number) {
+  if (text.length <= limit)
+    return ((pinnedReturn: { readonly text: string; readonly truncated: boolean }) => pinnedReturn)(
+      { text, truncated: false },
+    );
   const marker = `\n${TRACE_CONTENT_TRUNCATED}`;
   const keep = Math.max(0, limit - marker.length);
-  return { text: `${text.slice(0, keep)}${marker}`, truncated: true };
+  return ((pinnedReturn: { readonly text: string; readonly truncated: boolean }) => pinnedReturn)({
+    text: `${text.slice(0, keep)}${marker}`,
+    truncated: true,
+  });
 }
 
-export function boundTraceValue(value: unknown, stringLimit: number, totalLimit: number): unknown {
+export function boundTraceValue(value: unknown, stringLimit: number, totalLimit: number) {
   try {
     const bounded = boundStrings(value, stringLimit, 0, new WeakSet());
     const json = safeJson(bounded);
-    if (json.length <= totalLimit) return bounded;
-    return boundText(json, totalLimit).text;
+    if (json.length <= totalLimit) return ((pinnedReturn: unknown) => pinnedReturn)(bounded);
+    return ((pinnedReturn: unknown) => pinnedReturn)(boundText(json, totalLimit).text);
   } catch {
-    return TRACE_CONTENT_TRUNCATED;
+    return ((pinnedReturn: unknown) => pinnedReturn)(TRACE_CONTENT_TRUNCATED);
   }
 }
 
-export function toPostHogOutputChoices(parts: readonly PostHogPart[]): unknown[] {
-  if (parts.length === 0) return [];
-  return [{ role: "assistant", content: parts }];
+export function toPostHogOutputChoices(parts: readonly PostHogPart[]) {
+  if (parts.length === 0) return ((pinnedReturn: unknown[]) => pinnedReturn)([]);
+  return ((pinnedReturn: unknown[]) => pinnedReturn)([{ role: "assistant", content: parts }]);
 }
 
-export function findingSnapshots(value: unknown): FindingSnapshot[] {
+export function findingSnapshots(value: unknown) {
   const found: FindingSnapshot[] = [];
-  const visit = (current: unknown, depth: number, inFindings: boolean): void => {
+  const visit = (current: unknown, depth: number, inFindings: boolean) => {
     if (found.length >= TRACE_FINDING_LIMIT || depth > BOUND_DEPTH) return;
     if (Array.isArray(current)) {
       for (const item of current) {
@@ -94,33 +97,41 @@ export function findingSnapshots(value: unknown): FindingSnapshot[] {
   try {
     visit(value, 0, false);
   } catch {
-    return found;
+    return ((pinnedReturn: FindingSnapshot[]) => pinnedReturn)(found);
   }
-  return found;
+  return ((pinnedReturn: FindingSnapshot[]) => pinnedReturn)(found);
 }
 
-function boundStrings(
+const boundStrings: (
   value: unknown,
   stringLimit: number,
   depth: number,
   seen: WeakSet<object>,
-): unknown {
-  if (typeof value === "string") return boundText(value, stringLimit).text;
-  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
-  if (depth >= BOUND_DEPTH || typeof value !== "object") return TRACE_CONTENT_TRUNCATED;
-  if (seen.has(value)) return TRACE_CONTENT_TRUNCATED;
+) => unknown = (value: unknown, stringLimit: number, depth: number, seen: WeakSet<object>) => {
+  if (typeof value === "string")
+    return ((pinnedReturn: unknown) => pinnedReturn)(boundText(value, stringLimit).text);
+  if (typeof value === "number" || typeof value === "boolean" || value == null)
+    return ((pinnedReturn: unknown) => pinnedReturn)(value);
+  if (depth >= BOUND_DEPTH || typeof value !== "object")
+    return ((pinnedReturn: unknown) => pinnedReturn)(TRACE_CONTENT_TRUNCATED);
+  if (seen.has(value)) return ((pinnedReturn: unknown) => pinnedReturn)(TRACE_CONTENT_TRUNCATED);
   seen.add(value);
   if (Array.isArray(value)) {
-    return value.map((item) => boundStrings(item, stringLimit, depth + 1, seen));
+    return ((pinnedReturn: unknown) => pinnedReturn)(
+      value.map((item) => boundStrings(item, stringLimit, depth + 1, seen)),
+    );
   }
-  if (!isPlainObject(value)) return TRACE_CONTENT_TRUNCATED;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      boundStrings(item, stringLimit, depth + 1, seen),
-    ]),
+  if (!isPlainObject(value))
+    return ((pinnedReturn: unknown) => pinnedReturn)(TRACE_CONTENT_TRUNCATED);
+  return ((pinnedReturn: unknown) => pinnedReturn)(
+    Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        boundStrings(item, stringLimit, depth + 1, seen),
+      ]),
+    ),
   );
-}
+};
 
 type FindingRecord = Record<string, unknown> & { readonly file: string; readonly title: string };
 
@@ -135,17 +146,17 @@ function isFinding(value: unknown): value is FindingRecord {
   );
 }
 
-function snapshot(finding: FindingRecord): FindingSnapshot {
+function snapshot(finding: FindingRecord) {
   const detail =
     typeof finding.detail === "string"
       ? boundText(finding.detail, TRACE_FINDING_CHARS).text
       : undefined;
-  return {
+  return ((pinnedReturn: FindingSnapshot) => pinnedReturn)({
     file: boundText(finding.file, TRACE_FINDING_CHARS).text,
     title: boundText(finding.title, TRACE_FINDING_CHARS).text,
     ...(typeof finding.severity === "string" ? { severity: finding.severity } : {}),
     ...(typeof finding.startLine === "number" ? { startLine: finding.startLine } : {}),
     ...(typeof finding.endLine === "number" ? { endLine: finding.endLine } : {}),
     ...(detail != null ? { detail } : {}),
-  };
+  });
 }

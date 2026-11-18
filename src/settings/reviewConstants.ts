@@ -20,12 +20,12 @@ export const REVIEW_AWAITING_MAINTAINER_APPROVAL_NOTE =
   "Review waiting for maintainer approval. A maintainer can approve this pull request or comment `/review`.";
 export const REVIEW_PROGRESS_QUEUE_LABEL = "Queue";
 
-export function sanitizeGithubLogin(login: string): string {
+export function sanitizeGithubLogin(login: string) {
   const trimmed = login.trim().replace(/^@+/, "");
   if (trimmed.length > 0 && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)) {
-    return trimmed;
+    return ((pinnedReturn: string) => pinnedReturn)(trimmed);
   }
-  return "user";
+  return ((pinnedReturn: string) => pinnedReturn)("user");
 }
 
 export type ReviewCancelAttribution =
@@ -33,36 +33,40 @@ export type ReviewCancelAttribution =
   | { readonly kind: "merged" }
   | { readonly kind: "closed" };
 
-export function reviewCancelAttributionForClosedPr(merged: boolean): ReviewCancelAttribution {
-  return merged ? { kind: "merged" } : { kind: "closed" };
+export function reviewCancelAttributionForClosedPr(merged: boolean) {
+  return ((pinnedReturn: ReviewCancelAttribution) => pinnedReturn)(
+    merged ? { kind: "merged" } : { kind: "closed" },
+  );
 }
 
-export function reviewProgressCancelledNote(attribution: ReviewCancelAttribution): string {
+export function reviewProgressCancelledNote(attribution: ReviewCancelAttribution) {
   switch (attribution.kind) {
     case "merged":
-      return "PR merged.";
+      return ((pinnedReturn: string) => pinnedReturn)("PR merged.");
     case "closed":
-      return "PR closed.";
+      return ((pinnedReturn: string) => pinnedReturn)("PR closed.");
     case "user":
-      return `Cancelled by @${sanitizeGithubLogin(attribution.login)}. Run \`/review\` to try again.`;
+      return ((pinnedReturn: string) => pinnedReturn)(
+        `Cancelled by @${sanitizeGithubLogin(attribution.login)}. Run \`/review\` to try again.`,
+      );
     default: {
       const exhaustive: never = attribution;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-export function reviewCancelLastError(attribution: ReviewCancelAttribution): string {
+export function reviewCancelLastError(attribution: ReviewCancelAttribution) {
   switch (attribution.kind) {
     case "merged":
-      return "Pull request merged";
+      return ((pinnedReturn: string) => pinnedReturn)("Pull request merged");
     case "closed":
-      return "Pull request closed";
+      return ((pinnedReturn: string) => pinnedReturn)("Pull request closed");
     case "user":
-      return "Cancelled by slash /cancel";
+      return ((pinnedReturn: string) => pinnedReturn)("Cancelled by slash /cancel");
     default: {
       const exhaustive: never = attribution;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
@@ -98,19 +102,24 @@ export const MAX_AGENT_INSTRUCTION_FILE_BYTES = 32 * 1024;
 
 const AGENT_INSTRUCTION_FILENAME_SET: ReadonlySet<string> = new Set(AGENT_INSTRUCTION_FILENAMES);
 
-export function isAgentInstructionPath(path: string): boolean {
-  return AGENT_INSTRUCTION_FILENAME_SET.has(path);
+export function isAgentInstructionPath(path: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(AGENT_INSTRUCTION_FILENAME_SET.has(path));
 }
 
-export function isAllowlistedPolicyPath(path: string): boolean {
-  if (path.includes("\\") || path.includes("\0")) return false;
-  if (isAgentInstructionPath(path)) return true;
+export function isAllowlistedPolicyPath(path: string) {
+  if (path.includes("\\") || path.includes("\0"))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (isAgentInstructionPath(path)) return ((pinnedReturn: boolean) => pinnedReturn)(true);
   const slash = path.indexOf("/");
-  if (slash <= 0 || slash !== path.lastIndexOf("/")) return false;
+  if (slash <= 0 || slash !== path.lastIndexOf("/"))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const dir = path.slice(0, slash);
   const name = path.slice(slash + 1);
-  if (dir !== REPO_POLICY_DIRNAME || name.length === 0 || name.startsWith(".")) return false;
-  return name.endsWith(REPO_POLICY_EXTENSION) && name.length > REPO_POLICY_EXTENSION.length;
+  if (dir !== REPO_POLICY_DIRNAME || name.length === 0 || name.startsWith("."))
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    name.endsWith(REPO_POLICY_EXTENSION) && name.length > REPO_POLICY_EXTENSION.length,
+  );
 }
 
 export const REVIEW_RISK_PATH_PATTERNS: Readonly<

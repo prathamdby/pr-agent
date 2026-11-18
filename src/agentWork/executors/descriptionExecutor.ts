@@ -8,11 +8,8 @@ import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../set
 
 type DescriptionDegradationReason = "publish_not_completed";
 
-export function createDescriptionWorkExecution({
-  cfg,
-  pool,
-}: WorkExecutionDependencies): WorkExecution<"description"> {
-  return {
+export function createDescriptionWorkExecution({ cfg, pool }: WorkExecutionDependencies) {
+  return ((pinnedReturn: WorkExecution<"description">) => pinnedReturn)({
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
@@ -102,5 +99,5 @@ export function createDescriptionWorkExecution({
         DESCRIPTION_FAILURE_MESSAGE,
       );
     },
-  };
+  });
 }

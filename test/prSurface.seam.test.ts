@@ -39,12 +39,13 @@ vi.mock("../src/github/reviewPublish.ts", async (importOriginal) => {
 
 import { installationOctokit } from "../src/github/appAuth.ts";
 
-function pageData(raw: unknown): unknown {
-  if (Array.isArray(raw) || raw == null || typeof raw !== "object") return raw;
-  if ("check_runs" in raw) return raw.check_runs;
-  if ("workflow_runs" in raw) return raw.workflow_runs;
-  if ("jobs" in raw) return raw.jobs;
-  return raw;
+function pageData(raw: unknown) {
+  if (Array.isArray(raw) || raw == null || typeof raw !== "object")
+    return ((pinnedReturn: unknown) => pinnedReturn)(raw);
+  if ("check_runs" in raw) return ((pinnedReturn: unknown) => pinnedReturn)(raw.check_runs);
+  if ("workflow_runs" in raw) return ((pinnedReturn: unknown) => pinnedReturn)(raw.workflow_runs);
+  if ("jobs" in raw) return ((pinnedReturn: unknown) => pinnedReturn)(raw.jobs);
+  return ((pinnedReturn: unknown) => pinnedReturn)(raw);
 }
 
 async function paginateMock(
@@ -78,7 +79,7 @@ import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 
 const SENTINEL = "<!-- pr-agent-progress -->";
 
-async function sharedProgressCommentScenarios(surface: PrSurface): Promise<void> {
+async function sharedProgressCommentScenarios(surface: PrSurface) {
   const first = await surface.upsertProgressComment(`${SENTINEL}\nstarting`, SENTINEL);
   expect(first.updated).toBe(false);
 

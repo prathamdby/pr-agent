@@ -12,14 +12,16 @@ export function createTurnToolBudget(
   let reservedTerminalSuccessCount = 0;
   let reservedTerminalAttemptCount = 0;
   let toolBudgetStopped = false;
-  const turnContainsReservedTool = (toolResults: readonly BudgetToolResult[]): boolean => {
-    if (reservedTerminalTool == null) return false;
-    return toolResults.some((result) => result.toolName === reservedTerminalTool);
+  const turnContainsReservedTool = (toolResults: readonly BudgetToolResult[]) => {
+    if (reservedTerminalTool == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+    return ((pinnedReturn: boolean) => pinnedReturn)(
+      toolResults.some((result) => result.toolName === reservedTerminalTool),
+    );
   };
-  const isSuccessfulReservedTurn = (toolResults: readonly BudgetToolResult[]): boolean => {
-    if (reservedTerminalTool == null) return false;
-    return toolResults.some(
-      (result) => result.toolName === reservedTerminalTool && !result.isError,
+  const isSuccessfulReservedTurn = (toolResults: readonly BudgetToolResult[]) => {
+    if (reservedTerminalTool == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+    return ((pinnedReturn: boolean) => pinnedReturn)(
+      toolResults.some((result) => result.toolName === reservedTerminalTool && !result.isError),
     );
   };
 
@@ -53,33 +55,33 @@ export function createTurnToolBudget(
     return undefined;
   };
 
-  function beforeToolCall(toolName: string): BeforeToolCallResult | undefined {
+  function beforeToolCall(toolName: string) {
     if (opts.maxToolRounds != null && reservedTerminalTool != null) {
       if (toolName === reservedTerminalTool) {
         if (reservedTerminalSuccessCount > 0) {
-          return {
+          return ((pinnedReturn: BeforeToolCallResult | undefined) => pinnedReturn)({
             block: true,
             reason: `Reserved terminal ${reservedTerminalTool} already used this turn.`,
-          };
+          });
         }
         if (reservedTerminalAttemptCount >= 2) {
-          return {
+          return ((pinnedReturn: BeforeToolCallResult | undefined) => pinnedReturn)({
             block: true,
             reason: `Reserved terminal ${reservedTerminalTool} attempt budget exhausted.`,
-          };
+          });
         }
-        return undefined;
+        return ((pinnedReturn: BeforeToolCallResult | undefined) => pinnedReturn)(undefined);
       }
       if (investigationTurnCount >= opts.maxToolRounds) {
-        return {
+        return ((pinnedReturn: BeforeToolCallResult | undefined) => pinnedReturn)({
           block: true,
           reason: `Tool budget exhausted: only ${reservedTerminalTool} is allowed.`,
-        };
+        });
       }
     }
-    return undefined;
+    return ((pinnedReturn: BeforeToolCallResult | undefined) => pinnedReturn)(undefined);
   }
-  function observeTurn(toolResults: readonly BudgetToolResult[]): void {
+  function observeTurn(toolResults: readonly BudgetToolResult[]) {
     if (toolResults.length === 0) return;
     if (isSuccessfulReservedTurn(toolResults)) {
       reservedTerminalAttemptCount += 1;

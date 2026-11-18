@@ -55,11 +55,13 @@ const ctx = {
   },
 };
 
-function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return makeReviewPayload({
-    size: "M",
-    ...overrides,
-  });
+function basePayload(overrides: Partial<ReviewPayload> = {}) {
+  return ((pinnedReturn: ReviewPayload) => pinnedReturn)(
+    makeReviewPayload({
+      size: "M",
+      ...overrides,
+    }),
+  );
 }
 
 describe("renderReviewSummaryComment", () => {

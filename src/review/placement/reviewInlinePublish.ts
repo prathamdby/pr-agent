@@ -28,58 +28,63 @@ function inlineCommentsFromPlacements<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
   renderCommentBody: (placement: TPlacement) => string,
   commentByPlacement: Map<InlinePlacement, InlineReviewComment>,
-): InlineReviewComment[] {
-  return placements.flatMap((placement) => {
-    if (!placement.inlinePosted || placement.inlineLine == null) return [];
-    const cached = commentByPlacement.get(placement);
-    if (cached) return [cached];
-    const comment = {
-      path: placement.finding.file,
-      line: placement.inlineLine,
-      side: "RIGHT" as const,
-      body: renderCommentBody(placement),
-    };
-    commentByPlacement.set(placement, comment);
-    return [comment];
-  });
+) {
+  return ((pinnedReturn: InlineReviewComment[]) => pinnedReturn)(
+    placements.flatMap((placement) => {
+      if (!placement.inlinePosted || placement.inlineLine == null) return [];
+      const cached = commentByPlacement.get(placement);
+      if (cached) return [cached];
+      const comment = {
+        path: placement.finding.file,
+        line: placement.inlineLine,
+        side: "RIGHT" as const,
+        body: renderCommentBody(placement),
+      };
+      commentByPlacement.set(placement, comment);
+      return [comment];
+    }),
+  );
 }
 
 function matchesLineResolutionHint(
   placement: InlinePlacement,
   hint: LineResolutionPublishErrorHint,
-): boolean {
-  if (hint.path != null && placement.finding.file !== hint.path) return false;
-  if (hint.line != null && placement.inlineLine !== hint.line) return false;
-  return hint.path != null || hint.line != null;
+) {
+  if (hint.path != null && placement.finding.file !== hint.path)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (hint.line != null && placement.inlineLine !== hint.line)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(hint.path != null || hint.line != null);
 }
 
 function hintedLineResolutionDrop<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
   error: unknown,
-): TPlacement[] | undefined {
+) {
   const hint = lineResolutionPublishErrorHint(error);
   if (hint != null) {
     const matches = placements.filter((placement) => matchesLineResolutionHint(placement, hint));
-    if (matches.length === 1) return matches;
+    if (matches.length === 1)
+      return ((pinnedReturn: TPlacement[] | undefined) => pinnedReturn)(matches);
   }
-  return undefined;
+  return ((pinnedReturn: TPlacement[] | undefined) => pinnedReturn)(undefined);
 }
 
 function fallbackLineResolutionDrop<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
   dropOrder: readonly TPlacement[],
-): TPlacement[] {
+) {
   const active = new Set(placements);
   for (const placement of dropOrder) {
     if (!active.has(placement)) continue;
-    return [placement];
+    return ((pinnedReturn: TPlacement[]) => pinnedReturn)([placement]);
   }
-  return [];
+  return ((pinnedReturn: TPlacement[]) => pinnedReturn)([]);
 }
 
 export async function publishInlineReviewComments<TPlacement extends InlinePlacement>(
   params: InlinePublishParams<TPlacement>,
-): Promise<InlinePublishResult<TPlacement>> {
+) {
   let attemptPlacements = params.inlinePlacements.filter(
     (placement) => placement.inlinePosted && placement.inlineLine != null,
   );
@@ -102,12 +107,14 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         comments,
         commitId: params.commitId,
       });
-      return {
+      return ((
+        pinnedReturn: InlinePublishResult<TPlacement> | Promise<InlinePublishResult<TPlacement>>,
+      ) => pinnedReturn)({
         review: { id: review.reviewId, url: review.reviewUrl },
         postedPlacements: attemptPlacements,
         anchorDroppedPlacements,
         lineResolutionFallback: anchorDroppedPlacements.length > 0,
-      };
+      });
     } catch (error) {
       if (!isInlineAnchorPublishError(error)) {
         throw error;
@@ -129,9 +136,11 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
     }
   }
 
-  return {
+  return ((
+    pinnedReturn: InlinePublishResult<TPlacement> | Promise<InlinePublishResult<TPlacement>>,
+  ) => pinnedReturn)({
     postedPlacements: [],
     anchorDroppedPlacements,
     lineResolutionFallback: anchorDroppedPlacements.length > 0,
-  };
+  });
 }

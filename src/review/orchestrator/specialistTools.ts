@@ -16,12 +16,12 @@ export type SpecialistWorkspaceTools = {
   readonly executors: Record<string, AgentRunnerToolExecutor>;
 };
 
-export function buildSubmitFindingsReportPiTool(): PiTool {
-  return {
+export function buildSubmitFindingsReportPiTool() {
+  return ((pinnedReturn: PiTool) => pinnedReturn)({
     name: SUBMIT_FINDINGS_REPORT_NAME,
     description: SUBMIT_FINDINGS_REPORT_DESCRIPTION,
     parameters: SUBMIT_FINDINGS_REPORT_PARAMETERS,
-  };
+  });
 }
 
 export function buildSpecialistSessionTools(
@@ -30,10 +30,7 @@ export function buildSpecialistSessionTools(
     readonly piTool: PiTool;
     readonly executor: AgentRunnerToolExecutor;
   },
-): {
-  readonly piTools: readonly PiTool[];
-  readonly executors: Record<string, AgentRunnerToolExecutor>;
-} {
+) {
   if (submit.piTool.name !== SUBMIT_FINDINGS_REPORT_NAME) {
     throw new AppError({
       domain: "review",
@@ -42,11 +39,14 @@ export function buildSpecialistSessionTools(
       context: { expected: SUBMIT_FINDINGS_REPORT_NAME, got: submit.piTool.name },
     });
   }
-  return {
+  return ((pinnedReturn: {
+    readonly piTools: readonly PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  }) => pinnedReturn)({
     piTools: [...workspaceTools.piTools, submit.piTool],
     executors: {
       ...workspaceTools.executors,
       [SUBMIT_FINDINGS_REPORT_NAME]: submit.executor,
     },
-  };
+  });
 }

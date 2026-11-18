@@ -17,12 +17,14 @@ export type VerificationHeadFreshness =
       readonly latestHeadSha: string;
     };
 
-export function verificationHeadFreshness(
-  boundHeadSha: string,
-  latestHeadSha: string,
-): VerificationHeadFreshness {
-  if (boundHeadSha === latestHeadSha) return { kind: "fresh" };
-  return { kind: "stale", boundHeadSha, latestHeadSha };
+export function verificationHeadFreshness(boundHeadSha: string, latestHeadSha: string) {
+  if (boundHeadSha === latestHeadSha)
+    return ((pinnedReturn: VerificationHeadFreshness) => pinnedReturn)({ kind: "fresh" });
+  return ((pinnedReturn: VerificationHeadFreshness) => pinnedReturn)({
+    kind: "stale",
+    boundHeadSha,
+    latestHeadSha,
+  });
 }
 
 export const STALE_VERIFICATION_RESULT = {

@@ -113,49 +113,59 @@ export const NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES = [
   ...LEGACY_REVIEW_LENSES,
 ] as const satisfies readonly AnyReviewLens[];
 
-export function priorFeedbackLensesForSelection(
-  currentLens: AnyReviewLens,
-): ReadonlySet<AnyReviewLens> {
+export function priorFeedbackLensesForSelection(currentLens: AnyReviewLens) {
   if (currentLens === "review") {
-    return new Set<AnyReviewLens>(NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES);
+    return ((pinnedReturn: ReadonlySet<AnyReviewLens>) => pinnedReturn)(
+      new Set<AnyReviewLens>(NORMALIZED_REVIEW_PRIOR_FEEDBACK_LENSES),
+    );
   }
-  return new Set<AnyReviewLens>([currentLens]);
+  return ((pinnedReturn: ReadonlySet<AnyReviewLens>) => pinnedReturn)(
+    new Set<AnyReviewLens>([currentLens]),
+  );
 }
 
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
 
-export function parseReviewPointerLensMarker(body: string): AnyReviewLens | null {
+export function parseReviewPointerLensMarker(body: string) {
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
-  if (!match) return null;
+  if (!match) return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)(null);
   const lens = match[1];
-  return isAnyReviewLens(lens) ? lens : null;
+  return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)(
+    isAnyReviewLens(lens) ? lens : null,
+  );
 }
 
-export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens | null {
+export function classifyReviewLensFromPointerBody(body: string) {
   const markerLens = parseReviewPointerLensMarker(body);
-  if (markerLens) return markerLens;
-  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[0])) return "review-security";
-  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[1])) return "review-quality";
-  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[2])) return "review-tests";
-  if (body.includes(REVIEW_POINTER_BODY)) return "review";
-  return null;
+  if (markerLens) return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)(markerLens);
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[0]))
+    return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)("review-security");
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[1]))
+    return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)("review-quality");
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[2]))
+    return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)("review-tests");
+  if (body.includes(REVIEW_POINTER_BODY))
+    return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)("review");
+  return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)(null);
 }
 
 function resolveReviewLensFromPointerOrRecords(
   body: string,
   reviewId: number,
   publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
-): AnyReviewLens | null {
-  return classifyReviewLensFromPointerBody(body) ?? publishRecordLenses?.get(reviewId) ?? null;
+) {
+  return ((pinnedReturn: AnyReviewLens | null) => pinnedReturn)(
+    classifyReviewLensFromPointerBody(body) ?? publishRecordLenses?.get(reviewId) ?? null,
+  );
 }
 
 function resolveCommentRootId(
   comment: ReviewCommentGraphNode,
   byId: Map<number, ReviewCommentGraphNode>,
   rootById: Map<number, number>,
-): number {
+) {
   const cachedRoot = rootById.get(comment.id);
-  if (cachedRoot != null) return cachedRoot;
+  if (cachedRoot != null) return ((pinnedReturn: number) => pinnedReturn)(cachedRoot);
 
   let current = comment;
   const seen = new Set<number>();
@@ -166,7 +176,7 @@ function resolveCommentRootId(
       for (const id of path) {
         rootById.set(id, currentCachedRoot);
       }
-      return currentCachedRoot;
+      return ((pinnedReturn: number) => pinnedReturn)(currentCachedRoot);
     }
     if (seen.has(current.id)) break;
     seen.add(current.id);
@@ -181,23 +191,23 @@ function resolveCommentRootId(
   for (const id of path) {
     rootById.set(id, rootId);
   }
-  return rootId;
+  return ((pinnedReturn: number) => pinnedReturn)(rootId);
 }
 
 export function resolveReviewThreadRootId(
   comments: readonly ReviewCommentGraphNode[],
   commentId: number,
-): number | null {
+) {
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const rootById = new Map<number, number>();
   const start = byId.get(commentId);
-  if (!start) return null;
-  return resolveCommentRootId(start, byId, rootById);
+  if (!start) return ((pinnedReturn: number | null) => pinnedReturn)(null);
+  return ((pinnedReturn: number | null) => pinnedReturn)(
+    resolveCommentRootId(start, byId, rootById),
+  );
 }
 
-function groupCommentsByThreadRoot<T extends ReviewCommentGraphNode>(
-  comments: readonly T[],
-): { readonly rootId: number; readonly root: T; readonly comments: readonly T[] }[] {
+function groupCommentsByThreadRoot<T extends ReviewCommentGraphNode>(comments: readonly T[]) {
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const rootById = new Map<number, number>();
   const threads = new Map<number, T[]>();
@@ -218,13 +228,17 @@ function groupCommentsByThreadRoot<T extends ReviewCommentGraphNode>(
     if (!root) continue;
     grouped.push({ rootId, root, comments: threadComments });
   }
-  return grouped;
+  return ((
+    pinnedReturn: { readonly rootId: number; readonly root: T; readonly comments: readonly T[] }[],
+  ) => pinnedReturn)(grouped);
 }
 
-export function truncatePriorInlineText(text: string, maxChars: number): string {
+export function truncatePriorInlineText(text: string, maxChars: number) {
   const trimmed = text.trim();
-  if (trimmed.length <= maxChars) return trimmed;
-  return `${trimmed.slice(0, Math.max(0, maxChars - 1))}…`;
+  if (trimmed.length <= maxChars) return ((pinnedReturn: string) => pinnedReturn)(trimmed);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${trimmed.slice(0, Math.max(0, maxChars - 1))}…`,
+  );
 }
 
 function extractHumanReplies(
@@ -234,38 +248,43 @@ function extractHumanReplies(
   >[],
   botUserId: number,
   maxChars: number = MAX_PRIOR_INLINE_REPLY_CHARS,
-): ReviewThreadReply[] {
-  return comments
-    .filter((comment) => comment.userId !== botUserId)
-    .map((comment) => ({
-      body: truncatePriorInlineText(comment.body, maxChars),
-      userId: comment.userId,
-      authorAssociation: comment.authorAssociation ?? null,
-      ...(comment.authorType != null ? { authorType: comment.authorType } : {}),
-    }));
+) {
+  return ((pinnedReturn: ReviewThreadReply[]) => pinnedReturn)(
+    comments
+      .filter((comment) => comment.userId !== botUserId)
+      .map((comment) => ({
+        body: truncatePriorInlineText(comment.body, maxChars),
+        userId: comment.userId,
+        authorAssociation: comment.authorAssociation ?? null,
+        ...(comment.authorType != null ? { authorType: comment.authorType } : {}),
+      })),
+  );
 }
 
-function extractBotTitleSnippet(body: string): string {
+function extractBotTitleSnippet(body: string) {
   const boldMatch = /\*\*(P[0-3])\*\*\s*·\s*\*\*([^*]+)\*\*/.exec(body);
-  if (boldMatch) return `${boldMatch[1]} · ${boldMatch[2].trim()}`;
+  if (boldMatch)
+    return ((pinnedReturn: string) => pinnedReturn)(`${boldMatch[1]} · ${boldMatch[2].trim()}`);
   const firstLine = body.split("\n").find((line) => line.trim().length > 0);
-  return truncatePriorInlineText(firstLine ?? "Inline finding", 120);
+  return ((pinnedReturn: string) => pinnedReturn)(
+    truncatePriorInlineText(firstLine ?? "Inline finding", 120),
+  );
 }
 
-function extractBotSeverity(body: string): BotFindingThread["severity"] {
+function extractBotSeverity(body: string) {
   const match = /\bP([0-3])\b/.exec(body);
-  if (!match) return null;
+  if (!match) return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)(null);
   switch (match[1]) {
     case "0":
-      return "P0";
+      return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)("P0");
     case "1":
-      return "P1";
+      return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)("P1");
     case "2":
-      return "P2";
+      return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)("P2");
     case "3":
-      return "P3";
+      return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)("P3");
     default:
-      return null;
+      return ((pinnedReturn: BotFindingThread["severity"]) => pinnedReturn)(null);
   }
 }
 
@@ -273,17 +292,17 @@ function findVerificationStubCommentId(
   threadComments: readonly ReviewThreadComment[],
   botUserId: number,
   threadRootCommentId: number,
-): number | undefined {
+) {
   const botReplies = threadComments
     .filter((comment) => comment.id !== threadRootCommentId && comment.userId === botUserId)
     .toSorted((a, b) => a.id - b.id);
   const newestFirst = botReplies.toReversed();
   const marked = newestFirst.find((comment) => comment.body.includes(VERIFICATION_STUB_MARKER));
-  if (marked) return marked.id;
+  if (marked) return ((pinnedReturn: number | undefined) => pinnedReturn)(marked.id);
   const legacy = newestFirst.find((comment) =>
     comment.body.trimStart().startsWith("**Verification**:"),
   );
-  return legacy?.id;
+  return ((pinnedReturn: number | undefined) => pinnedReturn)(legacy?.id);
 }
 
 export function assembleBotReviewThreads(
@@ -294,7 +313,7 @@ export function assembleBotReviewThreads(
     readonly allowedLenses: ReadonlySet<AnyReviewLens>;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
-): AssembledBotReviewThread[] {
+) {
   const assembled: AssembledBotReviewThread[] = [];
   const maintainerDecisionAssociations =
     params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
@@ -333,27 +352,29 @@ export function assembleBotReviewThreads(
       replies,
     });
   }
-  return assembled;
+  return ((pinnedReturn: AssembledBotReviewThread[]) => pinnedReturn)(assembled);
 }
 
 export function mapAssembledThreadsToPriorInlineFeedback(
   threads: readonly AssembledBotReviewThread[],
-): PriorInlineFeedbackThread[] {
-  return threads
-    .filter((thread) => thread.humanReplies.length > 0)
-    .map((thread) => ({
-      path: thread.path,
-      startLine: thread.line,
-      endLine: thread.line,
-      botTitleSnippet: extractBotTitleSnippet(thread.rootBody),
-      humanReplies: [...thread.humanReplies],
-      authorizedReplies: [...thread.authorizedReplies],
-      untrustedReplies: [...thread.untrustedReplies],
-      replies: [...thread.replies],
-      threadUrl: thread.htmlUrl,
-    }))
-    .toSorted((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
-    .slice(0, MAX_PRIOR_INLINE_FEEDBACK_THREADS);
+) {
+  return ((pinnedReturn: PriorInlineFeedbackThread[]) => pinnedReturn)(
+    threads
+      .filter((thread) => thread.humanReplies.length > 0)
+      .map((thread) => ({
+        path: thread.path,
+        startLine: thread.line,
+        endLine: thread.line,
+        botTitleSnippet: extractBotTitleSnippet(thread.rootBody),
+        humanReplies: [...thread.humanReplies],
+        authorizedReplies: [...thread.authorizedReplies],
+        untrustedReplies: [...thread.untrustedReplies],
+        replies: [...thread.replies],
+        threadUrl: thread.htmlUrl,
+      }))
+      .toSorted((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
+      .slice(0, MAX_PRIOR_INLINE_FEEDBACK_THREADS),
+  );
 }
 
 export function selectFindingObjections(
@@ -363,10 +384,11 @@ export function selectFindingObjections(
     readonly botLogin: string;
     readonly allowedAssociations: ReadonlySet<string>;
   },
-): FindingObjection[] {
+) {
   const root = thread.comments.find((comment) => comment.id === thread.rootCommentId);
   const anchor = root?.createdAt;
-  if (!isUsableReviewTimestamp(anchor)) return [];
+  if (!isUsableReviewTimestamp(anchor))
+    return ((pinnedReturn: FindingObjection[]) => pinnedReturn)([]);
   const objections: FindingObjection[] = [];
   for (const comment of thread.comments) {
     if (comment.id === thread.rootCommentId) continue;
@@ -398,11 +420,11 @@ export function selectFindingObjections(
       body: truncatePriorInlineText(comment.body, MAX_PRIOR_INLINE_REPLY_CHARS),
     });
   }
-  return objections;
+  return ((pinnedReturn: FindingObjection[]) => pinnedReturn)(objections);
 }
 
-function isStrictlyAfter(value: string, anchor: string): boolean {
-  return Date.parse(value) > Date.parse(anchor);
+function isStrictlyAfter(value: string, anchor: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(Date.parse(value) > Date.parse(anchor));
 }
 
 export function mapAssembledThreadsToBotFindings(
@@ -412,55 +434,57 @@ export function mapAssembledThreadsToBotFindings(
     readonly botLogin?: string;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
-): BotFindingThread[] {
+) {
   const allowedAssociations =
     selection?.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
   const botLogin = selection?.botLogin ?? "";
-  return threads
-    .map((thread) => {
-      const hasTriageReply = thread.comments.some(
-        (comment) =>
-          comment.id !== thread.rootCommentId &&
-          comment.userId === botUserId &&
-          comment.body.trimStart().startsWith("**Triage**:"),
-      );
-      const verificationStubCommentId = findVerificationStubCommentId(
-        thread.comments,
-        botUserId,
-        thread.rootCommentId,
-      );
-      const objections = selectFindingObjections(thread, {
-        botUserId,
-        botLogin,
-        allowedAssociations,
-      });
-      return {
-        rootCommentId: thread.rootCommentId,
-        ...(thread.findingId != null ? { findingId: thread.findingId } : {}),
-        lens: thread.lens,
-        path: thread.path,
-        line: thread.line,
-        severity: extractBotSeverity(thread.rootBody),
-        titleSnippet: extractBotTitleSnippet(thread.rootBody),
-        humanReplies: [...thread.humanReplies],
-        authorizedReplies: [...thread.authorizedReplies],
-        untrustedReplies: [...thread.untrustedReplies],
-        replies: [...thread.replies],
-        hasTriageReply,
-        ...(verificationStubCommentId != null ? { verificationStubCommentId } : {}),
-        ...(objections.length > 0
-          ? {
-              objections,
-              findingExcerpt: truncatePriorInlineText(
-                thread.rootBody,
-                MAX_PRIOR_INLINE_REPLY_CHARS,
-              ),
-            }
-          : {}),
-        threadUrl: thread.htmlUrl,
-      };
-    })
-    .toSorted((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+  return ((pinnedReturn: BotFindingThread[]) => pinnedReturn)(
+    threads
+      .map((thread) => {
+        const hasTriageReply = thread.comments.some(
+          (comment) =>
+            comment.id !== thread.rootCommentId &&
+            comment.userId === botUserId &&
+            comment.body.trimStart().startsWith("**Triage**:"),
+        );
+        const verificationStubCommentId = findVerificationStubCommentId(
+          thread.comments,
+          botUserId,
+          thread.rootCommentId,
+        );
+        const objections = selectFindingObjections(thread, {
+          botUserId,
+          botLogin,
+          allowedAssociations,
+        });
+        return {
+          rootCommentId: thread.rootCommentId,
+          ...(thread.findingId != null ? { findingId: thread.findingId } : {}),
+          lens: thread.lens,
+          path: thread.path,
+          line: thread.line,
+          severity: extractBotSeverity(thread.rootBody),
+          titleSnippet: extractBotTitleSnippet(thread.rootBody),
+          humanReplies: [...thread.humanReplies],
+          authorizedReplies: [...thread.authorizedReplies],
+          untrustedReplies: [...thread.untrustedReplies],
+          replies: [...thread.replies],
+          hasTriageReply,
+          ...(verificationStubCommentId != null ? { verificationStubCommentId } : {}),
+          ...(objections.length > 0
+            ? {
+                objections,
+                findingExcerpt: truncatePriorInlineText(
+                  thread.rootBody,
+                  MAX_PRIOR_INLINE_REPLY_CHARS,
+                ),
+              }
+            : {}),
+          threadUrl: thread.htmlUrl,
+        };
+      })
+      .toSorted((a, b) => a.path.localeCompare(b.path) || a.line - b.line),
+  );
 }
 
 async function assembleBotThreadsForPullRequest(
@@ -471,10 +495,7 @@ async function assembleBotThreadsForPullRequest(
     readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     readonly maintainerDecisionAssociations: ReadonlySet<string>;
   },
-): Promise<{
-  readonly threads: AssembledBotReviewThread[];
-  readonly reviewCommentsTruncated: boolean;
-}> {
+) {
   const [reviews, listed] = await Promise.all([
     prSurface.listPullRequestReviews(),
     prSurface.listReviewComments(),
@@ -490,9 +511,29 @@ async function assembleBotThreadsForPullRequest(
     if (lens && isAnyReviewLens(lens)) reviewLenses.set(review.id, lens);
   }
   if (reviewLenses.size === 0) {
-    return { threads: [], reviewCommentsTruncated: listed.truncated };
+    return ((
+      pinnedReturn:
+        | {
+            readonly threads: AssembledBotReviewThread[];
+            readonly reviewCommentsTruncated: boolean;
+          }
+        | Promise<{
+            readonly threads: AssembledBotReviewThread[];
+            readonly reviewCommentsTruncated: boolean;
+          }>,
+    ) => pinnedReturn)({ threads: [], reviewCommentsTruncated: listed.truncated });
   }
-  return {
+  return ((
+    pinnedReturn:
+      | {
+          readonly threads: AssembledBotReviewThread[];
+          readonly reviewCommentsTruncated: boolean;
+        }
+      | Promise<{
+          readonly threads: AssembledBotReviewThread[];
+          readonly reviewCommentsTruncated: boolean;
+        }>,
+  ) => pinnedReturn)({
     threads: assembleBotReviewThreads(listed.comments, {
       botUserId: params.botUserId,
       reviewLenses,
@@ -500,29 +541,31 @@ async function assembleBotThreadsForPullRequest(
       maintainerDecisionAssociations: params.maintainerDecisionAssociations,
     }),
     reviewCommentsTruncated: listed.truncated,
-  };
+  });
 }
 
 function selectInventoryFindingThreads(
   threads: readonly AssembledBotReviewThread[],
   inventory: FindingInventory,
-): AssembledBotReviewThread[] {
+) {
   const findingByRootCommentId = new Map<number, InventoryFinding>();
   for (const finding of [...inventory.findings.values(), ...inventory.sameIdCopies]) {
     if (finding.rootCommentId != null) findingByRootCommentId.set(finding.rootCommentId, finding);
   }
   const inventoryComplete = inventory.completeness === "complete";
-  return threads.flatMap((thread) => {
-    const finding = findingByRootCommentId.get(thread.rootCommentId);
-    if (finding == null) return inventoryComplete ? [] : [thread];
-    return [
-      {
-        ...thread,
-        line: finding.line ?? thread.line,
-        ...(inventoryComplete ? { findingId: finding.id } : {}),
-      },
-    ];
-  });
+  return ((pinnedReturn: AssembledBotReviewThread[]) => pinnedReturn)(
+    threads.flatMap((thread) => {
+      const finding = findingByRootCommentId.get(thread.rootCommentId);
+      if (finding == null) return inventoryComplete ? [] : [thread];
+      return [
+        {
+          ...thread,
+          line: finding.line ?? thread.line,
+          ...(inventoryComplete ? { findingId: finding.id } : {}),
+        },
+      ];
+    }),
+  );
 }
 
 export async function fetchPriorInlineFeedback(
@@ -532,7 +575,7 @@ export async function fetchPriorInlineFeedback(
     readonly currentLens: AnyReviewLens;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
-): Promise<PriorInlineFeedbackThread[]> {
+) {
   const [assembled, inventory] = await Promise.all([
     assembleBotThreadsForPullRequest(prSurface, {
       botUserId: params.botUserId,
@@ -544,8 +587,11 @@ export async function fetchPriorInlineFeedback(
       unavailableFindingInventory({ renames: new Map(), deletedPaths: new Set() }),
     ),
   ]);
-  return mapAssembledThreadsToPriorInlineFeedback(
-    selectInventoryFindingThreads(assembled.threads, inventory),
+  return ((pinnedReturn: PriorInlineFeedbackThread[] | Promise<PriorInlineFeedbackThread[]>) =>
+    pinnedReturn)(
+    mapAssembledThreadsToPriorInlineFeedback(
+      selectInventoryFindingThreads(assembled.threads, inventory),
+    ),
   );
 }
 
@@ -558,10 +604,7 @@ export async function fetchBotFindingThreads(
     readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     readonly maintainerDecisionAssociations?: ReadonlySet<string>;
   },
-): Promise<{
-  readonly threads: BotFindingThread[];
-  readonly reviewCommentsTruncated: boolean;
-}> {
+) {
   const maintainerDecisionAssociations =
     params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
   const assembled = await assembleBotThreadsForPullRequest(prSurface, {
@@ -570,7 +613,17 @@ export async function fetchBotFindingThreads(
     publishRecordLenses: params.publishRecordLenses,
     maintainerDecisionAssociations,
   });
-  return {
+  return ((
+    pinnedReturn:
+      | {
+          readonly threads: BotFindingThread[];
+          readonly reviewCommentsTruncated: boolean;
+        }
+      | Promise<{
+          readonly threads: BotFindingThread[];
+          readonly reviewCommentsTruncated: boolean;
+        }>,
+  ) => pinnedReturn)({
     threads: mapAssembledThreadsToBotFindings(
       selectInventoryFindingThreads(assembled.threads, params.inventory),
       params.botUserId,
@@ -580,13 +633,13 @@ export async function fetchBotFindingThreads(
       },
     ),
     reviewCommentsTruncated: assembled.reviewCommentsTruncated,
-  };
+  });
 }
 
 export function hasAuthorizedMaintainerDecision(
   thread: Pick<BotFindingThread, "authorizedReplies">,
-): boolean {
-  return (thread.authorizedReplies?.length ?? 0) > 0;
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)((thread.authorizedReplies?.length ?? 0) > 0);
 }
 
 function isAuthorizedMaintainerDecision(params: {
@@ -595,10 +648,11 @@ function isAuthorizedMaintainerDecision(params: {
   readonly authorAssociation: string | null | undefined;
   readonly authorType: string | null | undefined;
   readonly allowedAssociations: ReadonlySet<string>;
-}): boolean {
-  if (params.authorType !== "User") return false;
-  if (params.userId == null || params.userId === params.botUserId) return false;
+}) {
+  if (params.authorType !== "User") return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (params.userId == null || params.userId === params.botUserId)
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   const association = params.authorAssociation?.trim().toUpperCase();
-  if (!association || association === "*") return false;
-  return params.allowedAssociations.has(association);
+  if (!association || association === "*") return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(params.allowedAssociations.has(association));
 }

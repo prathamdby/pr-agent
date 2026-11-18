@@ -9,12 +9,12 @@ import {
   proseContractGuidance,
 } from "../src/prompts/correctness/prompt.ts";
 
-function untrustedBlockBody(label: string, block: string): string {
+function untrustedBlockBody(label: string, block: string) {
   const open = `<${label} untrusted="true">\n`;
   const close = `\n</${label}>`;
   expect(block.startsWith(open)).toBe(true);
   expect(block.endsWith(close)).toBe(true);
-  return block.slice(open.length, -close.length);
+  return ((pinnedReturn: string) => pinnedReturn)(block.slice(open.length, -close.length));
 }
 
 describe("wrapUntrustedBlock", () => {

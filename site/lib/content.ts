@@ -326,17 +326,17 @@ export const COMPARISON_CRITERIA: readonly ComparisonCriterion[] = [
   },
 ];
 
-export function comparisonMarkLabel(mark: ComparisonMark): string {
+export function comparisonMarkLabel(mark: ComparisonMark) {
   switch (mark) {
     case "yes":
-      return "Yes";
+      return ((pinnedReturn: string) => pinnedReturn)("Yes");
     case "partial":
-      return "Partial";
+      return ((pinnedReturn: string) => pinnedReturn)("Partial");
     case "no":
-      return "No";
+      return ((pinnedReturn: string) => pinnedReturn)("No");
     default: {
       const _exhaustive: never = mark;
-      return _exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(_exhaustive);
     }
   }
 }
@@ -434,26 +434,29 @@ export type VariantSnippet = {
   readonly variants: Variants;
 };
 
-export function servableLanguages(snippet: VariantSnippet): ServableLanguages {
+export function servableLanguages(snippet: VariantSnippet) {
   const rest = PROGRAMMING_LANGUAGES.filter(
     (language) =>
       language !== DEFAULT_PROGRAMMING_LANGUAGE && snippet.variants[language] !== undefined,
   );
-  return [DEFAULT_PROGRAMMING_LANGUAGE, ...rest];
+  return ((pinnedReturn: ServableLanguages) => pinnedReturn)([
+    DEFAULT_PROGRAMMING_LANGUAGE,
+    ...rest,
+  ]);
 }
 
-export function pickSnippet(
-  snippet: VariantSnippet,
-  preferred: ProgrammingLanguage,
-): { language: ProgrammingLanguage; body: string } {
+export function pickSnippet(snippet: VariantSnippet, preferred: ProgrammingLanguage) {
   const body = snippet.variants[preferred];
   if (body === undefined) {
-    return {
+    return ((pinnedReturn: { language: ProgrammingLanguage; body: string }) => pinnedReturn)({
       language: DEFAULT_PROGRAMMING_LANGUAGE,
       body: snippet.variants[DEFAULT_PROGRAMMING_LANGUAGE],
-    };
+    });
   }
-  return { language: preferred, body };
+  return ((pinnedReturn: { language: ProgrammingLanguage; body: string }) => pinnedReturn)({
+    language: preferred,
+    body,
+  });
 }
 
 const MARKDOWN_URL = `${SITE_ORIGIN}/`;

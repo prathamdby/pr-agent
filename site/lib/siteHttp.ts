@@ -43,7 +43,7 @@ const DISCOVERY_LINK = `<${API_CATALOG.path}>; rel="api-catalog"; type="${API_CA
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby", ${DISCOVERY_LINK}`;
 
-export function varyOn(headers: Headers, field: string): void {
+export function varyOn(headers: Headers, field: string) {
   const existing = headers.get("Vary");
   if (existing === null || existing.trim() === "") {
     headers.set("Vary", field);
@@ -56,32 +56,36 @@ export function varyOn(headers: Headers, field: string): void {
   headers.set("Vary", `${existing}, ${field}`);
 }
 
-export function varyOnAccept(headers: Headers): void {
+export function varyOnAccept(headers: Headers) {
   varyOn(headers, "Accept");
 }
 
-function markdownResponse(body: string, init: { status: number; cacheControl: string }): Response {
-  return new Response(body, {
-    status: init.status,
-    headers: {
-      "Content-Type": MARKDOWN_CONTENT_TYPE,
-      "Cache-Control": init.cacheControl,
-      "X-Content-Type-Options": "nosniff",
-      Link: MARKDOWN_LINK,
-    },
-  });
+function markdownResponse(body: string, init: { status: number; cacheControl: string }) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    new Response(body, {
+      status: init.status,
+      headers: {
+        "Content-Type": MARKDOWN_CONTENT_TYPE,
+        "Cache-Control": init.cacheControl,
+        "X-Content-Type-Options": "nosniff",
+        Link: MARKDOWN_LINK,
+      },
+    }),
+  );
 }
 
-export function notAcceptableResponse(produces: readonly string[]): Response {
-  return new Response(`Not Acceptable\n\nAvailable: ${produces.join(", ")}\n`, {
-    status: 406,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": ERROR_CACHE_CONTROL,
-      "X-Content-Type-Options": "nosniff",
-      Vary: "Accept",
-    },
-  });
+export function notAcceptableResponse(produces: readonly string[]) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    new Response(`Not Acceptable\n\nAvailable: ${produces.join(", ")}\n`, {
+      status: 406,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": ERROR_CACHE_CONTROL,
+        "X-Content-Type-Options": "nosniff",
+        Vary: "Accept",
+      },
+    }),
+  );
 }
 
 const NO_VALIDATORS: ConditionalHeaders = { ifNoneMatch: null, ifModifiedSince: null };
@@ -90,7 +94,7 @@ function homeMarkdown(
   acceptLanguage: string | null,
   vary: readonly string[],
   conditional: ConditionalHeaders,
-): Response {
+) {
   const language = negotiateProgrammingLanguage(acceptLanguage, FETCH_MARKDOWN_LANGUAGES);
   const varyHeader = vary.join(", ");
   const cached = conditionalResponse(conditional, revisionFor("landing"), {
@@ -103,7 +107,7 @@ function homeMarkdown(
     },
   });
   if (cached !== null) {
-    return cached;
+    return ((pinnedReturn: Response) => pinnedReturn)(cached);
   }
   const response = markdownResponse(renderHomeMarkdown(language), {
     status: 200,
@@ -113,26 +117,28 @@ function homeMarkdown(
     varyOn(response.headers, field);
   }
   applyRevisionHeaders(response.headers, revisionFor("landing"), language);
-  return response;
+  return ((pinnedReturn: Response) => pinnedReturn)(response);
 }
 
 export function homeMarkdownResponse(
   acceptLanguage: string | null,
   conditional: ConditionalHeaders = NO_VALIDATORS,
-): Response {
-  return homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"], conditional);
+) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"], conditional),
+  );
 }
 
 export function homeMarkdownDocumentResponse(
   acceptLanguage: string | null,
   conditional: ConditionalHeaders = NO_VALIDATORS,
-): Response {
-  return homeMarkdown(acceptLanguage, ["Accept-Language"], conditional);
+) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    homeMarkdown(acceptLanguage, ["Accept-Language"], conditional),
+  );
 }
 
-export function agentInstructionsResponse(
-  conditional: ConditionalHeaders = NO_VALIDATORS,
-): Response {
+export function agentInstructionsResponse(conditional: ConditionalHeaders = NO_VALIDATORS) {
   const revision = revisionFor("agents");
   const cached = conditionalResponse(conditional, revision, {
     honorModifiedSince: true,
@@ -143,17 +149,17 @@ export function agentInstructionsResponse(
     },
   });
   if (cached !== null) {
-    return cached;
+    return ((pinnedReturn: Response) => pinnedReturn)(cached);
   }
   const response = markdownResponse(renderAgentInstructionsMarkdown(), {
     status: 200,
     cacheControl: DOCUMENT_CACHE_CONTROL,
   });
   applyRevisionHeaders(response.headers, revision);
-  return response;
+  return ((pinnedReturn: Response) => pinnedReturn)(response);
 }
 
-export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDATORS) {
   const revision = revisionFor("llms");
   const cached = conditionalResponse(conditional, revision, {
     honorModifiedSince: true,
@@ -163,7 +169,7 @@ export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDAT
     },
   });
   if (cached !== null) {
-    return cached;
+    return ((pinnedReturn: Response) => pinnedReturn)(cached);
   }
   const response = new Response(renderLlmsTxt(), {
     headers: {
@@ -173,10 +179,10 @@ export function llmsProfileResponse(conditional: ConditionalHeaders = NO_VALIDAT
     },
   });
   applyRevisionHeaders(response.headers, revision);
-  return response;
+  return ((pinnedReturn: Response) => pinnedReturn)(response);
 }
 
-export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS): Response {
+export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS) {
   const revision = revisionFor("openapi");
   const cached = conditionalResponse(conditional, revision, {
     honorModifiedSince: true,
@@ -186,95 +192,102 @@ export function openApiResponse(conditional: ConditionalHeaders = NO_VALIDATORS)
     },
   });
   if (cached !== null) {
-    return cached;
+    return ((pinnedReturn: Response) => pinnedReturn)(cached);
   }
   const headers = new Headers({
     "Cache-Control": DOCUMENT_CACHE_CONTROL,
     "X-Content-Type-Options": "nosniff",
   });
   applyRevisionHeaders(headers, revision);
-  return Response.json(renderOpenApiDocument(), { headers });
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    Response.json(renderOpenApiDocument(), { headers }),
+  );
 }
 
 export function sitemapResponse(
   conditional: ConditionalHeaders = NO_VALIDATORS,
   origin: string = SITE_ORIGIN,
-): Response {
+) {
   const revision = sitemapRevision();
   const cached = conditionalResponse(conditional, revision, { honorModifiedSince: true });
   if (cached !== null) {
     cached.headers.set("Content-Type", "application/xml; charset=utf-8");
     varyOn(cached.headers, "Host");
-    return cached;
+    return ((pinnedReturn: Response) => pinnedReturn)(cached);
   }
   const response = new Response(renderSitemapXml(lastmodForSitemapPath, origin), {
     headers: { "Content-Type": "application/xml; charset=utf-8" },
   });
   applyRevisionHeaders(response.headers, revision);
   varyOn(response.headers, "Host");
-  return response;
+  return ((pinnedReturn: Response) => pinnedReturn)(response);
 }
 
 export function negotiateHomeRequest(
   accept: string | null,
   acceptLanguage: string | null,
   conditional: ConditionalHeaders = NO_VALIDATORS,
-): Response | null {
+) {
   const chosen = negotiateType(accept, PAGE_TYPES);
   if (chosen === null) {
-    return notAcceptableResponse(PAGE_TYPES);
+    return ((pinnedReturn: Response | null) => pinnedReturn)(notAcceptableResponse(PAGE_TYPES));
   }
   if (chosen === MARKDOWN_TYPE) {
-    return homeMarkdownResponse(acceptLanguage, conditional);
+    return ((pinnedReturn: Response | null) => pinnedReturn)(
+      homeMarkdownResponse(acceptLanguage, conditional),
+    );
   }
-  return null;
+  return ((pinnedReturn: Response | null) => pinnedReturn)(null);
 }
 
-export function landingHtmlConditional(
-  ifNoneMatch: string | null,
-  ifModifiedSince: string | null,
-): Response | null {
-  return conditionalResponse({ ifNoneMatch, ifModifiedSince }, revisionFor("landing"), {
-    honorModifiedSince: true,
-    cacheControl: PAGE_CACHE_CONTROL,
-    vary: "Accept",
-    extra: (headers) => {
-      headers.set("Link", HTML_LINK);
-    },
-  });
+export function landingHtmlConditional(ifNoneMatch: string | null, ifModifiedSince: string | null) {
+  return ((pinnedReturn: Response | null) => pinnedReturn)(
+    conditionalResponse({ ifNoneMatch, ifModifiedSince }, revisionFor("landing"), {
+      honorModifiedSince: true,
+      cacheControl: PAGE_CACHE_CONTROL,
+      vary: "Accept",
+      extra: (headers) => {
+        headers.set("Link", HTML_LINK);
+      },
+    }),
+  );
 }
 
-export function conditionalHeaders(request: Request): ConditionalHeaders {
-  return {
+export function conditionalHeaders(request: Request) {
+  return ((pinnedReturn: ConditionalHeaders) => pinnedReturn)({
     ifNoneMatch: request.headers.get("If-None-Match"),
     ifModifiedSince: request.headers.get("If-Modified-Since"),
-  };
+  });
 }
 
-function withHeaders(response: Response, apply: (headers: Headers) => void): Response {
+function withHeaders(response: Response, apply: (headers: Headers) => void) {
   const headers = new Headers(response.headers);
   apply(headers);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }),
+  );
 }
 
-export function decorateHtmlResponse(response: Response): Response {
-  return withHeaders(response, (headers) => {
-    varyOnAccept(headers);
-    headers.set("Link", HTML_LINK);
-    if (!headers.has("Cache-Control")) {
-      headers.set("Cache-Control", PAGE_CACHE_CONTROL);
-    }
-    if (response.status === 200) {
-      applyRevisionHeaders(headers, revisionFor("landing"));
-    }
-  });
+export function decorateHtmlResponse(response: Response) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    withHeaders(response, (headers) => {
+      varyOnAccept(headers);
+      headers.set("Link", HTML_LINK);
+      if (!headers.has("Cache-Control")) {
+        headers.set("Cache-Control", PAGE_CACHE_CONTROL);
+      }
+      if (response.status === 200) {
+        applyRevisionHeaders(headers, revisionFor("landing"));
+      }
+    }),
+  );
 }
 
-export function restateAcceptAsHtml(headers: Headers): void {
+export function restateAcceptAsHtml(headers: Headers) {
   const accept = headers.get("Accept");
   if (accept === null) {
     return;
@@ -288,14 +301,10 @@ export function restateAcceptAsHtml(headers: Headers): void {
   headers.set("Accept", HTML_TYPE);
 }
 
-export function notFoundResponse(
-  pathname: string,
-  accept: string | null,
-  rendered: Response,
-): Response {
+export function notFoundResponse(pathname: string, accept: string | null, rendered: Response) {
   const chosen = negotiateType(accept, RECOVERY_TYPES);
   if (chosen === null) {
-    return notAcceptableResponse(RECOVERY_TYPES);
+    return ((pinnedReturn: Response) => pinnedReturn)(notAcceptableResponse(RECOVERY_TYPES));
   }
   if (chosen === MARKDOWN_TYPE) {
     const response = markdownResponse(renderNotFoundMarkdown(pathname), {
@@ -303,11 +312,13 @@ export function notFoundResponse(
       cacheControl: ERROR_CACHE_CONTROL,
     });
     varyOnAccept(response.headers);
-    return response;
+    return ((pinnedReturn: Response) => pinnedReturn)(response);
   }
-  return withHeaders(rendered, (headers) => {
-    varyOnAccept(headers);
-    headers.set("Link", HTML_LINK);
-    headers.set("Cache-Control", ERROR_CACHE_CONTROL);
-  });
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    withHeaders(rendered, (headers) => {
+      varyOnAccept(headers);
+      headers.set("Link", HTML_LINK);
+      headers.set("Cache-Control", ERROR_CACHE_CONTROL);
+    }),
+  );
 }

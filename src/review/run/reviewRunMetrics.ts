@@ -194,8 +194,8 @@ function createEmptyMetrics(meta: {
   model: string;
   mode: string;
   startedAtMs?: number;
-}): MutableReviewRunMetrics {
-  return {
+}) {
+  return ((pinnedReturn: MutableReviewRunMetrics) => pinnedReturn)({
     provider: meta.provider,
     model: meta.model,
     mode: meta.mode,
@@ -249,39 +249,35 @@ function createEmptyMetrics(meta: {
     toolMs: 0,
     providerSendMs: 0,
     specialistTokensRecorded: false,
-  };
+  });
 }
 
-function getOrInitMetrics(meta?: {
-  provider: string;
-  model: string;
-  mode: string;
-}): MutableReviewRunMetrics | null {
+function getOrInitMetrics(meta?: { provider: string; model: string; mode: string }) {
   const logger = tryUseLogger();
-  if (!logger) return null;
+  if (!logger) return ((pinnedReturn: MutableReviewRunMetrics | null) => pinnedReturn)(null);
   const existing = metricsByLogger.get(logger);
-  if (existing) return existing;
-  if (!meta) return null;
+  if (existing) return ((pinnedReturn: MutableReviewRunMetrics | null) => pinnedReturn)(existing);
+  if (!meta) return ((pinnedReturn: MutableReviewRunMetrics | null) => pinnedReturn)(null);
   const created = createEmptyMetrics(meta);
   metricsByLogger.set(logger, created);
   logger.set({ reviewRunMetrics: created });
-  return created;
+  return ((pinnedReturn: MutableReviewRunMetrics | null) => pinnedReturn)(created);
 }
 
-function bumpRecord(map: Record<string, number>, key: string, delta = 1): void {
+function bumpRecord(map: Record<string, number>, key: string, delta = 1) {
   map[key] = (map[key] ?? 0) + delta;
 }
 
-function addKnownCacheTotal(current: number | null, delta: number | undefined): number | null {
-  if (delta === undefined) return current;
-  if (current === null) return delta;
-  return current + delta;
+function addKnownCacheTotal(current: number | null, delta: number | undefined) {
+  if (delta === undefined) return ((pinnedReturn: number | null) => pinnedReturn)(current);
+  if (current === null) return ((pinnedReturn: number | null) => pinnedReturn)(delta);
+  return ((pinnedReturn: number | null) => pinnedReturn)(current + delta);
 }
 
 function recordModelTurnUsage(
   metrics: MutableReviewRunMetrics,
   usage: NonNullable<Extract<ReviewMetricEvent, { kind: "model_turn" }>["usage"]>,
-): void {
+) {
   if (usage.estimated) {
     metrics.estimatedTurnCount += 1;
     metrics.estimatedInputTokens += usage.inputTokens ?? 0;
@@ -302,21 +298,24 @@ export function deriveCacheExcellenceMetrics(params: {
   readonly providerInputTokens: number;
   readonly cacheReadTokens: number | null;
   readonly cacheWriteTokens: number | null;
-}): {
-  readonly cacheHitRate: number | null;
-  readonly cacheWriteAmplification: number | null;
-} {
+}) {
   if (params.cacheReadTokens == null || params.cacheWriteTokens == null) {
-    return { cacheHitRate: null, cacheWriteAmplification: null };
+    return ((pinnedReturn: {
+      readonly cacheHitRate: number | null;
+      readonly cacheWriteAmplification: number | null;
+    }) => pinnedReturn)({ cacheHitRate: null, cacheWriteAmplification: null });
   }
   const denominator = params.providerInputTokens + params.cacheReadTokens + params.cacheWriteTokens;
-  return {
+  return ((pinnedReturn: {
+    readonly cacheHitRate: number | null;
+    readonly cacheWriteAmplification: number | null;
+  }) => pinnedReturn)({
     cacheHitRate: denominator > 0 ? params.cacheReadTokens / denominator : null,
     cacheWriteAmplification: params.cacheWriteTokens / Math.max(params.cacheReadTokens, 1),
-  };
+  });
 }
 
-export function recordReviewMetric(event: ReviewMetricEvent): void {
+export function recordReviewMetric(event: ReviewMetricEvent) {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
 
@@ -425,7 +424,7 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
 export function recordAgentTurnMetrics(
   turn: AgentRunnerTurn,
   opts?: { readonly specialist?: boolean },
-): void {
+) {
   recordReviewMetric({
     kind: "model_turn",
     ...(turn.usage ? { usage: turn.usage } : {}),
@@ -437,10 +436,10 @@ export function recordAgentTurnMetrics(
   }
 }
 
-export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>): Promise<T> {
+export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>) {
   const startedAt = Date.now();
   try {
-    return await run();
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(await run());
   } finally {
     recordReviewMetric({
       kind: "phase_span",
@@ -455,7 +454,7 @@ export function initReviewRunMetrics(meta: {
   model: string;
   mode: string;
   startedAtMs?: number;
-}): void {
+}) {
   const logger = tryUseLogger();
   if (!logger) return;
   const existing = metricsByLogger.get(logger);
@@ -482,7 +481,7 @@ export function setReviewRunMetricFields(
       | "severities"
     >
   >,
-): void {
+) {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
   if (fields.published !== undefined) metrics.published = fields.published;
@@ -504,7 +503,7 @@ export function recordPromptCacheBreak(observed: {
   readonly section: PromptCacheBreak["section"];
   readonly byte: number | null;
   readonly session: AgentSessionRole;
-}): void {
+}) {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
   if (metrics.cacheBreakSection != null && metrics.cacheBreakSection !== "append_only") return;
@@ -513,9 +512,9 @@ export function recordPromptCacheBreak(observed: {
   metrics.cacheBreakSession = observed.session;
 }
 
-export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
+export function snapshotReviewRunMetrics() {
   const metrics = getOrInitMetrics();
-  if (!metrics) return null;
+  if (!metrics) return ((pinnedReturn: ReviewRunMetricsSnapshot | null) => pinnedReturn)(null);
   const wallClockMs = Date.now() - metrics.startedAtMs;
   const generationMs = Math.max(0, metrics.providerSendMs - metrics.toolMs);
   const cacheExcellence = deriveCacheExcellenceMetrics({
@@ -523,7 +522,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     cacheReadTokens: metrics.cacheReadTokens,
     cacheWriteTokens: metrics.cacheWriteTokens,
   });
-  return {
+  return ((pinnedReturn: ReviewRunMetricsSnapshot | null) => pinnedReturn)({
     provider: metrics.provider,
     model: metrics.model,
     mode: metrics.mode,
@@ -582,22 +581,22 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
       ? { providerOutputTps: metrics.providerOutputTokens / (generationMs / 1000) }
       : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
-  };
+  });
 }
 
-export function recordCodeModeCapHit(reason: CodeModeCapReason | undefined): void {
+export function recordCodeModeCapHit(reason: CodeModeCapReason | undefined) {
   if (reason == null) return;
   const metrics = getOrInitMetrics();
   if (!metrics) return;
   metrics.codeModeCapHits[reason] += 1;
 }
 
-export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
+export function logReviewRunCompleted(extra?: Record<string, unknown>) {
   const snapshot = snapshotReviewRunMetrics();
   if (!snapshot) return;
   logInfo("review_run_completed", { ...snapshot, ...extra });
 }
 
-export function recordClassifiedFailure(failure: ClassifiedFailure): void {
+export function recordClassifiedFailure(failure: ClassifiedFailure) {
   recordReviewMetric({ kind: "external_failure", failure });
 }

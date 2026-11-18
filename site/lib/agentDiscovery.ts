@@ -26,19 +26,19 @@ const MCP_SERVER_VERSION = "1.0.0";
 
 const SKILLS_SCHEMA = "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
 
-export function originOf(request: Request): string {
-  return requestOrigin(request);
+export function originOf(request: Request) {
+  return ((pinnedReturn: string) => pinnedReturn)(requestOrigin(request));
 }
 
-function jsonDocument(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
+function jsonDocument(value: unknown) {
+  return ((pinnedReturn: string) => pinnedReturn)(`${JSON.stringify(value, null, 2)}\n`);
 }
 
 export function documentResponse(
   body: string,
   contentType: string,
   extra?: { readonly cors?: boolean; readonly varyHost?: boolean },
-): Response {
+) {
   const headers = new Headers({
     "Content-Type": contentType,
     "Cache-Control": DOCUMENT_CACHE_CONTROL,
@@ -50,56 +50,62 @@ export function documentResponse(
   if (extra?.varyHost === true) {
     headers.set("Vary", "Host");
   }
-  return new Response(body, { headers });
+  return ((pinnedReturn: Response) => pinnedReturn)(new Response(body, { headers }));
 }
 
-export function renderApiCatalog(origin: string): string {
-  return jsonDocument({
-    linkset: [
-      {
-        anchor: `${origin}${LANDING_PAGE.path}`,
-        "service-desc": [
-          {
-            href: `${origin}${OPENAPI_DOCUMENT.path}`,
-            type: OPENAPI_DOCUMENT.mediaType,
-            title: OPENAPI_DOCUMENT.title,
-          },
-        ],
-        "service-doc": [
-          {
-            href: `${origin}${LLMS_TXT_PROFILE.path}`,
-            type: LLMS_TXT_PROFILE.mediaType,
-            title: LLMS_TXT_PROFILE.title,
-          },
-          {
-            href: `${origin}${AGENT_INSTRUCTIONS.path}`,
-            type: AGENT_INSTRUCTIONS.mediaType,
-            title: AGENT_INSTRUCTIONS.title,
-          },
-        ],
-        status: [
-          {
-            href: `${origin}${SITE_HEALTH.path}`,
-            type: SITE_HEALTH.mediaType,
-            title: SITE_HEALTH.title,
-          },
-        ],
-      },
-    ],
-  });
+export function renderApiCatalog(origin: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    jsonDocument({
+      linkset: [
+        {
+          anchor: `${origin}${LANDING_PAGE.path}`,
+          "service-desc": [
+            {
+              href: `${origin}${OPENAPI_DOCUMENT.path}`,
+              type: OPENAPI_DOCUMENT.mediaType,
+              title: OPENAPI_DOCUMENT.title,
+            },
+          ],
+          "service-doc": [
+            {
+              href: `${origin}${LLMS_TXT_PROFILE.path}`,
+              type: LLMS_TXT_PROFILE.mediaType,
+              title: LLMS_TXT_PROFILE.title,
+            },
+            {
+              href: `${origin}${AGENT_INSTRUCTIONS.path}`,
+              type: AGENT_INSTRUCTIONS.mediaType,
+              title: AGENT_INSTRUCTIONS.title,
+            },
+          ],
+          status: [
+            {
+              href: `${origin}${SITE_HEALTH.path}`,
+              type: SITE_HEALTH.mediaType,
+              title: SITE_HEALTH.title,
+            },
+          ],
+        },
+      ],
+    }),
+  );
 }
 
-export function apiCatalogResponse(origin: string): Response {
-  return documentResponse(renderApiCatalog(origin), API_CATALOG_CONTENT_TYPE, { varyHost: true });
+export function apiCatalogResponse(origin: string) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderApiCatalog(origin), API_CATALOG_CONTENT_TYPE, { varyHost: true }),
+  );
 }
 
-function catalogHost(origin: string): string {
+function catalogHost(origin: string) {
   const url = new URL(origin);
-  return url.port === "" ? url.hostname : `${url.hostname}%3A${url.port}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    url.port === "" ? url.hostname : `${url.hostname}%3A${url.port}`,
+  );
 }
 
-function didWeb(origin: string): string {
-  return `did:web:${catalogHost(origin)}`;
+function didWeb(origin: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(`did:web:${catalogHost(origin)}`);
 }
 
 type CatalogEntry = {
@@ -118,17 +124,17 @@ function catalogEntry(
   type: string,
   url: string,
   representativeQueries: readonly string[],
-): CatalogEntry {
-  return {
+) {
+  return ((pinnedReturn: CatalogEntry) => pinnedReturn)({
     identifier: `urn:air:${host}:${namespace}:${name}`,
     displayName,
     type,
     url,
     representativeQueries,
-  };
+  });
 }
 
-export function renderAiCatalog(origin: string): string {
+export function renderAiCatalog(origin: string) {
   const host = catalogHost(origin);
   const entries: readonly CatalogEntry[] = [
     catalogEntry(
@@ -197,51 +203,59 @@ export function renderAiCatalog(origin: string): string {
       ],
     ),
   ];
-  return jsonDocument({
-    specVersion: AI_CATALOG_SPEC_VERSION,
-    host: {
-      displayName: "PR Agent",
-      identifier: didWeb(origin),
-    },
-    entries,
-  });
+  return ((pinnedReturn: string) => pinnedReturn)(
+    jsonDocument({
+      specVersion: AI_CATALOG_SPEC_VERSION,
+      host: {
+        displayName: "PR Agent",
+        identifier: didWeb(origin),
+      },
+      entries,
+    }),
+  );
 }
 
-export function aiCatalogResponse(origin: string): Response {
-  return documentResponse(renderAiCatalog(origin), JSON_CONTENT_TYPE, {
-    cors: true,
-    varyHost: true,
-  });
+export function aiCatalogResponse(origin: string) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderAiCatalog(origin), JSON_CONTENT_TYPE, {
+      cors: true,
+      varyHost: true,
+    }),
+  );
 }
 
-export function renderMcpServerCard(origin: string): string {
-  return jsonDocument({
-    serverInfo: {
-      name: MCP_SERVER_NAME,
-      version: MCP_SERVER_VERSION,
-    },
-    description:
-      "Read-only knowledge server for the PR Agent landing site. It answers questions about the product. It does not review pull requests.",
-    transport: {
-      type: "streamable-http",
-      endpoint: "/mcp",
-    },
-    capabilities: {
-      tools: {},
-    },
-    authentication: {
-      required: false,
-    },
-    documentationUrl: `${origin}${LLMS_TXT_PROFILE.path}`,
-  });
+export function renderMcpServerCard(origin: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    jsonDocument({
+      serverInfo: {
+        name: MCP_SERVER_NAME,
+        version: MCP_SERVER_VERSION,
+      },
+      description:
+        "Read-only knowledge server for the PR Agent landing site. It answers questions about the product. It does not review pull requests.",
+      transport: {
+        type: "streamable-http",
+        endpoint: "/mcp",
+      },
+      capabilities: {
+        tools: {},
+      },
+      authentication: {
+        required: false,
+      },
+      documentationUrl: `${origin}${LLMS_TXT_PROFILE.path}`,
+    }),
+  );
 }
 
-export function mcpServerCardResponse(origin: string): Response {
-  return documentResponse(renderMcpServerCard(origin), JSON_CONTENT_TYPE, { varyHost: true });
+export function mcpServerCardResponse(origin: string) {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderMcpServerCard(origin), JSON_CONTENT_TYPE, { varyHost: true }),
+  );
 }
 
-export function renderReadPrAgentSkill(): string {
-  return `---
+export function renderReadPrAgentSkill() {
+  return ((pinnedReturn: string) => pinnedReturn)(`---
 name: read-pr-agent
 description: Read the PR Agent landing site and answer questions about the self-hosted GitHub App.
 ---
@@ -262,44 +276,50 @@ Use this skill when someone asks what PR Agent is, how to install it, or whether
 - Do not invent a hosted signup. PR Agent is self-hosted.
 - Do not send credentials to this origin. /auth.md says these endpoints are public.
 - Do not treat this site as a running PR Agent deployment. Webhooks, worker health, and model keys are on the operator's host.
-`;
+`);
 }
 
-export async function skillDigest(body: string): Promise<string> {
+export async function skillDigest(body: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const hex = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `sha256:${hex}`;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(`sha256:${hex}`);
 }
 
-export async function renderAgentSkillsIndex(origin: string): Promise<string> {
+export async function renderAgentSkillsIndex(origin: string) {
   const body = renderReadPrAgentSkill();
-  return jsonDocument({
-    $schema: SKILLS_SCHEMA,
-    skills: [
-      {
-        name: "read-pr-agent",
-        type: "skill-md",
-        description:
-          "Read the PR Agent landing site and answer questions about the self-hosted GitHub App.",
-        url: `${origin}${READ_PR_AGENT_SKILL.path}`,
-        digest: await skillDigest(body),
-      },
-    ],
-  });
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(
+    jsonDocument({
+      $schema: SKILLS_SCHEMA,
+      skills: [
+        {
+          name: "read-pr-agent",
+          type: "skill-md",
+          description:
+            "Read the PR Agent landing site and answer questions about the self-hosted GitHub App.",
+          url: `${origin}${READ_PR_AGENT_SKILL.path}`,
+          digest: await skillDigest(body),
+        },
+      ],
+    }),
+  );
 }
 
-export async function agentSkillsIndexResponse(origin: string): Promise<Response> {
-  return documentResponse(await renderAgentSkillsIndex(origin), JSON_CONTENT_TYPE, {
-    varyHost: true,
-  });
+export async function agentSkillsIndexResponse(origin: string) {
+  return ((pinnedReturn: Response | Promise<Response>) => pinnedReturn)(
+    documentResponse(await renderAgentSkillsIndex(origin), JSON_CONTENT_TYPE, {
+      varyHost: true,
+    }),
+  );
 }
 
-export function skillMarkdownResponse(): Response {
-  return documentResponse(renderReadPrAgentSkill(), MARKDOWN_CONTENT_TYPE);
+export function skillMarkdownResponse() {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderReadPrAgentSkill(), MARKDOWN_CONTENT_TYPE),
+  );
 }
 
-export function renderAuthMd(): string {
-  return `# auth.md
+export function renderAuthMd() {
+  return ((pinnedReturn: string) => pinnedReturn)(`# auth.md
 
 The PR Agent landing site publishes public agent endpoints. No registration, token, or credential is required to read them.
 
@@ -320,20 +340,26 @@ Protected-resource metadata is not published. Nothing on this origin requires a 
 ## Product authentication
 
 A PR Agent deployment authenticates to GitHub as a GitHub App on the operator's host. That API is not on this origin. This site cannot mint installation tokens.
-`;
+`);
 }
 
-export function authMarkdownResponse(): Response {
-  return documentResponse(renderAuthMd(), MARKDOWN_CONTENT_TYPE);
+export function authMarkdownResponse() {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderAuthMd(), MARKDOWN_CONTENT_TYPE),
+  );
 }
 
-export function renderSiteHealth(): string {
-  return jsonDocument({
-    status: "ok",
-    service: "pr-agent-landing",
-  });
+export function renderSiteHealth() {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    jsonDocument({
+      status: "ok",
+      service: "pr-agent-landing",
+    }),
+  );
 }
 
-export function siteHealthResponse(): Response {
-  return documentResponse(renderSiteHealth(), JSON_CONTENT_TYPE);
+export function siteHealthResponse() {
+  return ((pinnedReturn: Response) => pinnedReturn)(
+    documentResponse(renderSiteHealth(), JSON_CONTENT_TYPE),
+  );
 }

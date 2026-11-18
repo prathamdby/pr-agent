@@ -142,18 +142,18 @@ const params = {
   gitCredentialAuth: async () => ({ token: "t", expiresAtTs: Date.now() + 3_600_000 }),
 };
 
-function githubFile(filename: string): ListedFile {
-  return {
+function githubFile(filename: string) {
+  return ((pinnedReturn: ListedFile) => pinnedReturn)({
     filename,
     status: "modified",
     additions: 1,
     deletions: 0,
     changes: 1,
     patch: `@@ ${filename}`,
-  };
+  });
 }
 
-function setCanonicalGithubFiles(filenames: readonly string[]): void {
+function setCanonicalGithubFiles(filenames: readonly string[]) {
   state.listedFiles = filenames.map(githubFile);
   state.changedFilesCount = filenames.length;
   state.additions = filenames.length;
@@ -168,15 +168,15 @@ function fileListResult(
     warning?: string;
     headSha?: string;
   },
-): ListPullRequestFilesResult {
-  return {
+) {
+  return ((pinnedReturn: ListPullRequestFilesResult) => pinnedReturn)({
     files: filenames.map(githubFile),
     truncated: opts?.truncated ?? false,
     omittedCountLowerBound: opts?.omittedCountLowerBound ?? 0,
     totalChanges: filenames.length,
     headSha: opts?.headSha ?? HEAD_SHA,
     warning: opts?.warning,
-  };
+  });
 }
 
 const completePaths = ["src/a.ts", "src/b.ts"] as const;
@@ -198,7 +198,7 @@ function expectCompleteCoverage(view: {
       };
     };
   };
-}): void {
+}) {
   expect(view.preflight.truncated).toBe(false);
   expect(view.preflight.fileCount).toBe(2);
   expect(view.preflight.files.map((file) => file.filename)).toEqual([...completePaths]);

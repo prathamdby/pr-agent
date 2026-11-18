@@ -79,7 +79,7 @@ export function buildTriageUserContent(params: {
   readonly maxFixesPerRun: number;
   readonly threads: readonly TriagePromptThread[];
   readonly scope?: TriageScope;
-}): string {
+}) {
   const lines = [
     `Target repository: ${params.owner}/${params.repo}`,
     `Pull request #: ${params.prNumber}`,
@@ -95,7 +95,7 @@ export function buildTriageUserContent(params: {
     lines.push(...formatFindingThreadInventoryLines(thread, index));
   });
 
-  return lines.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
 }
 
 export const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
@@ -105,6 +105,8 @@ export const TRIAGE_SUBMIT_ONLY_NUDGE = `Your last reply was text only, and the 
 
 export const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 
-export function renderTriageRepairPrompt(validationError: string): string {
-  return [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n");
+export function renderTriageRepairPrompt(validationError: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
+  );
 }

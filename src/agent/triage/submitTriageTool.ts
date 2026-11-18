@@ -22,12 +22,12 @@ export type SubmitTriageState = {
   payload: TriagePayload | null;
 };
 
-export function createSubmitTriageState(): SubmitTriageState {
-  return {
+export function createSubmitTriageState() {
+  return ((pinnedReturn: SubmitTriageState) => pinnedReturn)({
     submitted: false,
     lastValidationError: null,
     payload: null,
-  };
+  });
 }
 
 const SUBMIT_TRIAGE_PARAMETERS = toToolParameters(TriagePayloadSchema);
@@ -40,10 +40,7 @@ export function buildSubmitTriageTool(params: {
   readonly checkout: WritablePrCheckout;
   readonly workspaceState: TriageWorkspaceToolState;
   readonly submitState: SubmitTriageState;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+}) {
   const piTool: PiTool = {
     name: "submitTriage",
     description:
@@ -96,5 +93,8 @@ export function buildSubmitTriageTool(params: {
     return { ok: true };
   };
 
-  return { piTool, executor };
+  return ((pinnedReturn: {
+    readonly piTool: PiTool;
+    readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
+  }) => pinnedReturn)({ piTool, executor });
 }

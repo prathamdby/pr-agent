@@ -558,15 +558,17 @@ describe("analytics facade", () => {
 
 const MARKER = "[trace content truncated]";
 
-function tracedConfig(extra: Parameters<typeof makeTestConfig>[0] = {}): Config {
-  return makeTestConfig({
-    ...extra,
-    runtime: { role: "worker", ...extra.runtime },
-  });
+function tracedConfig(extra: Parameters<typeof makeTestConfig>[0] = {}) {
+  return ((pinnedReturn: Config) => pinnedReturn)(
+    makeTestConfig({
+      ...extra,
+      runtime: { role: "worker", ...extra.runtime },
+    }),
+  );
 }
 
-function traceModel(cost: Model<Api>["cost"]): Model<"openai-responses"> {
-  return {
+function traceModel(cost: Model<Api>["cost"]) {
+  return ((pinnedReturn: Model<"openai-responses">) => pinnedReturn)({
     id: "trace-model",
     name: "trace-model",
     provider: "openai",
@@ -577,14 +579,14 @@ function traceModel(cost: Model<Api>["cost"]): Model<"openai-responses"> {
     cost,
     contextWindow: 10000,
     maxTokens: 1000,
-  };
+  });
 }
 
 type Api = "openai-responses";
 
-function assistant(text: string, thinking = "trace-thinking", costTotal = 0): AssistantMessage {
+function assistant(text: string, thinking = "trace-thinking", costTotal = 0) {
   const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-  return {
+  return ((pinnedReturn: AssistantMessage) => pinnedReturn)({
     role: "assistant",
     api: model.api,
     provider: model.provider,
@@ -603,14 +605,11 @@ function assistant(text: string, thinking = "trace-thinking", costTotal = 0): As
     },
     stopReason: "stop",
     timestamp: 1,
-  };
+  });
 }
 
-function sessionParams(
-  cfg: Config,
-  tools: PiSessionCreateParams["tools"] = [],
-): PiSessionCreateParams {
-  return {
+function sessionParams(cfg: Config, tools: PiSessionCreateParams["tools"] = []) {
+  return ((pinnedReturn: PiSessionCreateParams) => pinnedReturn)({
     cfg,
     role: "ask",
     primary: { provider: "openai", model: "trace-model" },
@@ -622,11 +621,11 @@ function sessionParams(
     tools,
     executors: {},
     eventSink: () => undefined,
-  };
+  });
 }
 
-function work(executionId: string = randomUUID()): TraceWork {
-  return {
+function work(executionId: string = randomUUID()) {
+  return ((pinnedReturn: TraceWork) => pinnedReturn)({
     executionId,
     workItemId: "work-item-1",
     owner: "acme",
@@ -636,7 +635,7 @@ function work(executionId: string = randomUUID()): TraceWork {
     installationId: 7,
     provider: "openai",
     model: "trace-model",
-  };
+  });
 }
 
 describe("posthog ai traces", () => {

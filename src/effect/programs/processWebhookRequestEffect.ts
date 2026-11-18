@@ -11,20 +11,25 @@ import { getAppBotIdentity } from "../../github/appAuth.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { isRecord } from "../../util/typeGuards.ts";
 
-function webhookDuplicateReason(
-  intakeLog: RequestLogger,
-): "delivery_duplicate" | "body_duplicate" | undefined {
+function webhookDuplicateReason(intakeLog: RequestLogger) {
   const events = intakeLog.getContext().events;
-  if (!Array.isArray(events)) return undefined;
+  if (!Array.isArray(events))
+    return ((pinnedReturn: "delivery_duplicate" | "body_duplicate" | undefined) => pinnedReturn)(
+      undefined,
+    );
   for (const entry of events) {
     if (!isRecord(entry)) continue;
     const event = entry.event;
     if (event !== "deduped_delivery") continue;
     const key = entry.dedupeKey;
     const keyText = typeof key === "string" ? key : "";
-    return keyText.startsWith("body:") ? "body_duplicate" : "delivery_duplicate";
+    return ((pinnedReturn: "delivery_duplicate" | "body_duplicate" | undefined) => pinnedReturn)(
+      keyText.startsWith("body:") ? "body_duplicate" : "delivery_duplicate",
+    );
   }
-  return undefined;
+  return ((pinnedReturn: "delivery_duplicate" | "body_duplicate" | undefined) => pinnedReturn)(
+    undefined,
+  );
 }
 
 function emitWebhookReceived(args: {
@@ -33,7 +38,7 @@ function emitWebhookReceived(args: {
   readonly elapsedMs: number;
   readonly outcome: "accepted" | "duplicate" | "rejected";
   readonly reason?: string;
-}): void {
+}) {
   captureWebhookReceived({
     githubEvent: args.githubEvent,
     delivery: args.delivery,
@@ -82,22 +87,24 @@ type DispatchInput = {
   readonly submitFiber: Ref.Ref<SubmitFiber | undefined>;
 };
 
-function fiberIsInterruptible(fiber: Fiber.Fiber<unknown, unknown>): boolean {
-  return "interruptible" in fiber && fiber.interruptible === true;
+function fiberIsInterruptible(fiber: Fiber.Fiber<unknown, unknown>) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    "interruptible" in fiber && fiber.interruptible === true,
+  );
 }
 
-function detachedCommitLanded(
-  fiber: SubmitFiber | undefined,
-): Effect.Effect<boolean, WebhookIntakeUnavailable> {
-  return Effect.gen(function* () {
-    if (fiber === undefined) return false;
-    const finished = fiber.pollUnsafe();
-    if (finished && Exit.isSuccess(finished)) return true;
-    if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
-    if (fiberIsInterruptible(fiber)) return false;
-    yield* Fiber.join(fiber);
-    return true;
-  });
+function detachedCommitLanded(fiber: SubmitFiber | undefined) {
+  return ((pinnedReturn: Effect.Effect<boolean, WebhookIntakeUnavailable>) => pinnedReturn)(
+    Effect.gen(function* () {
+      if (fiber === undefined) return false;
+      const finished = fiber.pollUnsafe();
+      if (finished && Exit.isSuccess(finished)) return true;
+      if (finished && Exit.isFailure(finished)) yield* Effect.failCause(finished.cause);
+      if (fiberIsInterruptible(fiber)) return false;
+      yield* Fiber.join(fiber);
+      return true;
+    }),
+  );
 }
 
 const dispatchGithubEvent = Effect.fn("webhook.dispatch")(function* (input: DispatchInput) {
@@ -237,10 +244,10 @@ const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhoo
     }
 
     const payload = yield* Effect.try({
-      try: (): Record<string, unknown> => {
+      try: () => {
         const parsed: unknown = JSON.parse(input.request.rawBody.toString("utf8"));
         if (!isRecord(parsed)) throw new Error("webhook payload must be an object");
-        return parsed;
+        return ((pinnedReturn: Record<string, unknown>) => pinnedReturn)(parsed);
       },
       catch: () => {
         recordEvent(input.intakeLog, "invalid_json", undefined, "warn");

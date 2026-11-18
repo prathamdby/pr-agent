@@ -35,10 +35,8 @@ vi.mock("../src/github/appAuth.ts", () => ({
 import { installationOctokit } from "../src/github/appAuth.ts";
 import { unfencedSurface } from "../src/agentWork/writeFence.ts";
 
-function comment(
-  partial: Partial<ReviewThreadComment> & Pick<ReviewThreadComment, "id">,
-): ReviewThreadComment {
-  return {
+function comment(partial: Partial<ReviewThreadComment> & Pick<ReviewThreadComment, "id">) {
+  return ((pinnedReturn: ReviewThreadComment) => pinnedReturn)({
     inReplyToId: null,
     pullRequestReviewId: 100,
     userId: 1,
@@ -49,7 +47,7 @@ function comment(
     htmlUrl: `https://github.com/o/r/pull/1#discussion_r${partial.id}`,
     authorType: "User",
     ...partial,
-  };
+  });
 }
 
 function fetchPriorInlineReviewFeedback(
@@ -73,7 +71,7 @@ function fetchPriorInlineReviewFeedback(
 function mockGithub(params: {
   readonly reviews: readonly { id: number; userId: number; body: string }[];
   readonly comments: readonly Record<string, unknown>[];
-}): void {
+}) {
   vi.mocked(installationOctokit).mockReturnValue({
     paginate: async (
       route: (params: unknown) => Promise<{ data?: unknown }>,

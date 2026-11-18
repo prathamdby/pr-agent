@@ -144,13 +144,13 @@ export type VerificationValidationInput = {
   readonly pushedShas: readonly string[];
 };
 
-export function formatVerificationValidationError(issues: readonly string[]): string {
-  return ["VerificationPayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join(
-    "\n",
+export function formatVerificationValidationError(issues: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    ["VerificationPayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join("\n"),
   );
 }
 
-export function validateVerificationVerdicts(params: VerificationValidationInput): string[] {
+export function validateVerificationVerdicts(params: VerificationValidationInput) {
   const issues: string[] = [];
   const inventoryById = new Map(params.inventory.map((item) => [item.threadRootCommentId, item]));
   const verdictById = new Map<number, VerificationVerdict>();
@@ -252,7 +252,7 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
     }
   }
 
-  return issues;
+  return ((pinnedReturn: string[]) => pinnedReturn)(issues);
 }
 
 type TriageInventoryItem = {
@@ -267,11 +267,13 @@ export type TriageValidationInput = {
   readonly commitByThreadRootCommentId?: ReadonlyMap<number, string>;
 };
 
-export function formatTriageValidationError(issues: readonly string[]): string {
-  return ["TriagePayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join("\n");
+export function formatTriageValidationError(issues: readonly string[]) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    ["TriagePayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join("\n"),
+  );
 }
 
-export function validateTriageVerdicts(params: TriageValidationInput): string[] {
+export function validateTriageVerdicts(params: TriageValidationInput) {
   const issues: string[] = [];
   const inventoryById = new Map(params.inventory.map((item) => [item.threadRootCommentId, item]));
   const verdictById = new Map<number, TriageVerdict>();
@@ -314,5 +316,5 @@ export function validateTriageVerdicts(params: TriageValidationInput): string[] 
     }
   }
 
-  return issues;
+  return ((pinnedReturn: string[]) => pinnedReturn)(issues);
 }

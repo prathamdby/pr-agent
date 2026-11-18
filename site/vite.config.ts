@@ -27,21 +27,23 @@ import {
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
 
-function headerValue(value: string | string[] | undefined): string | null {
+function headerValue(value: string | string[] | undefined) {
   if (value === undefined) {
-    return null;
+    return ((pinnedReturn: string | null) => pinnedReturn)(null);
   }
-  return Array.isArray(value) ? value.join(", ") : value;
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    Array.isArray(value) ? value.join(", ") : value,
+  );
 }
 
-function conditionalFromNode(request: IncomingMessage): ConditionalHeaders {
-  return {
+function conditionalFromNode(request: IncomingMessage) {
+  return ((pinnedReturn: ConditionalHeaders) => pinnedReturn)({
     ifNoneMatch: headerValue(request.headers["if-none-match"]),
     ifModifiedSince: headerValue(request.headers["if-modified-since"]),
-  };
+  });
 }
 
-function serveMarkdownRoutesInDev(): Plugin {
+function serveMarkdownRoutesInDev() {
   const routes = new Map<string, (request: IncomingMessage) => Response>([
     [
       LANDING_PAGE_MARKDOWN.path,
@@ -56,7 +58,7 @@ function serveMarkdownRoutesInDev(): Plugin {
     [AUTH_MD.path, () => authMarkdownResponse()],
     [READ_PR_AGENT_SKILL.path, () => skillMarkdownResponse()],
   ]);
-  return {
+  return ((pinnedReturn: Plugin) => pinnedReturn)({
     name: "serve-markdown-routes-dev",
     apply: "serve",
     configureServer(server) {
@@ -79,7 +81,7 @@ function serveMarkdownRoutesInDev(): Plugin {
           .catch(next);
       });
     },
-  };
+  });
 }
 
 export default defineConfig({

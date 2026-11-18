@@ -14,15 +14,13 @@ export type ToolBundle = {
 
 const HIDDEN_TOOL_NAMES = new Set<string>(CODE_MODE_WORKSPACE_TOOL_NAMES);
 
-export function pickCodeModeCapabilities(
-  executors: Record<string, AgentRunnerToolExecutor>,
-): CodeModeCapabilityExecutors {
+export function pickCodeModeCapabilities(executors: Record<string, AgentRunnerToolExecutor>) {
   const capabilities: CodeModeCapabilityExecutors = {};
   for (const name of CODE_MODE_WORKSPACE_TOOL_NAMES) {
     const executor = executors[name];
     if (executor) capabilities[name] = executor;
   }
-  return capabilities;
+  return ((pinnedReturn: CodeModeCapabilityExecutors) => pinnedReturn)(capabilities);
 }
 
 export function hideWorkspaceToolsBehindCodeMode(
@@ -32,7 +30,7 @@ export function hideWorkspaceToolsBehindCodeMode(
     readonly evidenceLedger?: EvidenceLedger;
     readonly headSha?: string;
   },
-): ToolBundle {
+) {
   const execute = buildCodeModeExecuteTool({
     capabilities: pickCodeModeCapabilities(bundle.executors),
     executorKind: options.executorKind,
@@ -40,7 +38,7 @@ export function hideWorkspaceToolsBehindCodeMode(
     evidenceLedger: options.evidenceLedger,
     headSha: options.headSha,
   });
-  return {
+  return ((pinnedReturn: ToolBundle) => pinnedReturn)({
     piTools: [
       execute.piTool,
       ...bundle.piTools.filter((tool) => !HIDDEN_TOOL_NAMES.has(tool.name)),
@@ -49,5 +47,5 @@ export function hideWorkspaceToolsBehindCodeMode(
       ...bundle.executors,
       [CODE_MODE_EXECUTE_NAME]: execute.executor,
     },
-  };
+  });
 }

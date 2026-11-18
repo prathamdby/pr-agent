@@ -52,12 +52,12 @@ type Deferred<T> = {
   readonly resolve: (value: T) => void;
 };
 
-function deferred<T>(): Deferred<T> {
+function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
-  return { promise, resolve };
+  return ((pinnedReturn: Deferred<T>) => pinnedReturn)({ promise, resolve });
 }
 
 const testState = vi.hoisted(() => ({
@@ -98,6 +98,7 @@ const testState = vi.hoisted(() => ({
   publishedBatchCount: 0,
   judgmentBySource: new Map<SpecialistId, readonly ReviewFinding[]>(),
   judgmentPrompts: [] as string[],
+  onJudgmentPrompt: [] as Array<() => void>,
   specialistThreadSources: [] as Array<() => readonly { readonly findingId: string }[]>,
   synthesisPublishesSummary: true,
   pendingPublicationFailure: null as null | {
@@ -116,6 +117,7 @@ const testState = vi.hoisted(() => ({
     };
   }>,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
+  onProgressResolver: [] as Array<() => void>,
   sentSendOptions: [] as PiSessionSendOptions[],
   specialistEscalations: [] as Array<EscalationPlan | undefined>,
   ledgerOpens: {
@@ -221,6 +223,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.ts", () => ({
       initialLedger?: FindingLedger;
     }) => {
       testState.progressUrlResolvers.push(params.session.resolveProgressCommentUrl);
+      for (const notify of testState.onProgressResolver.slice()) notify();
       testState.ledger = params.initialLedger ?? createFindingLedger();
       const executor = vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
         if (testState.pendingPublicationFailure) {
@@ -326,14 +329,21 @@ vi.mock("../src/review/publish/publishSummaryOnly.ts", () => ({
     async (
       _session: unknown,
       input: { readonly payload: Record<string, unknown>; readonly coverage?: ReviewCoverage },
-    ): Promise<
-      | { readonly kind: "published"; readonly summaryCommentId: number }
-      | { readonly kind: "stopped"; readonly reason: "superseded" }
-    > => {
+    ) => {
       testState.publishOrder.push("summary");
       testState.deterministicSummaries.push(input.payload);
       testState.summaryCoverages.push(input.coverage);
-      return { kind: "published", summaryCommentId: 10 };
+      return ((
+        pinnedReturn:
+          | (
+              | { readonly kind: "published"; readonly summaryCommentId: number }
+              | { readonly kind: "stopped"; readonly reason: "superseded" }
+            )
+          | Promise<
+              | { readonly kind: "published"; readonly summaryCommentId: number }
+              | { readonly kind: "stopped"; readonly reason: "superseded" }
+            >,
+      ) => pinnedReturn)({ kind: "published", summaryCommentId: 10 });
     },
   ),
 }));
@@ -416,8 +426,8 @@ function defaultSubmittedBrief() {
   };
 }
 
-function finding(specialist: SpecialistId, extras: Partial<ReviewFinding> = {}): ReviewFinding {
-  return {
+function finding(specialist: SpecialistId, extras: Partial<ReviewFinding> = {}) {
+  return ((pinnedReturn: ReviewFinding) => pinnedReturn)({
     severity: "P2",
     file: `src/${specialist}.ts`,
     startLine: 1,
@@ -426,14 +436,14 @@ function finding(specialist: SpecialistId, extras: Partial<ReviewFinding> = {}):
     detail: `The ${specialist} path is incorrect.`,
     fixPrompt: `Fix the ${specialist} path.`,
     ...extras,
-  };
+  });
 }
 
 function acceptedPlacement(
   kind: AcceptedPlacement["kind"],
   source: AcceptedPlacement["source"],
   item: ReviewFinding,
-): AcceptedPlacement {
+) {
   const base = {
     source,
     placement: {
@@ -444,15 +454,18 @@ function acceptedPlacement(
     findingId: legacyFindingId(`${source}:${item.file}:${item.startLine}`),
   } as const;
   if (kind === "summary_only") {
-    return { kind, ...base, reason: "anchor" };
+    return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({ kind, ...base, reason: "anchor" });
   }
-  return { kind, ...base, reviewId: kind === "posted" ? 11 : 22 };
+  return ((pinnedReturn: AcceptedPlacement) => pinnedReturn)({
+    kind,
+    ...base,
+    reviewId: kind === "posted" ? 11 : 22,
+  });
 }
 
-function reported(
-  items: readonly ReviewFinding[],
-): Extract<SpecialistOutcome, { readonly kind: "report" }>["report"] {
-  return {
+function reported(items: readonly ReviewFinding[]) {
+  return ((pinnedReturn: Extract<SpecialistOutcome, { readonly kind: "report" }>["report"]) =>
+    pinnedReturn)({
     status: "findings",
     findings: items.map((item) => ({
       suggestedSeverity: item.severity,
@@ -466,24 +479,28 @@ function reported(
       ...(item.confidence != null ? { confidence: item.confidence } : {}),
       ...(item.category != null ? { category: item.category } : {}),
     })),
-  };
+  });
 }
 
-function report(specialist: SpecialistId): SpecialistOutcome {
-  return {
+function report(specialist: SpecialistId) {
+  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
     kind: "report",
     specialist,
     durationMs: 1,
     report: reported([finding(specialist)]),
-  };
+  });
 }
 
-function empty(specialist: SpecialistId): SpecialistOutcome {
-  return { kind: "empty", specialist, durationMs: 1 };
+function empty(specialist: SpecialistId) {
+  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
+    kind: "empty",
+    specialist,
+    durationMs: 1,
+  });
 }
 
-function failed(specialist: SpecialistId, message = `${specialist} failed`): SpecialistOutcome {
-  return {
+function failed(specialist: SpecialistId, message = `${specialist} failed`) {
+  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
     kind: "error",
     specialist,
     durationMs: 1,
@@ -493,12 +510,12 @@ function failed(specialist: SpecialistId, message = `${specialist} failed`): Spe
       message,
       cause: new Error(message),
     }),
-  };
+  });
 }
 
-function params(): OrchestratedReviewRunParams {
+function params() {
   const now = Date.now();
-  return {
+  return ((pinnedReturn: OrchestratedReviewRunParams) => pinnedReturn)({
     cfg: makeTestConfig(),
     prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
     owner: "o",
@@ -517,13 +534,14 @@ function params(): OrchestratedReviewRunParams {
     },
     gate: { check: async () => ({ kind: "continue" }) },
     createSession: runner.createSession,
-  };
+  });
 }
 
-function paramsWithGate(
-  check: OrchestratedReviewRunParams["gate"]["check"],
-): OrchestratedReviewRunParams {
-  return { ...params(), gate: { check } };
+function paramsWithGate(check: OrchestratedReviewRunParams["gate"]["check"]) {
+  return ((pinnedReturn: OrchestratedReviewRunParams) => pinnedReturn)({
+    ...params(),
+    gate: { check },
+  });
 }
 
 function coordinatedRecordPublishStep() {
@@ -539,11 +557,11 @@ function coordinatedRecordPublishStep() {
   );
 }
 
-function hardDeadlineParams(): OrchestratedReviewRunParams {
+function hardDeadlineParams() {
   const startedAt = Date.now();
   const modelStopAtMs = startedAt + 50;
   const returnByMs = startedAt + 100;
-  return {
+  return ((pinnedReturn: OrchestratedReviewRunParams) => pinnedReturn)({
     ...params(),
     timing: {
       modelStopAtMs,
@@ -551,7 +569,7 @@ function hardDeadlineParams(): OrchestratedReviewRunParams {
       remainingModelMs: () => Math.max(0, modelStopAtMs - Date.now()),
       remainingTotalMs: () => Math.max(0, returnByMs - Date.now()),
     },
-  };
+  });
 }
 
 describe("reviewRunCoverage", () => {
@@ -587,6 +605,19 @@ describe("reviewRunCoverage", () => {
   });
 });
 
+function whenCount(items: { length: number }, count: number, listeners: Array<() => void>) {
+  return new Promise<void>((resolve) => {
+    const notify = () => {
+      if (items.length < count) return;
+      const index = listeners.indexOf(notify);
+      if (index >= 0) listeners.splice(index, 1);
+      resolve();
+    };
+    listeners.push(notify);
+    notify();
+  });
+}
+
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {
     testState.outcomes.clear();
@@ -619,8 +650,10 @@ describe("runOrchestratedPrReview", () => {
     testState.publishedBatchCount = 0;
     testState.judgmentBySource.clear();
     testState.judgmentPrompts.length = 0;
+    testState.onJudgmentPrompt.length = 0;
     testState.specialistThreadSources.length = 0;
     testState.progressUrlResolvers.length = 0;
+    testState.onProgressResolver.length = 0;
     publishRecordMocks.getSummaryCommentGithubId.mockReset();
     publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
     testState.synthesisPublishesSummary = true;
@@ -665,6 +698,7 @@ describe("runOrchestratedPrReview", () => {
               );
           } else if (prompt.includes("Judge the ")) {
             testState.judgmentPrompts.push(prompt);
+            for (const notify of testState.onJudgmentPrompt.slice()) notify();
             if (testState.judgmentFailuresRemaining > 0) {
               testState.judgmentFailuresRemaining -= 1;
               throw new Error("judgment provider failure");
@@ -1001,7 +1035,7 @@ describe("runOrchestratedPrReview", () => {
       escalation: escalationForAttempt(2, cfg),
     });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.waitFor(() => expect(testState.judgmentPrompts).toHaveLength(2));
+    await whenCount(testState.judgmentPrompts, 2, testState.onJudgmentPrompt);
     expect(testState.publishOrder).toEqual([]);
     testState.outcomes.get("security")?.resolve(report("security"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["security"]));
@@ -1136,7 +1170,7 @@ describe("runOrchestratedPrReview", () => {
 
   it("publishes specialist reports in completion order and the summary last", async () => {
     const run = runOrchestratedPrReview(params());
-    await vi.waitFor(() => expect(testState.outcomes.size).toBe(4));
+    expect(testState.outcomes.size).toBe(4);
     testState.outcomes.get("quality")?.resolve(report("quality"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["quality"]));
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
@@ -1981,7 +2015,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.waitFor(() => expect(testState.judgmentPrompts).toHaveLength(2));
+    await whenCount(testState.judgmentPrompts, 2, testState.onJudgmentPrompt);
     expect(testState.publishOrder).toEqual([]);
     testState.outcomes.get("security")?.resolve(report("security"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["security"]));
@@ -2021,7 +2055,7 @@ describe("runOrchestratedPrReview", () => {
       },
     });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.waitFor(() => expect(testState.judgmentPrompts).toHaveLength(1));
+    await whenCount(testState.judgmentPrompts, 1, testState.onJudgmentPrompt);
     expect(testState.publishOrder).toEqual([]);
     testState.outcomes.get("security")?.resolve(report("security"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["security"]));
@@ -2408,7 +2442,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    await vi.waitFor(() => expect(testState.outcomes.size).toBe(4));
+    expect(testState.outcomes.size).toBe(4);
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     for (const specialist of ["security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -2507,7 +2541,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     expect(resolveUrl).toBeDefined();
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-123");
@@ -2529,7 +2563,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-123");
@@ -2550,7 +2584,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-77");
 
@@ -2569,7 +2603,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-77");
 
@@ -2588,7 +2622,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBeUndefined();
 
@@ -2604,7 +2638,7 @@ describe("runOrchestratedPrReview", () => {
       progressCommentIdHint: 99,
     });
 
-    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    await whenCount(testState.progressUrlResolvers, 1, testState.onProgressResolver);
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
     expect(publishRecordMocks.getSummaryCommentGithubId).not.toHaveBeenCalled();
@@ -2669,7 +2703,7 @@ describe("runOrchestratedPrReview", () => {
       },
     });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.waitFor(() => expect(testState.judgmentPrompts).toHaveLength(2));
+    await whenCount(testState.judgmentPrompts, 2, testState.onJudgmentPrompt);
     expect(testState.publishOrder).toEqual([]);
     testState.outcomes.get("security")?.resolve(report("security"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["security"]));

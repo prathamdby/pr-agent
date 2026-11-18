@@ -42,12 +42,12 @@ export type SubmitDescriptionState = {
   publishSuperseded: boolean;
 };
 
-export function createSubmitDescriptionState(): SubmitDescriptionState {
-  return {
+export function createSubmitDescriptionState() {
+  return ((pinnedReturn: SubmitDescriptionState) => pinnedReturn)({
     published: false,
     lastValidationError: null,
     publishSuperseded: false,
-  };
+  });
 }
 
 const SUBMIT_DESCRIPTION_DESCRIPTION = [
@@ -72,10 +72,7 @@ export function buildSubmitDescriptionTool(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
-}): {
-  piTool: PiTool;
-  executor: AgentRunnerToolExecutor;
-} {
+}) {
   const piTool: PiTool = {
     name: "submitDescription",
     description: SUBMIT_DESCRIPTION_DESCRIPTION,
@@ -164,7 +161,7 @@ export function buildSubmitDescriptionTool(params: {
             descriptionPrBodyOperationKey(operationIntent.resourceKey),
             operationIntent.workItemId,
           );
-    const publish = async (): Promise<DescriptionPublishResult> => {
+    const publish = async () => {
       const { pullRequest } = await params.prSurface.getHead();
       const plan = planDescriptionPublish({
         cfg: params.cfg,
@@ -179,11 +176,12 @@ export function buildSubmitDescriptionTool(params: {
           operationMarker ?? undefined,
         );
       }
-      return {
+      return ((pinnedReturn: DescriptionPublishResult | Promise<DescriptionPublishResult>) =>
+        pinnedReturn)({
         prNumber: params.prNumber,
         titleUpdated: plan.titleUpdated,
         bodyUpdated: plan.bodyUpdated,
-      };
+      });
     };
 
     const result =
@@ -242,5 +240,8 @@ export function buildSubmitDescriptionTool(params: {
     return { ok: true, ...result };
   };
 
-  return { piTool, executor };
+  return ((pinnedReturn: { piTool: PiTool; executor: AgentRunnerToolExecutor }) => pinnedReturn)({
+    piTool,
+    executor,
+  });
 }

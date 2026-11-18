@@ -17,7 +17,7 @@ export async function upsertSharedRateLimitCircuit(
     readonly openUntil: Date;
     readonly lastErrorKind: string;
   },
-): Promise<void> {
+) {
   await client.query(
     `INSERT INTO github_installation_rate_limit_circuits (
        installation_id, open_until, last_error_kind
@@ -32,10 +32,7 @@ export async function upsertSharedRateLimitCircuit(
   );
 }
 
-export async function getSharedRateLimitCircuit(
-  client: Pool | PoolClient,
-  installationId: number,
-): Promise<SharedRateLimitCircuitRow | null> {
+export async function getSharedRateLimitCircuit(client: Pool | PoolClient, installationId: number) {
   const row = await queryOne<{
     installation_id: string;
     open_until: Date;
@@ -47,22 +44,29 @@ export async function getSharedRateLimitCircuit(
       WHERE installation_id = $1`,
     [installationId],
   );
-  if (!row) return null;
-  return {
+  if (!row)
+    return ((
+      pinnedReturn: (SharedRateLimitCircuitRow | null) | Promise<SharedRateLimitCircuitRow | null>,
+    ) => pinnedReturn)(null);
+  return ((
+    pinnedReturn: (SharedRateLimitCircuitRow | null) | Promise<SharedRateLimitCircuitRow | null>,
+  ) => pinnedReturn)({
     installationId: Number(row.installation_id),
     openUntil: row.open_until,
     lastErrorKind: row.last_error_kind,
-  };
+  });
 }
 
 export async function isSharedRateLimitCircuitOpen(
   client: Pool | PoolClient,
   installationId: number,
   now: Date = new Date(),
-): Promise<boolean> {
+) {
   const row = await getSharedRateLimitCircuit(client, installationId);
-  if (!row) return false;
-  return row.openUntil.getTime() > now.getTime();
+  if (!row) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(
+    row.openUntil.getTime() > now.getTime(),
+  );
 }
 
 export async function openSharedRateLimitCircuit(
@@ -73,7 +77,7 @@ export async function openSharedRateLimitCircuit(
     readonly cooldownMs?: number;
     readonly now?: Date;
   },
-): Promise<Date> {
+) {
   const now = params.now ?? new Date();
   const cooldownMs = params.cooldownMs ?? SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS;
   const openUntil = new Date(now.getTime() + cooldownMs);
@@ -82,7 +86,7 @@ export async function openSharedRateLimitCircuit(
     openUntil,
     lastErrorKind: params.lastErrorKind,
   });
-  return openUntil;
+  return ((pinnedReturn: Date | Promise<Date>) => pinnedReturn)(openUntil);
 }
 
 export function openSharedRateLimitCircuitBestEffort(
@@ -92,7 +96,7 @@ export function openSharedRateLimitCircuitBestEffort(
     readonly lastErrorKind: string;
     readonly cooldownMs?: number;
   },
-): void {
+) {
   if (client == null || !Number.isFinite(params.installationId) || params.installationId <= 0) {
     return;
   }

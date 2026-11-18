@@ -121,7 +121,7 @@ import { openInstallationSurface } from "../src/agentWork/installationSurface.ts
 let runExecution: () => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["ask"]) => Promise<unknown>,
-): void {
+) {
   runExecution = () =>
     run(
       createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
@@ -137,7 +137,7 @@ function askItem() {
   return makeAskWorkItem({ headSha: "head" });
 }
 
-function mockDurableExecution(): void {
+function mockDurableExecution() {
   configureExecution(async (spec) => {
     await spec.execute(
       askItem(),
@@ -157,7 +157,7 @@ function mockDurableExecution(): void {
   });
 }
 
-function mockRepositoryView(): void {
+function mockRepositoryView() {
   mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
     run({
       agentCwd: "/tmp/pr-agent",

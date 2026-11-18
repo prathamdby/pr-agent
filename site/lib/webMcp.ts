@@ -1,7 +1,7 @@
 import { AGENT_RESOURCES } from "./agentResources.ts";
 import { PAGE_SECTIONS, WEB_MCP_TOOLS } from "./agentTools.ts";
 
-export function renderWebMcpScript(): string {
+export function renderWebMcpScript() {
   const payload = JSON.stringify({
     tools: WEB_MCP_TOOLS,
     sections: PAGE_SECTIONS,
@@ -11,7 +11,7 @@ export function renderWebMcpScript(): string {
     })),
   }).replaceAll("<", "\\u003c");
 
-  return `(function () {
+  return ((pinnedReturn: string) => pinnedReturn)(`(function () {
   var root = document.modelContext || navigator.modelContext;
   if (!root || typeof root.registerTool !== "function") return;
   var controller = new AbortController();
@@ -55,5 +55,5 @@ export function renderWebMcpScript(): string {
     }, { signal: controller.signal })).catch(function () {});
   });
 })();
-`;
+`);
 }

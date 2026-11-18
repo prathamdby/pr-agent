@@ -9,15 +9,17 @@ function mockClient(options?: {
   readonly queuedIds?: readonly string[];
   readonly runningIds?: readonly string[];
   readonly activeIds?: readonly string[];
-}): PoolClient & {
-  lockKeys: unknown[];
-  linkedIds: readonly string[];
-} {
+}) {
   const lockKeys: unknown[] = [];
   const queuedIds = options?.queuedIds ?? options?.activeIds ?? [];
   const runningIds = options?.runningIds ?? [];
   let linkedIds: readonly string[] = [];
-  return {
+  return ((
+    pinnedReturn: PoolClient & {
+      lockKeys: unknown[];
+      linkedIds: readonly string[];
+    },
+  ) => pinnedReturn)({
     lockKeys,
     query: vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes("pg_advisory_xact_lock")) {
@@ -55,7 +57,7 @@ function mockClient(options?: {
     get linkedIds() {
       return linkedIds;
     },
-  } as unknown as PoolClient & { lockKeys: unknown[]; linkedIds: readonly string[] };
+  } as unknown as PoolClient & { lockKeys: unknown[]; linkedIds: readonly string[] });
 }
 
 describe("replaceAutoWorkItem", () => {

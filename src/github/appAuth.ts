@@ -47,7 +47,7 @@ export type RepositoryInstallation = {
   readonly repository_selection: "all" | "selected";
 };
 
-export function parseRepositoryInstallation(value: unknown): RepositoryInstallation | undefined {
+export function parseRepositoryInstallation(value: unknown) {
   if (
     typeof value !== "object" ||
     value == null ||
@@ -58,7 +58,7 @@ export function parseRepositoryInstallation(value: unknown): RepositoryInstallat
     !("permissions" in value) ||
     !("repository_selection" in value)
   )
-    return undefined;
+    return ((pinnedReturn: RepositoryInstallation | undefined) => pinnedReturn)(undefined);
   if (
     typeof value.id !== "number" ||
     !Number.isSafeInteger(value.id) ||
@@ -71,16 +71,17 @@ export function parseRepositoryInstallation(value: unknown): RepositoryInstallat
         !Number.isFinite(Date.parse(value.suspended_at)))) ||
     (value.repository_selection !== "all" && value.repository_selection !== "selected")
   )
-    return undefined;
+    return ((pinnedReturn: RepositoryInstallation | undefined) => pinnedReturn)(undefined);
   const permissions = parseInstallationPermissions(value.permissions);
-  if (!permissions) return undefined;
-  return {
+  if (!permissions)
+    return ((pinnedReturn: RepositoryInstallation | undefined) => pinnedReturn)(undefined);
+  return ((pinnedReturn: RepositoryInstallation | undefined) => pinnedReturn)({
     id: value.id,
     app_id: value.app_id,
     suspended_at: value.suspended_at,
     repository_selection: value.repository_selection,
     permissions,
-  };
+  });
 }
 
 export async function lookupRepositoryInstallation(
@@ -88,7 +89,7 @@ export async function lookupRepositoryInstallation(
   owner: string,
   repo: string,
   signal?: AbortSignal,
-): Promise<unknown> {
+) {
   const jwt = await mintAppJwtToken(cfg);
   signal?.throwIfAborted();
   const octokit = new Octokit({ auth: jwt });
@@ -97,7 +98,7 @@ export async function lookupRepositoryInstallation(
     repo,
     request: { signal },
   });
-  return data;
+  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(data);
 }
 
 export async function mintScopedInstallationAuth(
@@ -129,27 +130,30 @@ export async function mintScopedInstallationAuth(
   return data;
 }
 
-export async function mintInstallationAuth(
-  cfg: Pick<Config, "github">,
-  installationId: number,
-): Promise<InstallationAccessTokenAuthentication> {
+export async function mintInstallationAuth(cfg: Pick<Config, "github">, installationId: number) {
   const auth = createAppAuth({
     appId: cfg.github.appId,
     privateKey: cfg.github.privateKey,
   });
-  return auth({
-    type: "installation",
-    installationId,
-  });
+  return ((
+    pinnedReturn:
+      | InstallationAccessTokenAuthentication
+      | Promise<InstallationAccessTokenAuthentication>,
+  ) => pinnedReturn)(
+    auth({
+      type: "installation",
+      installationId,
+    }),
+  );
 }
 
-function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+function unrefTimer(timer: ReturnType<typeof setTimeout>) {
   if (typeof timer === "object" && "unref" in timer) {
     timer.unref();
   }
 }
 
-function clearInstallationOctokitEntry(entry: CachedInstallationOctokit): void {
+function clearInstallationOctokitEntry(entry: CachedInstallationOctokit) {
   if (!entry.evictionTimer) return;
   clearTimeout(entry.evictionTimer);
   entry.evictionTimer = null;
@@ -157,10 +161,7 @@ function clearInstallationOctokitEntry(entry: CachedInstallationOctokit): void {
 
 export function createInstallationOctokitCache() {
   const installationOctokitByToken = new Map<string, CachedInstallationOctokit>();
-  function scheduleInstallationOctokitEviction(
-    token: string,
-    entry: CachedInstallationOctokit,
-  ): void {
+  function scheduleInstallationOctokitEviction(token: string, entry: CachedInstallationOctokit) {
     clearInstallationOctokitEntry(entry);
     const delayMs = Math.max(0, Math.min(entry.expiresAtTs - Date.now(), MAX_TIMER_DELAY_MS));
     const timer = setTimeout(() => {
@@ -172,7 +173,7 @@ export function createInstallationOctokitCache() {
     unrefTimer(timer);
   }
 
-  function installationOctokit(token: string, expiresAtTs?: number): InstallationOctokit {
+  function installationOctokit(token: string, expiresAtTs?: number) {
     const now = Date.now();
     const cached = installationOctokitByToken.get(token);
     if (cached) {
@@ -184,7 +185,7 @@ export function createInstallationOctokitCache() {
           cached.expiresAtTs = expiresAtTs;
           scheduleInstallationOctokitEviction(token, cached);
         }
-        return cached.octokit;
+        return ((pinnedReturn: InstallationOctokit) => pinnedReturn)(cached.octokit);
       }
     }
 
@@ -202,7 +203,7 @@ export function createInstallationOctokitCache() {
     };
     installationOctokitByToken.set(token, entry);
     scheduleInstallationOctokitEviction(token, entry);
-    return octokit;
+    return ((pinnedReturn: InstallationOctokit) => pinnedReturn)(octokit);
   }
 
   return installationOctokit;
@@ -210,16 +211,16 @@ export function createInstallationOctokitCache() {
 
 export const installationOctokit = createInstallationOctokitCache();
 
-async function mintAppJwtToken(cfg: Pick<Config, "github">): Promise<string> {
+async function mintAppJwtToken(cfg: Pick<Config, "github">) {
   const authFn = createAppAuth({
     appId: cfg.github.appId,
     privateKey: cfg.github.privateKey,
   });
   const appAuth = await authFn({ type: "app" });
-  return appAuth.token;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(appAuth.token);
 }
 
-export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
+export function prewarmAppBotIdentity(cfg: Pick<Config, "github">) {
   void getAppBotIdentity(cfg).catch((error: unknown) => {
     logDebug("app_bot_identity_prewarm_failed", {
       githubAppId: cfg.github.appId,
@@ -230,19 +231,19 @@ export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
 
 export function createAppBotIdentityLookup() {
   const appBotIdentityByAppId = new Map<string, BotIdentity | Promise<BotIdentity>>();
-  async function getAppBotIdentity(cfg: Pick<Config, "github">): Promise<BotIdentity> {
+  async function getAppBotIdentity(cfg: Pick<Config, "github">) {
     const identityKey = createHash("sha256")
       .update(JSON.stringify([cfg.github.appId, cfg.github.privateKey]))
       .digest("hex");
     const cached = appBotIdentityByAppId.get(identityKey);
-    if (cached) return cached;
+    if (cached) return ((pinnedReturn: BotIdentity | Promise<BotIdentity>) => pinnedReturn)(cached);
 
     const pending = resolveBotIdentityViaAppSlug(cfg);
     appBotIdentityByAppId.set(identityKey, pending);
     try {
       const identity = await pending;
       appBotIdentityByAppId.set(identityKey, identity);
-      return identity;
+      return ((pinnedReturn: BotIdentity | Promise<BotIdentity>) => pinnedReturn)(identity);
     } catch (error) {
       if (appBotIdentityByAppId.get(identityKey) === pending) {
         appBotIdentityByAppId.delete(identityKey);
@@ -256,7 +257,7 @@ export function createAppBotIdentityLookup() {
 
 export const getAppBotIdentity = createAppBotIdentityLookup();
 
-async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "github">): Promise<BotIdentity> {
+async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "github">) {
   const jwtToken = await mintAppJwtToken(cfg);
   const jwtOctokit = new ThrottledOctokit({
     auth: jwtToken,
@@ -277,5 +278,8 @@ async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "github">): Promis
   const { data: user } = await anon.rest.users.getByUsername({
     username: `${slug}[bot]`,
   });
-  return { userId: user.id, login: user.login };
+  return ((pinnedReturn: BotIdentity | Promise<BotIdentity>) => pinnedReturn)({
+    userId: user.id,
+    login: user.login,
+  });
 }

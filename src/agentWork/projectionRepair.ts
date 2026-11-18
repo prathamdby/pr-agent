@@ -16,7 +16,7 @@ export async function scanProjectionRepairPending(params: {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly limit?: number;
-}): Promise<ProjectionRepairScanReport> {
+}) {
   const limit = params.limit ?? CI_PROJECTION_REPAIR_BATCH_SIZE;
   const pending = await listProjectionRepairPendingHeads(params.pool, limit);
   let enqueued = 0;
@@ -61,10 +61,11 @@ export async function scanProjectionRepairPending(params: {
     });
   }
 
-  return {
+  return ((pinnedReturn: ProjectionRepairScanReport | Promise<ProjectionRepairScanReport>) =>
+    pinnedReturn)({
     pendingScanned: pending.length,
     enqueued,
     unreachable,
     skippedNoInstallation,
-  };
+  });
 }

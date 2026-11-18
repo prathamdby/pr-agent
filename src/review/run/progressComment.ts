@@ -67,42 +67,42 @@ const SPECIALIST_LABELS: Record<SpecialistId, string> = {
   tests: "Tests",
 };
 
-function renderReconPhase(phase: ReconPhase): string {
+function renderReconPhase(phase: ReconPhase) {
   switch (phase) {
     case "running":
-      return STATUS_RUNNING;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_RUNNING);
     case "done":
-      return STATUS_DONE;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_DONE);
     default: {
       const exhaustive: never = phase;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-function renderSpecialistPhase(state: SpecialistPhase): string {
+function renderSpecialistPhase(state: SpecialistPhase) {
   switch (state.phase) {
     case "waiting":
-      return STATUS_WAITING;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_WAITING);
     case "running":
-      return STATUS_RUNNING;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_RUNNING);
     case "done":
-      return statusFindings(state.findingsAccepted);
+      return ((pinnedReturn: string) => pinnedReturn)(statusFindings(state.findingsAccepted));
     case "no_findings":
-      return STATUS_NO_FINDINGS;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_NO_FINDINGS);
     case "failed":
-      return STATUS_FAILED;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_FAILED);
     case "unjudged":
-      return STATUS_NOT_JUDGED;
+      return ((pinnedReturn: string) => pinnedReturn)(STATUS_NOT_JUDGED);
     default: {
       const exhaustive: never = state;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
 
-export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
-  return {
+export function initialProgressTickState() {
+  return ((pinnedReturn: Extract<SpecialistTickState, { kind: "specialists" }>) => pinnedReturn)({
     kind: "specialists",
     recon: "running",
     specialists: {
@@ -111,29 +111,31 @@ export function initialProgressTickState(): Extract<SpecialistTickState, { kind:
       quality: { phase: "waiting" },
       tests: { phase: "waiting" },
     },
-  };
+  });
 }
 
-export function formatReviewQueuePosition(position: ReviewQueuePosition): string {
-  return `#${position.position} of ${position.total}`;
+export function formatReviewQueuePosition(position: ReviewQueuePosition) {
+  return ((pinnedReturn: string) => pinnedReturn)(`#${position.position} of ${position.total}`);
 }
 
 function terminalProgressNote(
   reason: "superseded" | "stale_head" | "host_abort",
   source: WorkSource,
-): string {
+) {
   switch (reason) {
     case "stale_head":
-      return "Superseded. Rescheduled for new head.";
+      return ((pinnedReturn: string) => pinnedReturn)("Superseded. Rescheduled for new head.");
     case "superseded":
-      return source === "slash"
-        ? "Superseded. Rescheduled for new head."
-        : "Superseded by a newer pull request update.";
+      return ((pinnedReturn: string) => pinnedReturn)(
+        source === "slash"
+          ? "Superseded. Rescheduled for new head."
+          : "Superseded by a newer pull request update.",
+      );
     case "host_abort":
-      return "Stopped. The host aborted this run.";
+      return ((pinnedReturn: string) => pinnedReturn)("Stopped. The host aborted this run.");
     default: {
       const exhaustive: never = reason;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }
@@ -142,7 +144,7 @@ export function renderReviewCancelledNotice(params: {
   attribution: ReviewCancelAttribution;
   progressRevision?: number;
   progressWorkItemId?: string;
-}): string {
+}) {
   const parts = [
     REVIEW_SUMMARY_SENTINEL,
     "",
@@ -154,7 +156,7 @@ export function renderReviewCancelledNotice(params: {
       renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
     );
   }
-  return parts.join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join("\n"));
 }
 
 export function renderReviewProgressComment(params: {
@@ -167,7 +169,7 @@ export function renderReviewProgressComment(params: {
   queuePosition?: ReviewQueuePosition | null;
   progressRevision?: number;
   progressWorkItemId?: string;
-}): string {
+}) {
   const sourceLabel =
     params.source === "auto" ? REVIEW_PROGRESS_SOURCE_AUTO : REVIEW_PROGRESS_SOURCE_SLASH;
   const tableRows: Array<[string, string]> = [
@@ -204,47 +206,53 @@ export function renderReviewProgressComment(params: {
       : params.tickState.kind === "terminal"
         ? terminalProgressNote(params.tickState.reason, params.source)
         : REVIEW_PROGRESS_NOTE;
-  return [
-    REVIEW_SUMMARY_SENTINEL,
-    "",
-    renderGitHubAlert(REVIEW_OVERVIEW_ALERT, progressNote),
-    "",
-    renderKeyValueTable(tableRows),
-    "",
-    renderStaleReviewMetadataComment({
-      headSha: params.headSha,
-      mode: params.mode,
-      stale: params.tickState?.kind === "terminal" && params.tickState.reason === "stale_head",
-    }),
-    renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
-  ].join("\n");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      renderGitHubAlert(REVIEW_OVERVIEW_ALERT, progressNote),
+      "",
+      renderKeyValueTable(tableRows),
+      "",
+      renderStaleReviewMetadataComment({
+        headSha: params.headSha,
+        mode: params.mode,
+        stale: params.tickState?.kind === "terminal" && params.tickState.reason === "stale_head",
+      }),
+      renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
+    ].join("\n"),
+  );
 }
 
 export function renderReviewFailureNotice(params: {
   mode: AnyReviewLens;
   retryCommand: string;
   findingsSection?: string;
-}): string {
-  return [
-    REVIEW_SUMMARY_SENTINEL,
-    "",
-    renderGitHubAlert(
-      REVIEW_FAILURE_ALERT,
-      `Review did not finish. Run \`${params.retryCommand}\` to try again.`,
-    ),
-    ...(params.findingsSection != null && params.findingsSection.length > 0
-      ? ["", params.findingsSection]
-      : []),
-  ].join("\n");
+}) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      renderGitHubAlert(
+        REVIEW_FAILURE_ALERT,
+        `Review did not finish. Run \`${params.retryCommand}\` to try again.`,
+      ),
+      ...(params.findingsSection != null && params.findingsSection.length > 0
+        ? ["", params.findingsSection]
+        : []),
+    ].join("\n"),
+  );
 }
 
-export function renderReviewAwaitingApprovalNotice(maintainerOnly = false): string {
-  return [
-    REVIEW_SUMMARY_SENTINEL,
-    "",
-    renderGitHubAlert(
-      REVIEW_OVERVIEW_ALERT,
-      maintainerOnly ? REVIEW_AWAITING_MAINTAINER_APPROVAL_NOTE : REVIEW_AWAITING_APPROVAL_NOTE,
-    ),
-  ].join("\n");
+export function renderReviewAwaitingApprovalNotice(maintainerOnly = false) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      renderGitHubAlert(
+        REVIEW_OVERVIEW_ALERT,
+        maintainerOnly ? REVIEW_AWAITING_MAINTAINER_APPROVAL_NOTE : REVIEW_AWAITING_APPROVAL_NOTE,
+      ),
+    ].join("\n"),
+  );
 }

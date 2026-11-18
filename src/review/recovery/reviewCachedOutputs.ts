@@ -4,7 +4,7 @@ import type { EvidenceDescriptor, EvidenceLedger } from "../findings/evidenceLed
 export function evidenceForCachedFindings(
   ledger: EvidenceLedger,
   findings: readonly Pick<ReviewFinding, "file" | "startLine" | "endLine">[],
-): EvidenceDescriptor[] | null {
+) {
   const evidence = ledger.snapshot().flatMap((read) => (read.descriptor ? [read.descriptor] : []));
   const selected = new Map<string, EvidenceDescriptor>();
   for (const finding of findings) {
@@ -15,8 +15,8 @@ export function evidenceForCachedFindings(
         entry.startLine <= finding.startLine &&
         entry.endLine >= finding.endLine,
     );
-    if (!read) return null;
+    if (!read) return ((pinnedReturn: EvidenceDescriptor[] | null) => pinnedReturn)(null);
     selected.set(JSON.stringify(read), read);
   }
-  return [...selected.values()];
+  return ((pinnedReturn: EvidenceDescriptor[] | null) => pinnedReturn)([...selected.values()]);
 }

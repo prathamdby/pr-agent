@@ -50,7 +50,7 @@ export type ProviderSlice = {
   readonly maxRetryDelayMs: number;
 };
 
-export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSlice> {
+export async function readModelsSlice(role: "web" | "worker") {
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const piOrchestratorProvider = optionalEnv(
@@ -114,7 +114,7 @@ export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSli
     }
   }
 
-  return {
+  return ((pinnedReturn: ModelsSlice | Promise<ModelsSlice>) => pinnedReturn)({
     provider: piProvider,
     model: piModel,
     orchestratorProvider: piOrchestratorProvider,
@@ -129,10 +129,10 @@ export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSli
       anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
       google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
     },
-  };
+  });
 }
 
-export function readProviderSlice(): ProviderSlice {
+export function readProviderSlice() {
   const promptTimeoutMs = readPositiveNumber(
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
@@ -157,9 +157,9 @@ export function readProviderSlice(): ProviderSlice {
       },
     });
   }
-  return {
+  return ((pinnedReturn: ProviderSlice) => pinnedReturn)({
     promptTimeoutMs,
     retryMax: piProviderRetryMax,
     maxRetryDelayMs: piProviderMaxRetryDelayMs,
-  };
+  });
 }

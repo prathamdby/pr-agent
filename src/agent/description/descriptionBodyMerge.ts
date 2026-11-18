@@ -4,12 +4,14 @@ import {
   DESCRIPTION_AGENT_HEADER,
 } from "../../settings/index.ts";
 
-export function wrapDescriptionAgentBlock(agentBlock: string): string {
+export function wrapDescriptionAgentBlock(agentBlock: string) {
   const trimmed = agentBlock.trim();
-  return `${DESCRIPTION_AGENT_BODY_BEGIN}\n${trimmed}\n${DESCRIPTION_AGENT_BODY_END}`;
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `${DESCRIPTION_AGENT_BODY_BEGIN}\n${trimmed}\n${DESCRIPTION_AGENT_BODY_END}`,
+  );
 }
 
-export function extractUserAuthoredPrBody(body: string | null | undefined): string {
+export function extractUserAuthoredPrBody(body: string | null | undefined) {
   const current = body ?? "";
   const beginIndex = current.indexOf(DESCRIPTION_AGENT_BODY_BEGIN);
   if (beginIndex >= 0) {
@@ -17,47 +19,55 @@ export function extractUserAuthoredPrBody(body: string | null | undefined): stri
     const before = current.slice(0, beginIndex).trimEnd();
     const after =
       endIndex >= 0 ? current.slice(endIndex + DESCRIPTION_AGENT_BODY_END.length).trimStart() : "";
-    return [before, after]
-      .filter((part) => part.length > 0)
-      .join("\n\n")
-      .trim();
+    return ((pinnedReturn: string) => pinnedReturn)(
+      [before, after]
+        .filter((part) => part.length > 0)
+        .join("\n\n")
+        .trim(),
+    );
   }
 
   const headerIndex = current.indexOf(DESCRIPTION_AGENT_HEADER);
   if (headerIndex >= 0) {
-    return current.slice(0, headerIndex).trimEnd();
+    return ((pinnedReturn: string) => pinnedReturn)(current.slice(0, headerIndex).trimEnd());
   }
 
-  return current.trim();
+  return ((pinnedReturn: string) => pinnedReturn)(current.trim());
 }
 
-export function prBodyHasAgentDescriptionBlock(body: string | null | undefined): boolean {
+export function prBodyHasAgentDescriptionBlock(body: string | null | undefined) {
   const current = body ?? "";
-  if (current.includes(DESCRIPTION_AGENT_BODY_BEGIN)) return true;
-  return current.includes(DESCRIPTION_AGENT_HEADER);
+  if (current.includes(DESCRIPTION_AGENT_BODY_BEGIN))
+    return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  return ((pinnedReturn: boolean) => pinnedReturn)(current.includes(DESCRIPTION_AGENT_HEADER));
 }
 
-export function extractAgentDescriptionBlock(body: string | null | undefined): string | null {
+export function extractAgentDescriptionBlock(body: string | null | undefined) {
   const current = body ?? "";
   const beginIndex = current.indexOf(DESCRIPTION_AGENT_BODY_BEGIN);
   if (beginIndex >= 0) {
     const contentStart = beginIndex + DESCRIPTION_AGENT_BODY_BEGIN.length;
     const endIndex = current.indexOf(DESCRIPTION_AGENT_BODY_END, contentStart);
-    if (endIndex < 0) return current.slice(contentStart).trim() || null;
-    return current.slice(contentStart, endIndex).trim() || null;
+    if (endIndex < 0)
+      return ((pinnedReturn: string | null) => pinnedReturn)(
+        current.slice(contentStart).trim() || null,
+      );
+    return ((pinnedReturn: string | null) => pinnedReturn)(
+      current.slice(contentStart, endIndex).trim() || null,
+    );
   }
 
   const headerIndex = current.indexOf(DESCRIPTION_AGENT_HEADER);
-  if (headerIndex < 0) return null;
-  return current.slice(headerIndex).trim() || null;
+  if (headerIndex < 0) return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  return ((pinnedReturn: string | null) => pinnedReturn)(current.slice(headerIndex).trim() || null);
 }
 
 export function mergeDescriptionIntoPrBody(params: {
   currentBody: string | null | undefined;
   agentBlock: string;
-}): string {
+}) {
   const wrappedAgentBlock = wrapDescriptionAgentBlock(params.agentBlock);
   const userPart = extractUserAuthoredPrBody(params.currentBody);
-  if (!userPart) return wrappedAgentBlock;
-  return `${userPart}\n\n${wrappedAgentBlock}`;
+  if (!userPart) return ((pinnedReturn: string) => pinnedReturn)(wrappedAgentBlock);
+  return ((pinnedReturn: string) => pinnedReturn)(`${userPart}\n\n${wrappedAgentBlock}`);
 }

@@ -20,10 +20,10 @@ describe("modelsJson helpers", () => {
     }
   });
 
-  function tempDir(): string {
+  function tempDir() {
     const dir = mkdtempSync(join(tmpdir(), "pr-agent-models-json-test-"));
     dirs.push(dir);
-    return dir;
+    return ((pinnedReturn: string) => pinnedReturn)(dir);
   }
 
   it("resolveModelsJsonPath returns null when the file is absent", () => {
@@ -223,10 +223,10 @@ describe("loadConfig models.json", () => {
     }
   });
 
-  function tempDir(): string {
+  function tempDir() {
     const dir = mkdtempSync(join(tmpdir(), "pr-agent-models-json-cwd-"));
     dirs.push(dir);
-    return dir;
+    return ((pinnedReturn: string) => pinnedReturn)(dir);
   }
 
   async function loadWithCwd(cwd: string, extra: Record<string, string> = {}) {

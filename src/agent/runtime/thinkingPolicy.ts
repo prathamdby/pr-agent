@@ -11,22 +11,24 @@ const THINKING_ORDER: readonly ThinkingLevel[] = [
   "max",
 ];
 
-export function thinkingLevelIndex(level: ThinkingLevel): number {
+export function thinkingLevelIndex(level: ThinkingLevel) {
   const index = THINKING_ORDER.indexOf(level);
-  return index < 0 ? 0 : index;
+  return ((pinnedReturn: number) => pinnedReturn)(index < 0 ? 0 : index);
 }
 
-export function clampThinkingLevel(level: ThinkingLevel, ceiling: ThinkingLevel): ThinkingLevel {
+export function clampThinkingLevel(level: ThinkingLevel, ceiling: ThinkingLevel) {
   const levelIndex = thinkingLevelIndex(level);
   const ceilingIndex = thinkingLevelIndex(ceiling);
-  return THINKING_ORDER[Math.min(levelIndex, ceilingIndex)] ?? "off";
+  return ((pinnedReturn: ThinkingLevel) => pinnedReturn)(
+    THINKING_ORDER[Math.min(levelIndex, ceilingIndex)] ?? "off",
+  );
 }
 
 export function clampToModelSupportedLevel(
   desired: ThinkingLevel,
   supported: readonly ThinkingLevel[],
-): ThinkingLevel {
-  if (supported.length === 0) return "off";
+) {
+  if (supported.length === 0) return ((pinnedReturn: ThinkingLevel) => pinnedReturn)("off");
   const desiredIndex = thinkingLevelIndex(desired);
   let best: ThinkingLevel | undefined;
   let bestIndex = -1;
@@ -37,9 +39,9 @@ export function clampToModelSupportedLevel(
       bestIndex = index;
     }
   }
-  if (best) return best;
-  return (
-    [...supported].toSorted((a, b) => thinkingLevelIndex(a) - thinkingLevelIndex(b))[0] ?? "off"
+  if (best) return ((pinnedReturn: ThinkingLevel) => pinnedReturn)(best);
+  return ((pinnedReturn: ThinkingLevel) => pinnedReturn)(
+    [...supported].toSorted((a, b) => thinkingLevelIndex(a) - thinkingLevelIndex(b))[0] ?? "off",
   );
 }
 
@@ -56,7 +58,7 @@ export function resolveThinkingLevel(params: {
   readonly phase: AgentSessionPhase;
   readonly modelSupportedLevels?: readonly ThinkingLevel[];
   readonly holdAcrossPhases?: readonly AgentSessionPhase[];
-}): ThinkingLevel {
+}) {
   const phases = params.holdAcrossPhases?.includes(params.phase)
     ? params.holdAcrossPhases
     : [params.phase];
@@ -66,15 +68,17 @@ export function resolveThinkingLevel(params: {
       thinkingLevelIndex(level) > thinkingLevelIndex(highest) ? level : highest,
     );
   const desired = clampThinkingLevel(wanted, params.policy.ceiling);
-  if (!params.modelSupportedLevels) return desired;
-  return clampToModelSupportedLevel(desired, params.modelSupportedLevels);
+  if (!params.modelSupportedLevels) return ((pinnedReturn: ThinkingLevel) => pinnedReturn)(desired);
+  return ((pinnedReturn: ThinkingLevel) => pinnedReturn)(
+    clampToModelSupportedLevel(desired, params.modelSupportedLevels),
+  );
 }
 
-export function thinkingPolicyFromCeiling(ceiling: ThinkingLevel): ThinkingPolicy {
-  return {
+export function thinkingPolicyFromCeiling(ceiling: ThinkingLevel) {
+  return ((pinnedReturn: ThinkingPolicy) => pinnedReturn)({
     ceiling,
     levelForPhase: DEFAULT_THINKING_POLICY.levelForPhase,
-  };
+  });
 }
 
 export { DEFAULT_THINKING_POLICY };

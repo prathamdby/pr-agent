@@ -192,8 +192,8 @@ let nextCommentId = 1;
 let nextReviewId = 1;
 let nextCheckRunId = 1;
 
-function defaultPullRequest(headSha: string): PullRequestForFileList {
-  return {
+function defaultPullRequest(headSha: string) {
+  return ((pinnedReturn: PullRequestForFileList) => pinnedReturn)({
     title: "",
     body: null,
     additions: 0,
@@ -204,13 +204,13 @@ function defaultPullRequest(headSha: string): PullRequestForFileList {
     merged_at: null,
     head: { sha: headSha, ref: "branch", repo: { full_name: "o/r" } },
     base: { repo: { full_name: "o/r" } },
-  };
+  });
 }
 
 export function createFakePrSurface(
   params: Pick<CreatePrSurfaceParams, "owner" | "repo" | "prNumber">,
   options?: FakePrSurfaceOptions,
-): { readonly surface: PrSurface; readonly controls: FakePrSurfaceControls } {
+) {
   const events: FakePrSurfaceEvent[] = [];
   const reactions: FakePrSurfaceControls["reactions"] = [];
   const replies: FakePrSurfaceControls["replies"] = [];
@@ -294,7 +294,7 @@ export function createFakePrSurface(
   const threadSnapshot = (
     rootCommentId: number,
     thread: ReviewThreadResolution | ReviewThreadSnapshot,
-  ): ReviewThreadSnapshot | null => {
+  ) => {
     const snapshotComment = (comment: PrReviewComment) => ({
       databaseId: comment.id,
       authorLogin: comment.authorLogin,
@@ -308,17 +308,17 @@ export function createFakePrSurface(
       .map(snapshotComment);
     if ("rootCommentId" in thread) {
       const known = new Set(thread.comments.map((comment) => comment.databaseId));
-      return {
+      return ((pinnedReturn: ReviewThreadSnapshot | null) => pinnedReturn)({
         ...thread,
         comments: [
           ...thread.comments,
           ...threadReplies.filter((reply) => !known.has(reply.databaseId)),
         ],
-      };
+      });
     }
     const root = reviewComments.find((comment) => comment.id === rootCommentId);
-    if (root == null) return null;
-    return {
+    if (root == null) return ((pinnedReturn: ReviewThreadSnapshot | null) => pinnedReturn)(null);
+    return ((pinnedReturn: ReviewThreadSnapshot | null) => pinnedReturn)({
       ...thread,
       rootCommentId,
       path: root.path,
@@ -330,7 +330,7 @@ export function createFakePrSurface(
       diffSide: "RIGHT",
       comments: [snapshotComment(root), ...threadReplies],
       commentsComplete: true,
-    };
+    });
   };
 
   const controls: FakePrSurfaceControls = {
@@ -597,15 +597,17 @@ export function createFakePrSurface(
       events.push({ kind: "listPullRequestReviews" });
       return [
         ...seededReviews,
-        ...publishedThreadBatches.map((batch): PrReview => ({
-          id: batch.id,
-          userId: null,
-          authorLogin: batch.authorLogin,
-          body: batch.review.body,
-          commitId: batch.review.commitId ?? null,
-          htmlUrl: batch.url,
-          state: batch.state,
-        })),
+        ...publishedThreadBatches.map((batch) =>
+          ((pinnedReturn: PrReview) => pinnedReturn)({
+            id: batch.id,
+            userId: null,
+            authorLogin: batch.authorLogin,
+            body: batch.review.body,
+            commitId: batch.review.commitId ?? null,
+            htmlUrl: batch.url,
+            state: batch.state,
+          }),
+        ),
       ];
     },
 
@@ -831,11 +833,14 @@ export function createFakePrSurface(
     },
   };
 
-  return {
+  return ((pinnedReturn: {
+    readonly surface: PrSurface;
+    readonly controls: FakePrSurfaceControls;
+  }) => pinnedReturn)({
     surface:
       options?.mutationBoundary == null
         ? surface
         : withPrSurfaceMutationBoundary(surface, options.mutationBoundary),
     controls,
-  };
+  });
 }

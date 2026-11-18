@@ -13,8 +13,10 @@ export const MAX_ASK_THREAD_TRANSCRIPT_CHARS = 24_000;
 export const ASK_USAGE_HINT =
   "Usage: `/ask <your question>` or `@`-mention the bot with your question — ask about this PR, a finding thread, or a specific line of code.";
 
-export function askQuestionTooLongHint(maxChars: number = MAX_ASK_QUESTION_CHARS): string {
-  return `Your question exceeds the ${maxChars} character limit. Shorten it or reference files by path instead of pasting large blocks.`;
+export function askQuestionTooLongHint(maxChars: number = MAX_ASK_QUESTION_CHARS) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    `Your question exceeds the ${maxChars} character limit. Shorten it or reference files by path instead of pasting large blocks.`,
+  );
 }
 
 export const BOT_META_PATTERNS: readonly RegExp[] = [

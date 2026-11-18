@@ -36,9 +36,11 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
   });
 
-  function headers(body: string, delivery?: string): WebhookHeaders {
+  function headers(body: string, delivery?: string) {
     const base = { event: EVENT, rawBody: Buffer.from(body) };
-    return delivery ? { ...base, delivery } : base;
+    return ((pinnedReturn: WebhookHeaders) => pinnedReturn)(
+      delivery ? { ...base, delivery } : base,
+    );
   }
 
   function insert(body: string, delivery?: string) {
@@ -47,12 +49,14 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     );
   }
 
-  async function countRows(): Promise<number> {
+  async function countRows() {
     const { rows } = await pool.query<{ count: string }>(
       "SELECT COUNT(*)::text AS count FROM webhook_events WHERE event_name = $1",
       [EVENT],
     );
-    return Number(rows[0]?.count ?? "0");
+    return ((pinnedReturn: number | Promise<number>) => pinnedReturn)(
+      Number(rows[0]?.count ?? "0"),
+    );
   }
 
   it("stores the first delivery id insert", async () => {
@@ -219,17 +223,17 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
   });
 });
 
-function dockerComposeAvailable(): boolean {
+function dockerComposeAvailable() {
   try {
     const info = spawnSync("docker", ["info"], { timeout: 3_000, encoding: "utf8" });
-    if (info.error || info.status !== 0) return false;
+    if (info.error || info.status !== 0) return ((pinnedReturn: boolean) => pinnedReturn)(false);
     const compose = spawnSync("docker", ["compose", "version"], {
       timeout: 3_000,
       encoding: "utf8",
     });
-    return !compose.error && compose.status === 0;
+    return ((pinnedReturn: boolean) => pinnedReturn)(!compose.error && compose.status === 0);
   } catch {
-    return false;
+    return ((pinnedReturn: boolean) => pinnedReturn)(false);
   }
 }
 
@@ -240,23 +244,27 @@ describe.skipIf(!hasDatabase || !dockerComposeAvailable())(
     const project = "pr-agent-daemon-restart";
     const composeFile = path.join(root, "docker-compose.yml");
 
-    function compose(args: readonly string[]): string {
-      return execFileSync("docker", ["compose", "-p", project, "-f", composeFile, ...args], {
-        cwd: root,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PR_AGENT_ENV_FILE: path.join(root, "dev/mock.env"),
-        },
-      });
+    function compose(args: readonly string[]) {
+      return ((pinnedReturn: string) => pinnedReturn)(
+        execFileSync("docker", ["compose", "-p", project, "-f", composeFile, ...args], {
+          cwd: root,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PR_AGENT_ENV_FILE: path.join(root, "dev/mock.env"),
+          },
+        }),
+      );
     }
 
-    function postgresRestartPolicy(): string {
+    function postgresRestartPolicy() {
       const id = compose(["ps", "-q", "postgres"]).trim();
       if (id.length === 0) throw new Error("postgres container was not created");
-      return execFileSync("docker", ["inspect", "-f", "{{.HostConfig.RestartPolicy.Name}}", id], {
-        encoding: "utf8",
-      }).trim();
+      return ((pinnedReturn: string) => pinnedReturn)(
+        execFileSync("docker", ["inspect", "-f", "{{.HostConfig.RestartPolicy.Name}}", id], {
+          encoding: "utf8",
+        }).trim(),
+      );
     }
 
     beforeAll(() => {

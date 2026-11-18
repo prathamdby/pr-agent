@@ -19,24 +19,24 @@ export type ReviewSizeBudget = {
   readonly totalChanges: number;
 };
 
-export function classifyReviewBudgetTier(input: ReviewSizeBudgetInput): ReviewBudgetTier {
+export function classifyReviewBudgetTier(input: ReviewSizeBudgetInput) {
   if (
     input.fileCount > REVIEW_SIZE_TIER_MEDIUM_MAX_FILES ||
     input.totalChanges >= REVIEW_SIZE_TIER_LARGE_MIN_CHANGES
   ) {
-    return "large";
+    return ((pinnedReturn: ReviewBudgetTier) => pinnedReturn)("large");
   }
   if (input.fileCount > REVIEW_SIZE_TIER_SMALL_MAX_FILES) {
-    return "medium";
+    return ((pinnedReturn: ReviewBudgetTier) => pinnedReturn)("medium");
   }
-  return "small";
+  return ((pinnedReturn: ReviewBudgetTier) => pinnedReturn)("small");
 }
 
-export function buildReviewSizeBudget(input: ReviewSizeBudgetInput): ReviewSizeBudget {
-  return {
+export function buildReviewSizeBudget(input: ReviewSizeBudgetInput) {
+  return ((pinnedReturn: ReviewSizeBudget) => pinnedReturn)({
     tier: classifyReviewBudgetTier(input),
     truncated: input.truncated,
     fileCount: input.fileCount,
     totalChanges: input.totalChanges,
-  };
+  });
 }

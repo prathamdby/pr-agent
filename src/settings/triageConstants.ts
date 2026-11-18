@@ -17,17 +17,19 @@ export const TRIAGE_CLOSED_PR_NOTICE =
 const TRIAGE_CANCELLED_MERGED_NOTICE = "**Triage cancelled**: PR merged. No fixes were pushed.";
 const TRIAGE_CANCELLED_CLOSED_NOTICE = "**Triage cancelled**: PR closed. No fixes were pushed.";
 
-export function triageCancelledNotice(attribution: ReviewCancelAttribution): string {
+export function triageCancelledNotice(attribution: ReviewCancelAttribution) {
   switch (attribution.kind) {
     case "merged":
-      return TRIAGE_CANCELLED_MERGED_NOTICE;
+      return ((pinnedReturn: string) => pinnedReturn)(TRIAGE_CANCELLED_MERGED_NOTICE);
     case "closed":
-      return TRIAGE_CANCELLED_CLOSED_NOTICE;
+      return ((pinnedReturn: string) => pinnedReturn)(TRIAGE_CANCELLED_CLOSED_NOTICE);
     case "user":
-      return `**Triage cancelled** by @${sanitizeGithubLogin(attribution.login)}. No fixes were pushed.`;
+      return ((pinnedReturn: string) => pinnedReturn)(
+        `**Triage cancelled** by @${sanitizeGithubLogin(attribution.login)}. No fixes were pushed.`,
+      );
     default: {
       const exhaustive: never = attribution;
-      return exhaustive;
+      return ((pinnedReturn: string) => pinnedReturn)(exhaustive);
     }
   }
 }

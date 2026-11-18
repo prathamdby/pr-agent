@@ -44,31 +44,34 @@ type PublishVerificationFailureParams = {
   readonly installationId: number;
 };
 
-function isReviewSummaryBody(body: string): boolean {
-  return REVIEW_SUMMARY_SENTINELS.some((sentinel) => body.startsWith(sentinel));
-}
-
-function findHeadReviewComment(
-  comments: readonly PrConversationComment[],
-  headSha: string,
-): PrConversationComment | undefined {
-  return comments.findLast(
-    (comment) =>
-      isReviewSummaryBody(comment.body) &&
-      parseReviewMetaFromCommentBody(comment.body)?.headSha === headSha,
+function isReviewSummaryBody(body: string) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    REVIEW_SUMMARY_SENTINELS.some((sentinel) => body.startsWith(sentinel)),
   );
 }
 
-async function botOwnedComments(prSurface: PrSurface): Promise<readonly PrConversationComment[]> {
+function findHeadReviewComment(comments: readonly PrConversationComment[], headSha: string) {
+  return ((pinnedReturn: PrConversationComment | undefined) => pinnedReturn)(
+    comments.findLast(
+      (comment) =>
+        isReviewSummaryBody(comment.body) &&
+        parseReviewMetaFromCommentBody(comment.body)?.headSha === headSha,
+    ),
+  );
+}
+
+async function botOwnedComments(prSurface: PrSurface) {
   const botLogin = await prSurface.getBotLogin();
   const comments = (await prSurface.listConversationComments()).comments;
-  return comments.filter((comment) => comment.authorLogin === botLogin);
+  return ((
+    pinnedReturn: readonly PrConversationComment[] | Promise<readonly PrConversationComment[]>,
+  ) => pinnedReturn)(comments.filter((comment) => comment.authorLogin === botLogin));
 }
 
 async function persistLedger(
   params: PublishVerificationFailureParams,
   ledger: VerificationThreadLedger,
-): Promise<void> {
+) {
   await saveVerificationThreadLedger(params.pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
@@ -77,19 +80,16 @@ async function persistLedger(
   });
 }
 
-function priorFromDetail(detail: Record<string, unknown> | null): VerificationSignalPrior | null {
-  if (detail == null) return null;
+function priorFromDetail(detail: Record<string, unknown> | null) {
+  if (detail == null) return ((pinnedReturn: VerificationSignalPrior | null) => pinnedReturn)(null);
   const headSha = typeof detail.headSha === "string" ? detail.headSha : null;
-  return {
+  return ((pinnedReturn: VerificationSignalPrior | null) => pinnedReturn)({
     active: detail.active !== false && headSha != null,
     headSha,
-  };
+  });
 }
 
-async function writeVerificationSignal(
-  params: PublishVerificationFailureParams,
-  active: boolean,
-): Promise<void> {
+async function writeVerificationSignal(params: PublishVerificationFailureParams, active: boolean) {
   if (params.installationId <= 0) {
     throw new Error("verification failure projection requires a positive installationId");
   }
@@ -140,9 +140,7 @@ async function writeVerificationSignal(
   }
 }
 
-export async function publishVerificationFailure(
-  params: PublishVerificationFailureParams,
-): Promise<VerificationFailureSignal> {
+export async function publishVerificationFailure(params: PublishVerificationFailureParams) {
   await writeVerificationSignal(params, true);
 
   const comments = await botOwnedComments(params.prSurface);
@@ -156,21 +154,24 @@ export async function publishVerificationFailure(
     resourceKey: params.resourceKey,
   });
   await persistLedger(params, upsertVerificationFailureSignal(ledger, signal));
-  return signal;
+  return ((pinnedReturn: VerificationFailureSignal | Promise<VerificationFailureSignal>) =>
+    pinnedReturn)(signal);
 }
 
-function withoutVerificationFailureBlock(body: string): string | null {
+function withoutVerificationFailureBlock(body: string) {
   const start = body.indexOf(VERIFICATION_FAILURE_START);
-  if (start < 0) return null;
+  if (start < 0) return ((pinnedReturn: string | null) => pinnedReturn)(null);
   const end = body.indexOf(VERIFICATION_FAILURE_END, start + VERIFICATION_FAILURE_START.length);
-  if (end < 0) return null;
-  return body.slice(0, start) + body.slice(end + VERIFICATION_FAILURE_END.length);
+  if (end < 0) return ((pinnedReturn: string | null) => pinnedReturn)(null);
+  return ((pinnedReturn: string | null) => pinnedReturn)(
+    body.slice(0, start) + body.slice(end + VERIFICATION_FAILURE_END.length),
+  );
 }
 
 async function stripStoredVerificationFailure(
   params: PublishVerificationFailureParams,
   commentId: number,
-): Promise<void> {
+) {
   if (commentId <= 0) return;
   try {
     const comments = await botOwnedComments(params.prSurface);
@@ -189,9 +190,7 @@ async function stripStoredVerificationFailure(
   }
 }
 
-export async function clearVerificationFailureSignal(
-  params: PublishVerificationFailureParams,
-): Promise<void> {
+export async function clearVerificationFailureSignal(params: PublishVerificationFailureParams) {
   await writeVerificationSignal(params, false);
   const ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,

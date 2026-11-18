@@ -62,7 +62,7 @@ export type RetentionSlice = {
   readonly enabled: boolean;
 };
 
-export function readQueueSlice(): QueueSlice {
+export function readQueueSlice() {
   const queueRetryLimit = readNonNegativeNumber(ENV.QUEUE_RETRY_LIMIT, DEFAULT_QUEUE_RETRY_LIMIT);
   const queueRetryDelaySeconds = readNonNegativeNumber(
     ENV.QUEUE_RETRY_DELAY_SECONDS,
@@ -136,7 +136,7 @@ export function readQueueSlice(): QueueSlice {
     DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   );
 
-  return {
+  return ((pinnedReturn: QueueSlice) => pinnedReturn)({
     retryLimit: queueRetryLimit,
     retryDelaySeconds: queueRetryDelaySeconds,
     retryDelayMaxSeconds: queueRetryDelayMaxSeconds,
@@ -148,11 +148,11 @@ export function readQueueSlice(): QueueSlice {
     retentionSeconds: queueRetentionSeconds,
     deleteAfterSeconds: queueDeleteAfterSeconds,
     shutdownDrainTimeoutSeconds,
-  };
+  });
 }
 
-export function readConcurrencySlice(): ConcurrencySlice {
-  return {
+export function readConcurrencySlice() {
+  return ((pinnedReturn: ConcurrencySlice) => pinnedReturn)({
     review: readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY),
     ask: readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY),
     ack: readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY),
@@ -166,11 +166,11 @@ export function readConcurrencySlice(): ConcurrencySlice {
       ENV.INSTALLATION_GROUP_CONCURRENCY,
       DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
     ),
-  };
+  });
 }
 
-export function readRetentionSlice(): RetentionSlice {
-  return {
+export function readRetentionSlice() {
+  return ((pinnedReturn: RetentionSlice) => pinnedReturn)({
     webhookEventsSeconds: readPositiveNumber(
       ENV.WEBHOOK_EVENTS_RETENTION_SECONDS,
       DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
@@ -181,5 +181,5 @@ export function readRetentionSlice(): RetentionSlice {
     ),
     cron: optionalEnv(ENV.RETENTION_CRON, DEFAULT_RETENTION_CRON),
     enabled: readStrictBoolean(ENV.RETENTION_ENABLED, DEFAULT_RETENTION_ENABLED),
-  };
+  });
 }

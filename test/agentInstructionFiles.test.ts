@@ -12,12 +12,12 @@ import { MAX_AGENT_INSTRUCTION_FILE_BYTES } from "../src/settings/reviewConstant
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-async function checkoutWith(files: Record<string, string>): Promise<string> {
+async function checkoutWith(files: Record<string, string>) {
   const root = await mkdtemp(join(tmpdir(), "agent-instruction-"));
   for (const [name, content] of Object.entries(files)) {
     await writeFile(join(root, name), content, "utf8");
   }
-  return root;
+  return ((pinnedReturn: string | Promise<string>) => pinnedReturn)(root);
 }
 
 describe("loadAgentInstructionFiles", () => {

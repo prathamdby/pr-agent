@@ -13,7 +13,7 @@ import {
 import { logWarn } from "../evlog.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
 
-export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_MAX): Pool {
+export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_MAX) {
   const pool = new Pool({
     connectionString: cfg.runtime.databaseUrl,
     max,
@@ -35,26 +35,23 @@ export function createPgPool(cfg: Pick<Config, "runtime">, max = POSTGRES_POOL_M
   pool.on("connect", (client) => {
     client.on("error", () => undefined);
   });
-  return pool;
+  return ((pinnedReturn: Pool) => pinnedReturn)(pool);
 }
 
-export function pgBossDb(client: PoolClient): Db {
-  return {
+export function pgBossDb(client: PoolClient) {
+  return ((pinnedReturn: Db) => pinnedReturn)({
     executeSql: async (text: string, values?: unknown[]) => client.query(text, values),
-  };
+  });
 }
 
-export async function inTransaction<T>(
-  pool: Pool,
-  fn: (client: PoolClient) => Promise<T>,
-): Promise<T> {
+export async function inTransaction<T>(pool: Pool, fn: (client: PoolClient) => Promise<T>) {
   const client = await pool.connect();
   let rollbackError: unknown;
   try {
     await client.query("BEGIN");
     const result = await fn(client);
     await client.query("COMMIT");
-    return result;
+    return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(result);
   } catch (e) {
     try {
       await client.query("ROLLBACK");
@@ -74,7 +71,7 @@ export async function queryOne<T extends QueryResultRow>(
   client: Pool | PoolClient,
   text: string,
   values: unknown[] = [],
-): Promise<T | null> {
+) {
   const result: QueryResult<T> = await client.query(text, values);
-  return result.rows[0] ?? null;
+  return ((pinnedReturn: (T | null) | Promise<T | null>) => pinnedReturn)(result.rows[0] ?? null);
 }

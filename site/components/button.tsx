@@ -10,16 +10,18 @@ type Common = {
   readonly children: ReactNode;
 };
 
-function classes({ variant = "primary", className, trailingIcon, leadingIcon }: Common): string {
-  return [
-    "btn",
-    `btn-${variant}`,
-    trailingIcon ? "btn-trailing" : "",
-    leadingIcon ? "btn-leading" : "",
-    className ?? "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+function classes({ variant = "primary", className, trailingIcon, leadingIcon }: Common) {
+  return ((pinnedReturn: string) => pinnedReturn)(
+    [
+      "btn",
+      `btn-${variant}`,
+      trailingIcon ? "btn-trailing" : "",
+      leadingIcon ? "btn-leading" : "",
+      className ?? "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
 }
 
 type ButtonLinkProps = Common & {

@@ -21,7 +21,7 @@ let state: AnalyticsState = disabledState;
 export async function initAnalytics(opts: {
   readonly projectToken: string;
   readonly host: string;
-}): Promise<void> {
+}) {
   const projectToken = opts.projectToken.trim();
   if (!projectToken) {
     state = disabledState;
@@ -38,15 +38,15 @@ export async function initAnalytics(opts: {
   }
 }
 
-export function initNoOpAnalytics(): void {
+export function initNoOpAnalytics() {
   state = disabledState;
 }
 
-export function isAnalyticsEnabled(): boolean {
-  return state.enabled;
+export function isAnalyticsEnabled() {
+  return ((pinnedReturn: boolean) => pinnedReturn)(state.enabled);
 }
 
-export function captureEvent(input: CaptureEventInput): void {
+export function captureEvent(input: CaptureEventInput) {
   state.sink.captureEvent({
     ...input,
     distinctId: sanitizeTelemetryString(input.distinctId),
@@ -60,7 +60,7 @@ export function captureException(
   error: unknown,
   distinctId: string,
   properties?: Record<string, unknown>,
-): void {
+) {
   const safeProperties = sanitizeTelemetryRecord(properties);
   const safeErrorFields = errorAnalyticsFields(error);
   const forwardedProperties =
@@ -74,8 +74,8 @@ export function captureException(
   );
 }
 
-export function shutdownAnalytics(): Promise<void> {
+export function shutdownAnalytics() {
   const current = state.sink;
   state = disabledState;
-  return current.shutdown();
+  return ((pinnedReturn: Promise<void>) => pinnedReturn)(current.shutdown());
 }

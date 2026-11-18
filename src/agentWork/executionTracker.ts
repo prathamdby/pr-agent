@@ -16,17 +16,18 @@ export type ExecutionTracker = {
   readonly settle: (timeoutMs: number, options?: SettleOptions) => Promise<SettleResult>;
 };
 
-export function createExecutionTracker(): ExecutionTracker {
+export function createExecutionTracker() {
   const inFlight = new Set<Promise<void>>();
   const durableInFlight = new Set<Promise<void>>();
 
-  const pending = (): SettleResult => ({
-    pendingHandlers: inFlight.size - durableInFlight.size,
-    pendingDurable: durableInFlight.size,
-  });
+  const pending = () =>
+    ((pinnedReturn: SettleResult) => pinnedReturn)({
+      pendingHandlers: inFlight.size - durableInFlight.size,
+      pendingDurable: durableInFlight.size,
+    });
 
-  return {
-    track<T>(run: () => Promise<T>, options: TrackOptions = {}): Promise<T> {
+  return ((pinnedReturn: ExecutionTracker) => pinnedReturn)({
+    track<T>(run: () => Promise<T>, options: TrackOptions = {}) {
       let promise: Promise<T>;
       try {
         promise = run();
@@ -43,15 +44,17 @@ export function createExecutionTracker(): ExecutionTracker {
         inFlight.delete(settled);
         durableInFlight.delete(settled);
       });
-      return promise;
+      return ((pinnedReturn: Promise<T>) => pinnedReturn)(promise);
     },
-    async settle(timeoutMs: number, options: SettleOptions = {}): Promise<SettleResult> {
+    async settle(timeoutMs: number, options: SettleOptions = {}) {
       const watched = options.durableOnly ? durableInFlight : inFlight;
       const deadline = Date.now() + timeoutMs;
       for (;;) {
-        if (watched.size === 0) return pending();
+        if (watched.size === 0)
+          return ((pinnedReturn: SettleResult | Promise<SettleResult>) => pinnedReturn)(pending());
         const remaining = deadline - Date.now();
-        if (remaining <= 0) return pending();
+        if (remaining <= 0)
+          return ((pinnedReturn: SettleResult | Promise<SettleResult>) => pinnedReturn)(pending());
         const pendingNow = [...watched];
         let timer: ReturnType<typeof setTimeout> | undefined;
         let timedOut = false;
@@ -68,8 +71,9 @@ export function createExecutionTracker(): ExecutionTracker {
         } finally {
           if (timer !== undefined) clearTimeout(timer);
         }
-        if (timedOut) return pending();
+        if (timedOut)
+          return ((pinnedReturn: SettleResult | Promise<SettleResult>) => pinnedReturn)(pending());
       }
     },
-  };
+  });
 }

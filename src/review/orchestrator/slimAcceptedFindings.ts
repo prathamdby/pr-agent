@@ -15,28 +15,25 @@ type ReportOutcome = {
 function samePublishedFinding(
   left: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title" | "detail">,
   right: Pick<ReviewFinding, "file" | "startLine" | "endLine" | "title" | "detail">,
-): boolean {
-  return (
+) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
     left.file === right.file &&
-    left.startLine === right.startLine &&
-    left.endLine === right.endLine &&
-    left.title === right.title &&
-    left.detail === right.detail
+      left.startLine === right.startLine &&
+      left.endLine === right.endLine &&
+      left.title === right.title &&
+      left.detail === right.detail,
   );
 }
 
-export function slimAcceptedFindings(
-  outcome: ReportOutcome,
-  ledger: FindingLedger,
-): {
-  readonly json: string;
-  readonly count: number;
-  readonly awaiting: readonly AwaitingCandidate[];
-} {
+export function slimAcceptedFindings(outcome: ReportOutcome, ledger: FindingLedger) {
   const findings = outcome.report.findings;
   const awaiting = awaitingCandidates(outcome.specialist, outcome.report, ledger);
   if (findings.length === 0) {
-    return { json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting };
+    return ((pinnedReturn: {
+      readonly json: string;
+      readonly count: number;
+      readonly awaiting: readonly AwaitingCandidate[];
+    }) => pinnedReturn)({ json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting });
   }
   const published = ledger.accepted.filter(
     (placement) => placement.kind === "posted" || placement.kind === "resumed",
@@ -57,10 +54,19 @@ export function slimAcceptedFindings(
         title: finding.title,
       };
     });
-  if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting };
-  return {
+  if (count === 0)
+    return ((pinnedReturn: {
+      readonly json: string;
+      readonly count: number;
+      readonly awaiting: readonly AwaitingCandidate[];
+    }) => pinnedReturn)({ json: JSON.stringify(outcome.report, null, 2), count: 0, awaiting });
+  return ((pinnedReturn: {
+    readonly json: string;
+    readonly count: number;
+    readonly awaiting: readonly AwaitingCandidate[];
+  }) => pinnedReturn)({
     json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2),
     count,
     awaiting,
-  };
+  });
 }
