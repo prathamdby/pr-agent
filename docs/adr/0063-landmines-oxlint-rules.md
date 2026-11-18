@@ -16,7 +16,7 @@ CI lint step, so the rules run there rather than in a second script.
 
 Three of the ten rules contradict a repository standard. Adopting them
 would mean dropping seam tests, creating new test files, or renaming the
-isolated tests reviewer.
+isolated tests reviewer. Pratham chose to leave those three off for good.
 
 ## Decision
 
@@ -29,7 +29,8 @@ isolated tests reviewer.
    - `landmines-structure/package-exports`
    - `landmines-types/no-explicit-return-types`
 
-2. **Do not enable these rules.**
+2. **Leave these three rules off for good.** Pratham chose not to
+   adopt them in this change or later.
    - `landmines-testing/no-test-doubles`. The Pi session seam test replaces
      `runAgentLoop`, and the `PrSurface` seam test replaces installation
      token and publish factories. Those replacements are how the seams are
