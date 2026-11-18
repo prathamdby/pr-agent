@@ -12,7 +12,7 @@ export function renderWebMcpScript() {
   }).replaceAll("<", "\\u003c");
 
   return ((pinnedReturn: string) => pinnedReturn)(`(function () {
-  var root = document.modelContext || navigator.modelContext;
+  var root = document.modelContext;
   if (!root || typeof root.registerTool !== "function") return;
   var controller = new AbortController();
   addEventListener("pagehide", function () { controller.abort(); }, { once: true });
