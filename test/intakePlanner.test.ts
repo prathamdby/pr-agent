@@ -13,6 +13,7 @@ function commentEvent(
   parent?: number,
   association: string | null = "MEMBER",
   userId = 7,
+  userType?: string,
 ) {
   return parseGithubPayload(inline ? "pull_request_review_comment" : "issue_comment", {
     action: "created",
@@ -21,7 +22,7 @@ function commentEvent(
     ...(inline ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: {} } }),
     comment: {
       id: 100,
-      user: { id: userId, login: "alice" },
+      user: { id: userId, login: "alice", ...(userType != null ? { type: userType } : {}) },
       author_association: association,
       body,
       ...(inline ? { path: "src/x.ts", line: 4, side: "RIGHT", in_reply_to_id: parent } : {}),
@@ -103,6 +104,92 @@ describe("pure intake commands", () => {
         },
       },
     );
+  });
+  it("enqueues verification for an authorized finding-thread reply", () => {
+    const event = commentEvent("why?", true, 99, "OWNER", 7, "User");
+    expect(toIntakeCommand(cfg, headers, event, bot)).toEqual({
+      kind: "verification_reply",
+      headers,
+      installationId: 9,
+      owner: "acme",
+      repo: "app",
+      prNumber: 7,
+      repositorySizeKb: 10,
+    });
+    expect(toIntakeCommand(cfg, headers, event)).toEqual({ kind: "auth_required" });
+  });
+  it("does not enqueue verification outside an authorized auto reply", () => {
+    const ignored = { kind: "ignored", decision: "ignored_no_slash_command" };
+    expect(
+      toIntakeCommand(cfg, headers, commentEvent("why?", true, 99, "OWNER", 7, "Bot"), bot),
+    ).toMatchObject(ignored);
+    expect(
+      toIntakeCommand(cfg, headers, commentEvent("why?", true, 99, "OWNER", 7), bot),
+    ).toMatchObject(ignored);
+    expect(
+      toIntakeCommand(
+        cfg,
+        headers,
+        commentEvent("why?", true, 99, "OWNER", bot.userId, "User"),
+        bot,
+      ),
+    ).toMatchObject({ kind: "ignored", decision: "ignored_bot_slash_command" });
+    expect(
+      toIntakeCommand(cfg, headers, commentEvent("why?", false, 99, "OWNER", 7, "User"), bot),
+    ).toMatchObject(ignored);
+    expect(
+      toIntakeCommand(cfg, headers, commentEvent("why?", true, undefined, "OWNER", 7, "User"), bot),
+    ).toMatchObject(ignored);
+    expect(
+      toIntakeCommand(
+        cfg,
+        headers,
+        commentEvent("@pr-agent[bot] why?", true, 99, "OWNER", 7, "User"),
+        bot,
+      ),
+    ).toMatchObject({ kind: "slash", input: { command: "ask" } });
+    expect(
+      toIntakeCommand(cfg, headers, commentEvent("/verify", true, 99, "OWNER", 7, "User"), bot),
+    ).toMatchObject({ kind: "slash", input: { command: "verify" } });
+    for (const verification of ["manual", "off"] as const) {
+      expect(
+        toIntakeCommand(
+          makeTestConfig({ features: { verification } }),
+          headers,
+          commentEvent("why?", true, 99, "OWNER", 7, "User"),
+          bot,
+        ),
+      ).toMatchObject(ignored);
+    }
+  });
+  it("uses maintainer decision, not the slash allowlist", () => {
+    const event = commentEvent("why?", true, 99, "OWNER", 7, "User");
+    expect(
+      toIntakeCommand(
+        makeTestConfig({
+          associations: {
+            slashAllowed: new Set(["COLLABORATOR"]),
+            maintainerDecision: new Set(["OWNER"]),
+          },
+        }),
+        headers,
+        event,
+        bot,
+      ),
+    ).toMatchObject({ kind: "verification_reply" });
+    expect(
+      toIntakeCommand(
+        makeTestConfig({
+          associations: {
+            slashAllowed: new Set(["MEMBER"]),
+            maintainerDecision: new Set(["OWNER"]),
+          },
+        }),
+        headers,
+        commentEvent("why?", true, 99, "MEMBER", 7, "User"),
+        bot,
+      ),
+    ).toMatchObject({ kind: "ignored", decision: "ignored_no_slash_command" });
   });
   it("conversation mentions and triage use the conversation surface", () => {
     expect(toIntakeCommand(cfg, headers, commentEvent("@pr-agent hey"), bot)).toMatchObject({

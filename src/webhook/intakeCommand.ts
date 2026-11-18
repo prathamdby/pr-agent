@@ -12,10 +12,62 @@ import type { WebhookHeaders } from "../agentWork/types.ts";
 import { parseSlashCommand } from "../commands/parseSlashCommand.ts";
 import { commentMentionsBot } from "../commands/parseBotMention.ts";
 import { isSlashAssociationAllowed, reviewAuthorTrust } from "../commands/slashAssociation.ts";
+import { isAuthorizedMaintainerDecision } from "../review/run/reviewPriorFeedback.ts";
 import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/ciFacts.ts";
 import type { ParsedGithubEvent } from "./parseGithubPayload.ts";
 import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.ts";
 import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/ciHeadSource.ts";
+
+function findingReplyVerification(
+  cfg: Pick<Config, "features" | "associations">,
+  headers: WebhookHeaders,
+  event: Extract<ParsedGithubEvent, { name: "pull_request_review_comment" }>,
+  bot?: BotIdentity,
+) {
+  const data = event.data;
+  const body = data.comment.body ?? "";
+  if (parseSlashCommand(body) != null)
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  if (data.comment.in_reply_to_id == null)
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  if (cfg.features.verification !== "auto")
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  if (bot != null && commentMentionsBot(body, bot.login))
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  if (data.comment.user.type !== "User")
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  if (bot == null) {
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)({ kind: "auth_required" });
+  }
+  if (
+    !isAuthorizedMaintainerDecision({
+      userId: data.comment.user.id,
+      botUserId: bot.userId,
+      authorAssociation: data.comment.author_association,
+      authorType: data.comment.user.type,
+      allowedAssociations: cfg.associations.maintainerDecision,
+    })
+  ) {
+    return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+      pinnedReturn)(undefined);
+  }
+  return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" } | undefined) =>
+    pinnedReturn)({
+    kind: "verification_reply",
+    headers,
+    installationId: data.installation.id,
+    owner: data.repository.owner.login,
+    repo: data.repository.name,
+    prNumber: data.pull_request.number,
+    ...(data.repository.size != null ? { repositorySizeKb: data.repository.size } : {}),
+  });
+}
 
 export function toIntakeCommand(
   cfg: Pick<Config, "features" | "associations" | "github">,
@@ -128,6 +180,12 @@ export function toIntakeCommand(
     }
     case "issue_comment":
     case "pull_request_review_comment": {
+      if (event.name === "pull_request_review_comment") {
+        const reply = findingReplyVerification(cfg, headers, event, bot);
+        if (reply)
+          return ((pinnedReturn: IntakeCommand | { readonly kind: "auth_required" }) =>
+            pinnedReturn)(reply);
+      }
       const data = event.data;
       const body = data.comment.body ?? "";
       const slash = parseSlashCommand(body);

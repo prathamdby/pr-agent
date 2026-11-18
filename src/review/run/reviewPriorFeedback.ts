@@ -642,7 +642,7 @@ export function hasAuthorizedMaintainerDecision(
   return ((pinnedReturn: boolean) => pinnedReturn)((thread.authorizedReplies?.length ?? 0) > 0);
 }
 
-function isAuthorizedMaintainerDecision(params: {
+export function isAuthorizedMaintainerDecision(params: {
   readonly userId: number | null | undefined;
   readonly botUserId: number;
   readonly authorAssociation: string | null | undefined;
