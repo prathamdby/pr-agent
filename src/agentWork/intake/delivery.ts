@@ -70,6 +70,7 @@ import {
   createDescriptionWorkItem,
   createReviewWorkItem,
   createVerificationWorkItem,
+  fetchActiveVerificationWorkItem,
   loadReviewLifecycle,
   reviewLifecycleObservationAccepted,
   recordReviewLifecycleObservation,
@@ -1327,7 +1328,16 @@ export type IntakeCommand =
       };
     }
   | { readonly kind: "ci_state"; readonly headers: WebhookHeaders; readonly data: CiStateFactInput }
-  | { readonly kind: "slash"; readonly input: SlashCommandInput };
+  | { readonly kind: "slash"; readonly input: SlashCommandInput }
+  | {
+      readonly kind: "verification_reply";
+      readonly headers: WebhookHeaders;
+      readonly installationId: number;
+      readonly owner: string;
+      readonly repo: string;
+      readonly prNumber: number;
+      readonly repositorySizeKb?: number;
+    };
 
 export class DeliveryTx {
   readonly events: DeferredIntakeEvent[] = [];
@@ -1406,6 +1416,53 @@ export class DeliveryTx {
   }
 }
 
+async function applyVerificationReplyIntake(
+  boss: PgBoss,
+  tx: DeliveryTx,
+  command: Extract<IntakeCommand, { kind: "verification_reply" }>,
+) {
+  const events: DeferredIntakeEvent[] = [];
+  const event = await tx.insert("verification_reply");
+  if (event.duplicate)
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
+  const ref: PrRef = {
+    owner: command.owner,
+    repo: command.repo,
+    prNumber: command.prNumber,
+    installationId: command.installationId,
+    headSha: DEFERRED_HEAD_SHA,
+    ...(command.repositorySizeKb != null ? { repositorySizeKb: command.repositorySizeKb } : {}),
+  };
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  await acquireAutoWorkIntakeLock(tx.client, { kind: "verification", resourceKey });
+  if (await fetchActiveVerificationWorkItem(tx.client, resourceKey))
+    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+      events,
+    );
+  const workItemId = await createVerificationWorkItem(tx.client, {
+    webhookEventId: event.id,
+    ref,
+    source: "auto",
+  });
+  const correlation = jobCorrelation(event.id, command.headers);
+  await enqueueVerification(boss, tx.client, ref, workItemId, correlation);
+  events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "verification",
+      source: "auto",
+      workItemId,
+      resourceKey,
+      ...correlation,
+    },
+  });
+  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
+    events,
+  );
+}
+
 export async function runDelivery(
   pool: Pool,
   boss: PgBoss,
@@ -1444,6 +1501,9 @@ export async function runDelivery(
           cfg.features,
           resolveAskQuotaConfig(cfg.ask),
         );
+        break;
+      case "verification_reply":
+        events = await applyVerificationReplyIntake(boss, tx, command);
         break;
       default:
         command satisfies never;

@@ -17,7 +17,10 @@ export const pullRequestReviewCommentWebhookSchema = v.object({
   }),
   comment: v.object({
     id: githubSafeIdSchema,
-    user: githubUserSchema,
+    user: v.object({
+      ...githubUserSchema.entries,
+      type: v.optional(v.string()),
+    }),
     author_association: v.nullish(v.string()),
     body: v.nullish(v.string()),
     in_reply_to_id: v.nullish(githubSafeIdSchema),

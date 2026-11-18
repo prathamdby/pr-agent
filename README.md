@@ -37,7 +37,7 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | Orchestrated review | PR opens in `auto`; trusted opens or maintainer approval for forks in `approval`. `FEATURE_REVIEW_CADENCE=every_push` also reviews each later admitted push | `/review` on open PRs           |
 | PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                                                                                                    | `/describe`                     |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                                                                                                           | `/verify`                       |
+| Verification        | PR `synchronize`, or an authorized maintainer reply on an inline review thread, when `FEATURE_VERIFICATION=auto`                                            | `/verify`                       |
 | Ask                 | On demand when `FEATURE_ASK=manual`                                                                                                                         | `/ask …` or mention the App bot |
 | Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                                                                                                      | `/triage`                       |
 | Cancel review       | On demand                                                                                                                                                   | `/cancel`                       |
@@ -265,7 +265,7 @@ Late older ticks from the same review do not replace newer progress or its final
 
 Crash recovery serializes its failure decision with lease renewals and restarted jobs. Busy or timed-out recovery passes leave the review alone and try again later.
 
-Default `FEATURE_VERIFICATION=auto` spends tokens on `synchronize` pushes with open findings. Switch it to `manual` or `off` if that bill is too high.
+Default `FEATURE_VERIFICATION=auto` spends tokens on `synchronize` pushes with open findings, and on an authorized maintainer reply in an inline review thread. Switch it to `manual` or `off` if that bill is too high.
 
 <details>
 <summary>What the probes do not prove</summary>
