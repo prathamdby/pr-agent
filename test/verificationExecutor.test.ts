@@ -572,12 +572,39 @@ describe("verification work definition", () => {
   );
 
   it.each([
-    { standing: "CHANGES_REQUESTED" as const, severity: "P1" as const, event: undefined },
-    { standing: "APPROVED" as const, severity: "P1" as const, event: "REQUEST_CHANGES" as const },
-    { standing: "CHANGES_REQUESTED" as const, severity: "P3" as const, event: "APPROVE" as const },
+    {
+      standing: "CHANGES_REQUESTED" as const,
+      severity: "P1" as const,
+      copyResolved: false,
+      event: undefined,
+    },
+    {
+      standing: "APPROVED" as const,
+      severity: "P1" as const,
+      copyResolved: false,
+      event: "REQUEST_CHANGES" as const,
+    },
+    {
+      standing: "CHANGES_REQUESTED" as const,
+      severity: "P3" as const,
+      copyResolved: false,
+      event: "APPROVE" as const,
+    },
+    {
+      standing: "APPROVED" as const,
+      severity: "P2" as const,
+      copyResolved: false,
+      event: "REQUEST_CHANGES" as const,
+    },
+    {
+      standing: "APPROVED" as const,
+      severity: "P1" as const,
+      copyResolved: true,
+      event: undefined,
+    },
   ])(
-    "counts an open same-id copy when the oldest thread is resolved ($severity, $standing)",
-    async ({ standing, severity, event }) => {
+    "counts an open same-id copy when the oldest thread is resolved ($severity, $standing, copyResolved=$copyResolved)",
+    async ({ standing, severity, copyResolved, event }) => {
       const findingId = mintFindingId();
       const body = `${renderFindingMarker({ id: findingId, lens: "review", severity })}\n**${severity}** · **Bug**`;
       seedBotFindingThreads([
@@ -586,7 +613,7 @@ describe("verification work definition", () => {
       ]);
       configureVerificationThreads([
         [1, { threadNodeId: "older", isResolved: true }],
-        [2, { threadNodeId: "newer", isResolved: false }],
+        [2, { threadNodeId: "newer", isResolved: copyResolved }],
       ]);
       const surface = fakeDurablePrSurface();
       const controls = durablePrSurfaceControls();
