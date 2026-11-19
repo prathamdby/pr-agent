@@ -21,7 +21,7 @@ function Home() {
   return (
     <>
       <JsonLd />
-      <Header />
+      <Header edgeBase="wash" />
       <main id="main-content">
         <Hero />
         <Providers />
