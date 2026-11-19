@@ -73,6 +73,7 @@ type PublishVerificationParams = {
   readonly payload: VerificationPayload;
   readonly changedFilePaths: readonly string[];
   readonly changedFilePathsTruncated?: boolean;
+  readonly changedMembershipComplete?: boolean;
   readonly policyResult: RepoPolicyResult;
   readonly leaseEpoch: number | null;
 };
@@ -936,7 +937,8 @@ export async function publishVerification(params: PublishVerificationParams) {
   });
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   const changedFiles = new Set(params.changedFilePaths);
-  const changedMembershipComplete = params.changedFilePathsTruncated !== true;
+  const changedMembershipComplete =
+    params.changedMembershipComplete ?? params.changedFilePathsTruncated !== true;
   const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
   const objectionCounts: ObjectionPublishCounts = {
     answered: 0,

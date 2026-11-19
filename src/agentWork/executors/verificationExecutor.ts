@@ -328,7 +328,7 @@ export function createVerificationWorkExecution({
       ]);
 
       const compareFilesTruncated = pushDeltaFiles?.truncated === true;
-      const changedMembershipTruncated = compareFilesTruncated || payload.pushBeforeSha == null;
+      const changedMembershipComplete = payload.pushBeforeSha != null && !compareFilesTruncated;
       const changedFilePaths =
         pushDeltaFiles != null
           ? compareFilesTruncated
@@ -400,7 +400,7 @@ export function createVerificationWorkExecution({
             inventory,
             pushedCommits,
             discussion,
-            compareFilesTruncated: changedMembershipTruncated,
+            compareFilesTruncated,
             escalation: env.escalation,
             sessionContext: env.durability,
             signal: env.signal,
@@ -433,7 +433,8 @@ export function createVerificationWorkExecution({
         resolutionByRootCommentId,
         payload: result.payload,
         changedFilePaths,
-        changedFilePathsTruncated: changedMembershipTruncated,
+        changedFilePathsTruncated: compareFilesTruncated,
+        changedMembershipComplete,
         policyResult: result.policyResult,
         leaseEpoch: env.leaseEpoch,
       });

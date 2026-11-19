@@ -837,9 +837,14 @@ describe("verification work definition", () => {
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "listCommitCompareFiles"),
     ).toBe(false);
+    expect(mocks.runVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ compareFilesTruncated: false }),
+    );
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
         changedFilePaths: [],
+        changedFilePathsTruncated: false,
+        changedMembershipComplete: false,
       }),
     );
   });
