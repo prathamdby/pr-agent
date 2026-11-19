@@ -259,6 +259,7 @@ function baseParams(overrides: {
   readonly resolutionByRootCommentId?: ReadonlyMap<number, ReviewThreadResolution>;
   readonly changedFilePaths?: readonly string[];
   readonly changedFilePathsTruncated?: boolean;
+  readonly changedMembershipComplete?: boolean;
   readonly pool?: Pool;
   readonly workItemId?: string;
   readonly leaseEpoch?: number | null;
@@ -310,6 +311,7 @@ function baseParams(overrides: {
     payload: overrides.payload,
     changedFilePaths: overrides.changedFilePaths ?? ["src/app.ts"],
     changedFilePathsTruncated: overrides.changedFilePathsTruncated,
+    changedMembershipComplete: overrides.changedMembershipComplete,
     policyResult: overrides.policyResult ?? ({ kind: "absent" } as const),
   };
 }
@@ -770,6 +772,33 @@ describe("publishVerification", () => {
         (r) => r.target.kind === "inlineReviewThread" && r.target.inReplyToCommentId === 3,
       ),
     ).toBe(true);
+  });
+
+  it("posts still-open stubs without a compare-truncation degradation when push membership is unknown", async () => {
+    const result = await publishVerification(
+      baseParams({
+        changedFilePaths: ["src/app.ts"],
+        changedFilePathsTruncated: false,
+        changedMembershipComplete: false,
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "still open on a known path",
+            },
+            {
+              verdict: "skipped",
+              threadRootCommentId: 3,
+              reason: "still open without a push delta",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(result).toEqual({ degradation: [] });
+    expect(controls.replies).toHaveLength(2);
   });
 
   it("edits an existing stub in place on later still-open publishes", async () => {
