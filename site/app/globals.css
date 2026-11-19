@@ -49,6 +49,9 @@
   --palette-wash-50: #edf5ff;
   --palette-wash-100: #d9eafe;
   --palette-wash-200: #b9dcfc;
+  /* Opaque toolbar sample while the mobile menu is open. Wash is the landing sky. */
+  --palette-toolbar-edge: color-mix(in srgb, rgb(15 21 34) 22%, var(--palette-surface));
+  --palette-toolbar-edge-wash: color-mix(in srgb, rgb(15 21 34) 22%, var(--palette-wash-200));
   --palette-sky-deep: #339bfd;
   --palette-accent-tint: #edf5ff;
   --palette-accent-ink: #1858cc;
@@ -118,6 +121,8 @@
     --palette-wash-50: #0f1b30;
     --palette-wash-100: #142645;
     --palette-wash-200: #1c3768;
+    --palette-toolbar-edge: color-mix(in srgb, rgb(3 6 12) 55%, var(--palette-surface));
+    --palette-toolbar-edge-wash: color-mix(in srgb, rgb(3 6 12) 55%, var(--palette-wash-200));
     --palette-sky-deep: #1d4fb0;
     --palette-accent-tint: #12213a;
     --palette-accent-ink: #7ab8ff;
@@ -205,6 +210,8 @@
   --color-overlay-hover: var(--palette-overlay-hover);
   --color-overlay-well: var(--palette-overlay-well);
   --color-scrim: var(--palette-scrim);
+  --color-toolbar-edge: var(--palette-toolbar-edge);
+  --color-toolbar-edge-wash: var(--palette-toolbar-edge-wash);
 
   /* Text */
   --color-text: var(--palette-gray-950);
@@ -866,6 +873,35 @@
   .menu-panel[data-instant="true"],
   .menu-scrim[data-instant="true"] {
     transition: none;
+  }
+
+  /*
+    Safari samples 5px at the viewport edge for the toolbar tint. The strip hangs 7px above that
+    edge so 5px stays on screen, and the fade runs 48px under the transparent header.
+  */
+  .toolbar-edge {
+    --toolbar-edge: var(--color-toolbar-edge);
+    position: fixed;
+    inset-inline: 0;
+    top: -7px;
+    height: 12px;
+    pointer-events: none;
+    z-index: 31;
+    background: var(--toolbar-edge);
+  }
+
+  .toolbar-edge[data-top="wash"] {
+    --toolbar-edge: var(--color-toolbar-edge-wash);
+  }
+
+  .toolbar-edge::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: 48px;
+    pointer-events: none;
+    background: linear-gradient(to bottom, var(--toolbar-edge), transparent);
   }
 
   .menu-row {

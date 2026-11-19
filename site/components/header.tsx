@@ -17,7 +17,7 @@ const NAV = [
 const INERT_SELECTOR = "main, .page-frame > footer";
 const FOCUSABLE = "a[href], button:not([disabled])";
 
-export function Header() {
+export function Header({ edgeBase = "surface" }: { edgeBase?: "surface" | "wash" }) {
   const [open, setOpen] = useState(false);
   const [instant, setInstant] = useState(false);
   const [stuck, setStuck] = useState(false);
@@ -188,6 +188,13 @@ export function Header() {
         </div>
       </header>
 
+      {open ? (
+        <div
+          aria-hidden="true"
+          data-top={edgeBase === "wash" ? "wash" : undefined}
+          className="toolbar-edge md:hidden"
+        />
+      ) : null}
       <div
         aria-hidden="true"
         data-open={open}

@@ -220,44 +220,46 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 
 Light values are in `:root`. The dark column is what `:root[data-theme="dark"]` re-points; a dash means the primitive never changes, so the brand blues, white, and the cloud art look the same in both themes.
 
-| Primitive                  | Light         | Dark      | Feeds                                          |
-| -------------------------- | ------------- | --------- | ---------------------------------------------- |
-| `--palette-white`          | `#ffffff`     | none      | `on-accent`, `cloud-lit`                       |
-| `--palette-backdrop`       | `#f6f7f9`     | `#05080f` | `bg`                                           |
-| `--palette-surface`        | `#ffffff`     | `#0b111c` | `surface`                                      |
-| `--palette-surface-raised` | `#f6f7f9`     | `#131a27` | `surface-raised`                               |
-| `--palette-gray-100`       | `#eef0f3`     | `#1b2333` | `surface-hover`                                |
-| `--palette-gray-200`       | `#e3e6eb`     | `#232d3e` | `line`                                         |
-| `--palette-gray-500`       | `#687286`     | `#8390a6` | `text-tertiary`                                |
-| `--palette-gray-700`       | `#4a5568`     | `#a7b2c4` | `text-secondary`                               |
-| `--palette-gray-950`       | `#0f1522`     | `#e9eef6` | `text`                                         |
-| `--palette-overlay`        | `#ffffff`     | `#131a27` | `overlay`                                      |
-| `--palette-overlay-hover`  | `#f6f7f9`     | `#1b2333` | `overlay-hover`                                |
-| `--palette-overlay-well`   | `#f6f7f9`     | `#0b111c` | `overlay-well`                                 |
-| `--palette-scrim`          | 22% ink       | 55% ink   | `scrim`                                        |
-| `--palette-blue-50`        | `#edf5ff`     | none      | `cloud-pale`                                   |
-| `--palette-blue-100`       | `#d9eafe`     | none      | `cloud-soft`                                   |
-| `--palette-blue-200`       | `#b9dcfc`     | none      | `cloud-deep`                                   |
-| `--palette-blue-600`       | `#1e69e9`     | none      | `accent-solid` (logo royal)                    |
-| `--palette-blue-hover`     | `#2a74f0`     | none      | `accent-hover`                                 |
-| `--palette-blue-press`     | `#1a5dd0`     | none      | `accent-press`                                 |
-| `--palette-wash-50`        | `#edf5ff`     | `#0f1b30` | `wash-soft`                                    |
-| `--palette-wash-100`       | `#d9eafe`     | `#142645` | `wash-mid`                                     |
-| `--palette-wash-200`       | `#b9dcfc`     | `#1c3768` | `wash-strong`                                  |
-| `--palette-sky-deep`       | `#339bfd`     | `#1d4fb0` | `accent-bright` (logo sky in light)            |
-| `--palette-accent-tint`    | `#edf5ff`     | `#12213a` | `accent-soft`                                  |
-| `--palette-accent-ink`     | `#1858cc`     | `#7ab8ff` | `accent-text`, `focus`                         |
-| `--palette-haze`           | `#ffffff`     | `#8fb4ff` | `haze`                                         |
-| `--palette-green-100`      | `#dcf7e3`     | `#0f2a19` | `success-soft`                                 |
-| `--palette-green-700`      | `#1a7f37`     | `#4aca6a` | `success`                                      |
-| `--palette-red-100`        | `#ffe9e6`     | `#2a1a20` | `danger-soft`                                  |
-| `--palette-red-700`        | `#c9262f`     | `#ff7b72` | `danger`                                       |
-| `--palette-amber-100`      | `#fff1cf`     | `#2b2312` | `warning-soft`                                 |
-| `--palette-amber-700`      | `#9a6700`     | `#e0a93a` | `warning`                                      |
-| `--palette-ink-neutral`    | `15 21 34`    | `0 0 0`   | Shadow ink off a wash                          |
-| `--palette-ink-wash`       | `14 42 78`    | `0 0 0`   | Shadow ink on a wash (deep wash blue in light) |
-| `--palette-ink-lit`        | `255 255 255` | none      | Lit edges and the dark hairline                |
-| `--palette-ink-sky`        | `143 180 255` | none      | The dark header hairline                       |
+| Primitive                     | Light                                                            | Dark                                                           | Feeds                                          |
+| ----------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------- |
+| `--palette-white`             | `#ffffff`                                                        | none                                                           | `on-accent`, `cloud-lit`                       |
+| `--palette-backdrop`          | `#f6f7f9`                                                        | `#05080f`                                                      | `bg`                                           |
+| `--palette-surface`           | `#ffffff`                                                        | `#0b111c`                                                      | `surface`                                      |
+| `--palette-surface-raised`    | `#f6f7f9`                                                        | `#131a27`                                                      | `surface-raised`                               |
+| `--palette-gray-100`          | `#eef0f3`                                                        | `#1b2333`                                                      | `surface-hover`                                |
+| `--palette-gray-200`          | `#e3e6eb`                                                        | `#232d3e`                                                      | `line`                                         |
+| `--palette-gray-500`          | `#687286`                                                        | `#8390a6`                                                      | `text-tertiary`                                |
+| `--palette-gray-700`          | `#4a5568`                                                        | `#a7b2c4`                                                      | `text-secondary`                               |
+| `--palette-gray-950`          | `#0f1522`                                                        | `#e9eef6`                                                      | `text`                                         |
+| `--palette-overlay`           | `#ffffff`                                                        | `#131a27`                                                      | `overlay`                                      |
+| `--palette-overlay-hover`     | `#f6f7f9`                                                        | `#1b2333`                                                      | `overlay-hover`                                |
+| `--palette-overlay-well`      | `#f6f7f9`                                                        | `#0b111c`                                                      | `overlay-well`                                 |
+| `--palette-scrim`             | 22% ink                                                          | 55% ink                                                        | `scrim`                                        |
+| `--palette-blue-50`           | `#edf5ff`                                                        | none                                                           | `cloud-pale`                                   |
+| `--palette-blue-100`          | `#d9eafe`                                                        | none                                                           | `cloud-soft`                                   |
+| `--palette-blue-200`          | `#b9dcfc`                                                        | none                                                           | `cloud-deep`                                   |
+| `--palette-blue-600`          | `#1e69e9`                                                        | none                                                           | `accent-solid` (logo royal)                    |
+| `--palette-blue-hover`        | `#2a74f0`                                                        | none                                                           | `accent-hover`                                 |
+| `--palette-blue-press`        | `#1a5dd0`                                                        | none                                                           | `accent-press`                                 |
+| `--palette-wash-50`           | `#edf5ff`                                                        | `#0f1b30`                                                      | `wash-soft`                                    |
+| `--palette-wash-100`          | `#d9eafe`                                                        | `#142645`                                                      | `wash-mid`                                     |
+| `--palette-wash-200`          | `#b9dcfc`                                                        | `#1c3768`                                                      | `wash-strong`                                  |
+| `--palette-toolbar-edge`      | `color-mix(in srgb, rgb(15 21 34) 22%, var(--palette-surface))`  | `color-mix(in srgb, rgb(3 6 12) 55%, var(--palette-surface))`  | `toolbar-edge`                                 |
+| `--palette-toolbar-edge-wash` | `color-mix(in srgb, rgb(15 21 34) 22%, var(--palette-wash-200))` | `color-mix(in srgb, rgb(3 6 12) 55%, var(--palette-wash-200))` | `toolbar-edge-wash`                            |
+| `--palette-sky-deep`          | `#339bfd`                                                        | `#1d4fb0`                                                      | `accent-bright` (logo sky in light)            |
+| `--palette-accent-tint`       | `#edf5ff`                                                        | `#12213a`                                                      | `accent-soft`                                  |
+| `--palette-accent-ink`        | `#1858cc`                                                        | `#7ab8ff`                                                      | `accent-text`, `focus`                         |
+| `--palette-haze`              | `#ffffff`                                                        | `#8fb4ff`                                                      | `haze`                                         |
+| `--palette-green-100`         | `#dcf7e3`                                                        | `#0f2a19`                                                      | `success-soft`                                 |
+| `--palette-green-700`         | `#1a7f37`                                                        | `#4aca6a`                                                      | `success`                                      |
+| `--palette-red-100`           | `#ffe9e6`                                                        | `#2a1a20`                                                      | `danger-soft`                                  |
+| `--palette-red-700`           | `#c9262f`                                                        | `#ff7b72`                                                      | `danger`                                       |
+| `--palette-amber-100`         | `#fff1cf`                                                        | `#2b2312`                                                      | `warning-soft`                                 |
+| `--palette-amber-700`         | `#9a6700`                                                        | `#e0a93a`                                                      | `warning`                                      |
+| `--palette-ink-neutral`       | `15 21 34`                                                       | `0 0 0`                                                        | Shadow ink off a wash                          |
+| `--palette-ink-wash`          | `14 42 78`                                                       | `0 0 0`                                                        | Shadow ink on a wash (deep wash blue in light) |
+| `--palette-ink-lit`           | `255 255 255`                                                    | none                                                           | Lit edges and the dark hairline                |
+| `--palette-ink-sky`           | `143 180 255`                                                    | none                                                           | The dark header hairline                       |
 
 The scrim values are `rgb(15 21 34 / 0.22)` and `rgb(3 6 12 / 0.55)`. Non-colour primitives that flip with the theme sit beside them: `--shadow-*-weight`, `--cloud-strength`, `--leading-air`, `--tracking-body`, `--weight-*`, `--toggle-track`, and the header edge (see [Themes](#themes)).
 
@@ -265,42 +267,44 @@ The scrim values are `rgb(15 21 34 / 0.22)` and `rgb(3 6 12 / 0.55)`. Non-colour
 
 `@theme` declares `--color-*: initial` first. That removes Tailwind’s stock palette, so `bg-red-500` does not exist and only the tokens below become utilities (`bg-surface`, `text-accent-text`, `divide-line`, `border-line`, `bg-surface/85`, and so on).
 
-| Token                    | Primitive      | Purpose                                                                                                                                |
-| ------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `--color-bg`             | backdrop       | Backdrop behind the page sheet                                                                                                         |
-| `--color-surface`        | surface        | Page sheet, cards, mock windows, secondary buttons, selected tab                                                                       |
-| `--color-surface-raised` | surface-raised | Wells inside cards, mock chrome, tabs shell, neutral pills, code block shells                                                          |
-| `--color-surface-hover`  | gray-100       | Hover fill for ghost and secondary buttons                                                                                             |
-| `--color-line`           | gray-200       | Hairline rules between rows, mock chrome borders, rail strokes, window dots, the dark theme thumb                                      |
-| `--color-overlay`        | overlay        | The floating mobile menu card                                                                                                          |
-| `--color-overlay-hover`  | overlay-hover  | The hovered or focused menu row                                                                                                        |
-| `--color-overlay-well`   | overlay-well   | The well behind the GitHub link in the menu                                                                                            |
-| `--color-scrim`          | scrim          | The blurred veil under the open mobile menu                                                                                            |
-| `--color-text`           | gray-950       | Headings, primary copy                                                                                                                 |
-| `--color-text-secondary` | gray-700       | Body copy, nav, mock meta                                                                                                              |
-| `--color-text-tertiary`  | gray-500       | Small labels, step numbers, provider marks, the “No” mark                                                                              |
-| `--color-accent-solid`   | blue-600       | Primary button fill and text selection, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                      |
-| `--color-accent-hover`   | blue-hover     | Primary button hover                                                                                                                   |
-| `--color-accent-press`   | blue-press     | Primary button pressed                                                                                                                 |
-| `--color-accent-text`    | accent-ink     | Accent text and icons: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                             |
-| `--color-accent-soft`    | accent-tint    | Icon tile fill, command chips, the hero pill link badge                                                                                |
-| `--color-accent-bright`  | sky-deep       | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
-| `--color-on-accent`      | white          | Text and icons on `accent-solid`; the legal bar and social marks                                                                       |
-| `--color-wash-strong`    | wash-200       | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
-| `--color-wash-mid`       | wash-100       | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
-| `--color-wash-soft`      | wash-50        | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
-| `--color-haze`           | haze           | Cloud puffs on a sky: white in light, a faint blue haze in dark (strength set by `--cloud-strength`)                                   |
-| `--color-cloud-lit`      | white          | Cloud art that stays light in both themes: the footer wordmark and the pricing figure                                                  |
-| `--color-cloud-pale`     | blue-50        | Same art, pale step                                                                                                                    |
-| `--color-cloud-soft`     | blue-100       | Same art, soft step                                                                                                                    |
-| `--color-cloud-deep`     | blue-200       | Same art, deep step                                                                                                                    |
-| `--color-success`        | green-700      | Passing checks, “Open” and “Fixed” pills, the copied check mark and ring                                                               |
-| `--color-success-soft`   | green-100      | Fill behind `success` pills                                                                                                            |
-| `--color-danger`         | red-700        | Failing checks                                                                                                                         |
-| `--color-danger-soft`    | red-100        | Fill behind `danger` pills                                                                                                             |
-| `--color-warning`        | amber-700      | “Dismissed” pill                                                                                                                       |
-| `--color-warning-soft`   | amber-100      | Fill behind `warning` pills                                                                                                            |
-| `--color-focus`          | accent-ink     | `:focus-visible` outline                                                                                                               |
+| Token                       | Primitive         | Purpose                                                                                                                                |
+| --------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-bg`                | backdrop          | Backdrop behind the page sheet                                                                                                         |
+| `--color-surface`           | surface           | Page sheet, cards, mock windows, secondary buttons, selected tab                                                                       |
+| `--color-surface-raised`    | surface-raised    | Wells inside cards, mock chrome, tabs shell, neutral pills, code block shells                                                          |
+| `--color-surface-hover`     | gray-100          | Hover fill for ghost and secondary buttons                                                                                             |
+| `--color-line`              | gray-200          | Hairline rules between rows, mock chrome borders, rail strokes, window dots, the dark theme thumb                                      |
+| `--color-overlay`           | overlay           | The floating mobile menu card                                                                                                          |
+| `--color-overlay-hover`     | overlay-hover     | The hovered or focused menu row                                                                                                        |
+| `--color-overlay-well`      | overlay-well      | The well behind the GitHub link in the menu                                                                                            |
+| `--color-scrim`             | scrim             | The blurred veil under the open mobile menu                                                                                            |
+| `--color-toolbar-edge`      | toolbar-edge      | Opaque Safari toolbar sample while the mobile menu is open, on a surface page                                                          |
+| `--color-toolbar-edge-wash` | toolbar-edge-wash | The same sample on the landing sky                                                                                                     |
+| `--color-text`              | gray-950          | Headings, primary copy                                                                                                                 |
+| `--color-text-secondary`    | gray-700          | Body copy, nav, mock meta                                                                                                              |
+| `--color-text-tertiary`     | gray-500          | Small labels, step numbers, provider marks, the “No” mark                                                                              |
+| `--color-accent-solid`      | blue-600          | Primary button fill and text selection, eyebrow dash, list bullets, info dot, active tab underline in the PR mock                      |
+| `--color-accent-hover`      | blue-hover        | Primary button hover                                                                                                                   |
+| `--color-accent-press`      | blue-press        | Primary button pressed                                                                                                                 |
+| `--color-accent-text`       | accent-ink        | Accent text and icons: eyebrows, step pills, chips, icon tiles, mock links, the “Yes” mark, the word pills                             |
+| `--color-accent-soft`       | accent-tint       | Icon tile fill, command chips, the hero pill link badge                                                                                |
+| `--color-accent-bright`     | sky-deep          | Deep end of the sky fold, the tint in the pricing band peak                                                                            |
+| `--color-on-accent`         | white             | Text and icons on `accent-solid`; the legal bar and social marks                                                                       |
+| `--color-wash-strong`       | wash-200          | Wash gradient end; top of the hero sky; base of the pricing band peak                                                                  |
+| `--color-wash-mid`          | wash-100          | Wash and sky tint gradient end-points; where the closing banner hands the sky fold to the footer; bottom of the comparison column wash |
+| `--color-wash-soft`         | wash-50           | Wash gradient start; sky tint middle; top of the comparison column wash                                                                |
+| `--color-haze`              | haze              | Cloud puffs on a sky: white in light, a faint blue haze in dark (strength set by `--cloud-strength`)                                   |
+| `--color-cloud-lit`         | white             | Cloud art that stays light in both themes: the footer wordmark and the pricing figure                                                  |
+| `--color-cloud-pale`        | blue-50           | Same art, pale step                                                                                                                    |
+| `--color-cloud-soft`        | blue-100          | Same art, soft step                                                                                                                    |
+| `--color-cloud-deep`        | blue-200          | Same art, deep step                                                                                                                    |
+| `--color-success`           | green-700         | Passing checks, “Open” and “Fixed” pills, the copied check mark and ring                                                               |
+| `--color-success-soft`      | green-100         | Fill behind `success` pills                                                                                                            |
+| `--color-danger`            | red-700           | Failing checks                                                                                                                         |
+| `--color-danger-soft`       | red-100           | Fill behind `danger` pills                                                                                                             |
+| `--color-warning`           | amber-700         | “Dismissed” pill                                                                                                                       |
+| `--color-warning-soft`      | amber-100         | Fill behind `warning` pills                                                                                                            |
+| `--color-focus`             | accent-ink        | `:focus-visible` outline                                                                                                               |
 
 Rules that go with the table:
 
@@ -612,7 +616,7 @@ Marks always pair an icon with text: “yes” is `Check size-4.5 text-accent-te
 
 `site/components/header.tsx`: a 64px bar (`container-x flex h-16 items-center justify-between gap-4`) with the logo (`size-7 rounded-sm outline-none`) and product name (`text-ui font-semibold tracking-[-0.01em]`), a `hidden md:flex` nav of ghost buttons, the theme toggle, a ghost GitHub link from `sm`, the primary “Deploy” button, and a `md:hidden` menu button whose icon is a `.swap`. The toggle comes before the GitHub link on desktop and before “Deploy” on a phone, and is always visible. Nav hrefs are absolute hashes (`/#features`) so the same header works from the 404 page. The bar is transparent until it sticks (see [Layout](#layout)); in dark it keeps a sky-blue hairline (`shadow-header-edge`) at rest. While the menu is open the button becomes a raised 36px tile (`aria-expanded:bg-surface aria-expanded:text-text aria-expanded:shadow-soft`) showing the `X`.
 
-The mobile menu floats. `.menu-panel` is a fixed card at `inset: 4.5rem 0.75rem auto` (72px from the top, 12px from the sides, under the 64px header), `padding: 0.5rem`, `--radius-lg`, `bg-overlay`, `--shadow-menu`, `z-index: 50`. Rows are `.menu-row` (48px, 10px radius, 16px, `font-heading`, `-0.01em`, `ChevronRight size-4 text-text-tertiary` on the right; hover and focus fill `overlay-hover`). A `mx-3 my-1.5 h-px bg-line` divider separates them from `.menu-well`, the 44px GitHub link on `overlay-well` with `--shadow-well`. `.menu-scrim` sits outside the `<header>` from 64px down to the bottom edge, blurs the page by 2px, and closes the menu when clicked. Both animate as described in [Motion](#motion). While open, `main` and the footer are `inert`, Tab is trapped in the header and the menu, Escape closes and returns focus to the menu button, and growing past `md` closes it. Anchors still land 100px down because the menu closes without an exit when a link is followed.
+The mobile menu floats. `.menu-panel` is a fixed card at `inset: 4.5rem 0.75rem auto` (72px from the top, 12px from the sides, under the 64px header), `padding: 0.5rem`, `--radius-lg`, `bg-overlay`, `--shadow-menu`, `z-index: 50`. Rows are `.menu-row` (48px, 10px radius, 16px, `font-heading`, `-0.01em`, `ChevronRight size-4 text-text-tertiary` on the right; hover and focus fill `overlay-hover`). A `mx-3 my-1.5 h-px bg-line` divider separates them from `.menu-well`, the 44px GitHub link on `overlay-well` with `--shadow-well`. `.menu-scrim` sits outside the `<header>` from 64px down to the bottom edge, blurs the page by 2px, and closes the menu when clicked. Both animate as described in [Motion](#motion). While the menu is open, `.toolbar-edge md:hidden` mounts beside `.menu-scrim`, outside `header`, `.menu-scrim`, and `.menu-panel`, and unmounts when the menu closes; the landing page passes `edgeBase="wash"` so the strip reads `--color-toolbar-edge-wash`, and the 404 omits it so the strip reads `--color-toolbar-edge`. While open, `main` and the footer are `inert`, Tab is trapped in the header and the menu, Escape closes and returns focus to the menu button, and growing past `md` closes it. Anchors still land 100px down because the menu closes without an exit when a link is followed.
 
 ### Footer and wordmark
 
@@ -859,11 +863,11 @@ Run these before calling a site change done. They are the checks the maintainer 
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `site/app/globals.css`                | Fonts, primitives, semantic tokens, radii, shadows, motion, component classes, utilities                              |
 | `site/app/__root.tsx`                 | Head metadata, theme script, font preload, skip link, `.page-frame`                                                   |
-| `site/app/index.tsx`                  | Section order                                                                                                         |
+| `site/app/index.tsx`                  | Section order, and `edgeBase="wash"` on `Header`                                                                      |
 | `site/components/section.tsx`         | `Section`, `SectionHeading`, `SectionTitle`, `Eyebrow`                                                                |
 | `site/components/button.tsx`          | `Button`, `ButtonLink`                                                                                                |
 | `site/components/icons.tsx`           | Every UI icon (Hugeicons)                                                                                             |
-| `site/components/header.tsx`          | Sticky header, transparent until it sticks, floating mobile menu and scrim                                            |
+| `site/components/header.tsx`          | Sticky header, transparent until it sticks, floating mobile menu, scrim, and `.toolbar-edge`                          |
 | `site/components/theme-toggle.tsx`    | The light and dark switch                                                                                             |
 | `site/lib/theme.ts`                   | Storage key, `theme-color` values, and the inline script that sets the theme before first paint                       |
 | `site/components/hero.tsx`            | Hero copy, word pill, staggered entrance, window stage under the hero sky                                             |
