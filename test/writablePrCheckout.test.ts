@@ -816,4 +816,143 @@ describe("writable PR checkout", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects case-variant blocked paths", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+
+          for (const sensitive of [".GIT/config", ".Git/hooks/x", ".ENV"]) {
+            await expect(
+              checkout.commit({
+                files: [sensitive],
+                subject: "fix: reject case variant path",
+              }),
+            ).rejects.toSatisfy((error: unknown) => {
+              expect(error).toBeInstanceOf(AppError);
+              expect((error as AppError).code).toBe("pr_workspace.sensitive_path");
+              return true;
+            });
+            expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+            expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+          }
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects too many files", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+          const names = Array.from(
+            { length: 21 },
+            (_, index) => `file-${String(index).padStart(2, "0")}.txt`,
+          );
+          for (const name of names) {
+            await writeFile(join(checkout.dir, name), "x\n");
+          }
+
+          await expect(
+            checkout.commit({
+              files: ["src.txt", "./src.txt", ...names],
+              subject: "fix: reject oversized file list",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.commit_fix_too_many_files" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+          expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-blob deletion", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await symlink("src.txt", join(checkout.dir, "tracked-link.txt"));
+          await git(checkout.dir, ["add", "--", "tracked-link.txt"]);
+          await git(checkout.dir, ["commit", "-m", "track symlink"]);
+          const linkHead = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          const linkTree = await git(checkout.dir, ["write-tree"]);
+          expect(await git(checkout.dir, ["ls-tree", "HEAD", "tracked-link.txt"])).toMatch(
+            /^120000 /,
+          );
+          await rm(join(checkout.dir, "tracked-link.txt"));
+
+          await expect(
+            checkout.commit({
+              files: ["tracked-link.txt"],
+              subject: "fix: reject symlink deletion",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(linkHead);
+          expect(await git(checkout.dir, ["write-tree"])).toBe(linkTree);
+
+          const gitlink = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          await git(checkout.dir, [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `160000,${gitlink},tracked-submodule`,
+          ]);
+          await git(checkout.dir, ["commit", "-m", "track gitlink"]);
+          const gitlinkHead = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          const gitlinkTree = await git(checkout.dir, ["write-tree"]);
+          expect(await git(checkout.dir, ["ls-tree", "HEAD", "tracked-submodule"])).toMatch(
+            /^160000 /,
+          );
+
+          await expect(
+            checkout.commit({
+              files: ["tracked-submodule"],
+              subject: "fix: reject gitlink deletion",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(gitlinkHead);
+          expect(await git(checkout.dir, ["write-tree"])).toBe(gitlinkTree);
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
