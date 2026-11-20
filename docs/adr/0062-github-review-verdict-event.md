@@ -51,7 +51,9 @@ reviews. The check run stays the merge gate.
    `APPROVE`; an open blocker changes its standing `APPROVED` to
    `REQUEST_CHANGES`. An open same-id copy at or above the check threshold is
    a blocker even when the oldest thread for that id is resolved or below the
-   threshold. Human-resolved threads count as resolved. Incomplete
+   threshold. The finding lifecycle view counts that copy, so the review check
+   uses the same blocker. A copy this run resolved does not. Human-resolved
+   threads count as resolved. Incomplete
    inventory without a known blocker, a matching verdict, or no standing app
    verdict publishes nothing. A queued or running full review takes precedence.
    Only approval requires a complete inventory; a known blocker in an

@@ -646,6 +646,85 @@ describe("verification work definition", () => {
     },
   );
 
+  it("requests changes when the oldest thread is open below the threshold and a copy blocks", async () => {
+    const findingId = mintFindingId();
+    const canonicalBody = `${renderFindingMarker({ id: findingId, lens: "review", severity: "P3" })}\n**P3** · **Bug**`;
+    const copyBody = `${renderFindingMarker({ id: findingId, lens: "review", severity: "P1" })}\n**P1** · **Bug**`;
+    seedBotFindingThreads([
+      findingThread(1, { titleSnippet: canonicalBody, severity: "P3" }),
+      findingThread(2, { titleSnippet: copyBody, severity: "P1" }),
+    ]);
+    configureVerificationThreads([
+      [1, { threadNodeId: "older", isResolved: false }],
+      [2, { threadNodeId: "newer", isResolved: false }],
+    ]);
+    const surface = fakeDurablePrSurface();
+    const controls = durablePrSurfaceControls();
+    const existingReviews = await surface.listPullRequestReviews();
+    controls.setPullRequestReviews([
+      ...existingReviews,
+      {
+        id: 20_000,
+        userId: 999,
+        authorLogin: "pr-agent[bot]",
+        body: "",
+        commitId: "old-head",
+        htmlUrl: "",
+        state: "APPROVED",
+      },
+    ]);
+
+    await runExecution();
+
+    expect(controls.threadBatches).toEqual([
+      expect.objectContaining({
+        event: "REQUEST_CHANGES",
+        commitId: "a".repeat(40),
+      }),
+    ]);
+  });
+
+  it("requests changes when an open same-id copy has a human reply", async () => {
+    const findingId = mintFindingId();
+    const body = `${renderFindingMarker({ id: findingId, lens: "review", severity: "P1" })}\n**P1** · **Bug**`;
+    seedBotFindingThreads([
+      findingThread(1, { titleSnippet: body, severity: "P1" }),
+      findingThread(2, {
+        titleSnippet: body,
+        severity: "P1",
+        humanReplies: ["not fixed"],
+      }),
+    ]);
+    configureVerificationThreads([
+      [1, { threadNodeId: "older", isResolved: true }],
+      [2, { threadNodeId: "newer", isResolved: false }],
+    ]);
+    const surface = fakeDurablePrSurface();
+    const controls = durablePrSurfaceControls();
+    const existingReviews = await surface.listPullRequestReviews();
+    controls.setPullRequestReviews([
+      ...existingReviews,
+      {
+        id: 20_000,
+        userId: 999,
+        authorLogin: "pr-agent[bot]",
+        body: "",
+        commitId: "old-head",
+        htmlUrl: "",
+        state: "APPROVED",
+      },
+    ]);
+
+    await runExecution();
+
+    expect(controls.threadBatches).toEqual([
+      expect.objectContaining({
+        event: "REQUEST_CHANGES",
+        commitId: "a".repeat(40),
+      }),
+    ]);
+  });
+
   it("short-circuits quietly when there are no open findings", async () => {
     seedBotFindingThreads([]);
 
