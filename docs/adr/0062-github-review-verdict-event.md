@@ -32,7 +32,9 @@ reviews. The check run stays the merge gate.
 2. **Keep incremental batches as `COMMENT`.** The terminal review is one extra
    GitHub review after the summary comment has settled, on the reviewed
    `headSha`, with a unique operation-intent marker. It does not count
-   against `MAX_THREAD_PUBLISH_CALLS`.
+   against `MAX_THREAD_PUBLISH_CALLS`. The review body gives the verdict's
+   reason and links to the summary comment when available. A self-review
+   fallback to `COMMENT` keeps that reason.
 
 3. **Always show this run.** A terminal `COMMENT` dismisses every this-app
    non-dismissed `CHANGES_REQUESTED` review and every this-app non-dismissed
@@ -74,6 +76,7 @@ reviews. The check run stays the merge gate.
    Full-review operation keys remain unchanged.
    Errors log without failing verification. This does not refresh the check
    run, commit status, summary, or coverage, and does not open new findings.
+   If the inventory includes the existing summary comment, the verdict can link to it.
 
 ## Consequences
 

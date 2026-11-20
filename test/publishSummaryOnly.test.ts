@@ -587,7 +587,9 @@ describe("publishReviewSummaryOnly", () => {
       }),
     );
     const body = publishThreadBatch.mock.calls[0]?.[0]?.body ?? "";
-    expect(body).toContain("## PR Agent Review");
+    expect(body).toContain(
+      "No blocking findings remain. [View review summary](https://github.com/o/r/pull/1#issuecomment-2)",
+    );
     expect(dismissPullRequestReview).not.toHaveBeenCalled();
   });
 
@@ -639,7 +641,11 @@ describe("publishReviewSummaryOnly", () => {
     });
     expect(result.kind).toBe("published");
     expect(publishThreadBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "REQUEST_CHANGES", commitId: "sha" }),
+      expect.objectContaining({
+        event: "REQUEST_CHANGES",
+        commitId: "sha",
+        body: expect.stringContaining("1 blocking finding needs attention."),
+      }),
     );
     expect(dismissPullRequestReview).not.toHaveBeenCalled();
   });
@@ -722,7 +728,13 @@ describe("publishReviewSummaryOnly", () => {
     });
     expect(result.kind).toBe("published");
     expect(publishThreadBatch).toHaveBeenCalledWith(
-      expect.objectContaining({ event: "COMMENT", commitId: "sha" }),
+      expect.objectContaining({
+        event: "COMMENT",
+        commitId: "sha",
+        body: expect.stringContaining(
+          "Review coverage was incomplete, so PR Agent did not approve.",
+        ),
+      }),
     );
     expect(dismissPullRequestReview.mock.calls.map((call) => call[0]?.reviewId).toSorted()).toEqual(
       [11, 12, 13],
@@ -776,7 +788,11 @@ describe("publishReviewSummaryOnly", () => {
     );
     expect(publishThreadBatch).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ event: "COMMENT", commitId: "sha" }),
+      expect.objectContaining({
+        event: "COMMENT",
+        commitId: "sha",
+        body: expect.stringContaining("No blocking findings remain."),
+      }),
     );
     expect(dismissPullRequestReview).toHaveBeenCalledWith(
       expect.objectContaining({ reviewId: 31 }),

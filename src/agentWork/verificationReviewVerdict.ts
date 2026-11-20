@@ -136,6 +136,8 @@ export async function refreshReviewVerdictAfterVerification(params: {
       await publishReviewVerdictEvent({
         prSurface,
         event,
+        blockingCount: check.blockingCount,
+        summaryUrl: inventory.summaryUrl,
         headSha: params.headSha,
         workItemId,
         pool,
