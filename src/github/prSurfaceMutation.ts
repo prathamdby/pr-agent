@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { currentOperationIntentKey } from "../agentWork/publishOnce.ts";
-import { AppError, isAppError, toAppError } from "../errors/appError.ts";
+import { throwIfAborted } from "../errors/appError.ts";
 import {
   extractPrSurfaceRecoverDetail,
   isPrSurfaceMutationMethod,
@@ -149,20 +149,6 @@ function mutation(method: keyof PrSurfaceMutationMethods, input: unknown, surfac
   });
 }
 
-function throwIfAborted(signal: AbortSignal) {
-  if (!signal.aborted) return;
-  const reason = signal.reason;
-  if (isAppError(reason)) throw reason;
-  if (reason !== undefined) {
-    throw toAppError(reason, { domain: "agent_work", kind: "execution_aborted" });
-  }
-  throw new AppError({
-    domain: "agent_work",
-    kind: "execution_aborted",
-    message: "PR-surface mutation aborted",
-  });
-}
-
 export function withPrSurfaceMutationBoundary(
   surface: PrSurface,
   boundary: PrSurfaceMutationBoundary,
@@ -176,12 +162,12 @@ export function withPrSurfaceMutationBoundary(
     input: unknown,
     mutate: () => Promise<unknown>,
   ) => {
-    throwIfAborted(boundary.signal);
+    throwIfAborted(boundary.signal, { message: "PR-surface mutation aborted" });
     const selected = mutation(method, input, surface);
     return ((pinnedReturn: Promise<unknown>) => pinnedReturn)(
       boundary
         .run(selected, async () => {
-          throwIfAborted(boundary.signal);
+          throwIfAborted(boundary.signal, { message: "PR-surface mutation aborted" });
           await boundary.confirmLeaseHeld();
           return mutate();
         })

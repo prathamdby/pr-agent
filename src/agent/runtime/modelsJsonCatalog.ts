@@ -129,18 +129,24 @@ function asBoolean(value: unknown, label: string) {
   return ((pinnedReturn: boolean) => pinnedReturn)(value);
 }
 
-function asPositiveNumber(value: unknown, label: string) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw invalidSchema(`${label} must be a positive number`);
+function asFiniteNumber(
+  value: unknown,
+  label: string,
+  reject: (value: number) => boolean,
+  phrase: string,
+) {
+  if (typeof value !== "number" || !Number.isFinite(value) || reject(value)) {
+    throw invalidSchema(`${label} ${phrase}`);
   }
   return ((pinnedReturn: number) => pinnedReturn)(value);
 }
 
+function asPositiveNumber(value: unknown, label: string) {
+  return asFiniteNumber(value, label, (number) => number <= 0, "must be a positive number");
+}
+
 function asNonNegativeNumber(value: unknown, label: string) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw invalidSchema(`${label} must be a non-negative number`);
-  }
-  return ((pinnedReturn: number) => pinnedReturn)(value);
+  return asFiniteNumber(value, label, (number) => number < 0, "must be a non-negative number");
 }
 
 export function expandEnvTemplate(value: string) {

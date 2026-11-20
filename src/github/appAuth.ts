@@ -9,6 +9,7 @@ import { logDebug } from "../evlog.ts";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.ts";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.ts";
 import { errorMessage } from "../errors/errorMessage.ts";
+import { unrefTimer } from "../util/unrefTimer.ts";
 import {
   parseInstallationPermissions,
   type InstallationPermissions,
@@ -145,12 +146,6 @@ export async function mintInstallationAuth(cfg: Pick<Config, "github">, installa
       installationId,
     }),
   );
-}
-
-function unrefTimer(timer: ReturnType<typeof setTimeout>) {
-  if (typeof timer === "object" && "unref" in timer) {
-    timer.unref();
-  }
 }
 
 function clearInstallationOctokitEntry(entry: CachedInstallationOctokit) {

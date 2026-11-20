@@ -355,12 +355,14 @@ function locationLabel(finding: InventoryFinding) {
   return ((pinnedReturn: string) => pinnedReturn)(`lines ${finding.startLine}-${finding.line}`);
 }
 
-function shortTitle(title: string) {
+export function truncateWithEllipsis(title: string, maxChars: number) {
   return ((pinnedReturn: string) => pinnedReturn)(
-    title.length <= CARRIED_TITLE_MAX_CHARS
-      ? title
-      : `${title.slice(0, CARRIED_TITLE_MAX_CHARS - 1)}…`,
+    title.length <= maxChars ? title : `${title.slice(0, maxChars - 1)}…`,
   );
+}
+
+function shortTitle(title: string) {
+  return truncateWithEllipsis(title, CARRIED_TITLE_MAX_CHARS);
 }
 
 export function findingSeverityLabel(severity: FindingSeverity | "unknown") {

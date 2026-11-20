@@ -16,6 +16,7 @@ import {
 } from "../repoPolicy.ts";
 import type { ReviewFinding } from "../reviewSchema.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
+import { parseEmbeddedJsonObject } from "../parseEmbeddedJsonObject.ts";
 
 const BOUND_POLICY_JUDGE_TIMEOUT_MS = 20_000;
 const BOUND_POLICY_SNIPPET_MAX_CHARS = 1_500;
@@ -48,17 +49,11 @@ export type NumberedPolicyPair = {
 };
 
 function extractJsonObject(text: string) {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1]?.trim() ?? trimmed;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+  const value = parseEmbeddedJsonObject(text);
+  if (value === undefined) {
     throw new Error("bound policy judge response contained no JSON object");
   }
-  return ((pinnedReturn: unknown) => pinnedReturn)(
-    JSON.parse(candidate.slice(start, end + 1)) as unknown,
-  );
+  return ((pinnedReturn: unknown) => pinnedReturn)(value);
 }
 
 export function parseBoundPolicyYesIds(text: string, askedIds: ReadonlySet<string>) {

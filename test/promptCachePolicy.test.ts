@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isRecord } from "../src/util/typeGuards.ts";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
 import {
@@ -327,10 +328,6 @@ describe("promptCachePolicy", () => {
     expect(sessionRecordsPromptCacheBreak("verification")).toBe(false);
   });
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function systemBlocks(value: unknown) {
   if (!isRecord(value) || !Array.isArray(value.system))

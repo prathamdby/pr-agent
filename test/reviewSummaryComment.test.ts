@@ -30,32 +30,10 @@ const publishStoreState = vi.hoisted(() => {
     },
   };
 });
-vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
-  persistOperationIntent: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
-      publishStoreState.store.persistOperationIntent(...args),
-  ),
-  mergeOperationIntentDetail: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
-      publishStoreState.store.mergeOperationIntentDetail(...args),
-  ),
-  reconcileOperationIntent: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
-      publishStoreState.store.reconcileOperationIntent(...args),
-  ),
-  getOperationIntent: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
-      publishStoreState.store.getOperationIntent(...args),
-  ),
-  listPendingOperationIntents: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
-      publishStoreState.store.listPendingOperationIntents(...args),
-  ),
-  findInFlightMutatingIntent: vi.fn(
-    (...args: Parameters<typeof publishStoreState.store.findInFlightMutatingIntent>) =>
-      publishStoreState.store.findInFlightMutatingIntent(...args),
-  ),
-}));
+vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
+  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
+  return operationIntentRepositoryMock(publishStoreState);
+});
 beforeEach(() => {
   publishStoreState.store = createFakePublishStore();
 });

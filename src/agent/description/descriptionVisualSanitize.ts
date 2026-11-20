@@ -1,11 +1,10 @@
+import { escapeCodeFence } from "../../github/markdownFormat.ts";
 import type { DescriptionPayload, DescriptionVisual } from "./descriptionSchema.ts";
 import {
   extractMermaidDiagramBody,
   sanitizeMermaidDiagram,
   validateSanitizedMermaidFence,
 } from "./mermaidDiagram.ts";
-
-const FENCE_BREAKER_RE = /```/g;
 
 export function fenceLanguageForVisual(visual: DescriptionVisual) {
   switch (visual.kind) {
@@ -48,10 +47,6 @@ export function stripOuterMarkdownFence(content: string) {
   return ((pinnedReturn: string) => pinnedReturn)(body.trim());
 }
 
-function escapeFenceBreakers(text: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(text.replace(FENCE_BREAKER_RE, "\\`\\`\\`"));
-}
-
 export function sanitizeDescriptionVisual(visual: DescriptionVisual) {
   const stripped = stripOuterMarkdownFence(visual.content);
   if (isMermaidVisual(visual)) {
@@ -66,13 +61,13 @@ export function sanitizeDescriptionVisual(visual: DescriptionVisual) {
   }
   return ((pinnedReturn: DescriptionVisual) => pinnedReturn)({
     ...visual,
-    content: escapeFenceBreakers(stripped),
+    content: escapeCodeFence(stripped),
   });
 }
 
 export function renderDescriptionVisual(visual: DescriptionVisual) {
   const language = fenceLanguageForVisual(visual);
-  const body = escapeFenceBreakers(stripOuterMarkdownFence(visual.content));
+  const body = escapeCodeFence(stripOuterMarkdownFence(visual.content));
   return ((pinnedReturn: string) => pinnedReturn)(["```" + language, body, "```"].join("\n"));
 }
 

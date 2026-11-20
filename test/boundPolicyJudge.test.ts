@@ -71,6 +71,11 @@ describe("parseBoundPolicyYesIds", () => {
     expect(parseBoundPolicyYesIds("not json", new Set(["p0"]))).toEqual([]);
     expect(parseBoundPolicyYesIds('{"yes":[1]}', new Set(["p0"]))).toEqual([]);
   });
+
+  it("returns nothing when a brace pair is not valid JSON", () => {
+    expect(parseBoundPolicyYesIds("{bad}", new Set(["p0"]))).toEqual([]);
+    expect(parseBoundPolicyYesIds("```json\n{bad}\n```", new Set(["p0"]))).toEqual([]);
+  });
 });
 
 describe("attachJudgedBoundPaths", () => {

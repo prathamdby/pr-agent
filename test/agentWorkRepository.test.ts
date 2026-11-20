@@ -7,6 +7,7 @@ vi.mock("../src/db/postgres.ts", () => ({
 
 import { queryOne } from "../src/db/postgres.ts";
 import {
+  getSummaryCommentGithubId,
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
   getProgressCommentOwner,
@@ -18,6 +19,29 @@ import { getWorkItem } from "../src/agentWork/workItemStateRepository.ts";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.ts";
 
 const pool = {} as Pool;
+
+describe("getSummaryCommentGithubId", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns a finite stored id and null for empty or non-numeric values", async () => {
+    vi.mocked(queryOne).mockResolvedValueOnce(null);
+    await expect(getSummaryCommentGithubId(pool, "o/r#1", "review")).resolves.toBeNull();
+
+    vi.mocked(queryOne).mockResolvedValueOnce({ github_id: "" });
+    await expect(getSummaryCommentGithubId(pool, "o/r#1", "review")).resolves.toBeNull();
+
+    vi.mocked(queryOne).mockResolvedValueOnce({ github_id: "abc" });
+    await expect(getSummaryCommentGithubId(pool, "o/r#1", "review")).resolves.toBeNull();
+
+    vi.mocked(queryOne).mockResolvedValueOnce({ github_id: "Infinity" });
+    await expect(getSummaryCommentGithubId(pool, "o/r#1", "review")).resolves.toBeNull();
+
+    vi.mocked(queryOne).mockResolvedValueOnce({ github_id: "42" });
+    await expect(getSummaryCommentGithubId(pool, "o/r#1", "review")).resolves.toBe(42);
+  });
+});
 
 describe("loadReviewExecutorPublishContext", () => {
   beforeEach(() => {

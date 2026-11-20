@@ -1,4 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { createIdleSubmitState } from "../tools/submitState.ts";
 import { toToolParameters } from "../tools/toolParams.ts";
 import { AppError } from "../../errors/appError.ts";
 import { logDebug } from "../../evlog.ts";
@@ -23,11 +24,9 @@ export type SubmitTriageState = {
 };
 
 export function createSubmitTriageState() {
-  return ((pinnedReturn: SubmitTriageState) => pinnedReturn)({
-    submitted: false,
-    lastValidationError: null,
-    payload: null,
-  });
+  return ((pinnedReturn: SubmitTriageState) => pinnedReturn)(
+    createIdleSubmitState<TriagePayload>(),
+  );
 }
 
 const SUBMIT_TRIAGE_PARAMETERS = toToolParameters(TriagePayloadSchema);

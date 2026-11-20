@@ -1,4 +1,21 @@
 import type { Config } from "../../src/settings/index.ts";
+import { TEST_PRIVATE_KEY_PEM } from "./testKey.ts";
+
+export const CONFIG_BASE_ENV = {
+  GITHUB_APP_ID: "1",
+  WEBHOOK_SECRET: "secret",
+  DATABASE_URL: "postgres://u:p@localhost/db",
+};
+
+export async function loadConfigWithBaseEnv(extra: Record<string, string> = {}) {
+  process.env = {
+    ...CONFIG_BASE_ENV,
+    GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
+    ...extra,
+  };
+  const { loadConfig } = await import("../../src/settings/index.ts");
+  return loadConfig();
+}
 
 type ModelsOverrides = Partial<Omit<Config["models"], "providerKeys">> & {
   readonly providerKeys?: Partial<Config["models"]["providerKeys"]>;

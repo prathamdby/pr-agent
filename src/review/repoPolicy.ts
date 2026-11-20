@@ -14,7 +14,7 @@ import {
   REPO_POLICY_DIRNAME,
   REPO_POLICY_EXTENSION,
 } from "../settings/index.ts";
-import { errorMessage } from "../errors/errorMessage.ts";
+import { errorCode, errorMessage } from "../errors/errorMessage.ts";
 
 const frontmatterSchema = v.looseObject({
   globs: v.optional(v.union([v.string(), v.array(v.string())])),
@@ -253,16 +253,6 @@ function defaultGlobsForPath(filePath: string) {
   return ((pinnedReturn: string[]) => pinnedReturn)([sanitized]);
 }
 
-function errnoCode(error: unknown) {
-  if (error && typeof error === "object" && "code" in error) {
-    const code = error.code;
-    return ((pinnedReturn: string | undefined) => pinnedReturn)(
-      typeof code === "string" ? code : undefined,
-    );
-  }
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-}
-
 export type RepoPolicyCandidate = {
   readonly path: string;
   readonly body: string;
@@ -412,7 +402,7 @@ async function loadRepoPolicyFromCheckout(
   try {
     entries = await readdir(policyDir, { withFileTypes: true });
   } catch (error) {
-    const code = errnoCode(error);
+    const code = errorCode(error);
     if (code === "ENOENT") {
       return ((pinnedReturn: RepoPolicyResult | Promise<RepoPolicyResult>) => pinnedReturn)({
         kind: "absent",

@@ -16,6 +16,7 @@ import {
   sitemapRevision,
 } from "../site/lib/contentRevision.ts";
 import { contentRevisionBuildPlugin } from "../site/lib/contentRevisionPlugin.ts";
+import { isRecord } from "../site/lib/contentRevision.ts";
 import {
   CONTENT_REVISION_HOST,
   CONTENT_REVISION_MISMATCH,
@@ -335,10 +336,6 @@ describe("offering layer documents", () => {
     expect(renderAnswerText({ kind: "index" })).toContain("Topics:");
   });
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function recordedHash(value: unknown, id: string) {
   if (!isRecord(value)) {

@@ -1,21 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
-
-const BASE_ENV = {
-  GITHUB_APP_ID: "1",
-  WEBHOOK_SECRET: "secret",
-  DATABASE_URL: "postgres://u:p@localhost/db",
-};
-
-async function load(extra: Record<string, string>) {
-  process.env = {
-    ...BASE_ENV,
-    GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-    ...extra,
-  };
-  const { loadConfig } = await import("../src/settings/index.ts");
-  return loadConfig();
-}
+import { loadConfigWithBaseEnv as load } from "./helpers/config.ts";
 
 describe("feature config", () => {
   const saved = { ...process.env };

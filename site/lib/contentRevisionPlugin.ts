@@ -10,7 +10,7 @@ import {
   stableDocumentBodies,
   type SitemapCoverageResource,
 } from "./contentRevisionCheck.ts";
-import { REVISION_IDS, type RevisionId } from "./contentRevision.ts";
+import { isRecord, REVISION_IDS, type RevisionId } from "./contentRevision.ts";
 
 const siteDir = fileURLToPath(new URL("..", import.meta.url));
 
@@ -19,10 +19,6 @@ export type ContentRevisionIo = {
   readonly bodies?: () => Record<RevisionId, string>;
   readonly sitemapResources?: readonly SitemapCoverageResource[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function stampHashes(value: unknown) {
   const hashes: Record<RevisionId, string | undefined> = {

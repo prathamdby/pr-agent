@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isRecord } from "../../util/typeGuards.ts";
 import { specialistSharedPrefix } from "../../prompts/shared/prefix.ts";
 import { SESSION_CACHE_ID_MAX_LENGTH } from "../../settings/index.ts";
 import type { AgentSessionRole, ModelAssignment } from "./types.ts";
@@ -64,10 +65,6 @@ export function specialistSharedCacheId(identity: AgentSessionCacheIdentity) {
   return ((pinnedReturn: string) => pinnedReturn)(
     sessionCacheIdFromIdentity({ ...identity, specialistId: "shared" }),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function textOf(value: unknown) {

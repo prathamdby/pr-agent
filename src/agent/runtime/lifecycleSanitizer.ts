@@ -1,6 +1,6 @@
 import { logWarn } from "../../evlog.ts";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.ts";
-import { isPlainObject } from "../../util/typeGuards.ts";
+import { isPlainObject, nonEmptyString as asString } from "../../util/typeGuards.ts";
 import type { TurnEnd } from "../providers/usageMetadata.ts";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.ts";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.ts";
@@ -59,32 +59,25 @@ const TOKEN_COUNT_KEYS: Record<string, true> = {
   totalTokens: true,
 };
 
-function asString(value: unknown) {
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(
-    typeof value === "string" && value.length > 0 ? value : undefined,
-  );
-}
-
 function asFiniteNumber(value: unknown) {
   return ((pinnedReturn: number | undefined) => pinnedReturn)(
     typeof value === "number" && Number.isFinite(value) ? value : undefined,
   );
 }
 
-function sanitizeStableCode(value: unknown) {
+function sanitizeMatching(value: unknown, pattern: RegExp) {
   const raw = asString(value);
-  if (!raw) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-  if (!/^[a-z][a-z0-9_.]{0,127}$/i.test(raw))
+  if (!raw || !pattern.test(raw))
     return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
   return ((pinnedReturn: string | undefined) => pinnedReturn)(raw);
 }
 
+function sanitizeStableCode(value: unknown) {
+  return sanitizeMatching(value, /^[a-z][a-z0-9_.]{0,127}$/i);
+}
+
 function sanitizeToolName(value: unknown) {
-  const raw = asString(value);
-  if (!raw) return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-  if (!/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/.test(raw))
-    return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(raw);
+  return sanitizeMatching(value, /^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/);
 }
 
 function sanitizeReason(value: unknown) {

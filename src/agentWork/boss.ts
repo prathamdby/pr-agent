@@ -22,7 +22,7 @@ import {
 import { logDebug, logWarn, logError } from "../evlog.ts";
 import type { QueueConfig } from "./types.ts";
 import { leasedWorkQueues } from "./writeFence.ts";
-import { errorMessage } from "../errors/errorMessage.ts";
+import { errorCode, errorMessage } from "../errors/errorMessage.ts";
 
 type BossConfig = Pick<Config, "runtime">;
 
@@ -151,13 +151,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig) {
 }
 
 function isDuplicateRelationError(error: unknown) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string" &&
-      error.code === "42P07",
-  );
+  return ((pinnedReturn: boolean) => pinnedReturn)(errorCode(error) === "42P07");
 }
 
 async function ensureJobNameSingletonKeyIndex(boss: Pick<PgBoss, "getDb">) {
