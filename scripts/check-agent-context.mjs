@@ -12,6 +12,7 @@ const ROOT =
 
 const AGENTS_BUDGET = 16 * 1024;
 const CLAUDE_BUDGET = 512;
+const CONTEXT_BUDGET = 8 * 1024;
 const MAX_REPO_POLICY_FILES = 20;
 const MAX_REPO_POLICY_FILE_BYTES = 8 * 1024;
 const MAX_REPO_POLICY_TOTAL_BYTES = 32 * 1024;
@@ -36,6 +37,16 @@ const ROOT_PATH_TOKENS = new Set([
 ]);
 
 const RETIRED_ADR_PATTERN = /(?:docs\/adr\b|\bADR[- ]?\d+\b|\badrs?\b)/i;
+const CONTEXT_BULLET_PATTERN = /^- \*\*([^*]+)\*\*\. [A-Z][^.!?]*\.$/;
+const CONTEXT_BANNED_PATTERNS = [
+  [/\d+/, "numbers"],
+  [
+    /(?:\b(?:src|test|docs|scripts|site|migrations)\/|\.pr-agent\/|\.(?:ts|tsx|js|mjs|cjs|sql|mdc|json|ya?ml|md)\b)/,
+    "file paths",
+  ],
+  [/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/, "environment variables"],
+  [/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/, "snake_case identifiers"],
+];
 
 const failures = [];
 const fail = (msg) => failures.push(msg);
@@ -64,19 +75,67 @@ function walkFiles(dir, predicate) {
   return results.toSorted();
 }
 
+function checkContextGlossary(raw) {
+  for (const [pattern, label] of CONTEXT_BANNED_PATTERNS) {
+    const match = raw.match(pattern);
+    if (match) {
+      fail(`CONTEXT.md must not contain ${label} (${JSON.stringify(match[0])})`);
+    }
+  }
+  if (raw.includes("`")) {
+    fail("CONTEXT.md must not contain inline code or fenced blocks");
+  }
+  if (raw.includes("—")) {
+    fail("CONTEXT.md must not contain em dashes");
+  }
+  const lines = raw.replaceAll("\r\n", "\n").trimEnd().split("\n");
+  if (
+    lines.length < 5 ||
+    lines[0] !== "# Context glossary" ||
+    lines[1] !== "" ||
+    !/^[A-Z][^.!?]*\.$/.test(lines[2]) ||
+    lines[3] !== ""
+  ) {
+    fail("CONTEXT.md must start with '# Context glossary' and a single-sentence preamble");
+    return;
+  }
+  const seenTerms = new Set();
+  for (let index = 4; index < lines.length; index += 1) {
+    const bulletMatch = lines[index].match(CONTEXT_BULLET_PATTERN);
+    if (!bulletMatch) {
+      fail(`CONTEXT.md line ${index + 1} must be a single-sentence '**Term**. Sentence.' bullet`);
+      continue;
+    }
+    const term = bulletMatch[1];
+    if (seenTerms.has(term)) {
+      fail(`CONTEXT.md defines duplicate term ${JSON.stringify(term)}`);
+    }
+    seenTerms.add(term);
+  }
+}
+
 const agents = read("AGENTS.md");
 const claude = read("CLAUDE.md");
+const context = read("CONTEXT.md");
 const agentsBytes = Buffer.byteLength(agents, "utf8");
 const claudeBytes = Buffer.byteLength(claude, "utf8");
+const contextBytes = Buffer.byteLength(context, "utf8");
 
 console.log(`AGENTS.md ${agentsBytes} bytes (budget ${AGENTS_BUDGET})`);
 console.log(`CLAUDE.md ${claudeBytes} bytes (budget ${CLAUDE_BUDGET})`);
+console.log(`CONTEXT.md ${contextBytes} bytes (budget ${CONTEXT_BUDGET})`);
 
 if (agentsBytes > AGENTS_BUDGET) {
   fail(`AGENTS.md is ${agentsBytes} bytes, over the ${AGENTS_BUDGET} byte always-loaded budget`);
 }
 if (claudeBytes > CLAUDE_BUDGET) {
   fail(`CLAUDE.md is ${claudeBytes} bytes, over the ${CLAUDE_BUDGET} byte pointer budget`);
+}
+if (contextBytes > CONTEXT_BUDGET) {
+  fail(`CONTEXT.md is ${contextBytes} bytes, over the ${CONTEXT_BUDGET} byte glossary budget`);
+}
+if (context.length > 0) {
+  checkContextGlossary(context);
 }
 if (!claude.includes("@AGENTS.md")) {
   fail("CLAUDE.md must point at AGENTS.md");
