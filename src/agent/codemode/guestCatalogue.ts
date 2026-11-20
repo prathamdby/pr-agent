@@ -30,7 +30,7 @@ const GUEST_CAPABILITY_SPEC_BY_NAME = {
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",
-    rule: "PR base-to-head unified diff for one path. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not prove the path is unchanged. `unchanged` requires a complete changed-file list.",
+    rule: "PR base-to-head unified diff for one path. The call returns an object, and `diff` is always the unified-diff string, including when that string is empty. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not fail the call and does not prove the path is unchanged. `unchanged` requires a complete changed-file list. A thrown host error is the failure.",
   },
   getWorkspaceBlame: {
     call: "await tools.getWorkspaceBlame({ path })",
@@ -84,7 +84,7 @@ const FAN_OUT_CALLS: readonly {
     name: "searchWorkspace",
   },
   {
-    binding: "diff",
+    binding: "patch",
     call: 'tools.getWorkspaceDiff({ path: "src/app.ts" })',
     name: "getWorkspaceDiff",
   },
@@ -166,7 +166,8 @@ export function renderFanOutExample(specs: readonly GuestCapabilitySpec[]) {
   if (names.has("listChangedFiles")) resultFields.push("n: files.files.length");
   if (names.has("readWorkspaceFile")) resultFields.push("srcTrunc: src.truncation");
   if (names.has("searchWorkspace")) resultFields.push("hits: hits.matches.length");
-  if (names.has("getWorkspaceDiff")) resultFields.push("diffTrunc: diff.truncation");
+  if (names.has("getWorkspaceDiff"))
+    resultFields.push("diffBytes: patch.diff.length", "availability: patch.availability");
   lines.push(resultFields.length > 0 ? `({ ${resultFields.join(", ")} })` : "({ done: true })");
 
   return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));

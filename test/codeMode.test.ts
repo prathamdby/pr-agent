@@ -590,6 +590,45 @@ describe("Code Mode", () => {
     expect(execute?.description).not.toContain("submit_findings_report");
   });
 
+  it("locks the getWorkspaceDiff guest contract in the execute description", () => {
+    const bundle = hideWorkspaceToolsBehindCodeMode(
+      {
+        piTools: [
+          { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
+          { name: "readWorkspaceFile", description: "read", parameters: { type: "object" } },
+          { name: "searchWorkspace", description: "search", parameters: { type: "object" } },
+          { name: "getWorkspaceDiff", description: "diff", parameters: { type: "object" } },
+          { name: "getWorkspaceBlame", description: "blame", parameters: { type: "object" } },
+        ],
+        executors: {
+          listChangedFiles: async () => ({ files: [] }),
+          readWorkspaceFile: async () => ({ content: "" }),
+          searchWorkspace: async () => ({ matches: [] }),
+          getWorkspaceDiff: async () => ({ diff: "", availability: "unchanged" }),
+          getWorkspaceBlame: async () => ({ lines: [] }),
+        },
+      },
+      { executorKind: "in_process" },
+    );
+    const execute = bundle.piTools.find((tool) => tool.name === "execute");
+    const description = execute?.description;
+    const rule = description
+      ?.split("\n")
+      .find((line) => line.includes("await tools.getWorkspaceDiff({ path })"));
+    expect(rule).toBe(
+      "- `await tools.getWorkspaceDiff({ path })`. PR base-to-head unified diff for one path. The call returns an object, and `diff` is always the unified-diff string, including when that string is empty. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not fail the call and does not prove the path is unchanged. `unchanged` requires a complete changed-file list. A thrown host error is the failure.",
+    );
+    expect(description).toContain("const [files, src, hits, patch] = await Promise.all([");
+    expect(description).toContain('tools.getWorkspaceDiff({ path: "src/app.ts" })');
+    expect(description).toContain(
+      "({ n: files.files.length, srcTrunc: src.truncation, hits: hits.matches.length, diffBytes: patch.diff.length, availability: patch.availability })",
+    );
+    expect(description).not.toContain("diffTrunc");
+    expect(description).not.toContain("diff.truncation");
+    expect(description).not.toContain("const [files, src, hits, patch, blame]");
+    expect(description).not.toContain('tools.getWorkspaceBlame({ path: "src/app.ts" })');
+  });
+
   it("returns a successful compact tools.* result", async () => {
     const execute = buildCodeModeExecuteTool({
       executorKind: "in_process",
