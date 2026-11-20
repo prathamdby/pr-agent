@@ -32,7 +32,7 @@ import {
   type WorkAttemptResult,
   type WorkClaim,
 } from "./workItemStateRepository.ts";
-import { errorMessage } from "../errors/errorMessage.ts";
+import { errorCode, errorMessage } from "../errors/errorMessage.ts";
 import type { WorkExecutionStopReason } from "../analytics/workCompleted.ts";
 import { fenceForEpoch } from "./writeFence.ts";
 
@@ -122,13 +122,7 @@ export function startCancelObserve(params: {
 }
 
 export function isPostgresDeadlockError(error: unknown) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string" &&
-      error.code === "40P01",
-  );
+  return ((pinnedReturn: boolean) => pinnedReturn)(errorCode(error) === "40P01");
 }
 
 type AtomicClaimResult =

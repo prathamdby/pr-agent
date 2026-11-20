@@ -55,6 +55,16 @@ function attrsFromMatch(raw: string | undefined) {
   return ((pinnedReturn: Record<string, string>) => pinnedReturn)(attrs);
 }
 
+function markerHeadVersion(attrs: Record<string, string>) {
+  const versionRaw = attrs.v;
+  const parsed = versionRaw != null ? Number(versionRaw) : 0;
+  return ((pinnedReturn: { readonly head: string | null; readonly version: number }) =>
+    pinnedReturn)({
+    head: attrs.head ?? null,
+    version: Number.isSafeInteger(parsed) ? parsed : 0,
+  });
+}
+
 function parseFormatAttr(attrs: Record<string, string>) {
   const raw = attrs.fmt;
   if (raw == null) return ((pinnedReturn: number) => pinnedReturn)(0);
@@ -68,11 +78,8 @@ export function parseCiSummaryMarker(body: string) {
   const match = CI_SUMMARY_CELL_RE.exec(body);
   if (match == null) return ((pinnedReturn: CiSummaryMarker | null) => pinnedReturn)(null);
   const attrs = attrsFromMatch(match[1]);
-  const versionRaw = attrs.v;
-  const parsed = versionRaw != null ? Number(versionRaw) : 0;
   return ((pinnedReturn: CiSummaryMarker | null) => pinnedReturn)({
-    head: attrs.head ?? null,
-    version: Number.isSafeInteger(parsed) ? parsed : 0,
+    ...markerHeadVersion(attrs),
     format: parseFormatAttr(attrs),
   });
 }
@@ -343,12 +350,7 @@ export function parseCiRollupMarker(body: string) {
   const match = CI_ROLLUP_RE.exec(body);
   if (match == null) return ((pinnedReturn: CiRollupMarker | null) => pinnedReturn)(null);
   const attrs = attrsFromMatch(match[1]);
-  const versionRaw = attrs.v;
-  const parsed = versionRaw != null ? Number(versionRaw) : 0;
-  return ((pinnedReturn: CiRollupMarker | null) => pinnedReturn)({
-    head: attrs.head ?? null,
-    version: Number.isSafeInteger(parsed) ? parsed : 0,
-  });
+  return ((pinnedReturn: CiRollupMarker | null) => pinnedReturn)(markerHeadVersion(attrs));
 }
 
 export function shouldReplaceCiRollupMarker(body: string, headSha: string, version: number) {

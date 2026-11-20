@@ -1,4 +1,5 @@
 import { appErrorCode, type AppErrorCode, type AppErrorShape } from "./appErrorCodes.ts";
+import { defineEnumerable } from "../util/defineEnumerable.ts";
 import { isRecord } from "../util/typeGuards.ts";
 import {
   sanitizeTelemetryString,
@@ -89,6 +90,28 @@ function jsonSafeRawValue(value: unknown) {
 
 function safeCauseMessage(value: unknown) {
   return ((pinnedReturn: string) => pinnedReturn)(stringifyCause(value, "[unsupported]"));
+}
+
+export function throwIfAborted(
+  signal: AbortSignal | undefined,
+  init: { readonly message: string; readonly context?: AppErrorContext },
+) {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (isAppError(reason)) throw reason;
+  if (reason !== undefined) {
+    throw toAppError(reason, {
+      domain: "agent_work",
+      kind: "execution_aborted",
+      ...(init.context !== undefined ? { context: init.context } : {}),
+    });
+  }
+  throw new AppError({
+    domain: "agent_work",
+    kind: "execution_aborted",
+    message: init.message,
+    ...(init.context !== undefined ? { context: init.context } : {}),
+  });
 }
 
 export function toAppError(
@@ -186,15 +209,6 @@ export function serializeAppError(error: AppError) {
   );
 }
 
-function setSafeProperty(target: Error, key: string, value: unknown) {
-  Object.defineProperty(target, key, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true,
-  });
-}
-
 export function sanitizeErrorForTelemetry(error: unknown) {
   const serialized = isAppError(error) ? serializeAppError(error) : undefined;
   const sanitizedRawValue = error instanceof Error ? undefined : sanitizeTelemetryValue(error);
@@ -209,14 +223,14 @@ export function sanitizeErrorForTelemetry(error: unknown) {
     : sanitizeTelemetryString(error instanceof Error ? error.name : "Error");
 
   if (serialized) {
-    setSafeProperty(safe, "code", serialized.errorCode);
-    setSafeProperty(safe, "context", serialized.errorContext);
-    setSafeProperty(safe, "errorCode", serialized.errorCode);
-    setSafeProperty(safe, "errorMessage", serialized.errorMessage);
-    setSafeProperty(safe, "errorContext", serialized.errorContext);
+    defineEnumerable(safe, "code", serialized.errorCode);
+    defineEnumerable(safe, "context", serialized.errorContext);
+    defineEnumerable(safe, "errorCode", serialized.errorCode);
+    defineEnumerable(safe, "errorMessage", serialized.errorMessage);
+    defineEnumerable(safe, "errorContext", serialized.errorContext);
     if (serialized.errorCause !== undefined) {
-      setSafeProperty(safe, "cause", serialized.errorCause);
-      setSafeProperty(safe, "errorCause", serialized.errorCause);
+      defineEnumerable(safe, "cause", serialized.errorCause);
+      defineEnumerable(safe, "errorCause", serialized.errorCause);
     }
     return ((pinnedReturn: Error) => pinnedReturn)(safe);
   }
@@ -226,11 +240,11 @@ export function sanitizeErrorForTelemetry(error: unknown) {
     if (isRecord(sanitized)) {
       for (const [key, value] of Object.entries(sanitized)) {
         if (key === "name" || key === "message") continue;
-        setSafeProperty(safe, key, value);
+        defineEnumerable(safe, key, value);
       }
     }
   } else if (typeof error === "object" && error !== null) {
-    setSafeProperty(safe, "rawValue", sanitizedRawValue);
+    defineEnumerable(safe, "rawValue", sanitizedRawValue);
   }
   return ((pinnedReturn: Error) => pinnedReturn)(safe);
 }

@@ -22,6 +22,12 @@ import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.ts";
 import { isRecord } from "../util/typeGuards.ts";
 import type { OperationIntentRow } from "./operationIntentRepository.ts";
 
+function finiteGithubId(raw: string | null | undefined) {
+  if (!raw) return ((pinnedReturn: number | null) => pinnedReturn)(null);
+  const id = Number(raw);
+  return ((pinnedReturn: number | null) => pinnedReturn)(Number.isFinite(id) ? id : null);
+}
+
 export async function claimSummaryCommentCreation(
   pool: Pool | PoolClient,
   workItemId: string,
@@ -68,12 +74,7 @@ export async function getSummaryCommentGithubId(
 		  LIMIT 1`,
     [resourceKey, reviewLens],
   );
-  if (!row?.github_id)
-    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null);
-  const id = Number(row.github_id);
-  return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
-    Number.isFinite(id) ? id : null,
-  );
+  return finiteGithubId(row?.github_id);
 }
 
 export async function getProgressCommentOwner(
@@ -174,12 +175,7 @@ export async function getReviewCheckRunGithubId(
 		  LIMIT 1`,
     [workItemId, reviewLens],
   );
-  if (!row?.github_id)
-    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(null);
-  const id = Number(row.github_id);
-  return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
-    Number.isFinite(id) ? id : null,
-  );
+  return finiteGithubId(row?.github_id);
 }
 
 const selectedOwnVerdictSchema = v.object({

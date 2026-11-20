@@ -8,7 +8,7 @@ import {
   MAX_AGENT_INSTRUCTION_BYTES,
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
 } from "../settings/index.ts";
-import { errorMessage } from "../errors/errorMessage.ts";
+import { errorCode, errorMessage } from "../errors/errorMessage.ts";
 
 type AgentInstructionFilename = (typeof AGENT_INSTRUCTION_FILENAMES)[number];
 
@@ -34,16 +34,6 @@ type DiscoveredFile =
   | { readonly filename: AgentInstructionFilename; readonly kind: "loaded"; readonly body: string }
   | { readonly filename: AgentInstructionFilename; readonly kind: "skip"; readonly reason: string };
 
-function errnoCode(error: unknown) {
-  if (error && typeof error === "object" && "code" in error) {
-    const code = error.code;
-    return ((pinnedReturn: string | undefined) => pinnedReturn)(
-      typeof code === "string" ? code : undefined,
-    );
-  }
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(undefined);
-}
-
 async function discoverAgentInstructionFile(
   checkoutRoot: string,
   filename: AgentInstructionFilename,
@@ -53,7 +43,7 @@ async function discoverAgentInstructionFile(
   try {
     fileStat = await stat(absolutePath);
   } catch (error) {
-    if (errnoCode(error) === "ENOENT")
+    if (errorCode(error) === "ENOENT")
       return ((pinnedReturn: (DiscoveredFile | null) | Promise<DiscoveredFile | null>) =>
         pinnedReturn)(null);
     const message = errorMessage(error);

@@ -14,6 +14,7 @@ import {
 } from "../../settings/index.ts";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
 import { AppError } from "../../errors/appError.ts";
+import { parseEmbeddedJsonObject } from "../parseEmbeddedJsonObject.ts";
 import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import { redactReviewText } from "../findings/reviewPublicOutput.ts";
@@ -292,21 +293,15 @@ export type CiAuthorInput = {
 export type CiSummaryAuthor = (input: CiAuthorInput) => Promise<CiSummaryLlmFields | null>;
 
 function extractJsonObject(text: string) {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1]?.trim() ?? trimmed;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+  const value = parseEmbeddedJsonObject(text);
+  if (value === undefined) {
     throw new AppError({
       domain: "ci",
       kind: "summary_no_json",
       message: "CI summary LLM response contained no JSON object",
     });
   }
-  return ((pinnedReturn: unknown) => pinnedReturn)(
-    JSON.parse(candidate.slice(start, end + 1)) as unknown,
-  );
+  return ((pinnedReturn: unknown) => pinnedReturn)(value);
 }
 
 export function parseCiSummaryLlmText(text: string) {

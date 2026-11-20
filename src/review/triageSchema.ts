@@ -144,10 +144,14 @@ export type VerificationValidationInput = {
   readonly pushedShas: readonly string[];
 };
 
-export function formatVerificationValidationError(issues: readonly string[]) {
+function formatPayloadValidationError(title: string, issues: readonly string[]) {
   return ((pinnedReturn: string) => pinnedReturn)(
-    ["VerificationPayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join("\n"),
+    [title, ...issues.map((issue) => `- ${issue}`)].join("\n"),
   );
+}
+
+export function formatVerificationValidationError(issues: readonly string[]) {
+  return formatPayloadValidationError("VerificationPayload validation failed:", issues);
 }
 
 export function validateVerificationVerdicts(params: VerificationValidationInput) {
@@ -268,9 +272,7 @@ export type TriageValidationInput = {
 };
 
 export function formatTriageValidationError(issues: readonly string[]) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    ["TriagePayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join("\n"),
-  );
+  return formatPayloadValidationError("TriagePayload validation failed:", issues);
 }
 
 export function validateTriageVerdicts(params: TriageValidationInput) {

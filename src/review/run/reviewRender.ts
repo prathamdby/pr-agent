@@ -1,4 +1,5 @@
 import {
+  escapeCodeFence,
   escapeTablePlainCell,
   escapeTableHtml,
   renderGitHubAlert,
@@ -43,6 +44,7 @@ import {
   findingSeverityLabel,
   largestFittingBody,
   renderCarriedFindingCell,
+  truncateWithEllipsis,
   renderResolvedThisRun,
   type FindingView,
   type FindingViewRow,
@@ -70,14 +72,9 @@ export type SummaryPlacement = InlinePlacement & { readonly findingRow?: Finding
 
 const DURABLE_ROW_TITLE_MAX_CHARS = 80;
 
-const CODE_FENCE_RE = /```/g;
 const HTML_COMMENT_DASH_RE = /--/g;
 const HTML_COMMENT_CLOSE_RE = />/g;
 const CONTROL_MARKER_OPEN_RE = /<!--(?=\s*pr-agent:)/g;
-
-function escapeCodeFenceBreakers(text: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(text.replace(CODE_FENCE_RE, "\\`\\`\\`"));
-}
 
 function neutralizeControlMarkers(text: string) {
   return ((pinnedReturn: string) => pinnedReturn)(text.replace(CONTROL_MARKER_OPEN_RE, "&lt;!--"));
@@ -168,7 +165,7 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   const lines: string[] = [];
 
   lines.push(`[${finding.severity}] ${location}`);
-  lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
+  lines.push(finding.fixPrompt ? escapeCodeFence(finding.fixPrompt) : "");
   if (!opts.inlinePosted) {
     lines.push("[inline thread omitted — summary only]");
   }
@@ -199,7 +196,7 @@ function renderSummaryOnlyFixAccordion(
     `<summary>Prompt to fix — ${severity} · ${escapeTableHtml(title)}</summary>`,
     "",
     "```",
-    escapeCodeFenceBreakers(fixPrompt),
+    escapeCodeFence(fixPrompt),
     "```",
     "",
     "</details>",
@@ -224,11 +221,7 @@ type SummaryRenderOptions = {
 };
 
 function truncatedTitle(title: string) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    title.length <= DURABLE_ROW_TITLE_MAX_CHARS
-      ? title
-      : `${title.slice(0, DURABLE_ROW_TITLE_MAX_CHARS - 1)}…`,
-  );
+  return truncateWithEllipsis(title, DURABLE_ROW_TITLE_MAX_CHARS);
 }
 
 function renderMinimalDurableRowCellHtml(
@@ -282,7 +275,7 @@ function renderSuggestedCodeBlock(finding: ReviewFinding) {
   if (finding.suggestedCode == null) return ((pinnedReturn: string[]) => pinnedReturn)([]);
   if (finding.startLine !== finding.endLine) return ((pinnedReturn: string[]) => pinnedReturn)([]);
 
-  const escapedCode = neutralizeControlMarkers(escapeCodeFenceBreakers(finding.suggestedCode));
+  const escapedCode = neutralizeControlMarkers(escapeCodeFence(finding.suggestedCode));
   if (escapedCode !== finding.suggestedCode) return ((pinnedReturn: string[]) => pinnedReturn)([]);
 
   return ((pinnedReturn: string[]) => pinnedReturn)(["", "```suggestion", escapedCode, "```"]);
@@ -377,17 +370,13 @@ export function renderAgentFixPrompt(
       "",
       "Follow-ups:",
       "",
-      payload.followUps
-        .map((item, index) => `${index + 1}. ${escapeCodeFenceBreakers(item)}`)
-        .join("\n"),
+      payload.followUps.map((item, index) => `${index + 1}. ${escapeCodeFence(item)}`).join("\n"),
     );
   }
   if (shouldIncludeCiInAgentFixPrompt(ciSummary)) {
     lines.push(
       "",
-      escapeCodeFenceBreakers(
-        wrapUntrustedBlock("ci_summary", formatCiSummaryPlainText(ciSummary)),
-      ),
+      escapeCodeFence(wrapUntrustedBlock("ci_summary", formatCiSummaryPlainText(ciSummary))),
     );
   }
   return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));

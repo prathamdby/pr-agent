@@ -14,7 +14,13 @@ import {
   VERIFICATION_PUBLISH_LENS,
   type AnyReviewLens,
 } from "../settings/index.ts";
-import { AppError, errorLogFields, isAppError, toAppError } from "../errors/appError.ts";
+import {
+  AppError,
+  errorLogFields,
+  isAppError,
+  throwIfAborted,
+  toAppError,
+} from "../errors/appError.ts";
 import type { AppErrorCode } from "../errors/appErrorCodes.ts";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.ts";
 import { type OperationIntentRow } from "./operationIntentRepository.ts";
@@ -93,20 +99,23 @@ export const OPERATION_INTENT_SEND_STARTED_KEY = "__sendStarted";
 export const OPERATION_INTENT_MUTATING_EPOCH_KEY = "__mutatingEpoch";
 export const OPERATION_INTENT_RESULT_KEY = "__result";
 
-export function askReplyOperationKey(resourceKey: string, targetCommentId?: number) {
+function askOperationKey(
+  kind: "reply" | "failure_reply",
+  resourceKey: string,
+  targetCommentId?: number,
+) {
+  const base = `ask:${kind}:${resourceKey}`;
   return ((pinnedReturn: string) => pinnedReturn)(
-    targetCommentId == null
-      ? `ask:reply:${resourceKey}`
-      : `ask:reply:${resourceKey}:${targetCommentId}`,
+    targetCommentId == null ? base : `${base}:${targetCommentId}`,
   );
 }
 
+export function askReplyOperationKey(resourceKey: string, targetCommentId?: number) {
+  return askOperationKey("reply", resourceKey, targetCommentId);
+}
+
 export function askFailureReplyOperationKey(resourceKey: string, targetCommentId?: number) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    targetCommentId == null
-      ? `ask:failure_reply:${resourceKey}`
-      : `ask:failure_reply:${resourceKey}:${targetCommentId}`,
-  );
+  return askOperationKey("failure_reply", resourceKey, targetCommentId);
 }
 
 export function descriptionPrBodyOperationKey(resourceKey: string) {
@@ -485,15 +494,7 @@ export function throwIfExecutionAborted(
   signal: AbortSignal | undefined,
   context: Record<string, unknown>,
 ) {
-  if (!signal?.aborted) return;
-  const reason = signal.reason;
-  if (isAppError(reason)) throw reason;
-  if (reason !== undefined) {
-    throw toAppError(reason, { domain: "agent_work", kind: "execution_aborted", context });
-  }
-  throw new AppError({
-    domain: "agent_work",
-    kind: "execution_aborted",
+  throwIfAborted(signal, {
     message: "PR-surface mutation was aborted before completion",
     context,
   });

@@ -22,7 +22,7 @@ const SITEMAP_REVISION: Record<string, RevisionId> = {
   "/openapi.json": "openapi",
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 

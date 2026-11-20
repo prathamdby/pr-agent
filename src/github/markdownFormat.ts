@@ -1,3 +1,9 @@
+const CODE_FENCE_RE = /```/g;
+
+export function escapeCodeFence(text: string) {
+  return ((pinnedReturn: string) => pinnedReturn)(text.replace(CODE_FENCE_RE, "\\`\\`\\`"));
+}
+
 export function escapeTableCell(text: string) {
   return ((pinnedReturn: string) => pinnedReturn)(
     text.replace(/\|/g, "\\|").replace(/\r?\n/g, " "),

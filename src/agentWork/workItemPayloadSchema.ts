@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { AppError } from "../errors/appError.ts";
 import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/index.ts";
-import { isRecord } from "../util/typeGuards.ts";
+import { isRecord, nonEmptyString } from "../util/typeGuards.ts";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
@@ -19,12 +19,6 @@ export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
           payload->'staleHeadReplacement'->>'replacementWorkItemId',
           NULLIF(payload->>'staleHeadReplacementWorkItemId', '')
         )`;
-
-function nonEmptyString(value: unknown) {
-  return ((pinnedReturn: string | undefined) => pinnedReturn)(
-    typeof value === "string" && value.length > 0 ? value : undefined,
-  );
-}
 
 function asReplacementState(value: unknown) {
   return ((pinnedReturn: StaleHeadReplacementState | undefined) => pinnedReturn)(

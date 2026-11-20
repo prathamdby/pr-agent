@@ -1,4 +1,5 @@
 import { redactOutboundSecrets } from "./redactOutboundSecrets.ts";
+import { defineEnumerable } from "../util/defineEnumerable.ts";
 import { isRecord } from "../util/typeGuards.ts";
 
 const CIRCULAR_VALUE = "[circular]";
@@ -34,15 +35,6 @@ type SanitizedValue = {
   readonly value: unknown;
   readonly changed: boolean;
 };
-
-function setProperty(target: Record<string, unknown>, key: string, value: unknown) {
-  Object.defineProperty(target, key, {
-    configurable: true,
-    enumerable: true,
-    value,
-    writable: true,
-  });
-}
 
 function sanitizeString(value: string) {
   return ((pinnedReturn: string) => pinnedReturn)(redactOutboundSecrets(value));
@@ -106,12 +98,12 @@ function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number) 
     const next: Record<string, unknown> = {};
     const name = readProperty(error, "name");
     const message = readProperty(error, "message");
-    setProperty(
+    defineEnumerable(
       next,
       "name",
       sanitizeString(typeof name.value === "string" ? name.value : "Error"),
     );
-    setProperty(
+    defineEnumerable(
       next,
       "message",
       sanitizeString(typeof message.value === "string" ? message.value : ""),
@@ -119,21 +111,25 @@ function sanitizeError(error: Error, ancestors: WeakSet<object>, depth: number) 
 
     const stack = readProperty(error, "stack");
     if (stack.present && typeof stack.value === "string") {
-      setProperty(next, "stack", sanitizeString(stack.value));
+      defineEnumerable(next, "stack", sanitizeString(stack.value));
     }
 
     const cause = readProperty(error, "cause");
     if (cause.present) {
-      setProperty(next, "cause", sanitizeValue(cause.value, ancestors, depth + 1).value);
+      defineEnumerable(next, "cause", sanitizeValue(cause.value, ancestors, depth + 1).value);
     }
 
     for (const key of Object.keys(error)) {
       if (key === "name" || key === "message" || key === "stack" || key === "cause") continue;
       if (isSensitiveTelemetryKey(key)) {
-        setProperty(next, key, "[redacted]");
+        defineEnumerable(next, key, "[redacted]");
         continue;
       }
-      setProperty(next, key, sanitizeValue(Reflect.get(error, key), ancestors, depth + 1).value);
+      defineEnumerable(
+        next,
+        key,
+        sanitizeValue(Reflect.get(error, key), ancestors, depth + 1).value,
+      );
     }
     return ((pinnedReturn: SanitizedValue) => pinnedReturn)({ value: next, changed: true });
   } catch {
@@ -213,12 +209,12 @@ const sanitizeObject: (
     let changed = false;
     for (const key of Object.keys(object)) {
       if (isSensitiveTelemetryKey(key)) {
-        setProperty(next, key, "[redacted]");
+        defineEnumerable(next, key, "[redacted]");
         changed = true;
         continue;
       }
       const sanitized = sanitizeValue(Reflect.get(object, key), ancestors, depth + 1);
-      setProperty(next, key, sanitized.value);
+      defineEnumerable(next, key, sanitized.value);
       changed ||= sanitized.changed;
     }
     return ((pinnedReturn: SanitizedValue) => pinnedReturn)(

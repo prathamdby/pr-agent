@@ -27,26 +27,25 @@ export type AskQuestionParseResult =
   | { kind: "missing" }
   | { kind: "too_long" };
 
+function classifyAskQuestion(text: string) {
+  if (text.length === 0)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "missing" });
+  if (text.length > MAX_ASK_QUESTION_CHARS)
+    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "too_long" });
+  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "ok", question: text });
+}
+
 export function parseAskQuestionResult(body: string) {
   const rest = askRestFromBody(body);
   if (rest == null)
     return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "not_ask" });
-  if (rest.length === 0)
-    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "missing" });
-  if (rest.length > MAX_ASK_QUESTION_CHARS)
-    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "too_long" });
-  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "ok", question: rest });
+  return classifyAskQuestion(rest);
 }
 
 function parseMentionAskQuestion(body: string, botLogin: string) {
   if (!commentMentionsBot(body, botLogin))
     return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "not_ask" });
-  const question = stripBotMentions(body, botLogin);
-  if (question.length === 0)
-    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "missing" });
-  if (question.length > MAX_ASK_QUESTION_CHARS)
-    return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "too_long" });
-  return ((pinnedReturn: AskQuestionParseResult) => pinnedReturn)({ kind: "ok", question });
+  return classifyAskQuestion(stripBotMentions(body, botLogin));
 }
 
 export function parseAskQuestion(body: string, botLogin?: string) {

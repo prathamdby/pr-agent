@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { isRecord } from "../src/util/typeGuards.ts";
 import type { Socket } from "node:net";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1215,10 +1216,6 @@ type Loopback = {
   readonly requests: InspectedRequest[];
   close: () => Promise<void>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 const includesMarker: (value: unknown, marker: string) => boolean = (
   value: unknown,

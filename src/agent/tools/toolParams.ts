@@ -1,11 +1,12 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import * as v from "valibot";
+import { isRecord } from "../../util/typeGuards.ts";
 
 type JsonSchemaNode = { [key: string]: unknown };
 
 function isSchemaNode(value: unknown): value is JsonSchemaNode {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isRecord(value);
 }
 
 function closeObjects(node: unknown) {

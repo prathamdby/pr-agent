@@ -17,56 +17,58 @@ export function optionalEnv(name: string, defaultValue: string) {
   return ((pinnedReturn: string) => pinnedReturn)(process.env[name] ?? defaultValue);
 }
 
-export function readPositiveNumber(name: string, defaultValue: number) {
+function readBoundedNumber(
+  name: string,
+  defaultValue: number,
+  accept: (value: number) => boolean,
+  message: string,
+) {
   const value = Number(optionalEnv(name, String(defaultValue)));
-  if (!Number.isFinite(value) || value < 1) {
+  if (!accept(value)) {
     throw new AppError({
       domain: "config",
       kind: "invalid_number",
-      message: `${name} must be a positive number`,
+      message,
       context: { name },
     });
   }
   return ((pinnedReturn: number) => pinnedReturn)(value);
+}
+
+export function readPositiveNumber(name: string, defaultValue: number) {
+  return readBoundedNumber(
+    name,
+    defaultValue,
+    (value) => Number.isFinite(value) && value >= 1,
+    `${name} must be a positive number`,
+  );
 }
 
 export function readNonNegativeNumber(name: string, defaultValue: number) {
-  const value = Number(optionalEnv(name, String(defaultValue)));
-  if (!Number.isFinite(value) || value < 0) {
-    throw new AppError({
-      domain: "config",
-      kind: "invalid_number",
-      message: `${name} must be zero or a positive number`,
-      context: { name },
-    });
-  }
-  return ((pinnedReturn: number) => pinnedReturn)(value);
+  return readBoundedNumber(
+    name,
+    defaultValue,
+    (value) => Number.isFinite(value) && value >= 0,
+    `${name} must be zero or a positive number`,
+  );
 }
 
 export function readPositiveInteger(name: string, defaultValue: number) {
-  const value = Number(optionalEnv(name, String(defaultValue)));
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new AppError({
-      domain: "config",
-      kind: "invalid_number",
-      message: `${name} must be a positive integer`,
-      context: { name },
-    });
-  }
-  return ((pinnedReturn: number) => pinnedReturn)(value);
+  return readBoundedNumber(
+    name,
+    defaultValue,
+    (value) => Number.isSafeInteger(value) && value >= 1,
+    `${name} must be a positive integer`,
+  );
 }
 
 export function readNonNegativeInteger(name: string, defaultValue: number) {
-  const value = Number(optionalEnv(name, String(defaultValue)));
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new AppError({
-      domain: "config",
-      kind: "invalid_number",
-      message: `${name} must be zero or a non-negative integer`,
-      context: { name },
-    });
-  }
-  return ((pinnedReturn: number) => pinnedReturn)(value);
+  return readBoundedNumber(
+    name,
+    defaultValue,
+    (value) => Number.isSafeInteger(value) && value >= 0,
+    `${name} must be zero or a non-negative integer`,
+  );
 }
 
 export function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T) {

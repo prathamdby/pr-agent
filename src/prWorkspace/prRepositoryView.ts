@@ -10,6 +10,7 @@ import {
   type PullRequestForFileList,
 } from "../github/listPullRequestFiles.ts";
 import { logWarn } from "../evlog.ts";
+import { unrefTimer } from "../util/unrefTimer.ts";
 import {
   PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
   MAX_PR_FILES_LISTED,
@@ -58,12 +59,6 @@ function cancelReleaseTimer(entry: CacheEntry) {
   if (!entry.releaseTimer) return;
   clearTimeout(entry.releaseTimer);
   entry.releaseTimer = null;
-}
-
-function unrefTimer(timer: ReturnType<typeof setTimeout>) {
-  if (typeof timer === "object" && "unref" in timer) {
-    timer.unref();
-  }
 }
 
 function cacheKey(

@@ -1,23 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/errors/appError.ts";
 import { ENV, type Config } from "../src/settings/index.ts";
+import { CONFIG_BASE_ENV, loadConfigWithBaseEnv as load } from "./helpers/config.ts";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.ts";
-
-const BASE_ENV = {
-  GITHUB_APP_ID: "1",
-  WEBHOOK_SECRET: "secret",
-  DATABASE_URL: "postgres://u:p@localhost/db",
-};
-
-async function load(extra: Record<string, string>) {
-  process.env = {
-    ...BASE_ENV,
-    GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-    ...extra,
-  };
-  const { loadConfig } = await import("../src/settings/index.ts");
-  return loadConfig();
-}
 
 describe("loadConfig validation", () => {
   const saved = { ...process.env };
@@ -235,7 +220,7 @@ describe("loadConfig validation", () => {
 
   it("throws config.missing_env with the variable name in context", async () => {
     process.env = {
-      ...BASE_ENV,
+      ...CONFIG_BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     };
     delete process.env[ENV.DATABASE_URL];

@@ -1,4 +1,5 @@
 import { createDurableExecutionContext } from "../src/agentWork/durableJob.ts";
+import { isRecord } from "../src/util/typeGuards.ts";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -163,10 +164,6 @@ function findingThread(
     threadUrl: "https://github.test/thread",
     ...overrides,
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function callArgument(fn: { mock: { calls: readonly (readonly unknown[])[] } }) {
