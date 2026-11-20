@@ -14,19 +14,19 @@ export type GuestCapabilitySpec = {
 const GUEST_CAPABILITY_SPEC_BY_NAME = {
   listChangedFiles: {
     call: "await tools.listChangedFiles({ continuation? })",
-    rule: "Changed paths with status and checkout presence. Omit continuation for the first page, then pass the returned continuation until it is null. total is the admitted count. truncated means the pull request has changes beyond the admitted files. files is always an array.",
+    rule: "Changed paths with status and checkout presence. Omit continuation for the first page, then pass the returned continuation until it is null. total is the admitted count. truncated means the pull request has changes beyond the admitted files. The call returns an object, and `files` is always the array.",
   },
   readWorkspaceFile: {
     call: "await tools.readWorkspaceFile({ path, startLine?, maxLines? })",
-    rule: "Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes.",
+    rule: "Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes. The call returns an object. `content` is a string on a delivered read, null when the path is deleted, and absent when the read is refused or spilled. A spill holds the excerpt in `tail`.",
   },
   searchWorkspace: {
     call: "await tools.searchWorkspace({ query, terms?, maxResults? })",
-    rule: "Literal text, matched case-sensitively, not regex. `terms` adds literals and ranks files by how many they contain. On truncation, search for more specific text.",
+    rule: "Literal text, matched case-sensitively, not regex. `terms` adds literals and ranks files by how many they contain. On truncation, search for more specific text. The call returns an object, and `matches` is always the array. Each hit has `path`, `line`, and `text`. `files` exists only when `terms` has entries.",
   },
   findFiles: {
     call: "await tools.findFiles({ query, maxResults? })",
-    rule: "Fuzzy, case-insensitive path lookup, best match first. Paths only; read before citing.",
+    rule: "Fuzzy, case-insensitive path lookup, best match first. Paths only; read before citing. The call returns an object, and `paths` is always the string array.",
   },
   getWorkspaceDiff: {
     call: "await tools.getWorkspaceDiff({ path })",
@@ -34,11 +34,11 @@ const GUEST_CAPABILITY_SPEC_BY_NAME = {
   },
   getWorkspaceBlame: {
     call: "await tools.getWorkspaceBlame({ path })",
-    rule: "Whole-file blame. Use when who changed a line, or when, decides the question.",
+    rule: "Whole-file blame. Use when who changed a line, or when, decides the question. The call returns an object, and `blame` is a string, or null when the path is deleted or refused.",
   },
   resolveSymbol: {
     call: "await tools.resolveSymbol({ name, maxResults? })",
-    rule: "Definition hints, not evidence. Confirm with readWorkspaceFile before citing.",
+    rule: "Definition hints, not evidence. Confirm with readWorkspaceFile before citing. The call returns an object, and `matches` is always the array. Each entry has `path`, `line`, and `kind`.",
   },
 } as const satisfies Record<
   CodeModeWorkspaceToolName,
@@ -72,7 +72,7 @@ const FAN_OUT_CALLS: readonly {
   readonly call: string;
   readonly name: CodeModeWorkspaceToolName;
 }[] = [
-  { binding: "files", call: "tools.listChangedFiles()", name: "listChangedFiles" },
+  { binding: "page", call: "tools.listChangedFiles()", name: "listChangedFiles" },
   {
     binding: "src",
     call: 'tools.readWorkspaceFile({ path: "src/app.ts", startLine: 1, maxLines: 80 })',
@@ -89,7 +89,7 @@ const FAN_OUT_CALLS: readonly {
     name: "getWorkspaceDiff",
   },
   {
-    binding: "blame",
+    binding: "annotated",
     call: 'tools.getWorkspaceBlame({ path: "src/app.ts" })',
     name: "getWorkspaceBlame",
   },
@@ -156,18 +156,24 @@ export function renderFanOutExample(specs: readonly GuestCapabilitySpec[]) {
     }
   }
 
-  if (names.has("listChangedFiles")) {
-    lines.push("state.changed = files.files.map((f) => f.path);");
+  if (bindings.includes("page")) {
+    lines.push("state.changed = page.files.map((f) => f.path);");
   } else if (names.has("readWorkspaceFile")) {
     lines.push('state.seen = { path: "src/app.ts" };');
   }
 
+  const bound = new Set(bindings);
   const resultFields: string[] = [];
-  if (names.has("listChangedFiles")) resultFields.push("n: files.files.length");
-  if (names.has("readWorkspaceFile")) resultFields.push("srcTrunc: src.truncation");
-  if (names.has("searchWorkspace")) resultFields.push("hits: hits.matches.length");
-  if (names.has("getWorkspaceDiff"))
+  if (bound.has("page")) resultFields.push("n: page.files.length");
+  if (bound.has("src"))
+    resultFields.push('srcBytes: typeof src.content === "string" ? src.content.length : 0');
+  if (bound.has("hits")) resultFields.push("hits: hits.matches.length");
+  if (bound.has("patch"))
     resultFields.push("diffBytes: patch.diff.length", "availability: patch.availability");
+  if (bound.has("annotated"))
+    resultFields.push(
+      'blameBytes: typeof annotated.blame === "string" ? annotated.blame.length : 0',
+    );
   lines.push(resultFields.length > 0 ? `({ ${resultFields.join(", ")} })` : "({ done: true })");
 
   return ((pinnedReturn: string) => pinnedReturn)(lines.join("\n"));
