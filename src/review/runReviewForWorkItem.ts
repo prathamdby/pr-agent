@@ -260,6 +260,7 @@ async function closeStoredReviewVerdict(args: {
   readonly leaseEpoch: number | null;
   readonly commitStatusEnabled: boolean;
   readonly outcome: OwnVerdictOutcome;
+  readonly summaryCommentId?: number | null;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
 }) {
   const {
@@ -296,6 +297,7 @@ async function closeStoredReviewVerdict(args: {
   await tryPublishCloseOutcomeReview({
     prSurface,
     outcome,
+    summaryCommentId: args.summaryCommentId,
     headSha: item.headSha,
     workItemId: item.id,
     pool,
@@ -1090,6 +1092,7 @@ async function runClaimedReview(args: {
           leaseEpoch: env.leaseEpoch,
           commitStatusEnabled,
           outcome: ownVerdictFromSummaryDetail(summaryDetail),
+          summaryCommentId: publishContext.progressCommentGithubId,
         });
       } catch (error) {
         logWarn("review_receipt_cleanup_deferred", {

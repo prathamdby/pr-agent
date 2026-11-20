@@ -423,6 +423,7 @@ export async function publishReviewSummaryOnly(
     prSurface: session.prSurface,
     outcome: settledOutcome,
     headSha,
+    summaryCommentId: summary.id,
     workItemId: session.verdict?.workItemId ?? session.workItemId,
     pool: session.verdict?.pool ?? session.pool,
     leaseEpoch: session.verdict?.leaseEpoch,

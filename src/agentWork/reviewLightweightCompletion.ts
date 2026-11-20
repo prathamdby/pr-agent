@@ -192,6 +192,7 @@ export async function tryLightweightAutoReviewCompletion(
     prSurface: params.prSurface,
     outcome: { kind: "published", ...check },
     headSha: params.item.headSha,
+    summaryCommentId: summary.id,
     workItemId: params.item.id,
     pool,
     leaseEpoch: params.leaseEpoch,
