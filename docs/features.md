@@ -97,7 +97,7 @@ Notes:
 - Recovery is part of review. It is not a ninth feature and not a `FEATURE_*`
   mode. A restart can reuse a validated brief or report. Evidence is read
   again. Publication uses the normal gates. It does not restore a transcript.
-  See [configuration.md](configuration.md) and [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+  See [configuration.md](configuration.md).
 - A typed GitHub review-thread resolution denial stops verification rather than
   claiming the thread was resolved. A reply accepted before that denial remains
   accepted; the denial is not permission to repeat it. Confirm App permissions
@@ -131,7 +131,7 @@ Notes:
   thread-mutation lock, with best-effort timeout skips.
   Verification retry markers bind the work item, head SHA, and event.
   Checks and commit statuses are unchanged. App approval may not satisfy
-  required-review branch rules. See [ADR 0062](adr/0062-github-review-verdict-event.md).
+  required-review branch rules.
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` is available in every mode on open PRs.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.

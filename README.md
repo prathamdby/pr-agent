@@ -51,7 +51,7 @@ With no open findings, verification skips the agent. It checks the live head fir
 <details>
 <summary>Review rules and slash matching</summary>
 
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A tool-using session can call `report_obstacle` when a tool, prompt, input, or instruction blocks its step. The report is stored in Postgres (`agent_feedback`) after credential-shaped text is replaced, and it is not shown to another reviewer. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. A report whose judgment did not finish is not published, and the summary says the review was not fully judged. Open findings at or above `REVIEW_CHECK_FAIL_SEVERITY` fail the review check run, including findings from earlier reviews. The default is `P2`. `P3` fails only when the threshold is `P3`. When two open threads report the same defect, review keeps one, replies on the copy with a link to it, and resolves the copy unless someone has replied there. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A tool-using session can call `report_obstacle` when a tool, prompt, input, or instruction blocks its step. The report is stored in Postgres (`agent_feedback`) after credential-shaped text is replaced, and it is not shown to another reviewer. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. A report whose judgment did not finish is not published, and the summary says the review was not fully judged. Open findings at or above `REVIEW_CHECK_FAIL_SEVERITY` fail the review check run, including findings from earlier reviews. The default is `P2`. `P3` fails only when the threshold is `P3`. When two open threads report the same defect, review keeps one, replies on the copy with a link to it, and resolves the copy unless someone has replied there. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
 
@@ -217,7 +217,7 @@ GitHub must reach `POST /webhooks` on the web service over HTTPS. Localhost is t
 
 ### 5. Set the model provider
 
-LLM calls run on the **worker** only ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
+LLM calls run on the **worker** only.
 
 | What                    | Env vars                                            | Used for                                                               |
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -433,12 +433,12 @@ files, prompts, reasoning, or transcripts. Migration 037 adds this separate stor
 Work-item retention deletes its rows. Disabling scheduled retention leaves the
 rows.
 
-| Topic         | Rule                                                                                                                                                                                  |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
-| LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.                                                              |
-| Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
-| Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them.                                                     |
+| Topic         | Rule                                                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.           |
+| LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.          |
+| Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.   |
+| Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them. |
 
 Repository searches, including `/triage`, share a bounded output budget. A truncated search is incomplete, not proof that code is absent. Sensitive-path gates still apply. See [workspace search diagnostics](docs/agent-work-ops.md#workspace-search-diagnostics).
 
@@ -464,7 +464,7 @@ A configured project also receives one AI trace per worker execution. That trace
 
 The work item is the session. The execution is the trace. Query `posthog.ai_events` for content. PostHog keeps that content for 30 days. Model, tokens, latency, and ids remain after the content drop. AI events are billed. Set a billing limit. They do not update person profiles.
 
-Env catalog: [docs/configuration.md](docs/configuration.md). See [ADR 0050](docs/adr/0050-posthog-ai-traces.md).
+Env catalog: [docs/configuration.md](docs/configuration.md).
 
 </details>
 
@@ -479,4 +479,3 @@ Env catalog: [docs/configuration.md](docs/configuration.md). See [ADR 0050](docs
 | [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work              |
 | [Development](docs/development.md)                   | Module layout and import rules                |
 | [Domain terms](CONTEXT.md)                           | Product vocabulary                            |
-| [ADRs](docs/adr/)                                    | Architecture decisions                        |

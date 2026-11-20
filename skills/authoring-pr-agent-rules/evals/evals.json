@@ -23,7 +23,7 @@
         "Uses `.pr-agent/` not `pr-agent/`",
         "Uses `.mdc` not bare `.md` policy notes",
         "Does not recreate existing rule filenames as duplicates",
-        "Cites loader contract (REPO_POLICY_DIRNAME / ADR 0017) when defying authority"
+        "Cites loader contract (REPO_POLICY_DIRNAME in src/settings/reviewConstants.ts) when defying authority"
       ]
     },
     {
@@ -46,7 +46,7 @@
       "assertions": [
         "Records refresh mode / all existing before writing",
         "Does not treat tidy wording as a completed refresh",
-        "Rewrites bodies from src/ and ADR anchors rather than synonym-swapping the old file",
+        "Rewrites bodies from src/ and test/ anchors rather than synonym-swapping the old file",
         "Keeps existing filenames and does not add files unless a leftover seed gap clears the quality bar",
         "Each body remains ≤1000 characters with only globs/alwaysApply frontmatter"
       ]
@@ -61,7 +61,7 @@
         "Writes invariants a literal searchWorkspace / readWorkspaceFile check can hit",
         "Does not write sequential native-tool or Acorn/AST-fuel investigation essays",
         "Does not assume description or triage have an execute cell",
-        "Cites current harness files (src/prompts/shared/tools.ts, guestCatalogue.ts, ADR 0033) in the decision record, not in a how-to-execute rule"
+        "Cites current harness files (src/prompts/shared/tools.ts, guestCatalogue.ts) in the decision record, not in a how-to-execute rule"
       ]
     }
   ]

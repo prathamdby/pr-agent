@@ -171,9 +171,11 @@ export default {
   meta: {
     type: "problem",
     messages: {
-      caps: "Use sentence case, not '{{word}}' for emphasis (ADR 0053).",
-      pressure: "State the rule once with its reason, not '{{word}}' for emphasis (ADR 0053).",
-      exclamation: "End the sentence without an exclamation mark (ADR 0053).",
+      caps: "Use sentence case, not '{{word}}' for emphasis, so adaptive-thinking prompts state constraints plainly without shouting.",
+      pressure:
+        "State the rule once with its reason, not '{{word}}' for emphasis, because adaptive-thinking models follow clear reasons better than pressure words.",
+      exclamation:
+        "End the sentence without an exclamation mark so prompt tone stays calm and factual.",
     },
   },
   create(context) {

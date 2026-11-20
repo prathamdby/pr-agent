@@ -29,8 +29,7 @@ export default {
     type: "suggestion",
     fixable: "code",
     messages: {
-      comment:
-        "Source carries no comments. Encode the constraint in a name, type, guard, test, or ADR (ADR 0051).",
+      comment: "Source carries no comments. Encode the constraint in a name, type, guard, or test.",
     },
   },
   create(context) {
