@@ -110,7 +110,10 @@ together and preserve selections/intents on rollback
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
 
 Non-degraded verification refreshes a changed standing app review from fresh
-finding state. Its inventory read and publication share the resource's existing
+finding state. An open same-id copy at or above the check threshold is a
+blocker even when the oldest thread for that id is resolved or below the
+threshold. The review check counts that same open copy. Its inventory read
+and publication share the resource's existing
 thread-mutation session lock with full-review terminal publication, so a starting
 full review cannot publish its verdict first and then be overwritten.
 Bounded lock timeouts skip the best-effort terminal review, not the run.

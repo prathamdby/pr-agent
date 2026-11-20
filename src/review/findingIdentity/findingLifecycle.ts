@@ -32,6 +32,7 @@ export type CleanedDuplicate = {
   readonly canonicalId: FindingId;
   readonly canonicalUrl: string;
   readonly resolved: boolean;
+  readonly threadId?: string;
 };
 
 export type FindingRunOutcomes =
@@ -243,6 +244,29 @@ function openCopySeverities(inventory: FindingInventory, cleaned: readonly Clean
   return ((pinnedReturn: Map<FindingId, FindingSeverity | "unknown">) => pinnedReturn)(severities);
 }
 
+function unresolvedSameIdCopies(
+  inventory: FindingInventory,
+  duplicates: readonly CleanedDuplicate[],
+) {
+  const resolvedThreads = new Set(
+    duplicates.flatMap((duplicate) =>
+      duplicate.resolved && duplicate.threadId != null ? [duplicate.threadId] : [],
+    ),
+  );
+  const severities = new Map<FindingId, FindingSeverity | "unknown">();
+  const exemplars = new Map<FindingId, InventoryFinding>();
+  for (const copy of inventory.sameIdCopies) {
+    if (copy.state !== "open" || copy.source !== "thread" || copy.severity === "unknown") continue;
+    if (copy.threadId != null && resolvedThreads.has(copy.threadId)) continue;
+    const severity = higherSeverity(severities.get(copy.id) ?? "unknown", copy.severity);
+    severities.set(copy.id, severity);
+    const current = exemplars.get(copy.id);
+    if (current == null || higherSeverity(current.severity, copy.severity) === copy.severity)
+      exemplars.set(copy.id, copy);
+  }
+  return { severities, exemplars };
+}
+
 export function buildFindingView(
   inventory: FindingInventory,
   outcomes: FindingRunOutcomes,
@@ -254,6 +278,11 @@ export function buildFindingView(
   );
   const cleanedIds = new Set(cleaned.map((duplicate) => duplicate.id));
   const copySeverities = openCopySeverities(inventory, cleaned);
+  const sameIdCopies = unresolvedSameIdCopies(inventory, duplicates);
+  for (const [id, severity] of sameIdCopies.severities) {
+    const current = copySeverities.get(id);
+    copySeverities.set(id, current == null ? severity : higherSeverity(current, severity));
+  }
   const reaffirmedById = new Map<FindingId, ReaffirmedFinding>();
   const acceptedIds = new Set<FindingId>();
   if (outcomes.kind === "reviewed") {
@@ -284,7 +313,28 @@ export function buildFindingView(
         checkFailSeverity,
       ),
     );
-  const rows = [...observed, ...carried].map((row) => {
+  const presentIds = new Set([...observed, ...carried].map((row) => row.id));
+  const carriedCopies = [...sameIdCopies.exemplars.values()]
+    .filter((copy) => {
+      const severity = sameIdCopies.severities.get(copy.id) ?? copy.severity;
+      return (
+        !presentIds.has(copy.id) &&
+        severity !== "unknown" &&
+        isCheckFailingSeverity(severity, checkFailSeverity)
+      );
+    })
+    .toSorted(compareCarried)
+    .map((copy) =>
+      viewRow(
+        copy.id,
+        carriedStatus(copy),
+        sameIdCopies.severities.get(copy.id) ?? copy.severity,
+        copy,
+        false,
+        checkFailSeverity,
+      ),
+    );
+  const rows = [...observed, ...carried, ...carriedCopies].map((row) => {
     const copySeverity = copySeverities.get(row.id);
     const merged = copySeverity == null ? row.severity : higherSeverity(row.severity, copySeverity);
     const entry = acceptedIds.has(row.id) ? undefined : reaffirmedById.get(row.id);

@@ -30,7 +30,7 @@ The useful signal from verification is asymmetric:
 
 ## Consequences
 
-**Amendment ([ADR 0062](0062-github-review-verdict-event.md)):** after thread actions, verification may replace a standing app verdict when fresh finding state requires `APPROVE` or `REQUEST_CHANGES`; unchanged verdicts stay silent. A degraded run stays silent unless the fresh inventory is complete, every owned review thread is resolved, and the only degradation reasons are compare truncation, a narrowed inventory, objection truncation, or an objection cap. In that case a standing changes-requested review becomes an approval. Any other degradation reason stays silent.
+**Amendment ([ADR 0062](0062-github-review-verdict-event.md)):** after thread actions, verification may replace a standing app verdict when fresh finding state requires `APPROVE` or `REQUEST_CHANGES`; unchanged verdicts stay silent. An open same-id copy at or above the check threshold is a blocker even when the oldest thread for that id is resolved or below the threshold. A degraded run stays silent unless the fresh inventory is complete, every owned review thread is resolved, and the only degradation reasons are compare truncation, a narrowed inventory, objection truncation, or an objection cap. In that case a standing changes-requested review becomes an approval. Any other degradation reason stays silent.
 
 - Fewer GitHub write calls per verification run (one GraphQL resolve per fixed thread instead of reply + resolve).
 - Thread timelines stay quieter when pushes land complete fixes; incomplete fixes still get a still-open reply.
