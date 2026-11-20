@@ -161,6 +161,7 @@ import {
   RATE_LIMIT_CIRCUIT_THRESHOLD,
 } from "../src/github/rateLimitCircuit.ts";
 import * as verdictOwner from "../src/agentWork/reviewVerdict.ts";
+import * as publishCloseOutcomeReview from "../src/review/publish/publishCloseOutcomeReview.ts";
 import * as prSurfaceModule from "../src/github/prSurface.ts";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.ts";
 import { openInstallationSurface } from "../src/agentWork/installationSurface.ts";
@@ -1216,6 +1217,8 @@ describe("review work definition", () => {
   });
 
   it("closes the own verdict after a published orchestrated review", async () => {
+    mocks.getSummaryCommentGithubId.mockResolvedValue(77);
+    const publishClose = vi.spyOn(publishCloseOutcomeReview, "tryPublishCloseOutcomeReview");
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: true,
       publishAttempts: 1,
@@ -1234,6 +1237,10 @@ describe("review work definition", () => {
         expect.objectContaining({ checkRun: "failure", summary: "1 finding" }),
       ]),
     );
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ summaryCommentId: 77 }),
+    );
+    expect(publishClose).toHaveBeenCalledWith(expect.objectContaining({ summaryCommentId: 77 }));
   });
 
   it("completes an existing check as action_required when publish is exhausted", async () => {

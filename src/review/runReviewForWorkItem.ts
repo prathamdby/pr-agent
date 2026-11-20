@@ -79,6 +79,7 @@ import {
   ownVerdictFromSummaryDetail,
 } from "../agentWork/reviewVerdict.ts";
 import {
+  getSummaryCommentGithubId,
   loadReviewExecutorPublishContext,
   type ReviewExecutorPublishContext,
 } from "../agentWork/publishRecordRepository.ts";
@@ -281,6 +282,10 @@ async function closeStoredReviewVerdict(args: {
       ...classifiedFailureLogFields(lastFailure),
     });
   }
+  const summaryCommentId =
+    args.summaryCommentId !== undefined
+      ? args.summaryCommentId
+      : await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
   await reviewVerdict({
     pool,
     prSurface,
@@ -293,11 +298,12 @@ async function closeStoredReviewVerdict(args: {
     headSha: item.headSha,
     leaseEpoch,
     commitStatusEnabled,
+    summaryCommentId,
   }).close(outcome);
   await tryPublishCloseOutcomeReview({
     prSurface,
     outcome,
-    summaryCommentId: args.summaryCommentId,
+    summaryCommentId,
     headSha: item.headSha,
     workItemId: item.id,
     pool,
