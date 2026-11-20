@@ -32,6 +32,7 @@ import {
   checkConclusion,
   renderFindingsSection,
   renderResolvedThisRun,
+  truncateWithEllipsis,
   type FindingRunOutcomes,
 } from "../src/review/findingIdentity/findingLifecycle.ts";
 import type {
@@ -1398,6 +1399,15 @@ describe("finding lifecycle view", () => {
 });
 
 describe("findings section", () => {
+  it("keeps a carried title at 80 characters and ellipsizes one past it", () => {
+    const exact = "a".repeat(80);
+    const over = truncateWithEllipsis(`${exact}b`, 80);
+    expect(truncateWithEllipsis(exact, 80)).toBe(exact);
+    expect(truncateWithEllipsis("short", 80)).toBe("short");
+    expect(over).toBe(`${"a".repeat(79)}…`);
+    expect(over.length).toBeLessThanOrEqual(80);
+  });
+
   it("renders exact counts, status labels, and links for carried findings", () => {
     const view = buildFindingView(
       inventoryOf([

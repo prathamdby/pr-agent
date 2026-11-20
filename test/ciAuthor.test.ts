@@ -298,6 +298,12 @@ describe("ciSummarySchema and author prompt", () => {
     expect(() => parseCiSummaryLlmText("sorry, no structured output")).toThrow(/no JSON object/i);
   });
 
+  it("throws a syntax error when a brace pair is not valid JSON", () => {
+    expect(() => parseCiSummaryLlmText("{")).toThrow(/no JSON object/i);
+    expect(() => parseCiSummaryLlmText("{bad}")).toThrow(SyntaxError);
+    expect(() => parseCiSummaryLlmText("```json\n{bad}\n```")).toThrow(SyntaxError);
+  });
+
   it("exports the CI gate contract block", () => {
     expect(ciGateRowContract).toContain("CI gate row contract");
     expect(ciGateRowContract).toContain("deprecation");

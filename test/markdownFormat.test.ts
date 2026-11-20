@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   escapeAlertBody,
+  escapeCodeFence,
   escapeTableCell,
   escapeTableCellContent,
   renderGitHubAlert,
@@ -10,6 +11,16 @@ import {
 } from "../src/github/markdownFormat.ts";
 
 describe("markdownFormat", () => {
+  it("escapeCodeFence leaves plain text and escapes every fence", () => {
+    expect(escapeCodeFence("plain")).toBe("plain");
+    const once = escapeCodeFence("one ``` fence");
+    const repeated = escapeCodeFence("```a```");
+    expect(once).toBe("one \\`\\`\\` fence");
+    expect(repeated).toBe("\\`\\`\\`a\\`\\`\\`");
+    expect(once).not.toContain("```");
+    expect(repeated).not.toContain("```");
+  });
+
   it("escapeTableCell escapes pipes and newlines", () => {
     expect(escapeTableCell("a | b\nc")).toBe("a \\| b c");
   });

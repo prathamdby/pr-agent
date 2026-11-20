@@ -27,6 +27,7 @@ vi.mock("../src/evlog.ts", () => ({
 }));
 
 import { logError, logWarn } from "../src/evlog.ts";
+import { errorCode } from "../src/errors/errorMessage.ts";
 import {
   bossConstructorOptions,
   createPgBossEventGate,
@@ -241,6 +242,16 @@ describe("ensureAgentQueues", () => {
     expect(executeSql.mock.calls[0]?.[0]).toEqual(
       expect.stringContaining("job_name_singleton_key_idx"),
     );
+  });
+
+  it("reads only a string code from an error", () => {
+    expect(errorCode(Object.assign(new Error("duplicate"), { code: "42P07" }))).toBe("42P07");
+    expect(errorCode(Object.assign(new Error("numeric"), { code: 42 }))).toBeUndefined();
+    expect(errorCode(new Error("missing"))).toBeUndefined();
+    expect(errorCode(null)).toBeUndefined();
+    const bare = Object.create(null);
+    bare.code = "40P01";
+    expect(errorCode(bare)).toBe("40P01");
   });
 
   it("continues queue startup when the job index already exists", async () => {
