@@ -11,9 +11,9 @@ import {
   assertWorkspacePath,
   type RepositoryReader,
 } from "./repositoryReader.ts";
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import type { BotIdentity } from "../github/appAuth.ts";
 import { AppError, isAppError } from "../errors/appError.ts";
 import {
@@ -28,7 +28,10 @@ import {
   LOCAL_WORKSPACE_MAX_FETCH_BYTES,
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.ts";
-import { isTriageControlPath } from "../agent/triage/triageWritePolicy.ts";
+import {
+  isTriageControlPath,
+  normalizeRepoRelativePath,
+} from "../agent/triage/triageWritePolicy.ts";
 import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.ts";
 import {
   allocateWorkspaceResource,
@@ -237,38 +240,169 @@ export function gitIdentityEnv(person: GitPerson) {
   });
 }
 
-function validateFiles(root: string, files: readonly string[]) {
-  const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
-  if (normalized.length === 0) {
+function isBlockedCommitPath(canonicalPath: string) {
+  const normalized = normalizeRepoRelativePath(canonicalPath);
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    normalized.split("/").some((segment) => segment.toLowerCase() === ".git") ||
+      SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+      isTriageControlPath(normalized),
+  );
+}
+
+async function lstatOrNull(candidatePath: string) {
+  return ((pinnedReturn: Awaited<ReturnType<typeof lstat>> | null) => pinnedReturn)(
+    await lstat(candidatePath).catch((error: unknown) => {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        return null;
+      }
+      throw error;
+    }),
+  );
+}
+
+async function validateCommitFile(root: string, realRoot: string, requestedPath: string) {
+  if (requestedPath.includes("\0")) {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "path_traversal",
+      message: `Path traversal attempt detected: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
+  }
+  const fullPath = assertWorkspacePath(root, requestedPath);
+  const canonicalPath = relative(root, fullPath).replace(/\\/g, "/");
+  if (canonicalPath.length === 0 || canonicalPath === ".") {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "path_traversal",
+      message: `Path traversal attempt detected: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
+  }
+  if (isBlockedCommitPath(canonicalPath)) {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "sensitive_path",
+      message: `commitFix blocked sensitive path "${canonicalPath}"`,
+      context: { path: canonicalPath },
+    });
+  }
+
+  const segments = canonicalPath.split("/");
+  let deepestExistingPath = root;
+  let deepestExistingDepth = 0;
+  let leafEntry: Awaited<ReturnType<typeof lstat>> | null = null;
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segmentPath = resolve(root, ...segments.slice(0, index + 1));
+    const entry = await lstatOrNull(segmentPath);
+    if (entry == null) break;
+    if (entry.isSymbolicLink()) {
+      throw new AppError({
+        domain: "pr_workspace",
+        kind: "symlink_escape",
+        message: `Symlink escape blocked: ${requestedPath}`,
+        context: { path: canonicalPath },
+      });
+    }
+    deepestExistingPath = segmentPath;
+    deepestExistingDepth = index + 1;
+    if (index === segments.length - 1) {
+      leafEntry = entry;
+    }
+  }
+
+  if (leafEntry != null) {
+    if (!leafEntry.isFile()) {
+      throw new AppError({
+        domain: "pr_workspace",
+        kind: "path_traversal",
+        message: `commitFix only accepts regular file paths: ${canonicalPath}`,
+        context: { path: canonicalPath },
+      });
+    }
+  }
+
+  const realDeepest = await realpath(deepestExistingPath);
+  if (realDeepest !== realRoot && !realDeepest.startsWith(realRoot + sep)) {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "symlink_escape",
+      message: `Symlink escape blocked: ${requestedPath}`,
+      context: { path: canonicalPath },
+    });
+  }
+
+  const realRelativeBase = relative(realRoot, realDeepest).replace(/\\/g, "/");
+  const missingSuffix = segments.slice(deepestExistingDepth);
+  const resolvedCanonicalPath = [
+    ...(realRelativeBase.length > 0 ? [realRelativeBase] : []),
+    ...missingSuffix,
+  ].join("/");
+
+  if (isBlockedCommitPath(resolvedCanonicalPath)) {
+    throw new AppError({
+      domain: "pr_workspace",
+      kind: "sensitive_path",
+      message: `commitFix blocked sensitive path "${resolvedCanonicalPath}"`,
+      context: { path: resolvedCanonicalPath },
+    });
+  }
+
+  return ((pinnedReturn: { path: string; missing: boolean }) => pinnedReturn)({
+    path: resolvedCanonicalPath,
+    missing: leafEntry == null,
+  });
+}
+
+async function validateFiles(
+  root: string,
+  files: readonly string[],
+  git: (args: readonly string[]) => Promise<{ stdout: string }>,
+) {
+  if (files.length === 0) {
     throw new AppError({
       domain: "pr_workspace",
       kind: "commit_fix_no_files",
       message: "commitFix requires at least one file",
     });
   }
-  if (normalized.length > TRIAGE_COMMIT_MAX_FILES) {
-    throw new AppError({
-      domain: "pr_workspace",
-      kind: "commit_fix_too_many_files",
-      message: `commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`,
-      context: { maxFiles: TRIAGE_COMMIT_MAX_FILES },
-    });
-  }
-  for (const file of normalized) {
-    assertWorkspacePath(root, file);
-    if (
-      SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file)) ||
-      isTriageControlPath(file)
-    ) {
+  const realRoot = await realpath(root);
+  const validated: string[] = [];
+  const seen = new Set<string>();
+  for (const file of files) {
+    const { path: canonical, missing } = await validateCommitFile(root, realRoot, file);
+    if (seen.has(canonical)) continue;
+    seen.add(canonical);
+    validated.push(canonical);
+    if (validated.length > TRIAGE_COMMIT_MAX_FILES) {
       throw new AppError({
         domain: "pr_workspace",
-        kind: "sensitive_path",
-        message: `commitFix blocked sensitive path "${file}"`,
-        context: { path: file },
+        kind: "commit_fix_too_many_files",
+        message: `commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`,
+        context: { maxFiles: TRIAGE_COMMIT_MAX_FILES },
       });
     }
+    if (missing) {
+      const { stdout } = await git(["ls-tree", "-z", "HEAD", "--", `:(literal)${canonical}`]);
+      if (
+        !/^100(?:644|755) blob [a-f0-9]+\t/.test(stdout) ||
+        stdout.slice(stdout.indexOf("\t") + 1) !== `${canonical}\0`
+      ) {
+        throw new AppError({
+          domain: "pr_workspace",
+          kind: "path_traversal",
+          message: `commitFix requires an exact tracked file for deletion: ${canonical}`,
+          context: { path: canonical },
+        });
+      }
+    }
   }
-  return ((pinnedReturn: readonly string[]) => pinnedReturn)(normalized);
+  return ((pinnedReturn: readonly string[]) => pinnedReturn)(validated);
 }
 
 function changedLineCount(diff: string) {
@@ -380,19 +514,20 @@ export async function withWritablePrCheckout<T>(
       headRef,
       baseSha: headSha,
       commit: async (args) => {
-        const files = validateFiles(dir, args.files);
+        const files = await validateFiles(dir, args.files, git);
         const person = args.person ?? defaultAttribution.person;
         const coAuthoredBy = args.coAuthoredBy ?? defaultAttribution.coAuthoredBy;
         const commitArgs = buildCommitCommandArgs({
-          files: args.files,
+          files,
           subject: args.subject,
           body: args.body,
           coAuthoredBy,
         });
+        const pathspecs = files.map((file) => `:(literal)${file}`);
         await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
-        await git(["add", "--", ...files], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+        await git(["add", "--", ...pathspecs], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const { stdout: diff } = await git(
-          ["diff", "--cached", "--", ...files],
+          ["diff", "--cached", "--", ...pathspecs],
           LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
         );
         if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
