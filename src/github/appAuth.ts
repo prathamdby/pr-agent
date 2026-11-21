@@ -99,7 +99,7 @@ export async function lookupRepositoryInstallation(
     repo,
     request: { signal },
   });
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(data);
+  return ((pinnedReturn: unknown) => pinnedReturn)(data);
 }
 
 export async function mintScopedInstallationAuth(

@@ -30,37 +30,39 @@
         "allow": ["_exhaustive", "__mutating", "__result", "_parentReplacement"]
       }
     ],
-    "typescript/await-thenable": "off",
-    "typescript/consistent-return": "off",
-    "typescript/no-array-delete": "off",
-    "typescript/no-base-to-string": "off",
-    "typescript/no-duplicate-type-constituents": "off",
-    "typescript/no-floating-promises": "off",
-    "typescript/no-for-in-array": "off",
-    "typescript/no-implied-eval": "off",
+    "typescript/await-thenable": "error",
+    "typescript/consistent-return": "error",
+    "typescript/no-array-delete": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/no-duplicate-type-constituents": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-for-in-array": "error",
+    "typescript/no-implied-eval": "error",
     "typescript/no-meaningless-void-operator": "off",
-    "typescript/no-misused-spread": "off",
-    "typescript/no-redundant-type-constituents": "off",
-    "typescript/no-unnecessary-boolean-literal-compare": "off",
-    "typescript/no-unnecessary-template-expression": "off",
-    "typescript/no-unnecessary-type-arguments": "off",
-    "typescript/no-unnecessary-type-assertion": "off",
-    "typescript/no-unnecessary-type-conversion": "off",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-misused-spread": "error",
+    "typescript/no-redundant-type-constituents": "error",
+    "typescript/no-unnecessary-boolean-literal-compare": "error",
+    "typescript/no-unnecessary-template-expression": "error",
+    "typescript/no-unnecessary-type-arguments": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unnecessary-type-conversion": "error",
     "typescript/no-unnecessary-type-parameters": "off",
-    "typescript/no-unsafe-enum-comparison": "off",
+    "typescript/no-unsafe-enum-comparison": "error",
     "typescript/no-unsafe-type-assertion": "off",
-    "typescript/no-unsafe-unary-minus": "off",
-    "typescript/no-useless-default-assignment": "off",
-    "typescript/require-array-sort-compare": "off",
-    "typescript/restrict-template-expressions": "off",
-    "typescript/unbound-method": "off"
+    "typescript/no-unsafe-unary-minus": "error",
+    "typescript/no-useless-default-assignment": "error",
+    "typescript/require-array-sort-compare": "error",
+    "typescript/require-await": "off",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/unbound-method": "error"
   },
   "env": {
     "node": true
   },
   "ignorePatterns": ["dist/**", "test/__snapshots__/**", "coverage/**", "site/routeTree.gen.ts"],
   "options": {
-    "typeAware": false,
+    "typeAware": true,
     "typeCheck": false
   },
   "overrides": [
@@ -88,7 +90,15 @@
         "eslint/no-unsafe-optional-chaining": "off",
         "eslint/no-underscore-dangle": "off",
         "eslint/no-shadow": "off",
-        "unicorn/consistent-function-scoping": "off"
+        "unicorn/consistent-function-scoping": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/no-misused-promises": "off",
+        "typescript/no-redundant-type-constituents": "off",
+        "typescript/no-unnecessary-boolean-literal-compare": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/require-array-sort-compare": "off",
+        "typescript/unbound-method": "off"
       }
     }
   ]

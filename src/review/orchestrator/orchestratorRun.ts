@@ -1593,7 +1593,8 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
         break;
       default: {
         const exhaustive: never = step;
-        return exhaustive;
+        void exhaustive;
+        break;
       }
     }
   };

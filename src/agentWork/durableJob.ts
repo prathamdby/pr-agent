@@ -925,7 +925,8 @@ export async function runDurableWorkItem<T extends WorkType>(spec: DurableJobSpe
         }
         default: {
           const exhaustive: never = result;
-          return exhaustive;
+          void exhaustive;
+          return;
         }
       }
     }

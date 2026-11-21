@@ -308,7 +308,7 @@ async function finishWithStashedResult<T>(
       },
     });
   }
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(value);
+  return ((pinnedReturn: unknown) => pinnedReturn)(value);
 }
 
 type RecoveryAttempt =
@@ -383,7 +383,7 @@ async function finishVoidSuccess<T>(
       [OPERATION_INTENT_RESULT_KEY]: null,
     },
   });
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(value);
+  return ((pinnedReturn: unknown) => pinnedReturn)(value);
 }
 
 const UNKNOWN_MUTATION_MESSAGE =
@@ -442,11 +442,10 @@ async function recoverAfterMutatingWithoutResult<T>(
     if (!isAppError(error) || error.code !== "operation_intent.recovery_failed") throw error;
     observationError = error;
   }
-  if (recovered.found)
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
+  if (recovered.found) return ((pinnedReturn: unknown) => pinnedReturn)(recovered.value);
 
   if (publishRecordId != null && allowsUndefinedSuccess(params)) {
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    return ((pinnedReturn: unknown) => pinnedReturn)(
       finishVoidSuccess(
         params,
         intent,
@@ -557,7 +556,7 @@ export async function publishOnce<T>(requested: PublishOnceParams<T>) {
   assertFenceAgrees(requested);
   const params = await withRetainedDescriptionIdentity(requested);
   if (params.delegation == null)
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    return ((pinnedReturn: unknown) => pinnedReturn)(
       runInOperationIntentFrame(params.operationKey, () => publishOnceBody(params)),
     );
   const parent = await (params.store ?? postgresPublishStore).persistOperationIntent(
@@ -591,7 +590,7 @@ export async function publishOnce<T>(requested: PublishOnceParams<T>) {
       detail: { __mutating: false },
     });
   }
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+  return ((pinnedReturn: unknown) => pinnedReturn)(
     runInOperationIntentFrame(params.operationKey, () =>
       publishOnceBody({
         ...params,
@@ -634,9 +633,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
   await assertMutationReady(params);
 
   if (hasStashedResult(intent.detail)) {
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
-      finishWithStashedResult(params, intent),
-    );
+    return ((pinnedReturn: unknown) => pinnedReturn)(finishWithStashedResult(params, intent));
   }
 
   if (intent.status === "outcome_unknown" && intent.detail.unknownResolution === "terminal") {
@@ -645,10 +642,9 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
 
   if (intent.status === "reconciled") {
     const recovered = await recoverByExactEvidence(params, intent, null);
-    if (recovered.found)
-      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
+    if (recovered.found) return ((pinnedReturn: unknown) => pinnedReturn)(recovered.value);
     if (allowsUndefinedSuccess(params)) {
-      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+      return ((pinnedReturn: unknown) => pinnedReturn)(
         finishVoidSuccess(params, intent, {}, intent.publishRecordId),
       );
     }
@@ -656,7 +652,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
   }
 
   if (intent.status === "outcome_unknown") {
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    return ((pinnedReturn: unknown) => pinnedReturn)(
       recoverAfterMutatingWithoutResult(params, intent),
     );
   }
@@ -666,7 +662,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
     { workItemId: params.workItemId, operationKey: params.operationKey },
   );
   if (inFlight != null) {
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
+    return ((pinnedReturn: unknown) => pinnedReturn)(
       recoverAfterMutatingWithoutResult(params, inFlight),
     );
   }
@@ -734,7 +730,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
       ...leaseEpochDetail(params),
       detail: resultDetail,
     });
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(result);
+    return ((pinnedReturn: unknown) => pinnedReturn)(result);
   } catch (error) {
     if (
       !sendStarted &&
@@ -772,8 +768,7 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>) {
           detail: params.detail,
         });
         const recovered = await recoverByExactEvidence(params, intentForRecovery, null);
-        if (recovered.found)
-          return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(recovered.value);
+        if (recovered.found) return ((pinnedReturn: unknown) => pinnedReturn)(recovered.value);
       }
       await (params.store ?? postgresPublishStore).reconcileOperationIntent(params.client, {
         workItemId: params.workItemId,
