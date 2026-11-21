@@ -72,7 +72,7 @@ function walkFiles(dir, predicate) {
       results.push(path.relative(ROOT, abs).split(path.sep).join("/"));
     }
   }
-  return results.toSorted();
+  return results.toSorted((a, b) => a.localeCompare(b));
 }
 
 function checkContextGlossary(raw) {
@@ -289,7 +289,7 @@ function checkRepoPolicyRules() {
     if (entry.isFile() && entry.name.endsWith(".mdc")) mdcNames.push(entry.name);
     else fail(`.pr-agent must contain only .mdc files, found ${entry.name}`);
   }
-  const mdcFiles = mdcNames.toSorted();
+  const mdcFiles = mdcNames.toSorted((a, b) => a.localeCompare(b));
   if (mdcFiles.length === 0) {
     fail(".pr-agent must contain at least one .mdc rule");
     return;

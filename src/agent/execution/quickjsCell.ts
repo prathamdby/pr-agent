@@ -366,7 +366,7 @@ async function pumpUntilSettled(
     }
     const output = vm.dump(finished.value);
     finished.value.dispose();
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(output);
+    return ((pinnedReturn: unknown) => pinnedReturn)(output);
   }
 }
 

@@ -161,7 +161,8 @@ async function handleSlashAsk(ctx: SlashIntakeContext) {
       return;
     default: {
       const exhaustive: never = outcome;
-      return exhaustive;
+      void exhaustive;
+      return;
     }
   }
 }

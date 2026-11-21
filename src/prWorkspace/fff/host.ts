@@ -170,14 +170,11 @@ function findFiles(request: Extract<HostRequest, { op: "files" }>) {
 }
 
 async function handle(request: HostRequest) {
-  if (request.op === "open")
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(open(request));
-  if (request.op === "grep")
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(grep(request));
-  if (request.op === "files")
-    return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(findFiles(request));
+  if (request.op === "open") return ((pinnedReturn: unknown) => pinnedReturn)(open(request));
+  if (request.op === "grep") return ((pinnedReturn: unknown) => pinnedReturn)(grep(request));
+  if (request.op === "files") return ((pinnedReturn: unknown) => pinnedReturn)(findFiles(request));
   closeIndex(request.key);
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(null);
+  return ((pinnedReturn: unknown) => pinnedReturn)(null);
 }
 
 function reply(response: FffHostResponse) {

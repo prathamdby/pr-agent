@@ -233,9 +233,7 @@ export async function getWorkItemPayload(pool: Pool, id: string) {
     "SELECT payload FROM agent_work_items WHERE id = $1",
     [id],
   );
-  return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(
-    row == null ? undefined : row.payload,
-  );
+  return ((pinnedReturn: unknown) => pinnedReturn)(row == null ? undefined : row.payload);
 }
 
 function sanitizeWorkError(error: unknown) {

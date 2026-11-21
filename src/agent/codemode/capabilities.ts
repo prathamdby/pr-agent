@@ -227,7 +227,7 @@ export function createCodeModeCapabilityBridge(params: {
         output: guest,
         outputBytes: guestBytes,
       });
-      return ((pinnedReturn: unknown | Promise<unknown>) => pinnedReturn)(guest);
+      return ((pinnedReturn: unknown) => pinnedReturn)(guest);
     } catch (error) {
       if (error instanceof CodeModeHostHalt) {
         closeHostCallTrace(closeTrace, { status: "error", errorKind: error.code });
