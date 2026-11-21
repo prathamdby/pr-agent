@@ -21,9 +21,10 @@ function deferred<T>() {
 
 function emptyOutcome(specialist: SpecialistId) {
   return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
-    kind: "empty",
+    kind: "complete",
     specialist,
     durationMs: 1,
+    report: { status: "no_findings", findings: [] },
   });
 }
 
@@ -226,7 +227,7 @@ describe("pumpSpecialistCompletions", () => {
     expect(outcomes).toContainEqual(emptyOutcome("correctness"));
     const rejected = outcomes.find((outcome) => outcome.specialist === "security");
     expect(rejected).toMatchObject({
-      kind: "error",
+      kind: "failed",
       specialist: "security",
       durationMs: 0,
       error: expect.objectContaining({
@@ -270,7 +271,7 @@ describe("pumpSpecialistCompletions", () => {
       "review_specialist_outcome_handler_failed",
       expect.objectContaining({
         specialist: "correctness",
-        outcomeKind: "empty",
+        outcomeKind: "complete",
         errorCode: "review.orchestrator_outcome_handler_failed",
         errorMessage: "send failed",
       }),

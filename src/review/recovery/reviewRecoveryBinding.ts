@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import * as v from "valibot";
 import type { Config } from "../../settings/index.ts";
-import { MAX_TOOL_ROUNDS, ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../../settings/index.ts";
+import {
+  ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+  RECON_MAX_TOOL_ROUNDS,
+} from "../../settings/index.ts";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 import { resolveModelPolicy } from "../../agent/runtime/modelPolicy.ts";
 import { assertPiModelSelection } from "../../agent/runtime/modelsJson.ts";
@@ -109,7 +112,7 @@ export function reviewRecoveryInputDigest(input: {
           fallback: policy.fallback ?? null,
         },
         toolRounds: {
-          investigation: escalatedToolRounds(MAX_TOOL_ROUNDS, input.escalation),
+          investigation: escalatedToolRounds(RECON_MAX_TOOL_ROUNDS, input.escalation),
           judgment: escalatedToolRounds(ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS, input.escalation),
         },
         codeMode: input.cfg.codeMode,

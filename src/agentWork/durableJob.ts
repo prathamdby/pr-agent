@@ -887,6 +887,8 @@ export async function runDurableWorkItem<T extends WorkType>(spec: DurableJobSpe
     async function recordCompletion(completion: WorkCompletion) {
       try {
         const ci = await loadCiWorkTelemetry(spec.pool, item.owner, item.repo, item.headSha);
+        const webhookReceivedAt =
+          "webhookReceivedAt" in item.payload ? item.payload.webhookReceivedAt : undefined;
         recordWorkCompleted({
           item,
           workType: spec.type,
@@ -894,6 +896,7 @@ export async function runDurableWorkItem<T extends WorkType>(spec: DurableJobSpe
           ci,
           durationMs: durationMsFromClaim(workClaim),
           attemptCount: workClaim?.attemptCount ?? item.attemptCount,
+          ...(webhookReceivedAt != null ? { webhookReceivedAt } : {}),
           ...(workspaceCheckout != null ? { workspaceCheckout } : {}),
         });
       } catch (error) {

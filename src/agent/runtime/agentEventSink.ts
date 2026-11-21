@@ -63,6 +63,7 @@ export function lifecycleAuditToInsertRow(
   if (record.cacheReadTokens != null) detail.cacheReadTokens = record.cacheReadTokens;
   if (record.cacheWriteTokens != null) detail.cacheWriteTokens = record.cacheWriteTokens;
   if (record.cacheWrite1hTokens != null) detail.cacheWrite1hTokens = record.cacheWrite1hTokens;
+  if (record.reasoningTokens != null) detail.reasoningTokens = record.reasoningTokens;
   if (record.totalTokens != null) detail.totalTokens = record.totalTokens;
 
   if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
@@ -247,6 +248,7 @@ export function createDurableLifecycleEventSink(
         ...(event.cacheWrite1hTokens != null
           ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
           : {}),
+        ...(event.reasoningTokens != null ? { reasoningTokens: event.reasoningTokens } : {}),
         ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
         ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
       }),

@@ -796,7 +796,7 @@ function dumpExtraTurns() {
       partialSpecialists: ["quality"],
       outcomes: [
         {
-          kind: "report",
+          kind: "complete",
           specialist: "correctness",
           report: {
             status: "findings",
@@ -804,7 +804,12 @@ function dumpExtraTurns() {
           },
           durationMs: 1000,
         },
-        { kind: "empty", specialist: "quality", durationMs: 500 },
+        {
+          kind: "partial",
+          specialist: "quality",
+          report: { status: "no_findings", findings: [] },
+          durationMs: 500,
+        },
       ],
     }),
     synthesisMinimal: renderSynthesisTurn({

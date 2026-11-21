@@ -18,19 +18,19 @@ export type FindingSource = SpecialistId | "review";
 
 export type SpecialistOutcome =
   | {
-      readonly kind: "report";
+      readonly kind: "complete";
       readonly specialist: SpecialistId;
-      readonly report: SpecialistReport & { readonly status: "findings" };
+      readonly report: SpecialistReport;
       readonly durationMs: number;
     }
   | {
-      readonly kind: "empty";
+      readonly kind: "partial";
       readonly specialist: SpecialistId;
+      readonly report: SpecialistReport;
       readonly durationMs: number;
-      readonly report?: SpecialistReport;
     }
   | {
-      readonly kind: "error";
+      readonly kind: "failed";
       readonly specialist: SpecialistId;
       readonly error: AppError;
       readonly durationMs: number;
@@ -49,6 +49,7 @@ export type ReviewRunGateResult =
 export type ReviewRunTiming = {
   readonly returnByMs: number;
   readonly modelStopAtMs: number;
+  readonly reconDeadlineAtMs: number;
   readonly remainingModelMs: (now?: number) => number;
   readonly remainingTotalMs: (now?: number) => number;
 };
@@ -89,6 +90,7 @@ export type OrchestratedRunState = {
   readonly outcomes: Partial<Record<SpecialistId, SpecialistOutcome>>;
   readonly completionOrder: SpecialistId[];
   readonly failedSpecialists: SpecialistId[];
+  readonly partialSpecialists: SpecialistId[];
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;
@@ -162,6 +164,7 @@ export type ReviewCoverage =
       readonly failed?: readonly SpecialistId[];
       readonly paths?: readonly string[];
       readonly unjudged?: readonly SpecialistId[];
+      readonly partial?: readonly SpecialistId[];
       readonly note: string;
     }
   | { readonly kind: "none"; readonly failed: readonly SpecialistId[] };
@@ -171,7 +174,7 @@ export function decidingCoverageReason(
 ) {
   if ((coverage.unjudged?.length ?? 0) > 0)
     return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("unjudged");
-  if ((coverage.failed?.length ?? 0) > 0)
+  if ((coverage.failed?.length ?? 0) > 0 || (coverage.partial?.length ?? 0) > 0)
     return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("specialists");
   return ((pinnedReturn: "unjudged" | "specialists" | "unread") => pinnedReturn)("unread");
 }

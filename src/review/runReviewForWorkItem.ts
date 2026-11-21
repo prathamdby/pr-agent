@@ -20,7 +20,10 @@ import {
   REPO_POLICY_DIRNAME,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
+  REVIEW_ATTEMPT_BUDGET_MS,
   REVIEW_FINALIZATION_WINDOW_MS,
+  REVIEW_INTAKE_CHECKOUT_BUDGET_MS,
+  REVIEW_RECON_BUDGET_MS,
 } from "../settings/index.ts";
 import {
   degradedReasonFromReviewFlags,
@@ -123,11 +126,13 @@ type LightweightPhaseResult =
 
 function reviewRunTimingFromJob(job: JobWithMetadata<{ workItemId: string }>) {
   const startedOnMs = job.startedOn.getTime();
-  const returnByMs = startedOnMs + job.expireInSeconds * 1000 * 0.8;
+  const executionBudgetMs = Math.min(job.expireInSeconds * 1000 * 0.8, REVIEW_ATTEMPT_BUDGET_MS);
+  const returnByMs = startedOnMs + executionBudgetMs;
   const modelStopAtMs = Math.max(startedOnMs, returnByMs - REVIEW_FINALIZATION_WINDOW_MS);
   return ((pinnedReturn: ReviewRunTiming) => pinnedReturn)({
     returnByMs,
     modelStopAtMs,
+    reconDeadlineAtMs: startedOnMs + REVIEW_INTAKE_CHECKOUT_BUDGET_MS + REVIEW_RECON_BUDGET_MS,
     remainingModelMs: (now = Date.now()) => Math.max(0, modelStopAtMs - now),
     remainingTotalMs: (now = Date.now()) => Math.max(0, returnByMs - now),
   });

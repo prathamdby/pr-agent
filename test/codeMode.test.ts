@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { CODE_MODE_CPU_BUDGET_MS } from "../src/settings/index.ts";
 import { describe, expect, it } from "vitest";
 import * as evlog from "../src/evlog.ts";
 import {
@@ -120,7 +121,7 @@ describe("Code Mode", () => {
       expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
       expect(result.error.reason).toBe("guest_cpu");
     }
-    expect(elapsedMs).toBeLessThan(1000);
+    expect(elapsedMs).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
   });
 
   it("keeps worker /health and /ready responsive during an adversarial loop", async () => {
@@ -148,7 +149,7 @@ describe("Code Mode", () => {
         fetch(`${base}/ready`),
         running,
       ]);
-      expect(Date.now() - healthStarted).toBeLessThan(200);
+      expect(Date.now() - healthStarted).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
       expect(healthRes.status).toBe(200);
       expect(await healthRes.text()).toBe("ok");
       expect(readyRes.status).toBe(200);
@@ -180,7 +181,7 @@ describe("Code Mode", () => {
       code: 'new RegExp("(a+)+$").test("aaaaaaaaaaaaaaaaaaaaaaaaaaaaX")',
       capabilities: {},
     });
-    expect(Date.now() - started).toBeLessThan(500);
+    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
     if (!result.ok) {
       expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
         result.error.code,
@@ -196,7 +197,7 @@ describe("Code Mode", () => {
     const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
-    expect(Date.now() - started).toBeLessThan(500);
+    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
   });
 
   it("halts Array.from allocations beyond the cap", async () => {
@@ -224,7 +225,7 @@ describe("Code Mode", () => {
   ])("rejects ReDoS-prone patterns for %s", async (code) => {
     const started = Date.now();
     const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
-    expect(Date.now() - started).toBeLessThan(500);
+    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
     if (!result.ok) {
       expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
         result.error.code,
@@ -250,7 +251,7 @@ describe("Code Mode", () => {
     if (!result.ok) {
       expect(["LIMIT_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED"]).toContain(result.error.code);
     }
-    expect(Date.now() - started).toBeLessThan(500);
+    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
     expect(after - before).toBeLessThan(8 * 1024 * 1024);
   });
 

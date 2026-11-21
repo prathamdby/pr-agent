@@ -132,6 +132,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
     timeoutMs: params.cfg.provider.promptTimeoutMs,
     maxRetries: params.cfg.provider.retryMax,
     maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
+    ...(params.promptCacheKey != null ? { promptCacheKey: params.promptCacheKey } : {}),
+    ...(params.systemPromptSharedHead != null
+      ? { sharedSystemHead: params.systemPromptSharedHead }
+      : {}),
     ...(sessionRecordsPromptCacheBreak(params.role)
       ? {
           recordCacheBreak: (observed) =>
@@ -338,6 +342,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
           ...(turnUsage?.cacheWrite1hTokens != null
             ? { cacheWrite1hTokens: turnUsage.cacheWrite1hTokens }
             : {}),
+          ...(turnUsage?.reasoningTokens != null
+            ? { reasoningTokens: turnUsage.reasoningTokens }
+            : {}),
           ...(turnUsage?.totalTokens != null ? { totalTokens: turnUsage.totalTokens } : {}),
         });
       };
@@ -468,6 +475,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
                 cacheReadTokens: aggregatedUsage.cacheReadTokens,
                 cacheWriteTokens: aggregatedUsage.cacheWriteTokens,
                 cacheWrite1hTokens: aggregatedUsage.cacheWrite1hTokens,
+                reasoningTokens: aggregatedUsage.reasoningTokens,
                 totalTokens: aggregatedUsage.totalTokens,
               }
             : {}),
@@ -502,6 +510,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams) {
                 cacheReadTokens: aggregatedUsage.cacheReadTokens,
                 cacheWriteTokens: aggregatedUsage.cacheWriteTokens,
                 cacheWrite1hTokens: aggregatedUsage.cacheWrite1hTokens,
+                reasoningTokens: aggregatedUsage.reasoningTokens,
                 totalTokens: aggregatedUsage.totalTokens,
               }
             : {}),

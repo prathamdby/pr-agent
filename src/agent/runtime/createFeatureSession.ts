@@ -48,6 +48,8 @@ export async function createFeaturePiSession(params: {
   readonly specialistId?: string;
   readonly cfg: Config;
   readonly systemPrompt: string;
+  readonly systemPromptSharedHead?: string;
+  readonly promptCacheKey?: string;
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly cwd?: string;
@@ -122,6 +124,10 @@ export async function createFeaturePiSession(params: {
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     systemPrompt: params.systemPrompt,
+    ...(params.systemPromptSharedHead != null
+      ? { systemPromptSharedHead: params.systemPromptSharedHead }
+      : {}),
+    ...(params.promptCacheKey != null ? { promptCacheKey: params.promptCacheKey } : {}),
     cwd: params.cwd,
     eventSink,
     cfg: params.cfg,

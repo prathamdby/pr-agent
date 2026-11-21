@@ -131,7 +131,7 @@ function summaryStream(text: string, stopReason: StopReason = "stop") {
 
 describe("compactionPolicyForRole", () => {
   it("disables auto-compaction for short review roles", () => {
-    for (const role of ["orchestrator", "specialist", "ci_summary"] as const) {
+    for (const role of ["orchestrator", "ci_summary"] as const) {
       expect(compactionPolicyForRole(role)).toEqual({ enabled: false });
     }
   });

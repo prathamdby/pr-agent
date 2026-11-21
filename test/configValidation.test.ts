@@ -16,7 +16,7 @@ describe("loadConfig validation", () => {
     const cfg = await load({});
     expect(cfg.runtime.port).toBe(3000);
     expect(cfg.provider.promptTimeoutMs).toBe(300_000);
-    expect(cfg.review.specialistTimeoutMs).toBe(900_000);
+    expect(cfg.review.specialistTimeoutMs).toBe(140_000);
     expect(cfg.review.checkFailSeverity).toBe("P2");
     expect(cfg.provider.retryMax).toBe(2);
     expect(cfg.provider.maxRetryDelayMs).toBe(60_000);

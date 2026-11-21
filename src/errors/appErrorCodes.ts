@@ -133,6 +133,7 @@ export const APP_ERROR_KINDS = {
     "publish_thread_overlap_unanswered",
     "publish_thread_source_required",
     "publish_thread_validation_failed",
+    "recon_pack_failed",
     "specialist_aborted",
     "specialist_failed",
     "specialist_invalid_report",

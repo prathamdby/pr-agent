@@ -12,6 +12,7 @@ import {
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { specialistSharedPrefix } from "../../prompts/shared/prefix.ts";
+import { isRecord } from "../../util/typeGuards.ts";
 import {
   comparePromptCacheSections,
   promptCacheSections,
@@ -37,8 +38,20 @@ export type SessionStreamDefaults = {
   readonly timeoutMs: number;
   readonly maxRetries: number;
   readonly maxRetryDelayMs: number;
+  readonly promptCacheKey?: string;
+  readonly sharedSystemHead?: string;
   readonly recordCacheBreak?: (observed: PromptCacheBreak) => void;
 };
+
+const OPENAI_PROMPT_CACHE_KEY_APIS = new Set<string>(["openai-completions", "openai-responses"]);
+
+function withPromptCacheKey(payload: unknown, promptCacheKey: string) {
+  if (!isRecord(payload)) return ((pinnedReturn: unknown) => pinnedReturn)(payload);
+  return ((pinnedReturn: unknown) => pinnedReturn)({
+    ...payload,
+    prompt_cache_key: promptCacheKey,
+  });
+}
 
 export type SessionStream = {
   readonly streamFn: StreamFn;
@@ -87,10 +100,12 @@ export function createSessionStreamFn(models: Models, defaults: SessionStreamDef
   let previousSections: PromptCacheSections | null = null;
   const streamFn: StreamFn = (model, context: Context, options) => {
     attempts += 1;
+    const systemText = requestSystemText(context);
     const sections = promptCacheSections({
-      systemText: requestSystemText(context),
+      systemText,
       tools: context.tools,
       history: context.messages.filter((message) => message.role !== "system"),
+      ...(defaults.sharedSystemHead != null ? { sharedHead: defaults.sharedSystemHead } : {}),
     });
     if (previousSections && defaults.recordCacheBreak) {
       defaults.recordCacheBreak(comparePromptCacheSections(previousSections, sections));
@@ -102,16 +117,31 @@ export function createSessionStreamFn(models: Models, defaults: SessionStreamDef
       cacheRetention: options?.cacheRetention === "none" ? "none" : defaults.cacheRetention,
       sessionId: options?.sessionId ?? defaults.sessionId,
     };
-    if (
-      model.api === "anthropic-messages" &&
-      systemPromptStartsWithSpecialistPrefix(requestSystemText(context))
-    ) {
+    const anthropicSharedHead =
+      defaults.sharedSystemHead != null
+        ? systemText.startsWith(defaults.sharedSystemHead)
+          ? defaults.sharedSystemHead
+          : undefined
+        : systemPromptStartsWithSpecialistPrefix(systemText)
+          ? specialistSharedPrefix
+          : undefined;
+    if (model.api === "anthropic-messages" && anthropicSharedHead != null) {
       const installed = merged.onPayload;
       merged.onPayload = async (payload, payloadModel) => {
-        const split = splitAnthropicSystemBlocks(payload, specialistSharedPrefix);
+        const split = splitAnthropicSystemBlocks(payload, anthropicSharedHead);
         if (!installed) return split;
         const next = await installed(split, payloadModel);
         return next === undefined ? split : next;
+      };
+    }
+    if (defaults.promptCacheKey != null && OPENAI_PROMPT_CACHE_KEY_APIS.has(model.api)) {
+      const installed = merged.onPayload;
+      const promptCacheKey = defaults.promptCacheKey;
+      merged.onPayload = async (payload, payloadModel) => {
+        const injected = withPromptCacheKey(payload, promptCacheKey);
+        if (!installed) return injected;
+        const next = await installed(injected, payloadModel);
+        return next === undefined ? injected : next;
       };
     }
     lastOptions = merged;

@@ -65,6 +65,9 @@ function mockAutomatedClient() {
       if (sql.includes("pg_advisory_xact_lock")) {
         return { rows: [] };
       }
+      if (sql.includes("SELECT received_at FROM webhook_events")) {
+        return { rows: [] };
+      }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
     }),
   } as unknown as PoolClient;
@@ -141,6 +144,9 @@ describe("makeAgentWorkScheduler automated describe", () => {
       if (sql.includes("pg_advisory_xact_lock")) {
         return { rows: [] };
       }
+      if (sql.includes("SELECT received_at FROM webhook_events")) {
+        return { rows: [] };
+      }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
     });
     const pool = {
@@ -212,6 +218,9 @@ describe("makeAgentWorkScheduler automated describe", () => {
         return { rows: [] };
       }
       if (sql.includes("pg_advisory_xact_lock")) {
+        return { rows: [] };
+      }
+      if (sql.includes("SELECT received_at FROM webhook_events")) {
         return { rows: [] };
       }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);

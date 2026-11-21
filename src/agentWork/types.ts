@@ -152,6 +152,7 @@ export type PushFollowUp = {
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
+  readonly webhookReceivedAt?: number;
   readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;

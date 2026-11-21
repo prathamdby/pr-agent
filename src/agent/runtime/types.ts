@@ -54,6 +54,7 @@ export type PiSessionSendOptions = {
   readonly phase: AgentSessionPhase;
   readonly maxToolRounds?: number;
   readonly reservedTerminalTool?: string;
+  readonly stopAtMs?: number;
   readonly deadlineMs?: number;
   readonly checkpointId: string;
 };
@@ -69,6 +70,8 @@ export type PiSessionCreateParams = {
   readonly promptCachePolicy: PromptCachePolicy;
   readonly toolPolicy: ToolPolicy;
   readonly systemPrompt: string;
+  readonly systemPromptSharedHead?: string;
+  readonly promptCacheKey?: string;
   readonly cwd?: string;
   readonly eventSink: (event: AgentLifecycleEvent) => void;
   readonly cfg: Config;

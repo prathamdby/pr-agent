@@ -520,6 +520,126 @@ describe("createPiSession seam", () => {
     await session.dispose();
   });
 
+  it("ends a turn as tool_budget once stopAtMs passes", async () => {
+    const finishEnds: boolean[] = [];
+    const beforeBlocked: boolean[] = [];
+    let capturedConfig: {
+      beforeToolCall?: (
+        ctx: unknown,
+        signal?: AbortSignal,
+      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
+      finishTurn?: (turn: unknown, signal?: AbortSignal) => { action: string } | undefined;
+    } | null = null;
+
+    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
+      role: "toolResult" as const,
+      toolCallId: id,
+      toolName,
+      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
+      isError,
+      timestamp: Date.now(),
+    });
+    const assistantForTool = (toolName: string, id: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    });
+
+    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
+      capturedConfig = config as typeof capturedConfig & object;
+      const cfg = config as unknown as {
+        beforeToolCall: (ctx: {
+          assistantMessage: unknown;
+          toolCall: unknown;
+          args: unknown;
+          context: unknown;
+        }) => Promise<{ block?: boolean } | undefined>;
+        finishTurn: (turn: {
+          message: unknown;
+          toolResults: unknown[];
+          context: unknown;
+          newMessages: unknown[];
+        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+      };
+      const simulateToolTurn = async (toolName: string, step: string) => {
+        const id = `${step}-${toolName}`;
+        const before = await cfg.beforeToolCall({
+          assistantMessage: assistantForTool(toolName, id),
+          toolCall: { id, name: toolName, arguments: {} },
+          args: {},
+          context: _context,
+        });
+        beforeBlocked.push(before?.block === true);
+        const toolResults = [toolResultFor(toolName, false, id)];
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: step }],
+        };
+        const decision = await cfg.finishTurn({
+          message,
+          toolResults,
+          context: _context,
+          newMessages: [],
+        });
+        finishEnds.push(decision?.action === "end");
+        await emit({ type: "turn_end", toolResults, message });
+      };
+
+      await simulateToolTurn("execute", "inv-0");
+      await simulateToolTurn("execute", "inv-1");
+      return [];
+    });
+
+    const session = await createPiSession({
+      role: "specialist",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      systemPrompt: "specialist",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
+      tools: [],
+      executors: {},
+    });
+
+    const turn = await session.send("investigate", {
+      phase: "specialist",
+      checkpointId: "cp-stop-at",
+      maxToolRounds: 8,
+      reservedTerminalTool: "submit_findings_report",
+      stopAtMs: Date.now() - 1,
+    });
+    expect(beforeBlocked).toEqual([true, true]);
+    expect(finishEnds).toEqual([false, true]);
+    expect(turn.end).toBe("tool_budget");
+
+    const cfg = capturedConfig as unknown as {
+      beforeToolCall: (ctx: {
+        assistantMessage: unknown;
+        toolCall: unknown;
+        args: unknown;
+        context: unknown;
+      }) => Promise<{ block?: boolean } | undefined>;
+    };
+    const reservedProbe = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("submit_findings_report", "probe-submit"),
+      toolCall: { id: "probe-submit", name: "submit_findings_report", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(reservedProbe?.block).not.toBe(true);
+    const executeProbe = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("execute", "probe-execute"),
+      toolCall: { id: "probe-execute", name: "execute", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(executeProbe?.block).toBe(true);
+
+    await session.dispose();
+  });
+
   it("counts investigation in a mixed execute+publish_thread turn without double-counting reserved", async () => {
     const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
     const finishEnds: boolean[] = [];

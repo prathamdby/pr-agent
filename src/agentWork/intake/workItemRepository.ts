@@ -319,9 +319,16 @@ export async function createReviewWorkItem(
 ) {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  const webhookTiming = await client.query<{ received_at: Date | string }>(
+    "SELECT received_at FROM webhook_events WHERE id = $1",
+    [params.webhookEventId],
+  );
+  const rawReceivedAt = webhookTiming.rows[0]?.received_at;
+  const webhookReceivedAt = rawReceivedAt == null ? undefined : new Date(rawReceivedAt).getTime();
   const payload = {
     mode: "review",
     source: params.source,
+    ...(webhookReceivedAt != null ? { webhookReceivedAt } : {}),
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,

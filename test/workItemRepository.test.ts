@@ -37,9 +37,12 @@ describe("createReviewWorkItem", () => {
   });
 
   it("uses slash active uniqueness ON CONFLICT and skips publish on loser", async () => {
-    const query = vi.fn().mockResolvedValueOnce({
-      rows: [{ id: "winner-id", created: false }],
-    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ id: "winner-id", created: false }],
+      });
     const client = { query } as unknown as PoolClient;
 
     const result = await createReviewWorkItem(client, {
@@ -65,6 +68,7 @@ describe("createReviewWorkItem", () => {
   it("inserts publish_records when slash review create wins", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: "created-id", created: true }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] });
     const client = { query } as unknown as PoolClient;
@@ -82,6 +86,7 @@ describe("createReviewWorkItem", () => {
   it("returns the created winner id for a slash review", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: "id-review", created: true }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] });
     const client = { query } as unknown as PoolClient;
@@ -93,7 +98,7 @@ describe("createReviewWorkItem", () => {
     });
 
     expect(result).toEqual({ created: true, id: "id-review" });
-    expect(query.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["review", "o/r#1"]));
+    expect(query.mock.calls[1]?.[1]).toEqual(expect.arrayContaining(["review", "o/r#1"]));
   });
 });
 

@@ -63,7 +63,7 @@ import {
   neutralizeForgedTrustHeaders,
 } from "../../prompts/shared/safety.ts";
 import { AppError } from "../../errors/appError.ts";
-import { MAX_TOOL_ROUNDS } from "../../settings/index.ts";
+import { GOVERNED_EVIDENCE_MAX_READS } from "../../settings/index.ts";
 import { parseCommentableRightLineRanges } from "../../prWorkspace/reviewDiffIndex.ts";
 
 export type LocalWorkspaceToolLimits = {
@@ -259,8 +259,8 @@ export function createGovernedReviewEvidenceReader(
   const gate = createAskPathGate();
   primePathGate(workspace, gate);
   const policy = createPathPolicy(workspace.agentCwd, { kind: "investigation", gate });
-  let remainingReads = MAX_TOOL_ROUNDS;
-  let remainingBytes = LOCAL_WORKSPACE_READ_RESPONSE_BYTES * MAX_TOOL_ROUNDS;
+  let remainingReads = GOVERNED_EVIDENCE_MAX_READS;
+  let remainingBytes = LOCAL_WORKSPACE_READ_RESPONSE_BYTES * GOVERNED_EVIDENCE_MAX_READS;
   return async (descriptor: EvidenceDescriptor) => {
     if (
       remainingReads <= 0 ||

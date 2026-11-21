@@ -20,7 +20,7 @@ import { reviewPayloadFromFindings, type ReviewFinding } from "../src/review/rev
 import { makeTestConfig } from "./helpers/config.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import {
-  MAX_TOOL_ROUNDS,
+  RECON_MAX_TOOL_ROUNDS,
   REVIEW_GATE_PROSE_UNASSESSED,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.ts";
@@ -183,13 +183,15 @@ vi.mock("../src/review/run/reviewRunSetup.ts", () => {
   };
 });
 
-vi.mock("../src/review/orchestrator/specialistRun.ts", () => ({
+vi.mock("../src/review/orchestrator/specialistRun.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/review/orchestrator/specialistRun.ts")>()),
   runSpecialist: vi.fn(
     (params: {
       readonly specialist: SpecialistId;
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
       readonly escalation?: EscalationPlan;
+      readonly onFirstModelResponse?: () => void;
       readonly onValidatedReport?: (report: {
         status: "findings" | "no_findings";
         findings: readonly { readonly file: string }[];
@@ -200,16 +202,14 @@ vi.mock("../src/review/orchestrator/specialistRun.ts", () => ({
       testState.briefMessages.push(params.briefMessage);
       testState.specialistEscalations.push(params.escalation);
       if (params.signal) testState.signals.set(params.specialist, params.signal);
+      queueMicrotask(() => params.onFirstModelResponse?.());
       return new Promise<SpecialistOutcome>((resolve) => {
         outcome.promise.then(resolve);
         params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
           once: true,
         });
       }).then(async (result) => {
-        if (result.kind !== "error")
-          await params.onValidatedReport?.(
-            result.kind === "report" ? result.report : { status: "no_findings", findings: [] },
-          );
+        if (result.kind !== "failed") await params.onValidatedReport?.(result.report);
         return result;
       });
     },
@@ -464,7 +464,7 @@ function acceptedPlacement(
 }
 
 function reported(items: readonly ReviewFinding[]) {
-  return ((pinnedReturn: Extract<SpecialistOutcome, { readonly kind: "report" }>["report"]) =>
+  return ((pinnedReturn: Extract<SpecialistOutcome, { readonly kind: "complete" }>["report"]) =>
     pinnedReturn)({
     status: "findings",
     findings: items.map((item) => ({
@@ -484,7 +484,7 @@ function reported(items: readonly ReviewFinding[]) {
 
 function report(specialist: SpecialistId) {
   return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
-    kind: "report",
+    kind: "complete",
     specialist,
     durationMs: 1,
     report: reported([finding(specialist)]),
@@ -493,15 +493,16 @@ function report(specialist: SpecialistId) {
 
 function empty(specialist: SpecialistId) {
   return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
-    kind: "empty",
+    kind: "complete",
     specialist,
     durationMs: 1,
+    report: { status: "no_findings", findings: [] },
   });
 }
 
 function failed(specialist: SpecialistId, message = `${specialist} failed`) {
   return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
-    kind: "error",
+    kind: "failed",
     specialist,
     durationMs: 1,
     error: new AppError({
@@ -529,6 +530,7 @@ function params() {
     timing: {
       returnByMs: now + 60_000,
       modelStopAtMs: now + 50_000,
+      reconDeadlineAtMs: now + 60_000,
       remainingModelMs: () => 50_000,
       remainingTotalMs: () => 60_000,
     },
@@ -566,6 +568,7 @@ function hardDeadlineParams() {
     timing: {
       modelStopAtMs,
       returnByMs,
+      reconDeadlineAtMs: returnByMs,
       remainingModelMs: () => Math.max(0, modelStopAtMs - Date.now()),
       remainingTotalMs: () => Math.max(0, returnByMs - Date.now()),
     },
@@ -968,7 +971,7 @@ describe("runOrchestratedPrReview", () => {
     expect(reconIndex).toBeGreaterThanOrEqual(0);
     expect(judgmentIndex).toBeGreaterThanOrEqual(0);
     expect(testState.sentSendOptions[reconIndex]?.maxToolRounds).toBe(
-      escalatedToolRounds(MAX_TOOL_ROUNDS, escalation),
+      escalatedToolRounds(RECON_MAX_TOOL_ROUNDS, escalation),
     );
     expect(testState.sentSendOptions[judgmentIndex]?.maxToolRounds).toBe(8);
     const synthesisIndex = testState.sentPrompts.findIndex((prompt) =>
@@ -1312,7 +1315,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("quality", []);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("quality")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "quality",
       durationMs: 1,
       report: reported([speculative]),
@@ -1380,7 +1383,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("tests", []);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("tests")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "tests",
       durationMs: 1,
       report: reported([genericCoverage]),
@@ -1415,7 +1418,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("correctness", [direct]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "correctness",
       durationMs: 1,
       report: reported([direct, wish]),
@@ -1466,7 +1469,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("quality", [writeOwnership, staleFallback]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("quality")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "quality",
       durationMs: 1,
       report: reported([compound]),
@@ -1497,7 +1500,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("quality", []);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("quality")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "quality",
       durationMs: 1,
       report: reported([compound]),
@@ -1556,25 +1559,25 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("security", [securityFinding]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("quality")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "quality",
       durationMs: 1,
       report: reported([structural]),
     });
     testState.outcomes.get("tests")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "tests",
       durationMs: 1,
       report: reported([testGap]),
     });
     testState.outcomes.get("correctness")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "correctness",
       durationMs: 1,
       report: reported([correctnessFinding]),
     });
     testState.outcomes.get("security")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "security",
       durationMs: 1,
       report: reported([securityFinding]),
@@ -1607,7 +1610,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("correctness", [lowImpact]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "correctness",
       durationMs: 1,
       report: reported([lowImpact]),
@@ -1628,7 +1631,7 @@ describe("runOrchestratedPrReview", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
     testState.outcomes.get("correctness")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "correctness",
       durationMs: 1,
       report: reported([finding("correctness", { severity: "P0" })]),
@@ -1652,7 +1655,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentSkipsPublishRemaining = 1;
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("tests")?.resolve({
-      kind: "report",
+      kind: "complete",
       specialist: "tests",
       durationMs: 1,
       report: reported([finding("tests", { severity: "P0" })]),

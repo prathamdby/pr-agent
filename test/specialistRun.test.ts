@@ -38,7 +38,12 @@ import {
   userSupplementGuidance,
 } from "../src/prompts/shared/safety.ts";
 import { specialistInvestigationHarness } from "../src/prompts/shared/tools.ts";
-import { MAX_TOOL_ROUNDS, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.ts";
+import {
+  REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
+  SPECIALIST_MAX_TOOL_ROUNDS,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+} from "../src/settings/index.ts";
+import { SPECIALIST_WRAP_UP_STEER } from "../src/prompts/shared/repair.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 import { NO_CANDIDATE_TEST_GAP } from "../src/review/orchestrator/testsEvidence.ts";
 import {
@@ -54,6 +59,8 @@ type AttemptBehavior =
   | { readonly kind: "pending_create"; readonly settleAfterMs: number }
   | { readonly kind: "pending_send"; readonly settleAfterMs: number }
   | { readonly kind: "no_report" }
+  | { readonly kind: "budget_stop" }
+  | { readonly kind: "budget_stop_then_report"; readonly report: Record<string, unknown> }
   | { readonly kind: "pending" };
 
 type TestSession = Pick<PiSession, "role" | "send" | "abort" | "dispose"> & {
@@ -200,12 +207,14 @@ describe("runSpecialist", () => {
       }
       let rejectPending: ((error: Error) => void) | undefined;
       let submittedReport = false;
+      let sendCount = 0;
       const abort = vi.fn(async () => {
         rejectPending?.(new Error("specialist session aborted"));
       });
       const session: TestSession = {
         role: "specialist",
         send: vi.fn(async () => {
+          sendCount += 1;
           runnerMocks.sessionSend?.resolve();
           if (behavior.kind === "error") throw behavior.error;
           if (behavior.kind === "pending_send") {
@@ -219,6 +228,18 @@ describe("runSpecialist", () => {
             });
           }
           if (behavior.kind === "no_report") return { text: "", end: "completed" as const };
+          if (behavior.kind === "budget_stop") {
+            return sendCount === 1
+              ? { text: "", end: "tool_budget" as const }
+              : { text: "", end: "completed" as const };
+          }
+          if (behavior.kind === "budget_stop_then_report") {
+            if (sendCount === 1) return { text: "", end: "tool_budget" as const };
+            runnerMocks.submitResults.push(
+              await params.executors.submit_findings_report(behavior.report),
+            );
+            return { text: "", end: "completed" as const };
+          }
           if (behavior.once && submittedReport) return { text: "", end: "completed" as const };
           submittedReport = true;
           runnerMocks.submitResults.push(
@@ -256,15 +277,16 @@ describe("runSpecialist", () => {
       );
 
       expect(outcome).toMatchObject({
-        kind: "report",
+        kind: "complete",
         specialist,
         report,
         durationMs: expect.any(Number),
       });
       expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
-        maxToolRounds: MAX_TOOL_ROUNDS,
+        maxToolRounds: REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
         phase: "specialist",
         checkpointId: "specialist:specialist",
+        reservedTerminalTool: "submit_findings_report",
       });
       expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
     },
@@ -276,7 +298,7 @@ describe("runSpecialist", () => {
 
     const outcome = await runSpecialist(specialistArgs({ briefMessage }));
 
-    expect(outcome.kind).toBe("report");
+    expect(outcome.kind).toBe("complete");
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         systemPrompt: buildAutomatedSystemPrompt(),
@@ -292,9 +314,10 @@ describe("runSpecialist", () => {
     expect(briefMessage).toContain("Source: specialist_brief.correctness_focus");
     expect(briefMessage).toContain("Source: specialist_brief.risk_area");
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith(briefMessage, {
-      maxToolRounds: MAX_TOOL_ROUNDS,
+      maxToolRounds: REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
       phase: "specialist",
       checkpointId: "specialist:specialist",
+      reservedTerminalTool: "submit_findings_report",
     });
   });
 
@@ -302,7 +325,7 @@ describe("runSpecialist", () => {
     runnerMocks.behaviors.push({ kind: "report", report: emptyReport });
     const context = agentEventsContext;
     const outcome = await runSpecialist(specialistArgs({ agentEvents: context }));
-    expect(outcome.kind).toBe("empty");
+    expect(outcome.kind).toBe("complete");
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ sessionContext: context }),
     );
@@ -314,7 +337,7 @@ describe("runSpecialist", () => {
     expect(spans.every((span) => span.event === "$ai_span")).toBe(true);
     expect(spans.at(-1)).toMatchObject({
       specialist: "correctness",
-      extra: { stage: "run", outcome: "empty", attempt_count: 2 },
+      extra: { stage: "run", outcome: "complete", attempt_count: 2 },
     });
   });
 
@@ -328,11 +351,15 @@ describe("runSpecialist", () => {
       specialistArgs({ cfg, escalation: escalationForAttempt(2, cfg) }),
     );
 
-    expect(outcome).toMatchObject({ kind: "report", specialist: "correctness" });
+    expect(outcome).toMatchObject({ kind: "complete", specialist: "correctness" });
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
-      maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, escalationForAttempt(2, cfg)),
+      maxToolRounds: escalatedToolRounds(
+        REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
+        escalationForAttempt(2, cfg),
+      ),
       phase: "specialist",
       checkpointId: "specialist:specialist",
+      reservedTerminalTool: "submit_findings_report",
     });
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -350,7 +377,10 @@ describe("runSpecialist", () => {
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith(
       "Review this pull request.",
       expect.objectContaining({
-        maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, escalationForAttempt(2, cfg)),
+        maxToolRounds: escalatedToolRounds(
+          REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
+          escalationForAttempt(2, cfg),
+        ),
       }),
     );
     expect(runnerMocks.createSession).toHaveBeenCalledWith(
@@ -399,7 +429,7 @@ describe("runSpecialist", () => {
           headSha: evidenceLedger.headSha,
         }),
       ),
-    ).resolves.toMatchObject({ kind: "empty", specialist: "correctness" });
+    ).resolves.toMatchObject({ kind: "complete", specialist: "correctness" });
   });
 
   it("repairs a single-object findings report at the parse seam", async () => {
@@ -411,7 +441,7 @@ describe("runSpecialist", () => {
     const outcome = await runSpecialist(specialistArgs());
 
     expect(outcome).toMatchObject({
-      kind: "report",
+      kind: "complete",
       specialist: "correctness",
       report: findingsReport,
     });
@@ -421,7 +451,7 @@ describe("runSpecialist", () => {
     runnerMocks.behaviors.push({ kind: "report", report: emptyReport });
 
     await expect(runSpecialist(specialistArgs())).resolves.toMatchObject({
-      kind: "empty",
+      kind: "complete",
       specialist: "correctness",
       durationMs: expect.any(Number),
     });
@@ -557,8 +587,8 @@ describe("runSpecialist", () => {
         headSha: cfg.review.testsEvidence ? "abc1234" : undefined,
       }),
     );
-    expect(outcome.kind).toBe("error");
-    if (outcome.kind !== "error") return outcome;
+    expect(outcome.kind).toBe("failed");
+    if (outcome.kind !== "failed") return outcome;
     expect(outcome.error.cause).toMatchObject({ kind: "specialist_invalid_report" });
     const repairPrompt = String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0]);
     expect(repairPrompt).toContain("Fix the report and call submit_findings_report");
@@ -589,8 +619,8 @@ describe("runSpecialist", () => {
       }),
     );
 
-    expect(outcome.kind).toBe("error");
-    if (outcome.kind !== "error") return;
+    expect(outcome.kind).toBe("failed");
+    if (outcome.kind !== "failed") return;
     expect(outcome.error.cause).toMatchObject({ kind: "specialist_invalid_report" });
     expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain("no content read");
     expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).not.toContain("were dropped");
@@ -609,7 +639,7 @@ describe("runSpecialist", () => {
     expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain(
       "outside the workspace",
     );
-    expect(outside.kind).toBe("error");
+    expect(outside.kind).toBe("failed");
 
     runnerMocks.behaviors.length = 0;
     runnerMocks.sessions.length = 0;
@@ -623,7 +653,7 @@ describe("runSpecialist", () => {
       }),
     );
     expect(String(runnerMocks.sessions.at(-1)?.send.mock.calls[1]?.[0])).toContain("sensitive");
-    expect(sensitive.kind).toBe("error");
+    expect(sensitive.kind).toBe("failed");
   });
 
   it("rejects a pure coverage-gap P0 and accepts the two P0 shapes", async () => {
@@ -638,7 +668,7 @@ describe("runSpecialist", () => {
       }),
     );
     expect(String(runnerMocks.sessions[0]?.send.mock.calls[1]?.[0])).toContain("ceiling P1");
-    expect(illegal.kind).toBe("error");
+    expect(illegal.kind).toBe("failed");
 
     runnerMocks.behaviors.length = 0;
     runnerMocks.sessions.length = 0;
@@ -653,7 +683,7 @@ describe("runSpecialist", () => {
     });
     runnerMocks.behaviors.push({ kind: "report", report: emptyRead });
     await expect(runSpecialist(specialistArgs({ specialist: "tests" }))).resolves.toMatchObject({
-      kind: "report",
+      kind: "complete",
       specialist: "tests",
       report: emptyRead,
     });
@@ -684,7 +714,7 @@ describe("runSpecialist", () => {
           headSha: ledger.headSha,
         }),
       ),
-    ).resolves.toMatchObject({ kind: "report", report: neighbor });
+    ).resolves.toMatchObject({ kind: "complete", report: neighbor });
   });
 
   it("drops a tests cite recorded only on another specialist ledger", async () => {
@@ -701,7 +731,7 @@ describe("runSpecialist", () => {
       }),
     );
 
-    expect(dropped.kind).toBe("empty");
+    expect(dropped.kind).toBe("complete");
     expect(runnerMocks.submitResults[0]).toMatchObject({
       accepted: false,
       droppedFindings: [{ reasonCode: "no_evidence", file: finding.file }],
@@ -722,13 +752,13 @@ describe("runSpecialist", () => {
           headSha: tests.headSha,
         }),
       ),
-    ).resolves.toMatchObject({ kind: "report", report: testsFindingsReport });
+    ).resolves.toMatchObject({ kind: "complete", report: testsFindingsReport });
   });
 
   it("accepts an invalidated test without testEvidence and a never-read path when the flag is off", async () => {
     runnerMocks.behaviors.push({ kind: "report", report: testsFindingsReport });
     await expect(runSpecialist(specialistArgs({ specialist: "tests" }))).resolves.toMatchObject({
-      kind: "report",
+      kind: "complete",
       report: testsFindingsReport,
     });
 
@@ -752,7 +782,7 @@ describe("runSpecialist", () => {
           headSha: ledger.headSha,
         }),
       ),
-    ).resolves.toMatchObject({ kind: "report", report: unread });
+    ).resolves.toMatchObject({ kind: "complete", report: unread });
   });
 
   it("keeps the evidence gate authoritative over an otherwise valid report", async () => {
@@ -770,7 +800,7 @@ describe("runSpecialist", () => {
     );
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       specialist: "correctness",
       error: { cause: { kind: "specialist_invalid_report" } },
     });
@@ -794,7 +824,7 @@ describe("runSpecialist", () => {
 
     const outcome = await runSpecialist(specialistArgs());
 
-    expect(outcome.kind).toBe("report");
+    expect(outcome.kind).toBe("complete");
     expect(runnerMocks.createSession).toHaveBeenCalledTimes(2);
     expect(runnerMocks.sessions.every((session) => session.dispose.mock.calls.length === 1)).toBe(
       true,
@@ -810,7 +840,7 @@ describe("runSpecialist", () => {
     const outcome = await runSpecialist(specialistArgs());
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       specialist: "correctness",
       error: {
         code: "review.specialist_failed",
@@ -826,7 +856,7 @@ describe("runSpecialist", () => {
     const outcome = await runSpecialist(specialistArgs());
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "unknown", attempts: 2 },
@@ -859,6 +889,42 @@ describe("runSpecialist", () => {
     ]);
   });
 
+  it("steers a budget-stopped specialist with the remaining tool rounds", async () => {
+    runnerMocks.behaviors.push({ kind: "budget_stop" }, { kind: "no_report" });
+
+    const outcome = await runSpecialist(specialistArgs());
+
+    expect(outcome.kind).toBe("failed");
+    const calls = runnerMocks.sessions[0]?.send.mock.calls ?? [];
+    expect(calls[1]?.[0]).toBe(SPECIALIST_WRAP_UP_STEER);
+    expect(calls[1]?.[1]).toEqual({
+      maxToolRounds: SPECIALIST_MAX_TOOL_ROUNDS - REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
+      reservedTerminalTool: "submit_findings_report",
+      phase: "specialist",
+      checkpointId: "specialist:specialist",
+    });
+    expect(calls).toHaveLength(5);
+  });
+
+  it("returns a partial outcome when the wrap-up steer submits a report", async () => {
+    runnerMocks.behaviors.push({ kind: "budget_stop_then_report", report: findingsReport });
+
+    const outcome = await runSpecialist(specialistArgs());
+
+    expect(outcome).toMatchObject({
+      kind: "partial",
+      specialist: "correctness",
+      report: findingsReport,
+    });
+    const calls = runnerMocks.sessions[0]?.send.mock.calls ?? [];
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[0]).toBe(SPECIALIST_WRAP_UP_STEER);
+    expect(calls[1]?.[1]).toMatchObject({
+      maxToolRounds: SPECIALIST_MAX_TOOL_ROUNDS - REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
+      reservedTerminalTool: "submit_findings_report",
+    });
+  });
+
   it("aborts the active session before disposal when the deadline expires", async () => {
     vi.useFakeTimers();
     runnerMocks.behaviors.push({ kind: "pending" });
@@ -871,7 +937,7 @@ describe("runSpecialist", () => {
 
     const session = runnerMocks.sessions[0];
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "timeout", attempts: 1, deadlineHit: true },
@@ -881,7 +947,7 @@ describe("runSpecialist", () => {
       .map(([span]) => span)
       .find((span) => span.spanName === "specialist:correctness:run");
     expect(run).toMatchObject({
-      extra: { outcome: "error", classification: "timeout", attempts: 1, deadline_hit: true },
+      extra: { outcome: "failed", classification: "timeout", attempts: 1, deadline_hit: true },
     });
     expect(session?.abort).toHaveBeenCalledTimes(1);
     expect(session?.dispose).toHaveBeenCalledTimes(1);
@@ -901,7 +967,7 @@ describe("runSpecialist", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "timeout", attempts: 1 },
@@ -926,7 +992,7 @@ describe("runSpecialist", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "timeout", attempts: 1 },
@@ -950,7 +1016,7 @@ describe("runSpecialist", () => {
     await vi.runAllTimersAsync();
     const outcome = await outcomePromise;
 
-    expect(outcome.kind).toBe("report");
+    expect(outcome.kind).toBe("complete");
     expect(runnerMocks.createSession).toHaveBeenCalledTimes(3);
   });
 
@@ -968,7 +1034,7 @@ describe("runSpecialist", () => {
     const outcome = await outcomePromise;
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "rate_limit", attempts: 3 },
@@ -996,7 +1062,7 @@ describe("runSpecialist", () => {
     const outcome = await outcomePromise;
 
     expect(outcome).toMatchObject({
-      kind: "error",
+      kind: "failed",
       error: {
         code: "review.specialist_failed",
         context: { classification: "cancelled", attempts: 1 },

@@ -1,6 +1,6 @@
-export const CODE_MODE_INTERRUPT_CHECKS = 50_000;
+export const CODE_MODE_INTERRUPT_CHECKS = 250_000;
 
-export const CODE_MODE_CPU_BUDGET_MS = 80;
+export const CODE_MODE_CPU_BUDGET_MS = 2_000;
 
 export const CODE_MODE_MAX_TOOL_CALLS = 25;
 

@@ -21,10 +21,13 @@ import { AppError, errorLogFields, toAppError } from "../../errors/appError.ts";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
 import { logInfo, logWarn } from "../../evlog.ts";
 import {
-  MAX_TOOL_ROUNDS,
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   PUBLISH_RECOVERY_ROUNDS,
+  RECON_MAX_TOOL_ROUNDS,
+  REVIEW_SPECIALISTS_BUDGET_MS,
+  REVIEW_SPECIALIST_WRAP_UP_MS,
   REVIEW_SUMMARY_SENTINEL,
+  SPECIALIST_WARMUP_LEAD_MAX_MS,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.ts";
@@ -90,12 +93,18 @@ import {
 } from "../findingIdentity/findingInventory.ts";
 import { buildFindingView, type FindingCheck } from "../findingIdentity/findingLifecycle.ts";
 import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.ts";
-import { runSpecialist } from "./specialistRun.ts";
+import { runSpecialist, SPECIALIST_LENS_BODIES } from "./specialistRun.ts";
+import { emptyReconPack, hydrateReconPack, reviewPromptCacheKey } from "./hydrateReconPack.ts";
+import {
+  renderSpecialistSystemPrompt,
+  specialistSharedPrefix,
+} from "../../prompts/shared/prefix.ts";
 import type { SpecialistReport } from "./specialistReport.ts";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.ts";
 import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.ts";
 import {
   OPENED_PATH_MAX_CHARS,
+  recordDeliveredFileRead,
   revalidateEvidenceDescriptors,
   unreadChangedFilesNote,
   unreadChangedPaths,
@@ -189,6 +198,7 @@ function initialState() {
     outcomes: {},
     completionOrder: [],
     failedSpecialists: [],
+    partialSpecialists: [],
     briefFallback: false,
     judgment: "model",
     lifecycle: { kind: "running" },
@@ -250,6 +260,7 @@ export function reviewRunCoverage(
   failedSpecialists: readonly SpecialistId[],
   unreadPaths: readonly string[],
   unjudgedSpecialists: readonly SpecialistId[] = [],
+  partialSpecialists: readonly SpecialistId[] = [],
 ) {
   const failed = [...failedSpecialists];
   if (failed.length === SPECIALIST_IDS.length)
@@ -262,13 +273,20 @@ export function reviewRunCoverage(
     if (paths.length === UNREAD_COVERAGE_PATH_LIMIT) break;
   }
   const unjudged = [...unjudgedSpecialists];
-  if (failed.length === 0 && paths.length === 0 && unjudged.length === 0)
+  const partial = partialSpecialists.filter((specialist) => !failed.includes(specialist));
+  if (failed.length === 0 && paths.length === 0 && unjudged.length === 0 && partial.length === 0)
     return ((pinnedReturn: ReviewCoverage) => pinnedReturn)({ kind: "full" });
   const sentences: string[] = [];
   if (failed.length > 0) {
     const names = failed.join(", ");
     sentences.push(
       `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
+    );
+  }
+  if (partial.length > 0) {
+    const names = partial.join(", ");
+    sentences.push(
+      `Coverage partial: ${names} specialist${partial.length === 1 ? "" : "s"} wrapped up before finishing their pass.`,
     );
   }
   if (paths.length > 0) sentences.push(unreadChangedFilesNote(unreadPaths));
@@ -279,6 +297,7 @@ export function reviewRunCoverage(
     ...(failed.length > 0 ? { failed } : {}),
     ...(paths.length > 0 ? { paths } : {}),
     ...(unjudged.length > 0 ? { unjudged } : {}),
+    ...(partial.length > 0 ? { partial } : {}),
   });
 }
 
@@ -420,17 +439,12 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
         recovery.discardEvidenceCache();
         continue;
       }
-      cachedReports.set(
+      cachedReports.set(specialist, {
+        kind: "complete",
         specialist,
-        artifact.report.status === "no_findings"
-          ? { kind: "empty", specialist, durationMs: 0, report: artifact.report }
-          : {
-              kind: "report",
-              specialist,
-              durationMs: 0,
-              report: { ...artifact.report, status: "findings" },
-            },
-      );
+        durationMs: 0,
+        report: artifact.report,
+      });
     }
   }
   const recoveredDecisions = (await recovery?.decisions()) ?? [];
@@ -475,12 +489,20 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
     );
   const coverageNow = () =>
     ((pinnedReturn: ReviewCoverage) => pinnedReturn)(
-      reviewRunCoverage(state.failedSpecialists, unreadPathsNow(), unjudgedFromPhases()),
+      reviewRunCoverage(
+        state.failedSpecialists,
+        unreadPathsNow(),
+        unjudgedFromPhases(),
+        state.partialSpecialists,
+      ),
     );
   const restoreCoverageLists = (coverage: ReviewCoverage) => {
     if (coverage.kind !== "partial") return;
     for (const specialist of coverage.failed ?? []) {
       if (!state.failedSpecialists.includes(specialist)) state.failedSpecialists.push(specialist);
+    }
+    for (const specialist of coverage.partial ?? []) {
+      if (!state.partialSpecialists.includes(specialist)) state.partialSpecialists.push(specialist);
     }
     for (const specialist of coverage.unjudged ?? []) {
       state.specialists[specialist] = { phase: "unjudged" };
@@ -833,7 +855,7 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
                 !recoveredSources.has(specialist) && state.specialists[specialist].phase !== "done",
             )
             .flatMap(([specialist, outcome]) =>
-              outcome.kind === "report" || (outcome.kind === "empty" && outcome.report)
+              outcome.kind !== "failed"
                 ? [{ specialist, reportSerialized: JSON.stringify(outcome.report) }]
                 : [],
             ),
@@ -896,11 +918,34 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
           phase,
           checkpointId: `${session.role}:${phase}`,
         });
+        const phaseDeadlineAtMs = phase === "recon" ? params.timing.reconDeadlineAtMs : undefined;
         const send = await settleBefore(
           sendPromise,
-          Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+          Math.min(
+            params.timing.modelStopAtMs,
+            params.timing.returnByMs,
+            phaseDeadlineAtMs ?? Number.POSITIVE_INFINITY,
+          ),
           params.signal,
         );
+        if (
+          send.kind === "deadline" &&
+          phaseDeadlineAtMs !== undefined &&
+          Date.now() < params.timing.modelStopAtMs &&
+          Date.now() < params.timing.returnByMs
+        ) {
+          void sendPromise.catch(() => undefined);
+          await retireSession();
+          return ((pinnedReturn: SendResult | Promise<SendResult>) => pinnedReturn)({
+            kind: "failed",
+            error: new AppError({
+              domain: "review",
+              kind: "orchestrator_model_deadline",
+              message: "Orchestrator recon phase budget reached",
+              context: { phase, attempt },
+            }),
+          });
+        }
         if (send.kind === "deadline") {
           state.lifecycle = { kind: "finalizing", reason: "deadline" };
           abortSpecialists();
@@ -1096,14 +1141,17 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);
-    if (outcome.kind === "report" || outcome.kind === "empty") {
+    if (outcome.kind !== "failed") {
       const seeded = state.failedSpecialists.indexOf(outcome.specialist);
       if (seeded >= 0) state.failedSpecialists.splice(seeded, 1);
     }
-    if (outcome.kind === "empty") {
+    if (outcome.kind === "partial" && !state.partialSpecialists.includes(outcome.specialist)) {
+      state.partialSpecialists.push(outcome.specialist);
+    }
+    if (outcome.kind !== "failed" && outcome.report.status === "no_findings") {
       state.specialists[outcome.specialist] = { phase: "no_findings" };
       await writeTick();
-    } else if (outcome.kind === "error") {
+    } else if (outcome.kind === "failed") {
       state.specialists[outcome.specialist] = { phase: "failed" };
       if (!state.failedSpecialists.includes(outcome.specialist)) {
         state.failedSpecialists.push(outcome.specialist);
@@ -1125,7 +1173,7 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
   };
 
   const recordUnjudgedReport = async (
-    outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
+    outcome: Exclude<SpecialistOutcome, { readonly kind: "failed" }>,
     cause: JudgmentDegradeCause,
   ) => {
     if (state.lifecycle.kind === "stopped") return;
@@ -1257,7 +1305,7 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
       if (await stopFromGateResult(await params.gate.check())) return;
 
       await recordOutcome(outcome);
-      if (outcome.kind !== "report") return;
+      if (outcome.kind === "failed" || outcome.report.status !== "findings") return;
       if (recoveredSources.has(outcome.specialist)) {
         state.specialists[outcome.specialist] = {
           phase: "done",
@@ -1330,7 +1378,7 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
       recovery?.rememberUnresolvedPublication(error);
       throwIfRecoveryBlocked();
       await recordOutcome(outcome);
-      if (outcome.kind !== "report") throw error;
+      if (outcome.kind === "failed" || outcome.report.status !== "findings") throw error;
       await recordUnjudgedReport(outcome, { reason: "judgment_failed", error });
     }
   };
@@ -1358,65 +1406,125 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
       acceptedOpenThreads(publishThread.getLedger()),
     );
 
-    const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
-    for (const specialist of SPECIALIST_IDS) {
-      const cached = cachedReports.get(specialist);
-      if (cached) {
-        pending.set(specialist, Promise.resolve(cached));
-        continue;
-      }
-      const controller = new AbortController();
-      specialistControllers.set(specialist, controller);
-      pending.set(
-        specialist,
-        runSpecialist({
-          cfg: params.cfg,
-          cwd: sessionCwd,
-          specialist,
-          briefMessage: appendTrustedSpecialistContext(
-            renderBriefMessage(
-              brief,
-              specialist,
-              submittedBrief == null
-                ? {
-                    pullRequestMetadata: { title: params.prTitle, body: params.prBody },
-                  }
-                : undefined,
-            ),
-            setup.trustedContext,
-          ),
-          workspaceTools: setup.createSpecialistWorkspaceTools(specialist, () => threadsAtDispatch),
-          timeoutMs: Math.max(
-            0,
-            Math.min(params.cfg.review.specialistTimeoutMs, params.timing.remainingModelMs()),
-          ),
-          shouldContinue: () => state.lifecycle.kind === "running",
-          signal: combineAbortSignals([params.signal, controller.signal]),
-          evidenceLedger: setup.specialistLedgers[specialist],
-          headSha: params.headSha,
-          checkoutCoverage: params.workspace.reader.getCoverage(),
-          isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
-          agentEvents: agentEvents ?? undefined,
-          escalation: params.escalation,
-          createSession: params.createSession,
-          onValidatedReport: recovery
-            ? (report) => saveSpecialistReport(specialist, report)
-            : undefined,
-        }),
-      );
-    }
-
-    outcomes = await pumpSpecialistCompletions({
-      pending,
-      shouldContinue: () => state.lifecycle.kind === "running",
-      onOutcome: handleSpecialistOutcome,
+    const reconPack = await hydrateReconPack({
+      reader: params.workspace.reader,
+      pointers: brief.contextPointers ?? [],
+    }).catch((error) => {
+      const appError = toAppError(error, {
+        domain: "review",
+        kind: "recon_pack_failed",
+      });
+      logWarn("review_recon_pack_failed", errorLogFields(appError));
+      return emptyReconPack();
     });
+    for (const credited of reconPack.creditedLines) {
+      for (const specialist of SPECIALIST_IDS) {
+        recordDeliveredFileRead(setup.specialistLedgers[specialist], {
+          ...credited,
+          headSha: params.headSha,
+          tool: "recon_pack",
+        });
+      }
+    }
+    const sharedHead =
+      reconPack.text.length > 0
+        ? `${specialistSharedPrefix}\n\n${reconPack.text}`
+        : specialistSharedPrefix;
+    const promptCacheKey = reviewPromptCacheKey({
+      owner: params.owner,
+      repo: params.repo,
+      prNumber: params.prNumber,
+      headSha: params.headSha,
+      reconPackHash: reconPack.hash,
+    });
+
+    let releaseRest: (() => void) | undefined;
+    const restReleased = new Promise<void>((resolve) => {
+      releaseRest = resolve;
+    });
+    const warmupTimer = setTimeout(() => releaseRest?.(), SPECIALIST_WARMUP_LEAD_MAX_MS);
+    let warmUpLeadAssigned = false;
+    const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
+    try {
+      for (const specialist of SPECIALIST_IDS) {
+        const cached = cachedReports.get(specialist);
+        if (cached) {
+          pending.set(specialist, Promise.resolve(cached));
+          continue;
+        }
+        const isWarmUpLead = !warmUpLeadAssigned;
+        warmUpLeadAssigned = true;
+        const controller = new AbortController();
+        specialistControllers.set(specialist, controller);
+        const launch = () =>
+          runSpecialist({
+            cfg: params.cfg,
+            cwd: sessionCwd,
+            specialist,
+            briefMessage: appendTrustedSpecialistContext(
+              renderBriefMessage(
+                brief,
+                specialist,
+                submittedBrief == null
+                  ? {
+                      pullRequestMetadata: { title: params.prTitle, body: params.prBody },
+                    }
+                  : undefined,
+              ),
+              setup.trustedContext,
+            ),
+            systemPrompt: renderSpecialistSystemPrompt({
+              sharedHead,
+              lensBody: SPECIALIST_LENS_BODIES[specialist],
+              specialist,
+              specialistFocus: brief.specialistFocus[specialist],
+            }),
+            systemPromptSharedHead: sharedHead,
+            promptCacheKey,
+            workspaceTools: setup.createSpecialistWorkspaceTools(
+              specialist,
+              () => threadsAtDispatch,
+            ),
+            timeoutMs: Math.max(
+              0,
+              Math.min(
+                params.cfg.review.specialistTimeoutMs,
+                REVIEW_SPECIALISTS_BUDGET_MS,
+                params.timing.remainingModelMs(),
+              ),
+            ),
+            wrapUpAtMs: Date.now() + REVIEW_SPECIALIST_WRAP_UP_MS,
+            ...(isWarmUpLead ? { onFirstModelResponse: () => releaseRest?.() } : {}),
+            shouldContinue: () => state.lifecycle.kind === "running",
+            signal: combineAbortSignals([params.signal, controller.signal]),
+            evidenceLedger: setup.specialistLedgers[specialist],
+            headSha: params.headSha,
+            checkoutCoverage: params.workspace.reader.getCoverage(),
+            isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
+            agentEvents: agentEvents ?? undefined,
+            escalation: params.escalation,
+            createSession: params.createSession,
+            onValidatedReport: recovery
+              ? (report) => saveSpecialistReport(specialist, report)
+              : undefined,
+          });
+        pending.set(specialist, isWarmUpLead ? launch() : restReleased.then(launch));
+      }
+
+      outcomes = await pumpSpecialistCompletions({
+        pending,
+        shouldContinue: () => state.lifecycle.kind === "running",
+        onOutcome: handleSpecialistOutcome,
+      });
+    } finally {
+      clearTimeout(warmupTimer);
+    }
 
     if (state.lifecycle.kind !== "running") return;
     for (const outcome of outcomes) {
       if (state.outcomes[outcome.specialist] != null) continue;
       await recordOutcome(outcome);
-      if (outcome.kind !== "report") continue;
+      if (outcome.kind === "failed" || outcome.report.status !== "findings") continue;
       if (sessionRetired || !session) {
         await recordUnjudgedReport(outcome, { reason: "judgment_unavailable" });
         continue;
@@ -1440,7 +1548,7 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
         const recon = await sendWithRetry(
           "recon",
           renderOrchestratorReconTurn(setup.orchestratorUserContent),
-          { maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation) },
+          { maxToolRounds: escalatedToolRounds(RECON_MAX_TOOL_ROUNDS, params.escalation) },
         );
         if (recon.kind === "sent") lastText = recon.text;
         else state.judgment = "degraded";
@@ -1481,7 +1589,8 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
         for (const outcome of outcomes) {
           if (state.outcomes[outcome.specialist] == null) await recordOutcome(outcome);
           if (
-            outcome.kind !== "report" ||
+            outcome.kind === "failed" ||
+            outcome.report.status !== "findings" ||
             state.specialists[outcome.specialist].phase !== "running"
           )
             continue;
@@ -1506,7 +1615,12 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
         publishStepCount += 1;
         const synthesisPrompt = renderSynthesisTurn({
           acceptedFindings: publishThread.getLedger().accepted,
-          partialSpecialists: state.failedSpecialists,
+          partialSpecialists: [
+            ...state.failedSpecialists,
+            ...state.partialSpecialists.filter(
+              (specialist) => !state.failedSpecialists.includes(specialist),
+            ),
+          ],
           outcomes: state.completionOrder.flatMap((specialist) => {
             const outcome = state.outcomes[specialist];
             return outcome ? [outcome] : [];
@@ -1632,7 +1746,16 @@ export async function runOrchestratedPrReview(params: OrchestratedReviewRunParam
   const specialistOutcomes: Record<string, number> = {};
   for (const outcome of Object.values(state.outcomes)) {
     if (!outcome) continue;
-    specialistOutcomes[outcome.kind] = (specialistOutcomes[outcome.kind] ?? 0) + 1;
+    const bucket =
+      outcome.kind === "failed"
+        ? "error"
+        : outcome.report.status === "no_findings"
+          ? "empty"
+          : "report";
+    specialistOutcomes[bucket] = (specialistOutcomes[bucket] ?? 0) + 1;
+    if (outcome.kind === "partial") {
+      specialistOutcomes.partial = (specialistOutcomes.partial ?? 0) + 1;
+    }
   }
   const ledger = publishThread.getLedger();
   const postedSeverities = ledger.accepted.flatMap((placement) =>

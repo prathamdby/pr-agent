@@ -192,15 +192,18 @@ export function promptCacheSections(input: {
   readonly systemText: string;
   readonly tools: unknown;
   readonly history: unknown;
+  readonly sharedHead?: string;
 }) {
-  const prefix = specialistSharedPrefix;
-  const separatorAt = prefix.length;
-  const rest = input.systemText.slice(separatorAt);
-  const splitAtPrefix =
-    prefix.length > 0 && (input.systemText.startsWith(prefix) || rest.startsWith("\n\n"));
-  const sharedPrefix = splitAtPrefix ? input.systemText.slice(0, prefix.length) : "";
-  let roleBody = splitAtPrefix ? rest : input.systemText;
-  if (splitAtPrefix && roleBody.startsWith("\n\n")) roleBody = roleBody.slice(2);
+  const head =
+    input.sharedHead != null && input.sharedHead.length > 0
+      ? input.sharedHead
+      : specialistSharedPrefix;
+  const rest = input.systemText.slice(head.length);
+  const splitAtHead =
+    head.length > 0 && (input.systemText.startsWith(head) || rest.startsWith("\n\n"));
+  const sharedPrefix = splitAtHead ? input.systemText.slice(0, head.length) : "";
+  let roleBody = splitAtHead ? rest : input.systemText;
+  if (splitAtHead && roleBody.startsWith("\n\n")) roleBody = roleBody.slice(2);
   return ((pinnedReturn: PromptCacheSections) => pinnedReturn)({
     shared_prefix: sharedPrefix,
     role_body: roleBody,

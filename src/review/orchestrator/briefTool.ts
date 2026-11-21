@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
+import { RECON_PACK_MAX_POINTER_LINES, RECON_PACK_MAX_POINTERS } from "../../settings/index.ts";
 import { toToolParameters } from "../../agent/tools/toolParams.ts";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
 import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
@@ -19,6 +20,26 @@ export const specialistBriefSchema = v.object({
     v.maxLength(12),
   ),
   fileMap: v.pipe(v.string(), v.maxLength(6000)),
+  contextPointers: v.optional(
+    v.pipe(
+      v.array(
+        v.object({
+          path: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),
+          startLine: v.pipe(v.number(), v.integer(), v.minValue(1)),
+          endLine: v.pipe(v.number(), v.integer(), v.minValue(1)),
+          symbol: v.optional(v.pipe(v.string(), v.maxLength(200))),
+        }),
+      ),
+      v.maxLength(RECON_PACK_MAX_POINTERS),
+      v.check((pointers) =>
+        pointers.every(
+          (pointer) =>
+            pointer.endLine >= pointer.startLine &&
+            pointer.endLine - pointer.startLine + 1 <= RECON_PACK_MAX_POINTER_LINES,
+        ),
+      ),
+    ),
+  ),
   specialistFocus: v.object({
     correctness: v.pipe(v.string(), v.maxLength(1500)),
     security: v.pipe(v.string(), v.maxLength(1500)),
