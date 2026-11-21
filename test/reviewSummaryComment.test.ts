@@ -1008,6 +1008,49 @@ describe("createReviewSummaryComment", () => {
     expect(release).toHaveBeenCalledTimes(2);
   });
 
+  it.each(["checkout", "lock query", "contention callback"] as const)(
+    "restores try-lock capacity after a failed %s",
+    async (stage) => {
+      const { pool: lockedPool, query, release, client } = createLockedPool();
+      lockedPool.options.max = 2;
+      const failure = new Error(`${stage} failed`);
+      const onContended = vi.fn(async () => {
+        throw failure;
+      });
+      if (stage === "checkout") vi.mocked(lockedPool.connect).mockRejectedValueOnce(failure);
+      if (stage === "lock query") query.mockRejectedValueOnce(failure);
+      if (stage === "contention callback")
+        query.mockResolvedValueOnce({ rows: [{ locked: false }] });
+
+      const tryLock = (apply: (client: PoolClient) => Promise<boolean>) =>
+        withSessionLock(
+          lockedPool,
+          { kind: "own_verdict", workItemId: "wi-1", reviewLens: "review" },
+          {
+            mode: "try",
+            unleased: false,
+            capacityError: () => new Error("insufficient capacity"),
+            onContended,
+          },
+          apply,
+        );
+      const apply = vi.fn(async () => true);
+      await expect(tryLock(apply)).rejects.toBe(failure);
+      expect(apply).not.toHaveBeenCalled();
+      if (stage === "contention callback") {
+        expect(onContended).toHaveBeenCalledExactlyOnceWith(client);
+      } else {
+        expect(onContended).not.toHaveBeenCalled();
+      }
+      expect(release.mock.calls).toEqual(
+        stage === "checkout" ? [] : [[stage === "lock query" ? true : undefined]],
+      );
+
+      await expect(tryLock(apply)).resolves.toBe(true);
+      expect(apply).toHaveBeenCalledExactlyOnceWith(client);
+    },
+  );
+
   it("destroys a progress session when unlock returns false", async () => {
     const { pool: lockedPool, query, release } = createLockedPool();
     query

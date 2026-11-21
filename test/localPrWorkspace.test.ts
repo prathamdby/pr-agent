@@ -1,4 +1,4 @@
-import { execFile as execFileCb, execFileSync, spawn } from "node:child_process";
+import { ChildProcess, execFile as execFileCb, execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -16,11 +16,17 @@ import { classifyFailure } from "../src/errors/classifiedFailure.ts";
 import { retryDispositionFor } from "../src/agentWork/retryPolicy.ts";
 import { annotateExecution, initTraces, startWorkTrace } from "../src/traces/recorder.ts";
 import { workspaceCheckoutProperties } from "../src/prWorkspace/checkoutTelemetry.ts";
+import { runGitProcess } from "../src/prWorkspace/gitProcess.ts";
 import { readBasePolicySnapshot } from "../src/prWorkspace/policySnapshot.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
 const credentialHooks = { failAfterWrite: false };
 const allocatedWorkspaceRoots: string[] = [];
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
+
 vi.mock("../src/prWorkspace/gitCredentials.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.ts")>();
   return {
@@ -1613,6 +1619,46 @@ describe("workspace git process ownership", () => {
       };
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("completes cleanup without SIGKILL when the group exits after SIGTERM", async () => {
+    const pid = 1234;
+    const child = Object.assign(new ChildProcess(), { pid });
+    vi.mocked(spawn).mockReturnValueOnce(child);
+    const kill = vi
+      .spyOn(process, "kill")
+      .mockReturnValueOnce(true)
+      .mockImplementation(() => {
+        throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+      });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const run = runGitProcess(["status"], {
+        cwd: process.cwd(),
+        env: {},
+        timeoutMs: 10,
+        maxBufferBytes: 1024,
+      });
+
+      await vi.advanceTimersToNextTimerAsync();
+      expect(kill.mock.calls).toEqual([[-pid, "SIGTERM"]]);
+      child.emit("exit", null, "SIGTERM");
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(run).resolves.toMatchObject({
+        signal: "SIGTERM",
+        timedOut: true,
+        killed: true,
+        cleanup: "complete",
+      });
+      expect(kill.mock.calls).toEqual([
+        [-pid, "SIGTERM"],
+        [-pid, 0],
+      ]);
+    } finally {
+      vi.useRealTimers();
+      kill.mockRestore();
+      vi.mocked(spawn).mockReset();
     }
   });
 
