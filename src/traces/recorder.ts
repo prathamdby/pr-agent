@@ -476,6 +476,7 @@ function propertiesFor(
   if (draft.phase != null) properties.phase = draft.phase;
   if (draft.role != null) properties.session_role = draft.role;
   if (draft.specialist != null) properties.specialist_id = draft.specialist;
+
   assignCount(properties, "$ai_input_tokens", draft.inputTokens);
   assignCount(properties, "$ai_output_tokens", draft.outputTokens);
   assignCount(properties, "$ai_cache_read_tokens", draft.cacheReadTokens);
@@ -483,10 +484,12 @@ function propertiesFor(
   assignCount(properties, "$ai_cache_write_1h_tokens", draft.cacheWrite1hTokens);
   assignCount(properties, "$ai_total_tokens", draft.totalTokens);
   if (draft.costUsd != null && draft.costUsd > 0) properties.$ai_total_cost_usd = draft.costUsd;
+
   if (execution.owner != null) properties.owner = execution.owner;
   if (execution.repo != null) properties.repo = execution.repo;
   if (execution.prNumber != null) properties.pr_number = execution.prNumber;
   if (execution.headSha != null) properties.head_sha = execution.headSha;
+
   if (draft.input !== undefined) properties.$ai_input = redact(draft.input);
   if (draft.outputChoices !== undefined)
     properties.$ai_output_choices = redact(draft.outputChoices);

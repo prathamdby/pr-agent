@@ -714,268 +714,234 @@ async function runBulkFromPreview(params: {
   );
 }
 
+function bulkPreviewError(preview: StoredTriagePreviewDetail | null, headSha: string) {
+  if (preview == null) return TRIAGE_BULK_REQUIRES_PREVIEW;
+  if (preview.headSha.toLowerCase() !== headSha.toLowerCase()) return TRIAGE_BULK_PREVIEW_STALE;
+  return undefined;
+}
+
 export function createTriageWorkExecution({
   cfg,
   pool,
   installationSurface = productionInstallationSurface,
 }: WorkExecutionDependencies) {
   const getBotIdentity = () => installationSurface.botIdentity(cfg);
-  return ((pinnedReturn: WorkExecution<"triage">) => pinnedReturn)({
-    execute: async (item, env) => {
-      let omitTerminal = false;
-      const result = await (async () => {
-        const scope = item.payload.scope ?? "all";
-        const mode = triageMode(item.payload);
-        const { prSurface } = env;
-        const headSha = env.headSha;
-        await ensureTriageNotCancelled(env);
-        const branch = pullRequestBranchInfo((await prSurface.getHead()).pullRequest);
-        await ensureTriageNotCancelled(env);
-        if (!branch.sameRepo && mode !== "preview") {
-          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-            pinnedReturn)(
-            handleForkPrReport({
-              env,
-              pool,
-              item,
-              prSurface,
-              headSha,
-              scope,
-              leaseEpoch: env.leaseEpoch,
-            }),
-          );
-        }
 
-        let storedPreview: StoredTriagePreviewDetail | null = null;
-        if (mode === "bulk") {
-          storedPreview = parseStoredTriagePreviewDetail(
+  const executeTriage: (
+    item: Parameters<WorkExecution<"triage">["execute"]>[0],
+    env: DurableExecutionContext,
+  ) => Promise<TriageExecuteResult | undefined> = async (item, env) => {
+    const scope = item.payload.scope ?? "all";
+    const mode = triageMode(item.payload);
+    const { prSurface } = env;
+    const headSha = env.headSha;
+    await ensureTriageNotCancelled(env);
+    const branch = pullRequestBranchInfo((await prSurface.getHead()).pullRequest);
+    await ensureTriageNotCancelled(env);
+    if (!branch.sameRepo && mode !== "preview") {
+      return handleForkPrReport({
+        env,
+        pool,
+        item,
+        prSurface,
+        headSha,
+        scope,
+        leaseEpoch: env.leaseEpoch,
+      });
+    }
+
+    const storedPreview =
+      mode === "bulk"
+        ? parseStoredTriagePreviewDetail(
             await createPublishContext(pool, {
               resourceKey: item.resourceKey,
               reviewLens: TRIAGE_PUBLISH_LENS,
             }).latest("triage_preview"),
-          );
-          if (storedPreview == null) {
-            await publishTriageReportOnly({
-              pool,
-              workItemId: item.id,
-              resourceKey: item.resourceKey,
-              installationId: item.installationId,
-              prSurface,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-              headSha,
-              inventory: [],
-              previouslyResolvedCount: 0,
-              leaseEpoch: env.leaseEpoch,
-              body: reportOnlyBody({
-                message: TRIAGE_BULK_REQUIRES_PREVIEW,
-                headSha,
-                inventoryCount: 0,
-                previouslyResolvedCount: 0,
-                scope,
-              }),
-            });
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)({ kind: "completed" });
-          }
-          if (storedPreview.headSha.toLowerCase() !== headSha.toLowerCase()) {
-            await publishTriageReportOnly({
-              pool,
-              workItemId: item.id,
-              resourceKey: item.resourceKey,
-              installationId: item.installationId,
-              prSurface,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-              headSha,
-              inventory: [],
-              previouslyResolvedCount: 0,
-              leaseEpoch: env.leaseEpoch,
-              body: reportOnlyBody({
-                message: TRIAGE_BULK_PREVIEW_STALE,
-                headSha,
-                inventoryCount: 0,
-                previouslyResolvedCount: 0,
-                scope,
-              }),
-            });
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)({ kind: "completed" });
-          }
-        }
-
-        const discovered = await resolveInventoryAndScope({
-          getBotIdentity,
-          cfg,
-          pool,
-          item,
-          prSurface,
-          scope,
-        });
-        await ensureTriageNotCancelled(env);
-
-        const currentInventory = discovered.inventory;
-        const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
-        const approval =
-          mode === "bulk" && storedPreview != null
-            ? previewApprovalSets({
-                inventory: currentInventory,
-                preview: storedPreview,
-                excludeIds,
-              })
-            : null;
-
-        const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
-        if (
-          await createPublishContext(pool, {
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            reviewLens: "triage",
-          }).completed(doneStep)
-        ) {
-          omitTerminal = true;
-          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-            pinnedReturn)({ kind: "completed" });
-        }
-
-        await ensureTriageNotCancelled(env);
-
-        const resumeParams = {
-          env,
-          cfg,
-          pool,
-          item,
-          prSurface,
+          )
+        : null;
+    const previewError = mode === "bulk" ? bulkPreviewError(storedPreview, headSha) : undefined;
+    if (previewError != null) {
+      await publishTriageReportOnly({
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        installationId: item.installationId,
+        prSurface,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        headSha,
+        inventory: [],
+        previouslyResolvedCount: 0,
+        leaseEpoch: env.leaseEpoch,
+        body: reportOnlyBody({
+          message: previewError,
           headSha,
-          headRef: branch.headRef,
-          inventory: approval?.approvedInventory ?? currentInventory,
-          recoveryInventory: discovered.threads,
-          resolutionByRootCommentId: discovered.resolutionByRootCommentId,
-          previouslyResolvedCount: discovered.previouslyResolvedCount,
-          reportContext: discovered.reportContext,
-          leaseEpoch: env.leaseEpoch,
-          signal: env.signal,
-        };
+          inventoryCount: 0,
+          previouslyResolvedCount: 0,
+          scope,
+        }),
+      });
+      return { kind: "completed" };
+    }
 
-        if (mode !== "preview") {
-          const resumed = await tryResumeStoredPush(resumeParams);
-          if (resumed != null)
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)(resumed);
-        }
+    const discovered = await resolveInventoryAndScope({
+      getBotIdentity,
+      cfg,
+      pool,
+      item,
+      prSurface,
+      scope,
+    });
+    await ensureTriageNotCancelled(env);
 
-        if (currentInventory.length === 0) {
-          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-            pinnedReturn)(
-            publishEmptyInventoryReport({
-              env,
-              pool,
-              item,
-              prSurface,
-              headSha,
-              scope,
-              threads: discovered.threads,
-              inventory: discovered.inventory,
-              previouslyResolvedCount: discovered.previouslyResolvedCount,
-              scopedThreadRootId: discovered.scopedThreadRootId,
-              reportContext: discovered.reportContext,
-              leaseEpoch: env.leaseEpoch,
-            }),
-          );
-        }
-
-        if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
-          await publishTriageReportOnly({
-            pool,
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            installationId: item.installationId,
-            prSurface,
-            owner: item.owner,
-            repo: item.repo,
-            prNumber: item.prNumber,
-            headSha,
+    const currentInventory = discovered.inventory;
+    const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
+    const approval =
+      mode === "bulk" && storedPreview != null
+        ? previewApprovalSets({
             inventory: currentInventory,
-            previouslyResolvedCount: discovered.previouslyResolvedCount,
-            leaseEpoch: env.leaseEpoch,
-            ...discovered.reportContext,
-            body: reportOnlyBody({
-              message: `No approved findings to apply. Excluded: ${
-                [...approval.excludedIds].join(", ") || "none"
-              }. Not in preview: ${[...approval.notInPreviewIds].join(", ") || "none"}.`,
-              headSha,
-              inventoryCount: currentInventory.length,
-              previouslyResolvedCount: discovered.previouslyResolvedCount,
-              scope,
-            }),
-          });
-          return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-            pinnedReturn)({ kind: "completed" });
-        }
+            preview: storedPreview,
+            excludeIds,
+          })
+        : null;
 
-        switch (mode) {
-          case "bulk":
-            if (storedPreview == null || approval == null) {
-              throw new AppError({
-                domain: "triage",
-                kind: "invalid_preview",
-                message: "Bulk apply reached execution without a parsed preview",
-              });
-            }
-            await env.beginAttempt();
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)(
-              runBulkFromPreview({
-                ...resumeParams,
-                cfg,
-                botIdentity: discovered.botIdentity,
-                scope,
-                inventory: currentInventory,
-                approvedHunks: approval.approvedHunks,
-                preview: storedPreview,
-                approvedIds: approval.approvedIds,
-                excludedIds: approval.excludedIds,
-                notInPreviewIds: approval.notInPreviewIds,
-              }),
-            );
-          case "preview":
-          case "apply":
-            await env.beginAttempt();
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)(
-              runFreshTriageAgent({
-                ...resumeParams,
-                inventory: currentInventory,
-                cfg,
-                botIdentity: discovered.botIdentity,
-                scope,
-                mode,
-                escalation: env.escalation,
-              }),
-            );
-          default: {
-            const exhaustive: never = mode;
-            return ((pinnedReturn: TriageExecuteResult | Promise<TriageExecuteResult>) =>
-              pinnedReturn)(exhaustive);
-          }
+    const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
+    if (
+      await createPublishContext(pool, {
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens: "triage",
+      }).completed(doneStep)
+    ) {
+      return undefined;
+    }
+
+    await ensureTriageNotCancelled(env);
+
+    const resumeParams = {
+      env,
+      cfg,
+      pool,
+      item,
+      prSurface,
+      headSha,
+      headRef: branch.headRef,
+      inventory: approval?.approvedInventory ?? currentInventory,
+      recoveryInventory: discovered.threads,
+      resolutionByRootCommentId: discovered.resolutionByRootCommentId,
+      previouslyResolvedCount: discovered.previouslyResolvedCount,
+      reportContext: discovered.reportContext,
+      leaseEpoch: env.leaseEpoch,
+      signal: env.signal,
+    };
+
+    if (mode !== "preview") {
+      const resumed = await tryResumeStoredPush(resumeParams);
+      if (resumed != null) return resumed;
+    }
+
+    if (currentInventory.length === 0) {
+      return publishEmptyInventoryReport({
+        env,
+        pool,
+        item,
+        prSurface,
+        headSha,
+        scope,
+        threads: discovered.threads,
+        inventory: discovered.inventory,
+        previouslyResolvedCount: discovered.previouslyResolvedCount,
+        scopedThreadRootId: discovered.scopedThreadRootId,
+        reportContext: discovered.reportContext,
+        leaseEpoch: env.leaseEpoch,
+      });
+    }
+
+    if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
+      await publishTriageReportOnly({
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        installationId: item.installationId,
+        prSurface,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        headSha,
+        inventory: currentInventory,
+        previouslyResolvedCount: discovered.previouslyResolvedCount,
+        leaseEpoch: env.leaseEpoch,
+        ...discovered.reportContext,
+        body: reportOnlyBody({
+          message: `No approved findings to apply. Excluded: ${
+            [...approval.excludedIds].join(", ") || "none"
+          }. Not in preview: ${[...approval.notInPreviewIds].join(", ") || "none"}.`,
+          headSha,
+          inventoryCount: currentInventory.length,
+          previouslyResolvedCount: discovered.previouslyResolvedCount,
+          scope,
+        }),
+      });
+      return { kind: "completed" };
+    }
+
+    switch (mode) {
+      case "bulk":
+        if (storedPreview == null || approval == null) {
+          throw new AppError({
+            domain: "triage",
+            kind: "invalid_preview",
+            message: "Bulk apply reached execution without a parsed preview",
+          });
         }
-      })();
-      if (!omitTerminal && result.kind === "completed") {
-        const durableDegradation = result.degradation?.[0];
-        return {
-          ...result,
-          completion: {
-            kind: "triage",
-            scope: item.payload.scope ?? "all",
-            ...(durableDegradation != null
-              ? { outcome: "degraded", durableDegradation }
-              : { outcome: "published" }),
-          },
-        };
+        await env.beginAttempt();
+        return runBulkFromPreview({
+          ...resumeParams,
+          cfg,
+          botIdentity: discovered.botIdentity,
+          scope,
+          inventory: currentInventory,
+          approvedHunks: approval.approvedHunks,
+          preview: storedPreview,
+          approvedIds: approval.approvedIds,
+          excludedIds: approval.excludedIds,
+          notInPreviewIds: approval.notInPreviewIds,
+        });
+      case "preview":
+      case "apply":
+        await env.beginAttempt();
+        return runFreshTriageAgent({
+          ...resumeParams,
+          inventory: currentInventory,
+          cfg,
+          botIdentity: discovered.botIdentity,
+          scope,
+          mode,
+          escalation: env.escalation,
+        });
+      default: {
+        const exhaustive: never = mode;
+        return exhaustive;
       }
-      return result;
+    }
+  };
+
+  return ((pinnedReturn: WorkExecution<"triage">) => pinnedReturn)({
+    execute: async (item, env) => {
+      const result = await executeTriage(item, env);
+      if (result == null) return { kind: "completed" };
+      const durableDegradation = result.degradation?.[0];
+      return {
+        ...result,
+        completion: {
+          kind: "triage",
+          scope: item.payload.scope ?? "all",
+          ...(durableDegradation != null
+            ? { outcome: "degraded", durableDegradation }
+            : { outcome: "published" }),
+        },
+      };
     },
     onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;

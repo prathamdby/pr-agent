@@ -567,6 +567,16 @@ function createRecording(
     });
   }
 
+  function finishMessage(message: AgentMessage) {
+    if (message.role === "assistant") {
+      closeGeneration("ok", undefined, message);
+      return;
+    }
+    if (message.role !== "toolResult") return;
+    noteFindings(message.content);
+    appendTurn(turnFromAgentMessage(message));
+  }
+
   return {
     addSecret: (secret: string | undefined) => recording.addSecret(secret),
     beginSend: (send: PiSessionSendOptions) => {
@@ -593,13 +603,7 @@ function createRecording(
           generation.reasoningMs = now - generation.firstThinking;
         }
       }
-      if (event.type === "message_end") {
-        if (event.message.role === "assistant") closeGeneration("ok", undefined, event.message);
-        if (event.message.role === "toolResult") {
-          noteFindings(event.message.content);
-          appendTurn(turnFromAgentMessage(event.message));
-        }
-      }
+      if (event.type === "message_end") finishMessage(event.message);
       if (event.type === "tool_execution_start") {
         const known = params.tools.find((definition) => definition.name === event.toolName)?.name;
         const tool: OpenTool = {
@@ -822,28 +826,27 @@ function hostCallEntry(
 }
 
 function toolFailure(result: unknown, isError: boolean) {
-  let status: TraceStatus = isError ? "error" : "ok";
   let error = isError ? (plainError(result) ?? "tool_error") : undefined;
-  if (isPlainObject(result) && Array.isArray(result.content)) {
-    for (const part of result.content) {
-      if (!isPlainObject(part) || typeof part.text !== "string") continue;
-      try {
-        const value: unknown = JSON.parse(part.text);
-        if (!isPlainObject(value) || (value.accepted !== false && value.ok !== false)) continue;
-        status = "error";
-        error =
-          typeof value.error === "string"
-            ? value.error
-            : typeof value.message === "string"
-              ? value.message
-              : value.accepted === false
-                ? "schema_validation"
-                : "tool_result_error";
-      } catch {}
-    }
+  const parts: readonly unknown[] =
+    isPlainObject(result) && Array.isArray(result.content) ? result.content : [];
+  for (const part of parts) {
+    error = toolResultRejection(part) ?? error;
   }
-  return ((pinnedReturn: { readonly status: TraceStatus; readonly error?: string }) =>
-    pinnedReturn)(error != null ? { status, error } : { status });
+  const status: TraceStatus = error != null ? "error" : "ok";
+  return error != null ? { status, error } : { status };
+}
+
+function toolResultRejection(part: unknown) {
+  if (!isPlainObject(part) || typeof part.text !== "string") return undefined;
+  try {
+    const value: unknown = JSON.parse(part.text);
+    if (!isPlainObject(value) || (value.accepted !== false && value.ok !== false)) return undefined;
+    if (typeof value.error === "string") return value.error;
+    if (typeof value.message === "string") return value.message;
+    return value.accepted === false ? "schema_validation" : "tool_result_error";
+  } catch {
+    return undefined;
+  }
 }
 
 function plainError(result: unknown) {

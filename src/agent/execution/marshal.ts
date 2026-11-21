@@ -120,6 +120,11 @@ const boundInner: (
   return ((pinnedReturn: unknown) => pinnedReturn)(out);
 };
 
+function fileContent(value: unknown) {
+  if (value === null || typeof value !== "object" || !("content" in value)) return undefined;
+  return typeof value.content === "string" ? value.content : undefined;
+}
+
 export function boundJsonValue(value: unknown, options?: MarshalOptions) {
   const resolved: Required<MarshalOptions> = {
     maxDepth: options?.maxDepth ?? CODE_MODE_SERIALIZE_MAX_DEPTH,
@@ -138,16 +143,12 @@ export function boundJsonValue(value: unknown, options?: MarshalOptions) {
       truncation: { truncated: true, reason: "transfer_byte_limit" },
     });
   }
+  const originalContent = fileContent(value);
+  const boundedContent = originalContent != null ? fileContent(bounded) : undefined;
   const fileContentTruncated =
-    value !== null &&
-    typeof value === "object" &&
-    "content" in value &&
-    typeof value.content === "string" &&
-    bounded !== null &&
-    typeof bounded === "object" &&
-    "content" in bounded &&
-    typeof bounded.content === "string" &&
-    bounded.content.length < value.content.length;
+    originalContent != null &&
+    boundedContent != null &&
+    boundedContent.length < originalContent.length;
   return ((pinnedReturn: BoundedValue) => pinnedReturn)({
     value: bounded,
     truncation:

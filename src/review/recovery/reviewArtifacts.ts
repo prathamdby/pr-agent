@@ -151,16 +151,14 @@ export function reviewArtifactInvalid(reason: string): never {
 }
 
 export function encodeReviewArtifact(value: unknown) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    JSON.stringify(value, (_key, entry: unknown) => {
-      if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
-        return Object.fromEntries(
-          Object.entries(entry).toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
-        );
-      }
-      return entry;
-    }),
-  );
+  return JSON.stringify(value, (_key, entry: unknown) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return entry;
+    const sorted = Object.entries(entry).toSorted(([a], [b]) => {
+      if (a < b) return -1;
+      return a > b ? 1 : 0;
+    });
+    return Object.fromEntries(sorted);
+  });
 }
 
 export function reviewArtifactHash(envelope: ReviewArtifactEnvelope) {

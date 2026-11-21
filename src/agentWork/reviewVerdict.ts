@@ -908,6 +908,12 @@ export async function ownCheckCloseIntents(
   ) => pinnedReturn)([parent, child]);
 }
 
+function isStoredStatusApplicable(status: unknown) {
+  if (!isRecord(status) || status.enabled !== true) return false;
+  const { headSha } = status;
+  return typeof headSha === "string" && headSha.length > 0 && headSha !== DEFERRED_HEAD_SHA;
+}
+
 export function isOwnCheckOpen(
   detail: Record<string, unknown> | null,
   closeIntents?: readonly (
@@ -922,13 +928,7 @@ export function isOwnCheckOpen(
   if (isRecord(detail.selectedOwnVerdict)) {
     const checkResolved =
       detail.ownCheckApplied === true || detail.ownCheckState === "skipped-for-this-run";
-    const status = detail.selectedOwnVerdict.status;
-    const statusApplicable =
-      isRecord(status) &&
-      status.enabled === true &&
-      typeof status.headSha === "string" &&
-      status.headSha.length > 0 &&
-      status.headSha !== DEFERRED_HEAD_SHA;
+    const statusApplicable = isStoredStatusApplicable(detail.selectedOwnVerdict.status);
     const statusResolved =
       !statusApplicable ||
       detail.ownStatusApplied === true ||

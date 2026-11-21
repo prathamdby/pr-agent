@@ -1013,6 +1013,17 @@ async function runFullReviewAgainstRepositoryView(args: {
   );
 }
 
+function matchesSummaryCommentReceipt(result: unknown, commentId: number | null) {
+  return (
+    isRecord(result) &&
+    typeof result.id === "number" &&
+    Number.isSafeInteger(result.id) &&
+    result.id > 0 &&
+    typeof result.updated === "boolean" &&
+    result.id === commentId
+  );
+}
+
 async function runClaimedReview(args: {
   readonly createSession: typeof createFeaturePiSession;
   readonly getBotIdentity: () => Promise<BotIdentity>;
@@ -1080,12 +1091,7 @@ async function runClaimedReview(args: {
         intent.detail.resourceKey === item.resourceKey &&
         intent.detail.reviewLens === reviewLens &&
         intent.detail.operationMarker === operationIntentMarker(operationKey, item.id) &&
-        isRecord(result) &&
-        typeof result.id === "number" &&
-        Number.isSafeInteger(result.id) &&
-        result.id > 0 &&
-        typeof result.updated === "boolean" &&
-        result.id === publishContext.progressCommentGithubId &&
+        matchesSummaryCommentReceipt(result, publishContext.progressCommentGithubId) &&
         (await prSurface.getHeadSha()) === headSha;
     }
     if (usableSummaryReceipt) {

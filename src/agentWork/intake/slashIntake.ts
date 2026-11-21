@@ -572,30 +572,27 @@ export async function applySlashCommandIntake(
   };
 
   const handler = SLASH_INTAKE_HANDLERS[command];
-  if (handler) {
-    const disabledByFeature: Record<string, boolean> = {
-      ask: features.ask === "off",
-      describe: features.describe === "off",
-      triage: features.triage === "off",
-      verify: features.verification === "off",
-    };
-    if (disabledByFeature[command]) {
-      await enqueueSlashAck(ctx, {
-        reply: { target: input.replyTarget, body: slashDisabledBody(command) },
-      });
-      events.push({ name: "ignored_disabled_slash_command", fields: { command } });
-      return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) =>
-        pinnedReturn)(events);
-    }
-    await handler(ctx);
-    return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
-      events,
-    );
+  if (!handler) {
+    await handleSlashUnknown(ctx, command);
+    return events;
   }
-  await handleSlashUnknown(ctx, command);
-  return ((pinnedReturn: DeferredIntakeEvent[] | Promise<DeferredIntakeEvent[]>) => pinnedReturn)(
-    events,
-  );
+
+  const disabledByFeature: Record<string, boolean> = {
+    ask: features.ask === "off",
+    describe: features.describe === "off",
+    triage: features.triage === "off",
+    verify: features.verification === "off",
+  };
+  if (disabledByFeature[command]) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: input.replyTarget, body: slashDisabledBody(command) },
+    });
+    events.push({ name: "ignored_disabled_slash_command", fields: { command } });
+    return events;
+  }
+
+  await handler(ctx);
+  return events;
 }
 
 const ONCE_CADENCE_NOTE =

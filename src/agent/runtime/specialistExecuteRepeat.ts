@@ -37,10 +37,11 @@ export function specialistExecuteCalls(input: {
   const calls: RepeatedExecuteCall[] = [];
   for (const call of input.calls) {
     if (call.name !== CODE_MODE_EXECUTE_NAME) continue;
-    if (!isRecord(call.arguments) || typeof call.arguments.code !== "string") continue;
+    const args = call.arguments;
+    if (!isRecord(args) || typeof args.code !== "string") continue;
+
     const result = textById.get(call.id);
-    if (result === undefined) continue;
-    calls.push({ toolName: call.name, code: call.arguments.code, result });
+    if (result !== undefined) calls.push({ toolName: call.name, code: args.code, result });
   }
   return ((pinnedReturn: RepeatedExecuteCall[]) => pinnedReturn)(calls);
 }

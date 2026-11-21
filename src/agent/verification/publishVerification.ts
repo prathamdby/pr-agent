@@ -966,6 +966,37 @@ export async function publishVerification(params: PublishVerificationParams) {
         }
         const priorStubId = resolveStubCommentId(thread, prior);
         const decisions = objectionDecisionsFor(thread, params.payload);
+        const publishFixedResolution = async (
+          receipt: string,
+          operationMarker: string | undefined,
+          accepted: () => void,
+        ) => {
+          let nextStubCommentId: number | undefined = priorStubId;
+          if (priorStubId != null) {
+            const updated = await updateStubReply({
+              prSurface: params.prSurface,
+              stubCommentId: priorStubId,
+              body: `${terminalSuccessStubBody(verdict, operationMarker)}${receipt}`,
+            });
+            if (!updated) nextStubCommentId = undefined;
+            else accepted();
+          }
+          if (
+            nextStubCommentId == null &&
+            (await appendRootResolutionReceipt(params.prSurface, {
+              threadNodeId: resolution.threadNodeId,
+              findingId,
+              kind: "fixed",
+            }))
+          ) {
+            accepted();
+          }
+          if (!resolution.isResolved) {
+            await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
+          }
+          return nextStubCommentId;
+        };
+
         const locked = await withThreadLock(async () => {
           const posted =
             decisions.length === 0
@@ -996,32 +1027,8 @@ export async function publishVerification(params: PublishVerificationParams) {
               threadNodeId: resolution.threadNodeId,
               body: (marker) => `${terminalSuccessStubBody(verdict, marker)}${receipt}`,
             },
-            async (operationMarker, accepted) => {
-              let nextStubCommentId: number | undefined = priorStubId;
-              if (priorStubId != null) {
-                const updated = await updateStubReply({
-                  prSurface: params.prSurface,
-                  stubCommentId: priorStubId,
-                  body: `${terminalSuccessStubBody(verdict, operationMarker)}${receipt}`,
-                });
-                if (!updated) nextStubCommentId = undefined;
-                else accepted();
-              }
-              if (
-                nextStubCommentId == null &&
-                (await appendRootResolutionReceipt(params.prSurface, {
-                  threadNodeId: resolution.threadNodeId,
-                  findingId,
-                  kind: "fixed",
-                }))
-              ) {
-                accepted();
-              }
-              if (!resolution.isResolved) {
-                await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
-              }
-              return nextStubCommentId;
-            },
+            (operationMarker, accepted) =>
+              publishFixedResolution(receipt, operationMarker, accepted),
           );
           return { revisionMoved: false as const, posted, operation };
         });

@@ -175,6 +175,26 @@ async function fanoutObservation(
   }
 }
 
+const SYNC_CI_SOURCE_SQL = `
+  WITH prior AS (
+    SELECT access, unknown_read_count FROM github_head_ci_sources
+     WHERE installation_id = $1 AND owner = $2 AND repo = $3 AND head_sha = $4 AND source = $5
+  )
+  INSERT INTO github_head_ci_sources
+    (installation_id, owner, repo, head_sha, source, generation, access)
+  VALUES ($1, $2, $3, $4, $5, $6, $7)
+  ON CONFLICT (installation_id, owner, repo, head_sha, source) DO UPDATE
+    SET generation = EXCLUDED.generation, access = EXCLUDED.access,
+        listing_required = CASE
+          WHEN github_head_ci_sources.access IS DISTINCT FROM EXCLUDED.access THEN true
+          ELSE github_head_ci_sources.listing_required END,
+        unknown_read_count = 0, updated_at = now()
+    WHERE github_head_ci_sources.generation < EXCLUDED.generation
+       OR (github_head_ci_sources.generation = EXCLUDED.generation
+           AND EXCLUDED.access = 'denied' AND github_head_ci_sources.access <> 'denied')
+  RETURNING COALESCE((SELECT access IS DISTINCT FROM $7::text FROM prior), true) AS changed,
+            COALESCE((SELECT access = 'unknown' AND unknown_read_count > 0 FROM prior), false) AS reopened`;
+
 async function syncSources(
   client: PoolClient,
   scope: GithubHeadScope,
@@ -186,27 +206,15 @@ async function syncSources(
   for (const source of sources) {
     const access =
       observation?.capabilities[source === "checks" ? "checksRead" : "statusesRead"] ?? "unknown";
-    const result = await client.query<{ changed: boolean; reopened: boolean }>(
-      `WITH prior AS (
-         SELECT access, unknown_read_count FROM github_head_ci_sources
-          WHERE installation_id = $1 AND owner = $2 AND repo = $3 AND head_sha = $4 AND source = $5
-       )
-       INSERT INTO github_head_ci_sources
-         (installation_id, owner, repo, head_sha, source, generation, access)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (installation_id, owner, repo, head_sha, source) DO UPDATE
-         SET generation = EXCLUDED.generation, access = EXCLUDED.access,
-             listing_required = CASE
-               WHEN github_head_ci_sources.access IS DISTINCT FROM EXCLUDED.access THEN true
-               ELSE github_head_ci_sources.listing_required END,
-             unknown_read_count = 0, updated_at = now()
-         WHERE github_head_ci_sources.generation < EXCLUDED.generation
-            OR (github_head_ci_sources.generation = EXCLUDED.generation
-                AND EXCLUDED.access = 'denied' AND github_head_ci_sources.access <> 'denied')
-       RETURNING COALESCE((SELECT access IS DISTINCT FROM $7::text FROM prior), true) AS changed,
-                 COALESCE((SELECT access = 'unknown' AND unknown_read_count > 0 FROM prior), false) AS reopened`,
-      [scope.installationId, scope.owner, scope.repo, scope.headSha, source, generation, access],
-    );
+    const result = await client.query<{ changed: boolean; reopened: boolean }>(SYNC_CI_SOURCE_SQL, [
+      scope.installationId,
+      scope.owner,
+      scope.repo,
+      scope.headSha,
+      source,
+      generation,
+      access,
+    ]);
     changed ||= result.rows.some((row) => row.changed);
     reopened ||= result.rows.some((row) => row.reopened);
   }

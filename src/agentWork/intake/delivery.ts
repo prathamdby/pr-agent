@@ -1207,11 +1207,15 @@ function planAutomatedPullRequestIntake(
     case "opened":
       if (features.review === "auto") review = { kind: "review" };
       else if (features.review === "approval") review = admissionForApprovalOpen(authorTrust);
+
       if (features.describe === "auto") kinds.push("description");
       break;
     case "synchronize":
-      if (features.review !== "manual") kinds.push("reviewSupersede");
-      if (features.review === "approval") kinds.push("reviewTrackAwaitingHead");
+      if (features.review !== "manual") {
+        kinds.push("reviewSupersede");
+        if (features.review === "approval") kinds.push("reviewTrackAwaitingHead");
+      }
+
       if (features.verification === "auto") kinds.push("verification");
       break;
   }

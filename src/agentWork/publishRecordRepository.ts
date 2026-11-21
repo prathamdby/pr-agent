@@ -524,12 +524,8 @@ export async function claimOwnVerdict(
       record.selected.status == null &&
       params.selected.status != null
     ) {
-      const state =
-        record.selected.conclusion === "failure"
-          ? "failure"
-          : record.selected.conclusion === "success"
-            ? "success"
-            : "error";
+      const { conclusion } = record.selected;
+      const state = conclusion === "failure" || conclusion === "success" ? conclusion : "error";
       const selected = {
         ...record.selected,
         status: { ...params.selected.status, state },
@@ -764,7 +760,9 @@ export async function releaseUnstartedReviewCheckRunReservation(
     params.leaseEpoch == null ? null : (values.push(params.leaseEpoch), values.length);
   const staleParam =
     params.staleBefore == null ? null : (values.push(params.staleBefore), values.length);
-  const staleClause = staleParam == null ? "" : `AND updated_at < $${staleParam}`;
+  const stalePredicate = staleParam == null ? null : `updated_at < $${staleParam}`;
+  const staleClause = stalePredicate == null ? "" : `AND ${stalePredicate}`;
+  const staleAlternative = stalePredicate == null ? "" : `OR ${stalePredicate}`;
   const leaseClause =
     leaseParam == null
       ? ""
@@ -774,7 +772,7 @@ export async function releaseUnstartedReviewCheckRunReservation(
          )
          AND (
            lease_epoch = $${leaseParam}
-           ${staleParam == null ? "" : `OR updated_at < $${staleParam}`}
+           ${staleAlternative}
          )`;
   const eligibilityClause = leaseParam == null ? staleClause : leaseClause;
   const result = await fencedWrite(

@@ -314,14 +314,11 @@ export function createFakePublishRecords(
             const batches = Array.isArray(prior) ? prior : [];
             const first: unknown = detail.batches[0];
             const batchId = isRecord(first) ? first.batchId : null;
-            detail = {
-              ...existing?.detail,
-              batches: batches.some(
-                (batch: unknown) => isRecord(batch) && batch.batchId === batchId,
-              )
-                ? batches
-                : [...batches, ...detail.batches],
-            };
+            const alreadyRecorded = batches.some(
+              (batch: unknown) => isRecord(batch) && batch.batchId === batchId,
+            );
+            const mergedBatches = alreadyRecorded ? batches : [...batches, ...detail.batches];
+            detail = { ...existing?.detail, batches: mergedBatches };
           }
           clock += 1;
           rows.set(key, {

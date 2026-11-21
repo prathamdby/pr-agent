@@ -147,72 +147,36 @@ export function runGitProcess(args: readonly string[], options: GitProcessOption
         maybeSettle();
       };
 
-      const confirmGone = (deadline: number) => {
-        if (pgid == null) return;
-        const probe = signalGroup(pgid, 0);
-        if (probe === "gone") {
-          finishTermination("complete");
-          return;
-        }
-        if (probe !== "delivered") {
-          finishTermination("failed", probe.errorCode);
-          return;
-        }
-        if (performance.now() >= deadline) {
-          finishTermination("complete");
-          return;
-        }
-        schedule(LOCAL_WORKSPACE_GIT_GROUP_POLL_MS, () => confirmGone(deadline));
+      const signalRunningGroup = (groupId: number, signal: 0 | "SIGKILL" | "SIGTERM") => {
+        const outcome = signalGroup(groupId, signal);
+        if (outcome === "delivered") return true;
+        if (outcome === "gone") finishTermination("complete");
+        else finishTermination("failed", outcome.errorCode);
+        return false;
       };
 
-      const escalate = () => {
-        if (pgid == null || termination !== "running") return;
-        const outcome = signalGroup(pgid, "SIGKILL");
-        if (outcome === "gone") {
+      const pollGroupExit = (deadline: number, stage: "grace" | "confirm") => {
+        if (pgid == null || termination !== "running" || !signalRunningGroup(pgid, 0)) return;
+        if (performance.now() < deadline) {
+          schedule(LOCAL_WORKSPACE_GIT_GROUP_POLL_MS, () => pollGroupExit(deadline, stage));
+          return;
+        }
+        if (stage === "confirm") {
           finishTermination("complete");
           return;
         }
-        if (outcome !== "delivered") {
-          finishTermination("failed", outcome.errorCode);
-          return;
-        }
-        confirmGone(performance.now() + LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS);
-      };
-
-      const watchGrace = (deadline: number) => {
-        if (pgid == null || termination !== "running") return;
-        const probe = signalGroup(pgid, 0);
-        if (probe === "gone") {
-          finishTermination("complete");
-          return;
-        }
-        if (probe !== "delivered") {
-          finishTermination("failed", probe.errorCode);
-          return;
-        }
-        if (performance.now() >= deadline) {
-          escalate();
-          return;
-        }
-        schedule(LOCAL_WORKSPACE_GIT_GROUP_POLL_MS, () => watchGrace(deadline));
+        if (!signalRunningGroup(pgid, "SIGKILL")) return;
+        pollGroupExit(performance.now() + LOCAL_WORKSPACE_GIT_KILL_CONFIRM_MS, "confirm");
       };
 
       const terminate = () => {
         if (pgid == null || termination !== "idle" || settled) return;
         termination = "running";
         clearTimers();
-        const outcome = signalGroup(pgid, "SIGTERM");
-        if (outcome === "gone") {
-          finishTermination("complete");
-          return;
-        }
-        if (outcome !== "delivered") {
-          finishTermination("failed", outcome.errorCode);
-          return;
-        }
+        if (!signalRunningGroup(pgid, "SIGTERM")) return;
         killed = timedOut || outputLimited;
         schedule(LOCAL_WORKSPACE_GIT_GROUP_POLL_MS, () =>
-          watchGrace(performance.now() + LOCAL_WORKSPACE_GIT_KILL_GRACE_MS),
+          pollGroupExit(performance.now() + LOCAL_WORKSPACE_GIT_KILL_GRACE_MS, "grace"),
         );
       };
 

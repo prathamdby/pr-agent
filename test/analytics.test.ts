@@ -801,6 +801,52 @@ describe("posthog ai traces", () => {
     expect(seen[0]?.$ai_model).toBe("trace-model");
   });
 
+  it.each([
+    [{ accepted: false }, "schema_validation"],
+    [{ ok: false }, "tool_result_error"],
+  ])("records a tool rejection %j as %s", async (payload, message) => {
+    const seen: Array<Record<string, unknown>> = [];
+    install({
+      capture(input) {
+        seen.push(input.properties);
+      },
+      flush: async () => undefined,
+      shutdown: async () => undefined,
+    });
+    const cfg = tracedConfig();
+    const model = traceModel({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    await startWorkTrace(work(), async () => {
+      const trace = createSessionTrace(
+        sessionParams(cfg, [
+          { name: "execute", description: "Run code", parameters: toToolParameters(v.object({})) },
+        ]),
+        model,
+        "session-rejection",
+        () => 1,
+      );
+      trace.event({
+        type: "tool_execution_start",
+        toolCallId: "call-1",
+        toolName: "execute",
+        args: {},
+      });
+      trace.event({
+        type: "tool_execution_end",
+        toolCallId: "call-1",
+        toolName: "execute",
+        isError: false,
+        result: { content: [{ type: "text", text: JSON.stringify(payload) }] },
+      });
+      trace.dispose();
+    });
+    await drain();
+
+    expect(seen.find((event) => event.$ai_span_name === "tool:execute")).toMatchObject({
+      status: "error",
+      $ai_error: { code: "tool_error", message },
+    });
+  });
+
   it("attaches redacted, bounded host calls to the execute span", async () => {
     const seen: Array<Record<string, unknown>> = [];
     install({

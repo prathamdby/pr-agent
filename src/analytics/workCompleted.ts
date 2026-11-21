@@ -301,23 +301,28 @@ function ciProperties(ci: CiWorkTelemetry | undefined) {
   });
 }
 
+function completionOutcome(completion: WorkCompletion) {
+  switch (completion.kind) {
+    case "failure":
+      return "failed";
+    case "cancelled":
+    case "superseded":
+      return completion.kind;
+    default:
+      return completion.outcome;
+  }
+}
+
 export function recordWorkCompleted(input: RecordWorkCompletedInput) {
   const { item, completion, ci } = input;
   const profile = completion.kind === "review-profile" ? completion : undefined;
-  const outcome =
-    completion.kind === "failure"
-      ? "failed"
-      : completion.kind === "cancelled"
-        ? "cancelled"
-        : completion.kind === "superseded"
-          ? "superseded"
-          : completion.outcome;
+  const outcome = completionOutcome(completion);
   const degradedReason =
-    outcome === "degraded"
-      ? completion.kind === "review-profile" && completion.outcome === "degraded"
-        ? completion.degradedReason
-        : "durable_degradation"
-      : undefined;
+    outcome !== "degraded"
+      ? undefined
+      : profile?.outcome === "degraded"
+        ? profile.degradedReason
+        : "durable_degradation";
   const ciUnavailable = profile?.outcome === "published" && ci?.unavailableReason != null;
   const effectiveDegradedReason = ciUnavailable ? "ci_unavailable" : degradedReason;
   const failure =

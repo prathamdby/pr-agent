@@ -634,6 +634,53 @@ export async function publishFindingBatch(
           boundByKey.get(reviewFindingPlacementKey(placement.finding)) ?? [],
         ),
     });
+  const recoverInline = async () => {
+    if (operationMarker == null) return { kind: "absent" as const };
+    const found = await findPublishedThreadBatch(
+      session.prSurface,
+      operationMarker,
+      session.ctx.headSha,
+    );
+    if (found == null) return { kind: "absent" as const };
+    const comments = await session.prSurface.listReviewComments();
+    if (comments.truncated)
+      throw new AppError({
+        domain: "operation_intent",
+        kind: "recovery_failed",
+        message: "Review recovery needs a complete exact batch comment observation",
+      });
+    const observed = comments.comments.filter(
+      (comment) => comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
+    );
+    if (observed.length === 0) return { kind: "absent" as const };
+    const botLogin = await session.prSurface.getBotLogin();
+    const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
+    const postedIds = new Set<FindingId>();
+    for (const comment of observed) {
+      const marker = parseOwnedFindingMarker(
+        { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
+        botLogin,
+      );
+      if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
+        return { kind: "absent" as const };
+      postedIds.add(marker.id);
+    }
+    const postedPlacements = targets.inline.filter((placement) =>
+      postedIds.has(placement.findingId),
+    );
+    const anchorDroppedPlacements = targets.inline
+      .filter((placement) => !postedIds.has(placement.findingId))
+      .map((placement) => ({ ...placement, inlinePosted: false }));
+    return {
+      kind: "reconciled" as const,
+      value: {
+        review: { id: found.reviewId, url: found.reviewUrl },
+        postedPlacements,
+        anchorDroppedPlacements,
+        lineResolutionFallback: anchorDroppedPlacements.length > 0,
+      },
+    };
+  };
   const publishStartedAt = Date.now();
   let inlineResult: Awaited<ReturnType<typeof publishInline>>;
   try {
@@ -659,54 +706,7 @@ export async function publishFindingBatch(
             batchId,
             operationMarker,
           },
-          recover: async () => {
-            if (operationMarker == null) return { kind: "absent" as const };
-            const found = await findPublishedThreadBatch(
-              session.prSurface,
-              operationMarker,
-              session.ctx.headSha,
-            );
-            if (found == null) return { kind: "absent" as const };
-            const comments = await session.prSurface.listReviewComments();
-            if (comments.truncated)
-              throw new AppError({
-                domain: "operation_intent",
-                kind: "recovery_failed",
-                message: "Review recovery needs a complete exact batch comment observation",
-              });
-            const observed = comments.comments.filter(
-              (comment) =>
-                comment.pullRequestReviewId === found.reviewId && comment.inReplyToId == null,
-            );
-            if (observed.length === 0) return { kind: "absent" as const };
-            const botLogin = await session.prSurface.getBotLogin();
-            const plannedIds = new Set(targets.inline.map((placement) => placement.findingId));
-            const postedIds = new Set<FindingId>();
-            for (const comment of observed) {
-              const marker = parseOwnedFindingMarker(
-                { body: comment.body, authorLogin: comment.authorLogin, isRoot: true },
-                botLogin,
-              );
-              if (marker == null || !plannedIds.has(marker.id) || postedIds.has(marker.id))
-                return { kind: "absent" as const };
-              postedIds.add(marker.id);
-            }
-            const postedPlacements = targets.inline.filter((placement) =>
-              postedIds.has(placement.findingId),
-            );
-            const anchorDroppedPlacements = targets.inline
-              .filter((placement) => !postedIds.has(placement.findingId))
-              .map((placement) => ({ ...placement, inlinePosted: false }));
-            return {
-              kind: "reconciled" as const,
-              value: {
-                review: { id: found.reviewId, url: found.reviewUrl },
-                postedPlacements,
-                anchorDroppedPlacements,
-                lineResolutionFallback: anchorDroppedPlacements.length > 0,
-              },
-            };
-          },
+          recover: recoverInline,
           isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
           mutate: input.recoveryWithoutEvidence
             ? async () => reviewArtifactInvalid("recovery_evidence_miss")

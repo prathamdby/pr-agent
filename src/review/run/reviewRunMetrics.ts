@@ -328,24 +328,18 @@ export function recordReviewMetric(event: ReviewMetricEvent) {
       break;
     case "tool_call":
       metrics.toolCallCount += 1;
-      if (!event.ok) {
-        metrics.toolCallErrors += 1;
-        if (event.errorMessage != null && event.errorMessage.length > 0) {
-          const failure = classifyFailure(new Error(event.errorMessage), {
-            toolName: event.name,
-            provider: metrics.provider,
-            model: metrics.model,
-            errorCount: metrics.toolCallErrors,
-          });
-          metrics.lastFailure = failure;
-          metrics.recentToolErrors.push(failure);
-          if (metrics.recentToolErrors.length > MAX_RECENT_TOOL_ERRORS) {
-            metrics.recentToolErrors.splice(
-              0,
-              metrics.recentToolErrors.length - MAX_RECENT_TOOL_ERRORS,
-            );
-          }
-        }
+      if (!event.ok) metrics.toolCallErrors += 1;
+      if (!event.ok && event.errorMessage != null && event.errorMessage.length > 0) {
+        const failure = classifyFailure(new Error(event.errorMessage), {
+          toolName: event.name,
+          provider: metrics.provider,
+          model: metrics.model,
+          errorCount: metrics.toolCallErrors,
+        });
+        metrics.lastFailure = failure;
+        metrics.recentToolErrors.push(failure);
+        const excess = metrics.recentToolErrors.length - MAX_RECENT_TOOL_ERRORS;
+        if (excess > 0) metrics.recentToolErrors.splice(0, excess);
       }
       if (event.durationMs != null) metrics.toolMs += event.durationMs;
       if (event.resultBytes != null) metrics.toolResultBytes += event.resultBytes;
