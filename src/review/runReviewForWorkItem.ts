@@ -79,6 +79,7 @@ import {
   ownVerdictFromSummaryDetail,
 } from "../agentWork/reviewVerdict.ts";
 import {
+  getSummaryCommentGithubId,
   loadReviewExecutorPublishContext,
   type ReviewExecutorPublishContext,
 } from "../agentWork/publishRecordRepository.ts";
@@ -260,6 +261,7 @@ async function closeStoredReviewVerdict(args: {
   readonly leaseEpoch: number | null;
   readonly commitStatusEnabled: boolean;
   readonly outcome: OwnVerdictOutcome;
+  readonly summaryCommentId?: number | null;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
 }) {
   const {
@@ -280,6 +282,10 @@ async function closeStoredReviewVerdict(args: {
       ...classifiedFailureLogFields(lastFailure),
     });
   }
+  const summaryCommentId =
+    args.summaryCommentId !== undefined
+      ? args.summaryCommentId
+      : await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
   await reviewVerdict({
     pool,
     prSurface,
@@ -292,10 +298,12 @@ async function closeStoredReviewVerdict(args: {
     headSha: item.headSha,
     leaseEpoch,
     commitStatusEnabled,
+    summaryCommentId,
   }).close(outcome);
   await tryPublishCloseOutcomeReview({
     prSurface,
     outcome,
+    summaryCommentId,
     headSha: item.headSha,
     workItemId: item.id,
     pool,
@@ -1090,6 +1098,7 @@ async function runClaimedReview(args: {
           leaseEpoch: env.leaseEpoch,
           commitStatusEnabled,
           outcome: ownVerdictFromSummaryDetail(summaryDetail),
+          summaryCommentId: publishContext.progressCommentGithubId,
         });
       } catch (error) {
         logWarn("review_receipt_cleanup_deferred", {

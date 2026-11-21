@@ -1,6 +1,8 @@
+import { availableParallelism } from "node:os";
+
 const adminUrlEnv = "PR_AGENT_INTEGRATION_ADMIN_URL";
 
-export const integrationWorkerCount = 2;
+export const integrationWorkerCount = Math.min(availableParallelism(), 4);
 
 function assertPlainIdent(name: string) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || name.length > 63) {

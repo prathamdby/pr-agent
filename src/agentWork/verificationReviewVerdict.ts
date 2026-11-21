@@ -14,6 +14,7 @@ import {
 } from "../review/findingIdentity/findingLifecycle.ts";
 import { publishReviewVerdictEvent } from "../review/publish/publishCloseOutcomeReview.ts";
 import { threadMutationLock } from "../review/findingIdentity/threadMutationLock.ts";
+import { isCheckFailingSeverity } from "../review/reviewSchema.ts";
 import type { Config } from "../settings/index.ts";
 import type { GithubReviewEvent } from "./reviewVerdict.ts";
 import { getActiveReviewWorkItem } from "./workItemStateRepository.ts";
@@ -49,6 +50,18 @@ function everyOwnedReviewThreadResolved(inventory: FindingInventory) {
   return ((pinnedReturn: boolean) => pinnedReturn)(true);
 }
 
+function openSameIdCopyBlocks(
+  inventory: FindingInventory,
+  checkFailSeverity: Config["review"]["checkFailSeverity"],
+) {
+  for (const copy of inventory.sameIdCopies) {
+    if (copy.state !== "open" || copy.source !== "thread" || copy.severity === "unknown") continue;
+    if (isCheckFailingSeverity(copy.severity, checkFailSeverity))
+      return ((pinnedReturn: boolean) => pinnedReturn)(true);
+  }
+  return ((pinnedReturn: boolean) => pinnedReturn)(false);
+}
+
 export async function refreshReviewVerdictAfterVerification(params: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -80,7 +93,10 @@ export async function refreshReviewVerdictAfterVerification(params: {
       const check = findingCheck(
         buildFindingView(inventory, { kind: "not_reviewed" }, params.cfg.review.checkFailSeverity),
       );
-      if (check.conclusion === "neutral") {
+      const conclusion = openSameIdCopyBlocks(inventory, params.cfg.review.checkFailSeverity)
+        ? "failure"
+        : check.conclusion;
+      if (conclusion === "neutral") {
         skip(`inventory_${inventory.completeness}`);
         return;
       }
@@ -92,7 +108,7 @@ export async function refreshReviewVerdictAfterVerification(params: {
           (review.state === "APPROVED" || review.state === "CHANGES_REQUESTED"),
       )?.state;
       const event = verificationReviewEvent(
-        check,
+        { conclusion, blockingCount: check.blockingCount },
         standing === "APPROVED" || standing === "CHANGES_REQUESTED" ? standing : undefined,
       );
       const degradedApprove =
@@ -120,6 +136,8 @@ export async function refreshReviewVerdictAfterVerification(params: {
       await publishReviewVerdictEvent({
         prSurface,
         event,
+        blockingCount: check.blockingCount,
+        summaryUrl: inventory.summaryUrl,
         headSha: params.headSha,
         workItemId,
         pool,

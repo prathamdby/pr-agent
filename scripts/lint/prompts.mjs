@@ -119,10 +119,11 @@ export const promptLayout = {
   meta: {
     type: "problem",
     messages: {
-      depth: "Prompt modules live at src/prompts/<dir>/<file>.ts (ADR 0053).",
-      dir: "'{{dir}}' is not a prompt directory. Use shared or a role: {{allowed}} (ADR 0053).",
-      file: "'{{file}}' is not a prompt file name. Use a section or prompt.ts: {{allowed}} (ADR 0053).",
-      sharedEntry: "shared/ holds section files only. prompt.ts belongs to a role (ADR 0053).",
+      depth:
+        "Prompt modules live at src/prompts/<dir>/<file>.ts so prompt review and origin checks stay in one flat tree.",
+      dir: "'{{dir}}' is not a prompt directory. Use shared or a role ({{allowed}}) so prompt ownership stays explicit.",
+      file: "'{{file}}' is not a prompt file name. Use a section or prompt.ts ({{allowed}}) so prompt layout stays predictable.",
+      sharedEntry: "shared/ holds section files only; prompt.ts belongs to a role entry.",
     },
   },
   create(context) {
@@ -163,10 +164,11 @@ export const promptImports = {
     type: "problem",
     messages: {
       outside:
-        "Outside src/prompts/, import only <role>/prompt.ts, shared/safety.ts, shared/repair.ts, or shared/prefix.ts, not '{{specifier}}' (ADR 0053).",
+        "Outside src/prompts/, import only <role>/prompt.ts, shared/safety.ts, shared/repair.ts, or shared/prefix.ts, not '{{specifier}}', so internal prompt sections stay encapsulated.",
       inside:
-        "Prompt modules import other prompt modules, types, or the allow-listed modules only, not '{{specifier}}' (ADR 0053).",
-      sharedRole: "shared/ never imports a role directory: '{{specifier}}' (ADR 0053).",
+        "Prompt modules import other prompt modules, types, or the allow-listed modules only, not '{{specifier}}', so prompt text stays pure and deterministic.",
+      sharedRole:
+        "shared/ never imports a role directory ('{{specifier}}') so shared sections stay reusable and prefix-stable.",
     },
   },
   create(context) {
@@ -254,10 +256,13 @@ export const promptSinks = {
     type: "problem",
     messages: {
       origin:
-        "Prompt sinks accept src/prompts/ exports, const expressions with checked origins, or checked prompt carriers only (ADR 0053).",
-      literal: "Prompt text belongs under src/prompts/, not in a sink argument (ADR 0053).",
-      compound: "Do not use compound assignments for prompt fields (ADR 0053).",
-      reassignment: "Do not reassign a prompt parameter inside a sink wrapper (ADR 0053).",
+        "Prompt sinks accept src/prompts/ exports, const expressions with checked origins, or checked prompt carriers only so untrusted or inline strings cannot bypass prompt review.",
+      literal:
+        "Prompt text belongs under src/prompts/, not in a sink argument, so prompts stay reviewable in one place.",
+      compound:
+        "Do not use compound assignments for prompt fields because they obscure prompt origin tracking.",
+      reassignment:
+        "Do not reassign a prompt parameter inside a sink wrapper because it breaks prompt origin tracking.",
     },
   },
   create(context) {

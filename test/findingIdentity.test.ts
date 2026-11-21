@@ -1619,6 +1619,60 @@ describe("duplicate receipts and lifecycle", () => {
       "Resolved this run: 1 duplicate (tracked in [thread](https://github.com/o/r/pull/1#discussion_r62)).",
     );
   });
+
+  it("blocks on an open same-id copy when the oldest thread is resolved or below the threshold", () => {
+    const canonical = thread({
+      rootCommentId: 64,
+      rootBody: markedBody(A, "P3"),
+      isResolved: true,
+    });
+    const copy = thread({ rootCommentId: 65, rootBody: markedBody(A, "P1") });
+    const openCanonical = thread({
+      rootCommentId: 66,
+      rootBody: markedBody(A, "P3"),
+    });
+    const blockingCopy = thread({
+      rootCommentId: 67,
+      rootBody: markedBody(A, "P1"),
+    });
+    const resolvedCanonical = buildFindingView(inventoryOf([canonical, copy]), {
+      kind: "not_reviewed",
+    });
+    const lowCanonical = buildFindingView(inventoryOf([openCanonical, blockingCopy]), {
+      kind: "not_reviewed",
+    });
+    expect(checkConclusion(resolvedCanonical)).toBe("failure");
+    expect(resolvedCanonical.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+    expect(checkConclusion(lowCanonical)).toBe("failure");
+    expect(lowCanonical.rows).toMatchObject([{ id: A, severity: "P1", blocking: true }]);
+  });
+
+  it("does not block on a same-id copy this run resolved", () => {
+    const canonical = thread({
+      rootCommentId: 68,
+      rootBody: markedBody(A, "P3"),
+    });
+    const copy = thread({ rootCommentId: 69, rootBody: markedBody(A, "P1") });
+    const inventory = inventoryOf([canonical, copy]);
+    const copyThreadId = inventory.sameIdCopies[0]?.threadId;
+    if (copyThreadId == null) throw new Error("expected a same-id copy thread");
+    const view = buildFindingView(
+      inventory,
+      reviewed({
+        duplicates: [
+          {
+            id: A,
+            canonicalId: A,
+            canonicalUrl: "https://github.com/o/r/pull/1#discussion_r68",
+            resolved: true,
+            threadId: copyThreadId,
+          },
+        ],
+      }),
+    );
+    expect(view.rows).toMatchObject([{ id: A, severity: "P3", blocking: false }]);
+    expect(checkConclusion(view)).toBe("success");
+  });
 });
 
 describe("duplicate cleanup planning", () => {

@@ -50,6 +50,7 @@ export type InventoryFinding = {
 
 export type FindingInventory = {
   readonly completeness: InventoryCompleteness;
+  readonly summaryUrl?: string;
   readonly findings: ReadonlyMap<FindingId, InventoryFinding>;
   readonly sameIdCopies: readonly InventoryFinding[];
   readonly canonicalOf: (id: FindingId) => FindingId | null;
@@ -338,6 +339,7 @@ export function buildFindingInventory(
   }
   return ((pinnedReturn: FindingInventory) => pinnedReturn)({
     completeness: completenessOf(input.threads.status, input.summaryComplete),
+    summaryUrl: input.summary?.url,
     findings,
     sameIdCopies,
     canonicalOf: canonicalResolver(findings),

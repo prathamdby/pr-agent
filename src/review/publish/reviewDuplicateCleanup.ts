@@ -117,6 +117,7 @@ async function runCleanup(session: ReviewPublishSession, plans: readonly Duplica
             canonicalId: outcome.canonicalId,
             canonicalUrl: outcome.canonicalUrl,
             resolved: outcome.outcome === "resolved",
+            ...(entry.finding.threadId == null ? {} : { threadId: entry.finding.threadId }),
           });
         }
       } catch (error) {

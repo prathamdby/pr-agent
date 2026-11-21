@@ -216,11 +216,6 @@ export const DOC_LINKS: readonly DocLink[] = [
     description: "Queue health, lease recovery, and stuck-work diagnosis.",
   },
   {
-    title: "PR Agent architecture decisions",
-    url: `${REPO_URL}/tree/main/docs/adr`,
-    description: "ADRs behind webhook intake, leases, and publish behaviour.",
-  },
-  {
     title: "PR Agent domain vocabulary",
     url: `${REPO_URL}/blob/main/CONTEXT.md`,
     description: "The words this project uses for work items, leases, and findings.",

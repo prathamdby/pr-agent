@@ -15,9 +15,6 @@ export function statusFindings(count: number) {
 export const FINDING_INVENTORY_UNAVAILABLE_NOTE =
   "Open findings from earlier reviews could not be loaded.";
 
-export const TERMINAL_REVIEW_BODY =
-  "PR Agent recorded this run's review event. See the `## PR Agent Review` summary comment.";
-
 export const TERMINAL_REVIEW_DISMISS_MESSAGE = "Superseded by a later review.";
 
 export function checkRunFindingsSummary(count: number) {

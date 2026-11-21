@@ -9,6 +9,7 @@ import {
 } from "../../agentWork/publishOnce.ts";
 import {
   githubReviewEventFromCloseOutcome,
+  reviewCheckDetailsUrl,
   type GithubReviewEvent,
   type OwnVerdictOutcome,
 } from "../../agentWork/reviewVerdict.ts";
@@ -20,7 +21,26 @@ import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorCont
 import type { PrSurface } from "../../github/prSurface.ts";
 import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.ts";
 import { decodePublishedBatch } from "../../github/prSurfaceResults.ts";
-import { TERMINAL_REVIEW_BODY, TERMINAL_REVIEW_DISMISS_MESSAGE } from "../statusCopy.ts";
+import {
+  FINDING_INVENTORY_UNAVAILABLE_NOTE,
+  TERMINAL_REVIEW_DISMISS_MESSAGE,
+} from "../statusCopy.ts";
+
+function formatVerdictReason(event: GithubReviewEvent, blockingCount: number | undefined) {
+  if (event === "APPROVE")
+    return ((pinnedReturn: string) => pinnedReturn)("No blocking findings remain.");
+  if (event === "COMMENT")
+    return ((pinnedReturn: string) => pinnedReturn)(
+      "Review coverage was incomplete, so PR Agent did not approve.",
+    );
+  if (blockingCount == null || blockingCount < 1)
+    return ((pinnedReturn: string) => pinnedReturn)("Blocking findings still need attention.");
+  return ((pinnedReturn: string) => pinnedReturn)(
+    blockingCount === 1
+      ? "1 blocking finding needs attention."
+      : `${blockingCount} blocking findings need attention.`,
+  );
+}
 
 async function submitTerminalReview(params: {
   readonly prSurface: PrSurface;
@@ -78,13 +98,29 @@ export async function publishCloseOutcomeReview(params: {
   readonly prSurface: PrSurface;
   readonly outcome: OwnVerdictOutcome;
   readonly headSha: string;
+  readonly summaryCommentId?: number | null;
   readonly workItemId?: string;
   readonly pool?: Pool | PoolClient;
   readonly leaseEpoch?: number | null;
 }) {
   const event = githubReviewEventFromCloseOutcome(params.outcome);
   if (event == null) return;
-  await publishReviewVerdictEvent({ ...params, event });
+  const { prSurface, outcome } = params;
+  await publishReviewVerdictEvent({
+    ...params,
+    event,
+    blockingCount: outcome.kind === "published" ? outcome.blockingCount : undefined,
+    reason:
+      outcome.kind === "published" && outcome.conclusion === "neutral"
+        ? `${FINDING_INVENTORY_UNAVAILABLE_NOTE} PR Agent did not approve.`
+        : undefined,
+    summaryUrl: reviewCheckDetailsUrl(
+      prSurface.owner,
+      prSurface.repo,
+      prSurface.prNumber,
+      params.summaryCommentId,
+    ),
+  });
 }
 
 export async function publishReviewVerdictEvent(params: {
@@ -95,13 +131,18 @@ export async function publishReviewVerdictEvent(params: {
   readonly pool?: Pool | PoolClient;
   readonly leaseEpoch?: number | null;
   readonly operationKey?: string;
+  readonly blockingCount?: number;
+  readonly reason?: string;
+  readonly summaryUrl?: string;
 }) {
-  const { event } = params;
+  const { event, summaryUrl } = params;
+  const reason = params.reason ?? formatVerdictReason(event, params.blockingCount);
+  const body = summaryUrl == null ? reason : `${reason} [View review summary](${summaryUrl})`;
   if (params.pool == null || params.workItemId == null) {
     const submitted = await submitTerminalReview({
       prSurface: params.prSurface,
       event,
-      body: TERMINAL_REVIEW_BODY,
+      body,
       headSha: params.headSha,
     });
     if (submitted === "COMMENT") await dismissStandingVerdicts(params.prSurface);
@@ -109,7 +150,6 @@ export async function publishReviewVerdictEvent(params: {
   }
   const operationKey = params.operationKey ?? reviewVerdictReviewOperationKey(params.workItemId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  const body = `${TERMINAL_REVIEW_BODY}\n${operationMarker}`;
   const published = await publishOnce({
     decodeResult: decodePublishedBatch,
     fence: fenceForEpoch(params.leaseEpoch),
@@ -137,7 +177,7 @@ export async function publishReviewVerdictEvent(params: {
       await submitTerminalReview({
         prSurface: params.prSurface,
         event,
-        body,
+        body: `${body}\n${operationMarker}`,
         headSha: params.headSha,
       });
       const found = await findPublishedThreadBatch(

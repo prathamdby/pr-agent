@@ -398,7 +398,7 @@ describe("publishReview core", () => {
 
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.body).toContain(
-      "recorded this run's review event",
+      "No blocking findings remain.",
     );
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);

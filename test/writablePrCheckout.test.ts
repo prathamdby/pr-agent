@@ -44,6 +44,7 @@ import {
   githubNoreplyEmail,
 } from "../src/agent/triage/commitAttribution.ts";
 import { spillTextToSessionFile } from "../src/agent/tools/readWorkspaceTextFile.ts";
+import { replayPreviewHunks } from "../src/agent/triage/previewApproval.ts";
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.ts";
 
 const execFile = promisify(execFileCb);
@@ -615,6 +616,339 @@ describe("writable PR checkout", () => {
             code: "ENOENT",
           });
           expect(await readFile(join(checkout.dir, "src.txt"), "utf8")).toContain("one");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("commits legitimate tracked-file deletions including removed parent directories", async () => {
+    const { root, repo, remote } = await makeRemote();
+    try {
+      await mkdir(join(repo, "nested"), { recursive: true });
+      await writeFile(join(repo, "nested/remove-me.txt"), "temp\n");
+      await git(repo, ["add", "."]);
+      await git(repo, ["commit", "-m", "add nested file"]);
+      await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+      const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await rm(join(checkout.dir, "src.txt"));
+          await rm(join(checkout.dir, "nested"), { recursive: true });
+
+          const before = await git(checkout.dir, ["write-tree"]);
+          await expect(
+            checkout.commit({ files: ["nested"], subject: "fix: require a file path" }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+          expect(await git(checkout.dir, ["write-tree"])).toBe(before);
+
+          const result = await checkout.commit({
+            files: ["./src.txt", "nested/remove-me.txt"],
+            subject: "fix: delete obsolete tracked files",
+          });
+          expect(result.sha).not.toBe(headSha);
+          expect(result.diff).toContain("src.txt");
+          expect(result.diff).toContain("nested/remove-me.txt");
+          expect(await git(checkout.dir, ["ls-tree", "-r", "--name-only", "HEAD"])).toBe("");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects synthetic symlinks and symlinked ancestors without mutating HEAD or index", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    const outside = await mkdtemp(join(tmpdir(), "writable-checkout-outside-"));
+    try {
+      await writeFile(join(outside, "outside.txt"), "external fixture\n");
+
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await mkdir(join(checkout.dir, "nested"), { recursive: true });
+          await writeFile(join(checkout.dir, "nested/plain.txt"), "plain\n");
+          await symlink(join(outside, "outside.txt"), join(checkout.dir, "outside-link.txt"));
+          await symlink("src.txt", join(checkout.dir, "inside-link.txt"));
+          await symlink(join(outside, "missing.txt"), join(checkout.dir, "dangling-link.txt"));
+          await symlink(outside, join(checkout.dir, "outside-dir"));
+          await symlink("nested", join(checkout.dir, "inside-dir"));
+
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+
+          const symlinkCases = [
+            "outside-link.txt",
+            "inside-link.txt",
+            "dangling-link.txt",
+            "outside-dir/outside.txt",
+            "outside-dir/missing.txt",
+            "inside-dir/plain.txt",
+          ];
+
+          for (const candidate of symlinkCases) {
+            await expect(
+              checkout.commit({
+                files: [candidate],
+                subject: "fix: reject symlink path",
+              }),
+            ).rejects.toSatisfy((error: unknown) => {
+              expect(error).toBeInstanceOf(AppError);
+              expect((error as AppError).code).toBe("pr_workspace.symlink_escape");
+              return true;
+            });
+            expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+            expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+          }
+
+          const replay = await replayPreviewHunks({
+            checkout,
+            hunks: [
+              {
+                threadRootCommentId: 7,
+                subject: "fix: reject preview symlink path",
+                diff: "diff --git a/outside-link.txt b/outside-link.txt\n--- a/outside-link.txt\n+++ b/outside-link.txt\n@@ -1 +1 @@\n-a\n+b\n",
+              },
+            ],
+            applyDiff: async () => undefined,
+          });
+          expect(replay.commitByThreadRootCommentId.size).toBe(0);
+          expect(replay.commitErrors).toHaveLength(1);
+          expect(replay.commitErrors[0]?.error).toMatch(/symlink/i);
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+        },
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects root, directories, sensitive variants, and pathspec globs without mutating HEAD or index", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await mkdir(join(checkout.dir, "nested"), { recursive: true });
+          await writeFile(join(checkout.dir, "nested/plain.txt"), "plain\n");
+          await writeFile(join(checkout.dir, "other.txt"), "other\n");
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+
+          for (const badPath of ["", ".", "./", "nested"]) {
+            await expect(
+              checkout.commit({
+                files: [badPath],
+                subject: "fix: reject non-file path",
+              }),
+            ).rejects.toSatisfy((error: unknown) => {
+              expect(error).toBeInstanceOf(AppError);
+              expect((error as AppError).code).toBe("pr_workspace.path_traversal");
+              return true;
+            });
+            expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+            expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+          }
+
+          for (const sensitive of ["./.env", ".git/config", "./.github/workflows/ci.yml"]) {
+            await expect(
+              checkout.commit({
+                files: [sensitive],
+                subject: "fix: reject sensitive path",
+              }),
+            ).rejects.toSatisfy((error: unknown) => {
+              expect(error).toBeInstanceOf(AppError);
+              expect((error as AppError).code).toBe("pr_workspace.sensitive_path");
+              return true;
+            });
+            expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+            expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+          }
+
+          await expect(
+            checkout.commit({
+              files: ["*.txt"],
+              subject: "fix: reject glob pathspec",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+          expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+
+          const committed = await checkout.commit({
+            files: ["./src.txt"],
+            subject: "fix: commit normalized regular file",
+          });
+          expect(committed.sha).not.toBe(headSha);
+          expect(committed.diff).toContain("src.txt");
+          expect(committed.diff).not.toContain("other.txt");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects case-variant blocked paths", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+
+          for (const sensitive of [".GIT/config", ".Git/hooks/x", ".ENV"]) {
+            await expect(
+              checkout.commit({
+                files: [sensitive],
+                subject: "fix: reject case variant path",
+              }),
+            ).rejects.toSatisfy((error: unknown) => {
+              expect(error).toBeInstanceOf(AppError);
+              expect((error as AppError).code).toBe("pr_workspace.sensitive_path");
+              return true;
+            });
+            expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+            expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+          }
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects too many files", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await writeFile(join(checkout.dir, "src.txt"), "one\nstaged\n");
+          await git(checkout.dir, ["add", "--", "src.txt"]);
+          const names = Array.from(
+            { length: 21 },
+            (_, index) => `file-${String(index).padStart(2, "0")}.txt`,
+          );
+          for (const name of names) {
+            await writeFile(join(checkout.dir, name), "x\n");
+          }
+
+          await expect(
+            checkout.commit({
+              files: ["src.txt", "./src.txt", ...names],
+              subject: "fix: reject oversized file list",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.commit_fix_too_many_files" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(headSha);
+          expect(await git(checkout.dir, ["diff", "--cached", "--name-only"])).toBe("src.txt");
+        },
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-blob deletion", async () => {
+    const { root, remote, headSha } = await makeRemote();
+    try {
+      await withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha,
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+          remoteUrlOverride: remote,
+        },
+        async (checkout) => {
+          await symlink("src.txt", join(checkout.dir, "tracked-link.txt"));
+          await git(checkout.dir, ["add", "--", "tracked-link.txt"]);
+          await git(checkout.dir, ["commit", "-m", "track symlink"]);
+          const linkHead = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          const linkTree = await git(checkout.dir, ["write-tree"]);
+          expect(await git(checkout.dir, ["ls-tree", "HEAD", "tracked-link.txt"])).toMatch(
+            /^120000 /,
+          );
+          await rm(join(checkout.dir, "tracked-link.txt"));
+
+          await expect(
+            checkout.commit({
+              files: ["tracked-link.txt"],
+              subject: "fix: reject symlink deletion",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(linkHead);
+          expect(await git(checkout.dir, ["write-tree"])).toBe(linkTree);
+
+          const gitlink = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          await git(checkout.dir, [
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `160000,${gitlink},tracked-submodule`,
+          ]);
+          await git(checkout.dir, ["commit", "-m", "track gitlink"]);
+          const gitlinkHead = await git(checkout.dir, ["rev-parse", "HEAD"]);
+          const gitlinkTree = await git(checkout.dir, ["write-tree"]);
+          expect(await git(checkout.dir, ["ls-tree", "HEAD", "tracked-submodule"])).toMatch(
+            /^160000 /,
+          );
+
+          await expect(
+            checkout.commit({
+              files: ["tracked-submodule"],
+              subject: "fix: reject gitlink deletion",
+            }),
+          ).rejects.toMatchObject({ code: "pr_workspace.path_traversal" });
+          expect(await git(checkout.dir, ["rev-parse", "HEAD"])).toBe(gitlinkHead);
+          expect(await git(checkout.dir, ["write-tree"])).toBe(gitlinkTree);
         },
       );
     } finally {

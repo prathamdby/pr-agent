@@ -597,15 +597,19 @@ describe("Code Mode", () => {
           { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
           { name: "readWorkspaceFile", description: "read", parameters: { type: "object" } },
           { name: "searchWorkspace", description: "search", parameters: { type: "object" } },
+          { name: "findFiles", description: "find", parameters: { type: "object" } },
           { name: "getWorkspaceDiff", description: "diff", parameters: { type: "object" } },
           { name: "getWorkspaceBlame", description: "blame", parameters: { type: "object" } },
+          { name: "resolveSymbol", description: "symbol", parameters: { type: "object" } },
         ],
         executors: {
           listChangedFiles: async () => ({ files: [] }),
           readWorkspaceFile: async () => ({ content: "" }),
           searchWorkspace: async () => ({ matches: [] }),
+          findFiles: async () => ({ paths: [] }),
           getWorkspaceDiff: async () => ({ diff: "", availability: "unchanged" }),
-          getWorkspaceBlame: async () => ({ lines: [] }),
+          getWorkspaceBlame: async () => ({ blame: null }),
+          resolveSymbol: async () => ({ matches: [] }),
         },
       },
       { executorKind: "in_process" },
@@ -618,15 +622,61 @@ describe("Code Mode", () => {
     expect(rule).toBe(
       "- `await tools.getWorkspaceDiff({ path })`. PR base-to-head unified diff for one path. The call returns an object, and `diff` is always the unified-diff string, including when that string is empty. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not fail the call and does not prove the path is unchanged. `unchanged` requires a complete changed-file list. A thrown host error is the failure.",
     );
-    expect(description).toContain("const [files, src, hits, patch] = await Promise.all([");
+    const catalogueLine = (call: string) =>
+      description?.split("\n").find((line) => line.includes(call));
+    expect(catalogueLine("await tools.listChangedFiles({ continuation? })")).toBe(
+      "- `await tools.listChangedFiles({ continuation? })`. Changed paths with status and checkout presence. Omit continuation for the first page, then pass the returned continuation until it is null. total is the admitted count. truncated means the pull request has changes beyond the admitted files. The call returns an object, and `files` is always the array.",
+    );
+    expect(catalogueLine("await tools.readWorkspaceFile({ path, startLine?, maxLines? })")).toBe(
+      "- `await tools.readWorkspaceFile({ path, startLine?, maxLines? })`. Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes. The call returns an object. `content` is a string on a delivered read, null when the path is deleted, and absent when the read is refused or spilled. A spill holds the excerpt in `tail`.",
+    );
+    expect(catalogueLine("await tools.searchWorkspace({ query, terms?, maxResults? })")).toBe(
+      "- `await tools.searchWorkspace({ query, terms?, maxResults? })`. Literal text, matched case-sensitively, not regex. `terms` adds literals and ranks files by how many they contain. On truncation, search for more specific text. The call returns an object, and `matches` is always the array. Each hit has `path`, `line`, and `text`. `files` exists only when `terms` has entries.",
+    );
+    expect(catalogueLine("await tools.findFiles({ query, maxResults? })")).toBe(
+      "- `await tools.findFiles({ query, maxResults? })`. Fuzzy, case-insensitive path lookup, best match first. Paths only; read before citing. The call returns an object, and `paths` is always the string array.",
+    );
+    expect(catalogueLine("await tools.getWorkspaceBlame({ path })")).toBe(
+      "- `await tools.getWorkspaceBlame({ path })`. Whole-file blame. Use when who changed a line, or when, decides the question. The call returns an object, and `blame` is a string, or null when the path is deleted or refused.",
+    );
+    expect(catalogueLine("await tools.resolveSymbol({ name, maxResults? })")).toBe(
+      "- `await tools.resolveSymbol({ name, maxResults? })`. Definition hints, not evidence. Confirm with readWorkspaceFile before citing. The call returns an object, and `matches` is always the array. Each entry has `path`, `line`, and `kind`.",
+    );
+    expect(description).not.toContain("`content` is always a string");
+    expect(description).toContain("const [page, src, hits, patch] = await Promise.all([");
     expect(description).toContain('tools.getWorkspaceDiff({ path: "src/app.ts" })');
     expect(description).toContain(
-      "({ n: files.files.length, srcTrunc: src.truncation, hits: hits.matches.length, diffBytes: patch.diff.length, availability: patch.availability })",
+      '({ n: page.files.length, srcBytes: typeof src.content === "string" ? src.content.length : 0, hits: hits.matches.length, diffBytes: patch.diff.length, availability: patch.availability })',
     );
+    expect(description).toContain("state.changed = page.files.map((f) => f.path);");
+    expect(description).not.toContain("srcTrunc");
+    expect(description).not.toContain("src.truncation");
     expect(description).not.toContain("diffTrunc");
     expect(description).not.toContain("diff.truncation");
+    expect(description).not.toContain("annotated");
     expect(description).not.toContain("const [files, src, hits, patch, blame]");
     expect(description).not.toContain('tools.getWorkspaceBlame({ path: "src/app.ts" })');
+  });
+
+  it("locks a blame-only install to the rendered annotated binding", () => {
+    const bundle = hideWorkspaceToolsBehindCodeMode(
+      {
+        piTools: [
+          { name: "getWorkspaceBlame", description: "blame", parameters: { type: "object" } },
+        ],
+        executors: {
+          getWorkspaceBlame: async () => ({ blame: null }),
+        },
+      },
+      { executorKind: "in_process" },
+    );
+    const description = bundle.piTools.find((tool) => tool.name === "execute")?.description;
+    expect(description).toContain("const [annotated] = await Promise.all([");
+    expect(description).toContain('tools.getWorkspaceBlame({ path: "src/app.ts" })');
+    expect(description).toContain(
+      '({ blameBytes: typeof annotated.blame === "string" ? annotated.blame.length : 0 })',
+    );
+    expect(description).not.toContain("const [page, src, hits, patch]");
   });
 
   it("returns a successful compact tools.* result", async () => {
