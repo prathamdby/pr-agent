@@ -1,8 +1,6 @@
-import { createPublishContext } from "../../agentWork/publishOnce.ts";
 import { logWarn } from "../../evlog.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
+import { immediate } from "../../state/db.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { PrConversationComment } from "../../github/prSurfaceTypes.ts";
 import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.ts";
@@ -13,20 +11,20 @@ import {
   VERIFICATION_FAILURE_START,
   VERIFICATION_PUBLISH_LENS,
 } from "../../settings/index.ts";
-import { requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
 import {
-  advancePrHeadCiRevisionForVerificationSignal,
+  advanceHeadCiVersionForVerificationSignal,
   isEffectiveVerificationSignalTransition,
+  requestHeadCiProjectionTx,
   type VerificationSignalPrior,
-} from "../../agentWork/prHeadCiState.ts";
+} from "../../state/prHeadCiState.ts";
+import { latestPublishStep, type FeaturePublication } from "../../state/featurePublication.ts";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
-  saveVerificationThreadLedger,
   upsertVerificationFailureSignal,
   type VerificationFailureSignal,
   type VerificationThreadLedger,
-} from "../../agentWork/verificationThreadLedger.ts";
+} from "../../state/verificationThreadLedger.ts";
 
 const REVIEW_SUMMARY_SENTINELS = [
   REVIEW_SUMMARY_SENTINEL,
@@ -34,13 +32,11 @@ const REVIEW_SUMMARY_SENTINELS = [
 ] as const;
 
 type PublishVerificationFailureParams = {
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly prSurface: PrSurface;
   readonly headSha: string;
-  readonly leaseEpoch: number | null;
-  readonly boss: PgBoss;
   readonly installationId: number;
 };
 
@@ -68,19 +64,18 @@ async function botOwnedComments(prSurface: PrSurface) {
   ) => pinnedReturn)(comments.filter((comment) => comment.authorLogin === botLogin));
 }
 
-async function persistLedger(
-  params: PublishVerificationFailureParams,
-  ledger: VerificationThreadLedger,
-) {
-  await saveVerificationThreadLedger(params.pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    ledger,
-    leaseEpoch: params.leaseEpoch,
+function persistLedger(params: PublishVerificationFailureParams, ledger: VerificationThreadLedger) {
+  params.publication.record({
+    lens: VERIFICATION_PUBLISH_LENS,
+    step: "verification_thread_actions",
+    detail: {
+      threads: ledger.threads,
+      ...(ledger.failureSignal != null ? { failureSignal: ledger.failureSignal } : {}),
+    },
   });
 }
 
-function priorFromDetail(detail: Record<string, unknown> | null) {
+function priorFromDetail(detail: Record<string, unknown> | undefined) {
   if (detail == null) return ((pinnedReturn: VerificationSignalPrior | null) => pinnedReturn)(null);
   const headSha = typeof detail.headSha === "string" ? detail.headSha : null;
   return ((pinnedReturn: VerificationSignalPrior | null) => pinnedReturn)({
@@ -89,59 +84,41 @@ function priorFromDetail(detail: Record<string, unknown> | null) {
   });
 }
 
-async function writeVerificationSignal(params: PublishVerificationFailureParams, active: boolean) {
+function writeVerificationSignal(params: PublishVerificationFailureParams, active: boolean) {
   if (params.installationId <= 0) {
     throw new Error("verification failure projection requires a positive installationId");
   }
-  const client = await params.pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      `verification-failure:${params.resourceKey}`,
-    ]);
-    const priorDetail = await createPublishContext(client, {
-      resourceKey: params.resourceKey,
-      reviewLens: VERIFICATION_PUBLISH_LENS,
-    }).latest("verification_failure");
+  const db = params.publication.db;
+  const now = Date.now();
+  const head = {
+    installationId: params.installationId,
+    owner: params.prSurface.owner,
+    repo: params.prSurface.repo,
+    headSha: params.headSha,
+  };
+  immediate(db, () => {
+    const priorDetail = latestPublishStep(
+      db,
+      params.resourceKey,
+      VERIFICATION_PUBLISH_LENS,
+      "verification_failure",
+    );
     const effective = isEffectiveVerificationSignalTransition(priorFromDetail(priorDetail), {
       active,
       headSha: params.headSha,
     });
-    await advancePrHeadCiRevisionForVerificationSignal(client, {
-      owner: params.prSurface.owner,
-      repo: params.prSurface.repo,
-      headSha: params.headSha,
-      effective,
-    });
-    await createPublishContext(client, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: VERIFICATION_PUBLISH_LENS,
+    advanceHeadCiVersionForVerificationSignal(db, { ...head, effective }, now);
+    params.publication.record({
+      lens: VERIFICATION_PUBLISH_LENS,
       step: "verification_failure",
-      leaseEpoch: params.leaseEpoch,
       detail: { headSha: params.headSha, active },
-    }).record();
-    await requestHeadCiProjection(
-      params.boss,
-      {
-        installationId: params.installationId,
-        owner: params.prSurface.owner,
-        repo: params.prSurface.repo,
-        headSha: params.headSha,
-      },
-      { kind: "intake", client },
-    );
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+    });
+    requestHeadCiProjectionTx(db, head, { kind: "debounced" }, now);
+  });
 }
 
 export async function publishVerificationFailure(params: PublishVerificationFailureParams) {
-  await writeVerificationSignal(params, true);
+  writeVerificationSignal(params, true);
 
   const comments = await botOwnedComments(params.prSurface);
   const headReview = findHeadReviewComment(comments, params.headSha);
@@ -150,10 +127,10 @@ export async function publishVerificationFailure(params: PublishVerificationFail
     commentId: headReview?.id ?? 0,
     surface: "ci_cell",
   };
-  const ledger = await loadVerificationThreadLedger(params.pool, {
+  const ledger = loadVerificationThreadLedger(params.publication.db, {
     resourceKey: params.resourceKey,
   });
-  await persistLedger(params, upsertVerificationFailureSignal(ledger, signal));
+  persistLedger(params, upsertVerificationFailureSignal(ledger, signal));
   return ((pinnedReturn: VerificationFailureSignal | Promise<VerificationFailureSignal>) =>
     pinnedReturn)(signal);
 }
@@ -179,7 +156,15 @@ async function stripStoredVerificationFailure(
     if (comment == null || !isReviewSummaryBody(comment.body)) return;
     const next = withoutVerificationFailureBlock(comment.body);
     if (next == null) return;
-    await params.prSurface.editComment(commentId, next);
+    await params.publication.once({
+      decodeResult: () => undefined,
+      allowsUndefinedResult: true,
+      resourceTarget: `comment:${commentId}`,
+      blocksOverwrite: true,
+      operationKey: `verification:failure_strip:${commentId}:${params.headSha}`,
+      mutationKind: "github.verification_failure_strip",
+      mutate: () => params.prSurface.editComment(commentId, next),
+    });
   } catch (error) {
     logWarn("verification_failure_strip_failed", {
       workItemId: params.workItemId,
@@ -191,11 +176,11 @@ async function stripStoredVerificationFailure(
 }
 
 export async function clearVerificationFailureSignal(params: PublishVerificationFailureParams) {
-  await writeVerificationSignal(params, false);
-  const ledger = await loadVerificationThreadLedger(params.pool, {
+  writeVerificationSignal(params, false);
+  const ledger = loadVerificationThreadLedger(params.publication.db, {
     resourceKey: params.resourceKey,
   });
   if (ledger.failureSignal == null) return;
   await stripStoredVerificationFailure(params, ledger.failureSignal.commentId);
-  await persistLedger(params, clearVerificationFailureSignalFromLedger(ledger));
+  persistLedger(params, clearVerificationFailureSignalFromLedger(ledger));
 }

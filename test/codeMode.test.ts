@@ -1,1322 +1,184 @@
-import { createHash } from "node:crypto";
-import { CODE_MODE_CPU_BUDGET_MS } from "../src/settings/index.ts";
 import { describe, expect, it } from "vitest";
-import * as evlog from "../src/evlog.ts";
 import {
-  initReviewRunMetrics,
-  snapshotReviewRunMetrics,
-} from "../src/review/run/reviewRunMetrics.ts";
-import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
-import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.ts";
+  clampCodemodeSource,
+  codemodeWorkerAdmission,
+  CODEMODE_MAX_OUTPUT_TOKENS_CAP,
+  CODEMODE_MAX_WORKERS,
+  CODEMODE_MEMORY_LIMIT_BYTES,
+  CODEMODE_TIMEOUT_MS_CAP,
+  RUN_SPILL_QUOTA_BYTES,
+} from "../src/agent/runtime/durable/runtime.ts";
 import {
+  CODE_MODE_ERROR_CODES,
+  CODE_MODE_HOST_CANCEL_MESSAGE,
+  CODE_MODE_CAP_REASONS,
   CodeModeHostHalt,
-  decodeHostCallFailure,
-  encodeHostCallFailure,
+  codeModeHaltFromPayload,
+  codeModeHaltPayload,
+  emptyCodeModeCapHits,
+  isCodeModeCapReason,
+  isCodeModeErrorCode,
   isCodeModeHostHalt,
-} from "../src/agent/execution/hostHalt.ts";
-import type { CodeModeResult } from "../src/agent/codemode/result.ts";
-import { runCodeModeScript } from "../src/agent/codemode/runScript.ts";
-import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.ts";
-import { boundJsonValue } from "../src/agent/execution/marshal.ts";
-import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.ts";
-import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.ts";
-import { AppError } from "../src/errors/appError.ts";
-import { startWorkerHealthServer } from "../src/agentWork/workerHealth.ts";
-import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.ts";
-import { readTextWithOutputBudget } from "../src/agent/tools/toolOutputBudget.ts";
+} from "../src/agent/runtime/durable/codemodeCaps.ts";
 import {
-  CODE_MODE_MAX_TOOL_CALLS,
-  LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
-} from "../src/settings/index.ts";
+  buildWorkspaceTools,
+  hideWorkspaceToolsBehindCodeMode,
+  workspaceToolExecutionMode,
+} from "../src/agent/runtime/durable/piTools.ts";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.ts";
-import type { LocalPrChangedFile } from "../src/prWorkspace/repositoryReader.ts";
 
-const CHANGED_FILE_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const CHANGED_FILE_HASH_179 = "91a6469a679b7717d05467340d90e16b5e5acb037a98e12f67ff70a8285235c0";
-const CHANGED_FILE_HASH_300 = "d58b5fd215f4a9ddfa13e5b1e165d44d37ef0cf4b2bdc58dd14de3045cdfdbf3";
-
-function changedFilePaths(count: number) {
-  return ((pinnedReturn: LocalPrChangedFile[]) => pinnedReturn)(
-    Array.from({ length: count }, (_, index) => ({
-      path: `src/file-${String(index).padStart(3, "0")}.ts`,
-      status: "modified",
-    })),
-  );
-}
-
-function pathDigest(paths: readonly string[]) {
-  return ((pinnedReturn: string) => pinnedReturn)(
-    createHash("sha256").update(paths.join("\n")).digest("hex"),
-  );
-}
-
-const WALK_CHANGED_FILES = `
-  const pages = [];
-  let continuation = "";
-  let started = false;
-  while (pages.length < 12) {
-    const listed = started
-      ? await tools.listChangedFiles({ continuation: continuation })
-      : await tools.listChangedFiles();
-    started = true;
-    if (!Array.isArray(listed.files)) throw new Error("files was not an array");
-    if (listed.failureKind) throw new Error("unexpected failureKind");
-    const paths = [];
-    for (let i = 0; i < listed.files.length; i = i + 1) paths.push(listed.files[i].path);
-    pages.push({
-      delivered: listed.files.length,
-      paths: paths,
-      continuation: listed.continuation,
-      total: listed.total,
-      truncated: listed.truncated,
-      headSha: listed.headSha,
-    });
-    if (listed.continuation === null) break;
-    continuation = listed.continuation;
-  }
-  ({ pages: pages })
-`;
-
-async function deliverChangedFiles(
-  files: readonly LocalPrChangedFile[],
-  headSha: string,
-  stats: {
-    readonly truncated: boolean;
-    readonly totalChanges: number;
-    readonly fileCount: number;
-    readonly warning?: string;
-  },
-) {
-  const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
-    changedFiles: files,
-    checkoutPaths: new Set(files.map((file) => file.path)),
-    headSha,
-    stats,
+describe("codemode constants", () => {
+  it("locks the sandbox and spill budgets", () => {
+    expect(CODEMODE_MEMORY_LIMIT_BYTES).toBe(128 * 1024 * 1024);
+    expect(CODEMODE_MAX_WORKERS).toBe(4);
+    expect(CODEMODE_TIMEOUT_MS_CAP).toBe(15_000);
+    expect(CODEMODE_MAX_OUTPUT_TOKENS_CAP).toBe(8_000);
+    expect(RUN_SPILL_QUOTA_BYTES).toBe(16 * 1024 * 1024);
   });
-  const tools = buildWorkspaceTools(workspace.reader, { headSha });
-  const list = tools.executors.listChangedFiles;
-  if (!list) throw new Error("listChangedFiles missing");
-  return runCodeModeScript({
-    executorKind: "in_process",
-    code: WALK_CHANGED_FILES,
-    capabilities: { listChangedFiles: list },
-  });
-}
+});
 
-function asResult(value: unknown) {
-  return ((pinnedReturn: CodeModeResult) => pinnedReturn)(value as CodeModeResult);
-}
-
-describe("Code Mode", () => {
-  it("terminates while(true){} within the AST budget", async () => {
-    const started = Date.now();
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "while (true) {}",
-      capabilities: {},
-    });
-    const elapsedMs = Date.now() - started;
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
-      expect(result.error.reason).toBe("guest_cpu");
-    }
-    expect(elapsedMs).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-  });
-
-  it("keeps worker /health and /ready responsive during an adversarial loop", async () => {
-    const health = startWorkerHealthServer({
-      port: 0,
-      getReadiness: async () => ({ ready: true, reasons: [], missingQueues: [] }),
-    });
-    if (!health.server.listening) {
-      await new Promise<void>((resolve) => health.server.once("listening", () => resolve()));
-    }
-    const address = health.server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("expected TCP address");
-    }
-    const base = `http://127.0.0.1:${address.port}`;
-    try {
-      const running = runCodeModeScript({
-        executorKind: "in_process",
-        code: "while (true) {}",
-        capabilities: {},
-      });
-      const healthStarted = Date.now();
-      const [healthRes, readyRes, script] = await Promise.all([
-        fetch(`${base}/health`),
-        fetch(`${base}/ready`),
-        running,
-      ]);
-      expect(Date.now() - healthStarted).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-      expect(healthRes.status).toBe(200);
-      expect(await healthRes.text()).toBe("ok");
-      expect(readyRes.status).toBe(200);
-      expect(await readyRes.text()).toBe("ready");
-      expect(script.ok).toBe(false);
-      if (!script.ok) expect(script.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
-    } finally {
-      await health.close();
-    }
-  });
-
-  it("halts native memory bloat from String.repeat", async () => {
-    const before = process.memoryUsage().heapUsed;
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: '"x".repeat(100000000)',
-      capabilities: {},
-    });
-    const after = process.memoryUsage().heapUsed;
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
-    expect(after - before).toBeLessThan(8 * 1024 * 1024);
-  });
-
-  it("rejects ReDoS-prone regular expressions", async () => {
-    const started = Date.now();
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'new RegExp("(a+)+$").test("aaaaaaaaaaaaaaaaaaaaaaaaaaaaX")',
-      capabilities: {},
-    });
-    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-    if (!result.ok) {
-      expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
-        result.error.code,
-      );
-    }
-  });
-
-  it.each([
-    "Promise.resolve().then(() => { while (true) {} })",
-    "new Promise((resolve) => { while (true) {} })",
-  ])("keeps %s on the host halt path", async (code) => {
-    const started = Date.now();
-    const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
-    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-  });
-
-  it("halts Array.from allocations beyond the cap", async () => {
-    const before = process.memoryUsage().heapUsed;
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "Array.from({ length: 100000 })",
-      capabilities: {},
-    });
-    const after = process.memoryUsage().heapUsed;
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("LIMIT_EXCEEDED");
-      expect(result.error.reason).toBe("allocation");
-    }
-    expect(after - before).toBeLessThan(8 * 1024 * 1024);
-  });
-
-  it.each([
-    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".replace(new RegExp("(a+)+$"), "x")',
-    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".replaceAll(new RegExp("(a+)+$", "g"), "x")',
-    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".search(new RegExp("(a+)+$"))',
-    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".split(new RegExp("(a+)+$"))',
-    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".matchAll(new RegExp("(a+)+$", "g"))',
-  ])("rejects ReDoS-prone patterns for %s", async (code) => {
-    const started = Date.now();
-    const result = await runCodeModeScript({ code, capabilities: {}, executorKind: "in_process" });
-    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-    if (!result.ok) {
-      expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
-        result.error.code,
-      );
-    }
-  });
-
-  it("halts doubling concatenation before a huge allocation", async () => {
-    const before = process.memoryUsage().heapUsed;
-    const started = Date.now();
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `
-        let s = "x";
-        while (true) {
-          s = s + s;
-        }
-      `,
-      capabilities: {},
-    });
-    const after = process.memoryUsage().heapUsed;
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(["LIMIT_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED"]).toContain(result.error.code);
-    }
-    expect(Date.now() - started).toBeLessThan(CODE_MODE_CPU_BUDGET_MS + 500);
-    expect(after - before).toBeLessThan(8 * 1024 * 1024);
-  });
-
-  it("returns structured diagnostics for syntax errors", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "const x = {",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("SYNTAX_ERROR");
-      expect(result.error.message.length).toBeGreaterThan(0);
-    }
-  });
-
-  it("executes class syntax as JavaScript", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "class Foo { value() { return 4 } }; new Foo().value()",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toBe(4);
-  });
-
-  it("restores CodeModeHostHalt from a worker hostResult payload", () => {
-    const halt = new CodeModeHostHalt("LIMIT_EXCEEDED", "too many calls", {
-      line: 4,
-      reason: "workspace_calls",
-    });
-    const posted = encodeHostCallFailure(halt);
-    expect(posted).toEqual({
-      ok: false,
-      halt: {
-        code: "LIMIT_EXCEEDED",
-        message: "too many calls",
-        line: 4,
-        reason: "workspace_calls",
-      },
-    });
-    const restored = decodeHostCallFailure(posted);
-    expect(isCodeModeHostHalt(restored)).toBe(true);
-    if (isCodeModeHostHalt(restored)) {
-      expect(restored.code).toBe("LIMIT_EXCEEDED");
-      expect(restored.message).toBe("too many calls");
-      expect(restored.line).toBe(4);
-      expect(restored.reason).toBe("workspace_calls");
-    }
-  });
-
-  it("keeps ordinary host errors catchable after worker encoding", () => {
-    const posted = encodeHostCallFailure(new Error("FILE_NOT_FOUND: missing"));
-    expect(posted).toEqual({ ok: false, error: "FILE_NOT_FOUND: missing" });
-    const restored = decodeHostCallFailure(posted);
-    expect(isCodeModeHostHalt(restored)).toBe(false);
-    expect(restored).toBeInstanceOf(Error);
-    expect((restored as Error).message).toBe("FILE_NOT_FOUND: missing");
-  });
-
-  it("does not let guest try/catch swallow the capability call budget", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `
-        try {
-          for (let i = 0; i < 30; i = i + 1) {
-            await tools.listChangedFiles();
-          }
-          "escaped"
-        } catch (error) {
-          "escaped"
-        }
-      `,
-      capabilities: {
-        listChangedFiles: async () => ({ files: [] }),
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
-  });
-
-  it("halts after more than 25 capability calls", async () => {
-    let calls = 0;
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `
-        const out = [];
-        for (let i = 0; i < 30; i = i + 1) {
-          out.push(await tools.listChangedFiles());
-        }
-        out
-      `,
-      capabilities: {
-        listChangedFiles: async () => {
-          calls += 1;
-          return { files: [] };
-        },
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("LIMIT_EXCEEDED");
-      expect(result.error.reason).toBe("workspace_calls");
-    }
-    expect(calls).toBe(CODE_MODE_MAX_TOOL_CALLS);
-  });
-
-  it("counts a workspace-call halt once and leaves pool queue at zero", async () => {
-    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
-    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
-      initReviewRunMetrics({ provider: "openai", model: "m", mode: "review" });
-      const result = await runCodeModeScript({
-        executorKind: "in_process",
-        code: `
-          for (let i = 0; i < 30; i = i + 1) {
-            await tools.listChangedFiles();
-          }
-        `,
-        capabilities: {
-          listChangedFiles: async () => ({ files: [] }),
-        },
-      });
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.reason).toBe("workspace_calls");
-      const snapshot = snapshotReviewRunMetrics();
-      expect(snapshot?.modelTurnCount).toBe(0);
-      expect(snapshot?.codeModeCapHits.workspace_calls).toBe(1);
-      expect(snapshot?.codeModeCapHits.pool_queue).toBe(0);
-    });
-  });
-
-  it("truncates oversized script output", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: '({ items: Array(200).fill("n"), text: "x".repeat(40000) })',
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const output = result.output as {
-        items: { truncated: true; omittedCount: number };
-        text: string;
-        truncation?: { truncated: true; reason: string };
-      };
-      expect(output.items.truncated).toBe(true);
-      expect(output.items.omittedCount).toBeGreaterThan(0);
-      expect(typeof output.text).toBe("string");
-      expect(output.text.length).toBeLessThan(40000);
-      expect(output.truncation?.truncated).toBe(true);
-      expect(result.warnings?.[0]).toMatch(/truncated/);
-    }
-  });
-
-  it("keeps transfer-limit truncation beside execute output", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `const out = {};
-        for (let i = 0; i < 20; i = i + 1) {
-          out["k" + i] = "x".repeat(20000);
-        }
-        out`,
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const output = result.output as {
-        truncated?: boolean;
-        reason?: string;
-        truncation?: { truncated: true; reason: string };
-      };
-      expect(output.truncation?.truncated).toBe(true);
-      expect(output.truncation?.reason).toBe("transfer_byte_limit");
-      expect(result.warnings?.[0]).toContain("transfer_byte_limit");
-    }
-  });
-
-  it("returns the last ASI expression as the cell value", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "const a = 1\na + 1",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toBe(2);
-  });
-
-  it("keeps a continued expression as one returned value", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "1 +\n  2",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toBe(3);
-  });
-
-  it.each([
-    ['"hi"', "hi"],
-    ['"hi";', "hi"],
-    ['"a;b";', "a;b"],
-    ['const s = "a;b"; s;', "a;b"],
-    ["const a = 1; a;", 1],
-    ["const a = 1;\na + 1;\n", 2],
-    ["const x = 3; x;;", 3],
-    ["const a = 1; a; // done", 1],
-    ["const a = 1; a; /* done */", 1],
-    ["const a = 1;\n// note\na;", 1],
-    ["state.a = 1; state.b = 2; state.a // note\nstate.b", 2],
-    ["state.a = 1; state.b = 2; state.a // note\r\nstate.b", 2],
-    ["state.a = 1; state.b = 2; state.a // note\rstate.b", 2],
-    ["const subtotal = 2; const tax = 3; subtotal // before tax\n+ tax", 5],
-    ["const subtotal = 2; const tax = 3; subtotal // before tax\r\n+ tax", 5],
-    ["const subtotal = 2; const tax = 3; subtotal\n+ tax", 5],
-    ["const subtotal = 2; const tax = 3; subtotal\n- tax", -1],
-    ["let n = 4; n // note\n--n", 3],
-    ["const fn = () => (x) => x + 1; fn() // call\n(4)", 5],
-    ["const fn = () => (x) => x + 1; fn() // call\r\n(4)", 5],
-    ["const fn = () => (x) => x + 1; fn() // call\r(4)", 5],
-    ["const arr = [9]; arr // index\n[0]", 9],
-    ["const arr = [9]; arr // index\r\n[0]", 9],
-    ["const arr = [9]; arr // index\r[0]", 9],
-    ["const tag = (strings) => strings[0]; tag // tag\n`hi`", "hi"],
-    ["const tag = (strings) => strings[0]; tag // tag\r\n`hi`", "hi"],
-    ["const tag = (strings) => strings[0]; tag // tag\r`hi`", "hi"],
-    ["const a = 6; const b = 3; a\n* b", 18],
-    ["const a = 6; const b = 3; a\n/ b", 2],
-    ["const a = 7; const b = 4; a\n% b", 3],
-    ["const a = 1; const b = 2; a\n? b : 9", 2],
-    ["let a = 1; a\n= 3", 3],
-    ["const a = 1; const b = 2; a\n< b", true],
-    ["const a = 3; const b = 2; a\n> b", true],
-    ["const a = 6; const b = 3; a\n& b", 2],
-    ["const a = 6; const b = 3; a\n| b", 7],
-    ["const a = 6; const b = 3; a\n^ b", 5],
-    ["const x = {}; x\ninstanceof Object", true],
-    ['const box = { a: 1 }; "a"\nin box', true],
-    ["let n = 4; n // note\n++n", 5],
-    ["const a = 1 // note\na + 1;", 2],
-    ["1 + // note\n2;", 3],
-    ["(1 + // note\n2);", 3],
-    ["return 5;", 5],
-    ["const x = 1;", null],
-    ["if (true) { state.x = 1; }", null],
-    [";;", null],
-    ["// only", null],
-  ])("handles semicolon and comment cell %j", async (code, expected) => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code,
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toEqual(expected);
-  });
-
-  it("preserves throw statement endings with trailing semicolons", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "throw new Error('boom');",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("EXECUTION_ERROR");
-      expect(result.error.message).toContain("boom");
-    }
-  });
-
-  it("propagates ACCESS_DENIED from path fencing", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'await tools.readWorkspaceFile({ path: "../secret.env" })',
-      capabilities: {
-        readWorkspaceFile: async () => {
-          throw new AppError({
-            domain: "pr_workspace",
-            kind: "path_traversal",
-            message: "Path traversal attempt detected: ../secret.env",
-            context: { path: "../secret.env" },
-          });
-        },
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("TOOL_FAILURE");
-      expect(result.error.message).toContain("ACCESS_DENIED");
-    }
-    expect(result.toolCalls[0]?.status).toBe("error");
-  });
-
-  it("halts on host cancel even when the script uses try/catch", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `
-          try {
-            while (true) {}
-          } catch (error) {
-            try { while (true) {} } catch (ignored) {}
-          }
-          "escaped"
-        `,
-      capabilities: {},
-      signal: controller.signal,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("CANCELLED");
-    }
-  });
-
-  it("hides workspace tools from the model catalog and keeps execute", () => {
-    const bundle = hideWorkspaceToolsBehindCodeMode(
-      {
-        piTools: [
-          { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
-          { name: "noteTool", description: "docs", parameters: { type: "object" } },
-        ],
-        executors: {
-          listChangedFiles: async () => ({ files: [] }),
-          noteTool: async () => ({ notes: [] }),
-        },
-      },
-      { executorKind: "in_process" },
-    );
-    expect(bundle.piTools.map((tool) => tool.name)).toEqual(["execute", "noteTool"]);
-    expect(bundle.executors.execute).toBeTypeOf("function");
-    expect(bundle.executors.listChangedFiles).toBeTypeOf("function");
-    const execute = bundle.piTools.find((tool) => tool.name === "execute");
-    expect(execute?.description).toContain("tools.listChangedFiles()");
-    expect(execute?.description).toContain("`state`");
-    expect(execute?.description).toContain("truncation");
-    expect(execute?.description).toContain("Promise.all");
-    expect(execute?.description).not.toContain("tools.readWorkspaceFile");
-    expect(execute?.description).not.toContain("submit_findings_report");
-  });
-
-  it("locks the getWorkspaceDiff guest contract in the execute description", () => {
-    const bundle = hideWorkspaceToolsBehindCodeMode(
-      {
-        piTools: [
-          { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
-          { name: "readWorkspaceFile", description: "read", parameters: { type: "object" } },
-          { name: "searchWorkspace", description: "search", parameters: { type: "object" } },
-          { name: "findFiles", description: "find", parameters: { type: "object" } },
-          { name: "getWorkspaceDiff", description: "diff", parameters: { type: "object" } },
-          { name: "getWorkspaceBlame", description: "blame", parameters: { type: "object" } },
-          { name: "resolveSymbol", description: "symbol", parameters: { type: "object" } },
-        ],
-        executors: {
-          listChangedFiles: async () => ({ files: [] }),
-          readWorkspaceFile: async () => ({ content: "" }),
-          searchWorkspace: async () => ({ matches: [] }),
-          findFiles: async () => ({ paths: [] }),
-          getWorkspaceDiff: async () => ({ diff: "", availability: "unchanged" }),
-          getWorkspaceBlame: async () => ({ blame: null }),
-          resolveSymbol: async () => ({ matches: [] }),
-        },
-      },
-      { executorKind: "in_process" },
-    );
-    const execute = bundle.piTools.find((tool) => tool.name === "execute");
-    const description = execute?.description;
-    const rule = description
-      ?.split("\n")
-      .find((line) => line.includes("await tools.getWorkspaceDiff({ path })"));
-    expect(rule).toBe(
-      "- `await tools.getWorkspaceDiff({ path })`. PR base-to-head unified diff for one path. The call returns an object, and `diff` is always the unified-diff string, including when that string is empty. `availability` is `available`, `unchanged`, or `unavailable`. An empty `diff` does not fail the call and does not prove the path is unchanged. `unchanged` requires a complete changed-file list. A thrown host error is the failure.",
-    );
-    const catalogueLine = (call: string) =>
-      description?.split("\n").find((line) => line.includes(call));
-    expect(catalogueLine("await tools.listChangedFiles({ continuation? })")).toBe(
-      "- `await tools.listChangedFiles({ continuation? })`. Changed paths with status and checkout presence. Omit continuation for the first page, then pass the returned continuation until it is null. total is the admitted count. truncated means the pull request has changes beyond the admitted files. The call returns an object, and `files` is always the array.",
-    );
-    expect(catalogueLine("await tools.readWorkspaceFile({ path, startLine?, maxLines? })")).toBe(
-      "- `await tools.readWorkspaceFile({ path, startLine?, maxLines? })`. Repo-relative path; use the window on long files. On truncation, read a narrower window, since the same call returns the same bytes. The call returns an object. `content` is a string on a delivered read, null when the path is deleted, and absent when the read is refused or spilled. A spill holds the excerpt in `tail`.",
-    );
-    expect(catalogueLine("await tools.searchWorkspace({ query, terms?, maxResults? })")).toBe(
-      "- `await tools.searchWorkspace({ query, terms?, maxResults? })`. Literal text, matched case-sensitively, not regex. `terms` adds literals and ranks files by how many they contain. On truncation, search for more specific text. The call returns an object, and `matches` is always the array. Each hit has `path`, `line`, and `text`. `files` exists only when `terms` has entries.",
-    );
-    expect(catalogueLine("await tools.findFiles({ query, maxResults? })")).toBe(
-      "- `await tools.findFiles({ query, maxResults? })`. Fuzzy, case-insensitive path lookup, best match first. Paths only; read before citing. The call returns an object, and `paths` is always the string array.",
-    );
-    expect(catalogueLine("await tools.getWorkspaceBlame({ path })")).toBe(
-      "- `await tools.getWorkspaceBlame({ path })`. Whole-file blame. Use when who changed a line, or when, decides the question. The call returns an object, and `blame` is a string, or null when the path is deleted or refused.",
-    );
-    expect(catalogueLine("await tools.resolveSymbol({ name, maxResults? })")).toBe(
-      "- `await tools.resolveSymbol({ name, maxResults? })`. Definition hints, not evidence. Confirm with readWorkspaceFile before citing. The call returns an object, and `matches` is always the array. Each entry has `path`, `line`, and `kind`.",
-    );
-    expect(description).not.toContain("`content` is always a string");
-    expect(description).toContain("const [page, src, hits, patch] = await Promise.all([");
-    expect(description).toContain('tools.getWorkspaceDiff({ path: "src/app.ts" })');
-    expect(description).toContain(
-      '({ n: page.files.length, srcBytes: typeof src.content === "string" ? src.content.length : 0, hits: hits.matches.length, diffBytes: patch.diff.length, availability: patch.availability })',
-    );
-    expect(description).toContain("state.changed = page.files.map((f) => f.path);");
-    expect(description).not.toContain("srcTrunc");
-    expect(description).not.toContain("src.truncation");
-    expect(description).not.toContain("diffTrunc");
-    expect(description).not.toContain("diff.truncation");
-    expect(description).not.toContain("annotated");
-    expect(description).not.toContain("const [files, src, hits, patch, blame]");
-    expect(description).not.toContain('tools.getWorkspaceBlame({ path: "src/app.ts" })');
-  });
-
-  it("locks a blame-only install to the rendered annotated binding", () => {
-    const bundle = hideWorkspaceToolsBehindCodeMode(
-      {
-        piTools: [
-          { name: "getWorkspaceBlame", description: "blame", parameters: { type: "object" } },
-        ],
-        executors: {
-          getWorkspaceBlame: async () => ({ blame: null }),
-        },
-      },
-      { executorKind: "in_process" },
-    );
-    const description = bundle.piTools.find((tool) => tool.name === "execute")?.description;
-    expect(description).toContain("const [annotated] = await Promise.all([");
-    expect(description).toContain('tools.getWorkspaceBlame({ path: "src/app.ts" })');
-    expect(description).toContain(
-      '({ blameBytes: typeof annotated.blame === "string" ? annotated.blame.length : 0 })',
-    );
-    expect(description).not.toContain("const [page, src, hits, patch]");
-  });
-
-  it("returns a successful compact tools.* result", async () => {
-    const execute = buildCodeModeExecuteTool({
-      executorKind: "in_process",
-      capabilities: {
-        listChangedFiles: async () => ({ files: [{ path: "src/a.ts" }] }),
-      },
-    });
-    const result = asResult(
-      await execute.executor({
-        code: "const listed = await tools.listChangedFiles(); listed.files.map((f) => f.path)",
-      }),
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.output).toEqual(["src/a.ts"]);
-      expect(result.toolCalls).toEqual([
-        { tool: "listChangedFiles", status: "completed", input: {} },
-      ]);
-    }
-  });
-
-  it("returns semicolon-terminated capability call results", async () => {
-    const fakeResult = { files: [{ path: "src/a.ts" }, { path: "src/b.ts" }] };
-    const direct = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "await tools.listChangedFiles({});",
-      capabilities: { listChangedFiles: async () => fakeResult },
-    });
-    expect(direct.ok).toBe(true);
-    if (direct.ok) expect(direct.output).toEqual({ ...fakeResult, truncation: null });
-
-    const lengthResult = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "const files = await tools.listChangedFiles({}); files.files.length;",
-      capabilities: { listChangedFiles: async () => fakeResult },
-    });
-    expect(lengthResult.ok).toBe(true);
-    if (lengthResult.ok) expect(lengthResult.output).toBe(2);
-  });
-
-  it("marks serializer truncation with omittedCount", () => {
-    const serialized = boundJsonValue(["a", "b", "c"], { maxArrayLength: 2 }).value;
-    expect(serialized).toEqual({
-      truncated: true,
-      omittedCount: 1,
-      reason: "array_length_limit",
-      value: ["a", "b"],
-    });
-  });
-
-  it("supports object destructuring", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "const { a } = { a: 1 }; a",
-      capabilities: {},
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toBe(1);
-  });
-
-  it("does not retain variables across execute cells", async () => {
-    const first = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "var retainedValue = 7; retainedValue",
-      capabilities: {},
-    });
-    expect(first.ok).toBe(true);
-    const second = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "retainedValue",
-      capabilities: {},
-    });
-    expect(second.ok).toBe(false);
-    if (!second.ok) {
-      expect(second.error.message).toMatch(/retainedValue/i);
-    }
-  });
-
-  it("emits execution success distinct from a returned execution failure", async () => {
-    const events: Array<{ kind: string; outcome?: string }> = [];
-    const sink = {
-      emit: (event: { kind: string; outcome?: string }) => events.push(event),
-      role: "ask" as const,
-      provider: "openai",
-      model: "gpt-4o-mini",
-    };
-    const success = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "1 + 1",
-      capabilities: {},
-      ...sink,
-    });
-    const failure = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "throw new Error('nope')",
-      capabilities: {},
-      ...sink,
-    });
-    expect(success.ok).toBe(true);
-    expect(failure.ok).toBe(false);
-    expect(events.map((event) => event.outcome)).toEqual(["success", "execution_failure"]);
-    expect(events.every((event) => event.kind === "execution")).toBe(true);
-  });
-
-  it("traces host calls through the execute context without lifecycle content", async () => {
-    const opened: Array<{ tool: string; input: unknown }> = [];
-    const closed: Array<Record<string, unknown>> = [];
-    const events: AgentLifecycleEvent[] = [];
-    const execute = buildCodeModeExecuteTool({
-      executorKind: "in_process",
-      capabilities: {
-        readWorkspaceFile: async (args) => {
-          if (String(args.path).startsWith("..")) {
-            throw new AppError({
-              domain: "pr_workspace",
-              kind: "path_traversal",
-              message: "Path traversal attempt detected",
-              context: { path: String(args.path) },
-            });
-          }
-          return { path: args.path, content: `host-body-${String(args.path)}`, startLine: 1 };
-        },
-      },
-    });
-    const result = asResult(
-      await execute.executor(
-        {
-          code: `const a = await tools.readWorkspaceFile({ path: "a.ts" });
-            let denied = "no";
-            try { await tools.readWorkspaceFile({ path: "../secret.env" }); } catch (e) { denied = "yes"; }
-            ({ a: a.content, denied })`,
-        },
-        {
-          signal: new AbortController().signal,
-          toolCallId: "exec-1",
-          emit: (event) => events.push(event),
-          role: "specialist",
-          provider: "openai",
-          model: "gpt-4o-mini",
-          traceHostCall: (tool, input) => {
-            opened.push({ tool, input });
-            return (outcome) => closed.push({ tool, ...outcome });
-          },
-        },
-      ),
-    );
-    expect(result.ok).toBe(true);
-    expect(opened).toEqual([
-      { tool: "readWorkspaceFile", input: { path: "a.ts" } },
-      { tool: "readWorkspaceFile", input: { path: "../secret.env" } },
+describe("codemodeWorkerAdmission", () => {
+  it("queues a fifth concurrent codemode run, then admits it when a worker exits", async () => {
+    const admission = codemodeWorkerAdmission();
+    const first = await Promise.all([
+      admission.admit(),
+      admission.admit(),
+      admission.admit(),
+      admission.admit(),
     ]);
-    expect(closed[0]).toMatchObject({ tool: "readWorkspaceFile", status: "completed" });
-    expect(JSON.stringify(closed[0]?.output)).toContain("host-body-a.ts");
-    expect(closed[0]?.outputBytes).toBeGreaterThan(0);
-    expect(closed[1]).toMatchObject({ status: "error", errorKind: "ACCESS_DENIED" });
-    expect(JSON.stringify(events)).not.toContain("host-body");
-    if (result.ok) {
-      expect(result.toolCalls[0]).toEqual({
-        tool: "readWorkspaceFile",
-        status: "completed",
-        input: { path: "a.ts" },
-      });
-    }
-  });
-
-  it("keeps executing when the host-call tracer throws", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'await tools.listChangedFiles(); "done"',
-      capabilities: { listChangedFiles: async () => ({ files: [] }) },
-      traceHostCall: () => {
-        throw new Error("tracer down");
-      },
+    let fifthAdmitted = false;
+    const fifth = admission.admit().then((permit) => {
+      fifthAdmitted = true;
+      return permit;
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.output).toBe("done");
+    expect(await Promise.race([fifth.then(() => true), Promise.resolve(false)])).toBe(false);
+    expect(admission.acquireWorker).not.toThrow();
+    const releaseFirstWorker = admission.acquireWorker();
+    releaseFirstWorker();
+    const fifthPermit = await fifth;
+    expect(fifthAdmitted).toBe(true);
+    expect(fifthPermit.used).toBe(false);
+    admission.release(fifthPermit);
+    for (const permit of first.slice(1)) admission.release(permit);
+    expect(admission.acquireWorker).toThrow(/worker cap 4/);
   });
 
-  it("emits cancelled when the host signal is already aborted", async () => {
-    const events: AgentLifecycleEvent[] = [];
+  it("rejects a queued admission when the signal aborts", async () => {
+    const admission = codemodeWorkerAdmission();
+    await Promise.all([admission.admit(), admission.admit(), admission.admit(), admission.admit()]);
     const controller = new AbortController();
-    controller.abort();
-    await runCodeModeScript({
-      executorKind: "in_process",
-      code: "1",
-      capabilities: {},
-      signal: controller.signal,
-      emit: (event) => events.push(event),
-      role: "ask",
-      provider: "openai",
-      model: "gpt-4o-mini",
-    });
-    expect(events[0]?.kind).toBe("execution");
-    if (events[0]?.kind === "execution") {
-      expect(events[0].outcome).toBe("cancelled");
-      expect(events[0].terminationReason).toBe("host_cancel");
+    const pending = admission.admit(controller.signal);
+    controller.abort(new Error("stop"));
+    await expect(pending).rejects.toThrow("stop");
+  });
+});
+
+describe("clampCodemodeSource", () => {
+  it("prepends clamped options to bare source", () => {
+    const clamped = clampCodemodeSource("await 1;");
+    const firstLine = clamped.slice(0, clamped.indexOf("\n"));
+    expect(firstLine.startsWith("// @options:")).toBe(true);
+    const options = JSON.parse(firstLine.slice("// @options:".length)) as {
+      timeout_ms: number;
+      max_output_tokens: number;
+    };
+    expect(options).toEqual({ timeout_ms: 15_000, max_output_tokens: 8_000 });
+    expect(clamped.endsWith("await 1;")).toBe(true);
+  });
+
+  it("clamps oversized @options before journaling", () => {
+    const clamped = clampCodemodeSource(
+      '// @options: {"timeout_ms": 60000, "max_output_tokens": 20000}\nawait 1;',
+    );
+    const firstLine = clamped.slice(0, clamped.indexOf("\n"));
+    const options = JSON.parse(firstLine.slice("// @options:".length)) as {
+      timeout_ms: number;
+      max_output_tokens: number;
+    };
+    expect(options).toEqual({ timeout_ms: 15_000, max_output_tokens: 8_000 });
+  });
+
+  it("keeps tighter model-written @options", () => {
+    const clamped = clampCodemodeSource(
+      '// @options: {"timeout_ms": 1000, "max_output_tokens": 500}\nawait 1;',
+    );
+    const firstLine = clamped.slice(0, clamped.indexOf("\n"));
+    const options = JSON.parse(firstLine.slice("// @options:".length)) as {
+      timeout_ms: number;
+      max_output_tokens: number;
+    };
+    expect(options).toEqual({ timeout_ms: 1000, max_output_tokens: 500 });
+  });
+
+  it("passes an invalid @options line through as an error", () => {
+    expect(() => clampCodemodeSource("// @options: not-json\nawait 1;")).toThrow();
+  });
+});
+
+describe("codemode capability errors", () => {
+  it("recognizes the declared error codes and cap reasons", () => {
+    for (const code of CODE_MODE_ERROR_CODES) {
+      expect(isCodeModeErrorCode(code)).toBe(true);
     }
-  });
-
-  it("overlaps two delayed host reads inside one Promise.all", async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `await Promise.all([
-        tools.readWorkspaceFile({ path: "a.ts" }),
-        tools.readWorkspaceFile({ path: "b.ts" }),
-      ])`,
-      capabilities: {
-        readWorkspaceFile: async () => {
-          inFlight += 1;
-          maxInFlight = Math.max(maxInFlight, inFlight);
-          await new Promise((resolve) => {
-            setTimeout(resolve, 40);
-          });
-          inFlight -= 1;
-          return { path: "x.ts", content: "ok", startLine: 1, endLine: 1 };
-        },
-      },
-    });
-    expect(result.ok).toBe(true);
-    expect(maxInFlight).toBe(2);
-  });
-
-  it("commits explicit state only after a successful cell", async () => {
-    const execute = buildCodeModeExecuteTool({ capabilities: {}, executorKind: "in_process" });
-    const first = asResult(await execute.executor({ code: "state.flag = 7; state.flag" }));
-    const second = asResult(await execute.executor({ code: "state.flag" }));
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-    if (second.ok) expect(second.output).toBe(7);
-
-    const session = createExecutionSessionStore();
-    let releaseHost: (() => void) | undefined;
-    const toolEntered = (() => {
-      let resolve!: () => void;
-      const promise = new Promise<void>((done) => {
-        resolve = done;
-      });
-      return { promise, resolve };
-    })();
-    const aborted = runCodeModeScript({
-      executorKind: "in_process",
-      code: 'state.flag = 99; await tools.readWorkspaceFile({ path: "a.ts" }); state.flag',
-      session,
-      capabilities: {
-        readWorkspaceFile: async () => {
-          toolEntered.resolve();
-          return new Promise((resolve) => {
-            releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          });
-        },
-      },
-    });
-    await toolEntered.promise;
-    session.closeAdmission();
-    session.invalidate();
-    releaseHost?.();
-    const abortedResult = await aborted;
-    expect(abortedResult.ok).toBe(false);
-    const afterAbort = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "Object.prototype.hasOwnProperty.call(state, 'flag')",
-      session,
-      capabilities: {},
-    });
-    expect(afterAbort.ok).toBe(true);
-    if (afterAbort.ok) expect(afterAbort.output).toBe(false);
-  });
-
-  it("persists state updates from semicolon-terminated cells", async () => {
-    const execute = buildCodeModeExecuteTool({ capabilities: {}, executorKind: "in_process" });
-    const first = asResult(await execute.executor({ code: "state.n = 2;" }));
-    const second = asResult(await execute.executor({ code: "state.n;" }));
-    expect(first.ok).toBe(true);
-    expect(second.ok).toBe(true);
-    if (second.ok) expect(second.output).toBe(2);
-  });
-
-  it("reports a session state conflict when a later cell commits first", async () => {
-    const session = createExecutionSessionStore();
-    let releaseHost: (() => void) | undefined;
-    const toolEntered = (() => {
-      let resolve!: () => void;
-      const promise = new Promise<void>((done) => {
-        resolve = done;
-      });
-      return { promise, resolve };
-    })();
-    const first = runCodeModeScript({
-      executorKind: "in_process",
-      code: 'state.fromFirst = true; await tools.readWorkspaceFile({ path: "a.ts" }); state.fromFirst',
-      session,
-      capabilities: {
-        readWorkspaceFile: async () => {
-          toolEntered.resolve();
-          return new Promise((resolve) => {
-            releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          });
-        },
-      },
-    });
-    await toolEntered.promise;
-    const second = await runCodeModeScript({
-      executorKind: "in_process",
-      code: "state.fromSecond = true; state.fromSecond",
-      session,
-      capabilities: {},
-    });
-    expect(second.ok).toBe(true);
-    releaseHost?.();
-    const firstResult = await first;
-    expect(firstResult.ok).toBe(false);
-    if (!firstResult.ok) {
-      expect(firstResult.error.code).toBe("EXECUTION_ERROR");
-      expect(firstResult.error.message).toBe("Code Mode session state conflict");
-      expect(firstResult.error.reason).toBeUndefined();
+    expect(isCodeModeErrorCode("NOPE")).toBe(false);
+    for (const reason of CODE_MODE_CAP_REASONS) {
+      expect(isCodeModeCapReason(reason)).toBe(true);
     }
+    expect(isCodeModeCapReason("nope")).toBe(false);
   });
 
-  it("commits overlapping cells when each cell has its own store", async () => {
-    const firstSession = createExecutionSessionStore();
-    const secondSession = createExecutionSessionStore();
-    let releaseFirst: (() => void) | undefined;
-    const toolEntered = (() => {
-      let resolve!: () => void;
-      const promise = new Promise<void>((done) => {
-        resolve = done;
-      });
-      return { promise, resolve };
-    })();
-    const first = runCodeModeScript({
-      executorKind: "in_process",
-      code: 'state.owner = "first"; await tools.readWorkspaceFile({ path: "a.ts" }); state.owner',
-      session: firstSession,
-      capabilities: {
-        readWorkspaceFile: async () => {
-          toolEntered.resolve();
-          return new Promise((resolve) => {
-            releaseFirst = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
-          });
-        },
-      },
+  it("round-trips a CodeModeHostHalt through its payload", () => {
+    const halt = new CodeModeHostHalt("TIMEOUT", "timed out", {
+      line: 3,
+      reason: "guest_cpu",
     });
-    await toolEntered.promise;
-    const second = runCodeModeScript({
-      executorKind: "in_process",
-      code: 'state.owner = "second"; await tools.readWorkspaceFile({ path: "b.ts" }); state.owner',
-      session: secondSession,
-      capabilities: {
-        readWorkspaceFile: async () => ({ path: "b.ts", content: "y", startLine: 1, endLine: 1 }),
-      },
-    });
-    const secondResult = await second;
-    releaseFirst?.();
-    const firstResult = await first;
-    expect(firstResult.ok).toBe(true);
-    expect(secondResult.ok).toBe(true);
-    if (firstResult.ok) expect(firstResult.output).toBe("first");
-    if (secondResult.ok) expect(secondResult.output).toBe("second");
-    expect(firstSession.data).toMatchObject({ owner: "first" });
-    expect(secondSession.data).toMatchObject({ owner: "second" });
-    expect(JSON.stringify(firstSession.data)).not.toContain("second");
-    expect(JSON.stringify(secondSession.data)).not.toContain("first");
+    expect(isCodeModeHostHalt(halt)).toBe(true);
+    const restored = codeModeHaltFromPayload(codeModeHaltPayload(halt));
+    expect(restored).toBeInstanceOf(CodeModeHostHalt);
+    expect(restored.code).toBe("TIMEOUT");
+    expect(restored.line).toBe(3);
+    expect(restored.reason).toBe("guest_cpu");
   });
 
-  it("keeps a truncated file read as a string and records only delivered lines", async () => {
-    const headSha = "abc123";
-    const lines = Array.from(
-      { length: 800 },
-      (_, index) => `line-${String(index + 1).padStart(3, "0")}:${"x".repeat(80)}`,
-    ).join("\n");
-    for (const read of [
-      { content: lines, endLine: 800 },
-      { content: lines, endLine: 800, metadata: Array.from({ length: 1000 }, () => "metadata") },
-      { content: "one\ntwo\nthree", endLine: 3, clampedLines: [2], metadata: "x".repeat(40000) },
-      {
-        content: "one\ntwo\nthree",
-        endLine: 3,
-        clampedLines: Array.from({ length: 1000 }, (_, i) => i + 1),
-      },
-      { content: "", endLine: 1 },
-    ]) {
-      const ledger = createEvidenceLedger(headSha);
-      const result = await runCodeModeScript({
-        executorKind: "in_process",
-        code: `const file = await tools.readWorkspaceFile({ path: "big.ts" });
-        ({ kind: typeof file.content, length: file.content.length, truncated: file.truncation && file.truncation.truncated })`,
-        capabilities: {
-          readWorkspaceFile: async () => ({
-            path: "big.ts",
-            ...read,
-            startLine: 1,
-          }),
-        },
-        evidenceLedger: ledger,
-        headSha,
-      });
-      expect(result.ok).toBe(true);
-      if (result.ok) {
-        const output = result.output as { kind: string; length: number; truncated: boolean };
-        expect(output.kind).toBe("string");
-        if (read.content === lines) {
-          expect(output.length).toBeLessThan(lines.length);
-          expect(output.truncated).toBe(true);
-          const completeLines = lines.slice(0, output.length).split("\n").length - 1;
-          expect(ledger.snapshot().at(-1)?.descriptor?.endLine).toBe(completeLines);
-          expect(ledger.covers("big.ts", completeLines, completeLines)).toBe(true);
-          expect(ledger.covers("big.ts", completeLines + 1, completeLines + 1)).toBe(false);
-        } else if (read.clampedLines && read.clampedLines.length > 100) {
-          expect(ledger.snapshot()).toEqual([]);
-          expect(ledger.covers("big.ts", 3, 3)).toBe(false);
-        } else if (read.content.length > 0) {
-          expect(ledger.snapshot().at(-1)?.descriptor?.endLine).toBe(3);
-          expect(ledger.covers("big.ts", 3, 3)).toBe(true);
-          expect(ledger.covers("big.ts", 2, 2)).toBe(false);
-        } else {
-          expect(ledger.snapshot()).toEqual([]);
-          expect(ledger.covers("big.ts", 1, 1)).toBe(false);
-        }
-      }
-      expect(ledger.covers("big.ts", 1, 1)).toBe(
-        read.content.length > 0 && (read.clampedLines?.length ?? 0) < 100,
-      );
-      expect(ledger.covers("big.ts", 800, 800)).toBe(false);
-    }
+  it("maps foreign errors to EXECUTION_ERROR payloads", () => {
+    const payload = codeModeHaltPayload(new Error("plain"));
+    expect(payload.code).toBe("EXECUTION_ERROR");
+    expect(codeModeHaltFromPayload(payload).message).toBe("plain");
   });
 
-  it("never covers a prefix-clamped line in Code Mode until read with maxLines 1", async () => {
-    const headSha = "abc123";
-    const longLine = "l".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 250);
-    const fileText = `first\n${longLine}\nthird\n`;
-    const ledger = createEvidenceLedger(headSha);
+  it("exposes the cancel message and empty cap hit ledger", () => {
+    expect(CODE_MODE_HOST_CANCEL_MESSAGE).toContain("cancelled");
+    const hits = emptyCodeModeCapHits();
+    expect(Object.keys(hits).toSorted()).toEqual([...CODE_MODE_CAP_REASONS].toSorted());
+    expect(Object.values(hits).every((count) => count === 0)).toBe(true);
+  });
+});
 
-    const capabilities = {
-      readWorkspaceFile: async (args: unknown) => {
-        const startLine =
-          typeof args === "object" &&
-          args !== null &&
-          "startLine" in args &&
-          typeof args.startLine === "number"
-            ? args.startLine
-            : undefined;
-        const maxLines =
-          typeof args === "object" &&
-          args !== null &&
-          "maxLines" in args &&
-          typeof args.maxLines === "number"
-            ? args.maxLines
-            : undefined;
-        const budgeted = readTextWithOutputBudget(
-          fileText,
-          128_000,
-          startLine != null || maxLines != null ? { startLine, maxLines } : undefined,
-        );
-        return { path: "doc.md", ...budgeted };
-      },
-    };
-
-    const multi = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'await tools.readWorkspaceFile({ path: "doc.md" })',
-      capabilities,
-      evidenceLedger: ledger,
-      headSha,
+describe("workspace tool mode metadata", () => {
+  it("marks read_pinned safe, read_spill unsafe, emitEvidence tools-only", async () => {
+    const workspace = mockLocalPrWorkspace("/tmp", {
+      checkoutPaths: new Set(["src/a.ts"]),
     });
-    expect(multi.ok).toBe(true);
-    expect(ledger.covers("doc.md", 1, 1)).toBe(true);
-    expect(ledger.covers("doc.md", 2, 2)).toBe(false);
-    expect(ledger.covers("doc.md", 3, 3)).toBe(true);
-
-    const single = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'await tools.readWorkspaceFile({ path: "doc.md", startLine: 2, maxLines: 1 })',
-      capabilities,
-      evidenceLedger: ledger,
-      headSha,
-    });
-    expect(single.ok).toBe(true);
-    expect(ledger.covers("doc.md", 2, 2)).toBe(true);
+    const bundle = buildWorkspaceTools(workspace.reader);
+    expect(bundle.toolMeta.read_pinned?.replay).toBe("safe");
+    expect(bundle.toolMeta.read_spill?.replay).toBe("unsafe");
+    expect(bundle.toolMeta.emitEvidence?.callers).toEqual(["tools"]);
+    const spill = bundle.durableTools.find((tool) => tool.name === "read_spill");
+    const emit = bundle.durableTools.find((tool) => tool.name === "emitEvidence");
+    expect(spill?.replay).toBe("unsafe");
+    expect(emit?.callers).toEqual(["tools"]);
   });
 
-  it("delivers all 179 changed files through execute", async () => {
-    const files = changedFilePaths(179);
-    const result = await deliverChangedFiles(files, CHANGED_FILE_HEAD, {
-      truncated: false,
-      totalChanges: 179,
-      fileCount: 179,
+  it("hides investigation tools behind codemode callers", async () => {
+    const workspace = mockLocalPrWorkspace("/tmp", {
+      checkoutPaths: new Set(["src/a.ts"]),
     });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const output = result.output as {
-      pages: {
-        delivered: number;
-        paths: string[];
-        continuation: string | null;
-        total: number;
-        truncated: boolean;
-        headSha: string;
-      }[];
-    };
-    const paths = output.pages.flatMap((page) => page.paths);
-    expect(paths).toEqual(files.map((file) => file.path));
-    expect(new Set(paths).size).toBe(179);
-    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_179);
-    expect(output.pages.every((page) => page.delivered <= 100 && page.delivered > 0)).toBe(true);
-    expect(output.pages.reduce((sum, page) => sum + page.delivered, 0)).toBe(179);
-    expect(output.pages.at(-1)?.continuation).toBeNull();
-    expect(output.pages.every((page) => page.total === 179 && page.truncated === false)).toBe(true);
-    expect(output.pages.every((page) => page.headSha === CHANGED_FILE_HEAD)).toBe(true);
+    const bundle = hideWorkspaceToolsBehindCodeMode(buildWorkspaceTools(workspace.reader));
+    expect(bundle.toolMeta.getWorkspaceDiff?.callers).toEqual(["tools"]);
+    expect(bundle.toolMeta.read_pinned?.callers).toEqual(["tools"]);
   });
 
-  it("delivers an upstream-truncated 300 file list without a serializer failure", async () => {
-    const files = changedFilePaths(300);
-    const result = await deliverChangedFiles(files, CHANGED_FILE_HEAD, {
-      truncated: true,
-      totalChanges: 312,
-      fileCount: 300,
-      warning: "Change set truncated to 300 files (12 omitted).",
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const output = result.output as {
-      pages: {
-        delivered: number;
-        paths: string[];
-        continuation: string | null;
-        truncated: boolean;
-      }[];
-    };
-    const paths = output.pages.flatMap((page) => page.paths);
-    expect(paths).toEqual(files.map((file) => file.path));
-    expect(pathDigest(paths)).toBe(CHANGED_FILE_HASH_300);
-    expect(output.pages.at(-1)?.continuation).toBeNull();
-    expect(output.pages.every((page) => page.truncated === true)).toBe(true);
-    expect(output.pages.every((page) => page.delivered <= 100)).toBe(true);
-  });
-
-  it("does not skip long changed-file names that miss the transfer budget", async () => {
-    const files = Array.from({ length: 80 }, (_, index) => {
-      const suffix = String(index).padStart(3, "0");
-      return {
-        path: `${suffix}${"p".repeat(4_997)}`,
-        status: "modified" as const,
-      };
-    });
-    const workspace = mockLocalPrWorkspace("/tmp/changed-file-pages", {
-      changedFiles: files,
-      checkoutPaths: new Set(files.map((file) => file.path)),
-      headSha: CHANGED_FILE_HEAD,
-      stats: { truncated: false, totalChanges: 80, fileCount: 80 },
-    });
-    const list = buildWorkspaceTools(workspace.reader, { headSha: CHANGED_FILE_HEAD }).executors
-      .listChangedFiles;
-    if (!list) throw new Error("listChangedFiles missing");
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `
-        const pages = [];
-        let count = 0;
-        let checksum = 0;
-        let short = 0;
-        let continuation = "";
-        let started = false;
-        while (pages.length < 12) {
-          const listed = started
-            ? await tools.listChangedFiles({ continuation: continuation })
-            : await tools.listChangedFiles();
-          started = true;
-          if (!Array.isArray(listed.files)) throw new Error("files was not an array");
-          for (let i = 0; i < listed.files.length; i = i + 1) {
-            const path = listed.files[i].path;
-            count = count + 1;
-            if (path.length !== 5000) short = short + 1;
-            const last = path.length > 0 ? path.length - 1 : 0;
-            checksum = (checksum + path.charCodeAt(0) + path.charCodeAt(3) + path.charCodeAt(last)) % 1000003;
-          }
-          pages.push({ delivered: listed.files.length, continuation: listed.continuation });
-          if (listed.continuation === null) break;
-          continuation = listed.continuation;
-        }
-        ({ count: count, checksum: checksum, short: short, pages: pages })
-      `,
-      capabilities: { listChangedFiles: list },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const output = result.output as {
-      count: number;
-      checksum: number;
-      short: number;
-      pages: { delivered: number; continuation: string | null }[];
-    };
-    let checksum = 0;
-    for (const file of files) {
-      const path = file.path;
-      checksum =
-        (checksum + path.charCodeAt(0) + path.charCodeAt(3) + path.charCodeAt(path.length - 1)) %
-        1_000_003;
-    }
-    expect(output.count).toBe(80);
-    expect(output.short).toBe(0);
-    expect(output.checksum).toBe(checksum);
-    expect(output.pages.length).toBeGreaterThan(1);
-    expect(output.pages.every((page) => page.delivered <= 100)).toBe(true);
-    expect(output.pages.at(-1)?.continuation).toBeNull();
-  });
-
-  it("still caps a non-paged array at the serializer limit", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'await tools.readWorkspaceFile({ path: "src/a.ts" })',
-      capabilities: {
-        readWorkspaceFile: async () => ({ items: Array.from({ length: 101 }, () => "n") }),
-      },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const output = result.output as {
-      items: { reason?: string; omittedCount?: number; value?: string[] };
-    };
-    expect(Array.isArray(output.items)).toBe(false);
-    expect(output.items.reason).toBe("array_length_limit");
-    expect(output.items.omittedCount).toBe(1);
-    expect(output.items.value).toHaveLength(100);
-  });
-
-  it("keeps SEARCH_TRUNCATED on a truncated search result", async () => {
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: 'const hits = await tools.searchWorkspace({ query: "x" }); hits.failureKind',
-      capabilities: {
-        searchWorkspace: async () => ({ matches: [], truncated: true }),
-      },
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.output).toBe("SEARCH_TRUNCATED");
+  it("reports sequential execution only for registered tools", () => {
+    expect(workspaceToolExecutionMode("missing_tool")).toBeUndefined();
   });
 });

@@ -1,0 +1,11 @@
+{
+  "id": "sqlite",
+  "kind": "module",
+  "specifierPrefix": "node:sqlite",
+  "skipTypeOnly": true,
+  "allow": ["src/state/", "src/agent/runtime/durable/"],
+  "mustCatch": [
+    "import { DatabaseSync } from \"node:sqlite\";",
+    "const sqlite = await import(\"node:sqlite\");"
+  ]
+}

@@ -25,6 +25,14 @@ const BANNED_PACKAGES = [
     reason:
       "Agent sessions run on @earendil-works/pi-agent-core and @earendil-works/pi-ai without coding-agent.",
   },
+  {
+    name: "pg",
+    reason: "Durable state runs on node:sqlite under SQLITE_DIR; Postgres was retired.",
+  },
+  {
+    name: "pg-boss",
+    reason: "Durable execution runs on Pi Durable + SQLite dispatcher; pg-boss was retired.",
+  },
 ];
 
 const DISABLED_OXLINT_RULES = [
@@ -149,28 +157,6 @@ function checkDisabledOxlintRules() {
         fail(`.oxlintrc.json overrides[${index}] must not enable ${entry.rule}: ${entry.reason}`);
       }
     }
-  }
-}
-
-const migrationsDir = path.join(ROOT, "migrations");
-const numbers = fs
-  .readdirSync(migrationsDir)
-  .filter((f) => f.endsWith(".sql"))
-  .map((f) => {
-    const m = f.match(/^(\d{3})_/);
-    if (!m) fail(`migration without NNN_ prefix: ${f}`);
-    return m ? Number(m[1]) : null;
-  })
-  .filter((n) => n !== null)
-  .toSorted((a, b) => a - b);
-const dupes = numbers.filter((n, i) => numbers.indexOf(n) !== i);
-if (dupes.length > 0) fail(`duplicate migration numbers: ${[...new Set(dupes)].join(", ")}`);
-for (let i = 0; i < numbers.length; i++) {
-  if (numbers[i] !== i + 1) {
-    fail(
-      `migration numbering gap: expected ${String(i + 1).padStart(3, "0")}, have ${numbers.length} files ending at ${String(numbers[numbers.length - 1]).padStart(3, "0")}`,
-    );
-    break;
   }
 }
 

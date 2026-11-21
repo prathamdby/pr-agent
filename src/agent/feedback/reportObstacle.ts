@@ -1,10 +1,10 @@
-import type { Pool, PoolClient } from "pg";
+import type { DatabaseSync } from "node:sqlite";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { AgentRunnerToolExecutor, AgentToolCallContext } from "../providers/interface.ts";
 import { parseToolInput } from "../tools/parseToolInput.ts";
 import { toToolParameters } from "../tools/toolParams.ts";
-import { insertAgentFeedback } from "../../agentWork/agentFeedbackRepository.ts";
+import { insertAgentFeedback } from "../../state/agentFeedback.ts";
 import { logWarn } from "../../evlog.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.ts";
@@ -57,7 +57,7 @@ export type ReportObstacleResult =
   | { readonly recorded: false; readonly error?: string };
 
 export type ReportObstacleContext = {
-  readonly pool: Pool | PoolClient;
+  readonly db?: DatabaseSync;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner: string;
@@ -113,35 +113,42 @@ export function createReportObstacleExecutor(context: ReportObstacleContext) {
       const intent = redactOutboundSecrets(report.intent);
       const problem = redactOutboundSecrets(report.problem);
       const expected = redactOutboundSecrets(report.expected);
+      if (context.db === undefined)
+        return ((pinnedReturn: ReportObstacleResult | Promise<ReportObstacleResult>) =>
+          pinnedReturn)({ recorded: false });
       try {
         const toolCallId = ctx?.toolCallId?.trim() || null;
-        await insertAgentFeedback(context.pool, {
-          deliveryKey: obstacleDeliveryKey({
-            workItemId: context.workItemId,
+        insertAgentFeedback(
+          context.db,
+          {
+            deliveryKey: obstacleDeliveryKey({
+              workItemId: context.workItemId,
+              sessionRole: context.sessionRole,
+              ...(context.specialistId ? { specialistId: context.specialistId } : {}),
+              toolCallId,
+            }),
+            groupKey: obstacleGroupKey(report.obstacle, subject),
+            workId: context.workItemId,
+            installationId: context.installationId,
+            owner: context.owner,
+            repo: context.repo,
+            prNumber: context.prNumber,
+            ...(context.executionId != null ? { executionId: context.executionId } : {}),
+            ...(context.attemptCount != null ? { attemptCount: context.attemptCount } : {}),
             sessionRole: context.sessionRole,
-            ...(context.specialistId ? { specialistId: context.specialistId } : {}),
+            ...(context.specialistId ? { specialist: context.specialistId } : {}),
+            provider: context.provider,
+            model: context.model,
             toolCallId,
-          }),
-          groupKey: obstacleGroupKey(report.obstacle, subject),
-          workItemId: context.workItemId,
-          installationId: context.installationId,
-          owner: context.owner,
-          repo: context.repo,
-          prNumber: context.prNumber,
-          ...(context.executionId != null ? { executionId: context.executionId } : {}),
-          ...(context.attemptCount != null ? { attemptCount: context.attemptCount } : {}),
-          sessionRole: context.sessionRole,
-          ...(context.specialistId ? { specialist: context.specialistId } : {}),
-          provider: context.provider,
-          model: context.model,
-          toolCallId,
-          obstacle: report.obstacle,
-          subject,
-          intent,
-          problem,
-          expected,
-          severity: report.severity,
-        });
+            obstacle: report.obstacle,
+            subject,
+            intent,
+            problem,
+            expected,
+            severity: report.severity,
+          },
+          Date.now(),
+        );
         return ((pinnedReturn: ReportObstacleResult | Promise<ReportObstacleResult>) =>
           pinnedReturn)({ recorded: true });
       } catch (error) {

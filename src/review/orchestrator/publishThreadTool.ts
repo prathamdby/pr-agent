@@ -53,7 +53,6 @@ import {
 } from "./orchestratorTypes.ts";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.ts";
 import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
-import type { RecoveryDecision } from "../recovery/reviewRecovery.ts";
 
 const findingIdsParam = v.pipe(
   v.array(v.string()),
@@ -539,7 +538,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams) {
     readonly getLedger: () => FindingLedger;
     readonly getPublishedBatchCount: () => number;
     readonly getStopReason: () => PublishStopReason | null;
-    readonly replay: (decision: RecoveryDecision, withoutEvidence?: boolean) => Promise<void>;
+    readonly restoreLedger: (restored: FindingLedger) => void;
   }) => pinnedReturn)({
     piTool,
     executor,
@@ -554,24 +553,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams) {
     getLedger: () => ledger,
     getPublishedBatchCount: () => publishedBatchCount,
     getStopReason: () => stopReason,
-    replay: async (decision, withoutEvidence) => {
-      const canonical = decision.prepared.artifact.canonical;
-      if (canonical.kind !== "threads") return;
-      const result = await publishFindingBatch([], session, {
-        ...params.policy,
-        ...(params.evidenceLedgerFor
-          ? { evidenceLedger: params.evidenceLedgerFor(canonical.source) }
-          : {}),
-        source: canonical.source,
-        ledger,
-        recoveryDecision: decision,
-        recoveryWithoutEvidence: withoutEvidence,
-      });
-      if (result.kind === "stopped") {
-        stopReason = result.reason;
-        return;
-      }
-      ledger = applyFindingLedgerDelta(ledger, result.delta);
+    restoreLedger: (restored) => {
+      ledger = restored;
     },
   });
 }

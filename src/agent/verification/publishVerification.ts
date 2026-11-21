@@ -1,5 +1,4 @@
 import * as v from "valibot";
-import type { Pool } from "pg";
 import type { PrSurface } from "../../github/prSurface.ts";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
@@ -17,7 +16,6 @@ import {
   appendRootResolutionReceipt,
   unpostedResolutionReceipt,
 } from "../../review/findingIdentity/resolutionReceipt.ts";
-import { threadMutationLock } from "../../review/findingIdentity/threadMutationLock.ts";
 import type { BotFindingThread, FindingObjection } from "../../review/run/reviewPriorFeedback.ts";
 import {
   commentCarriesObjectionAnswer,
@@ -33,33 +31,26 @@ import type {
 import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.ts";
 import {
   loadVerificationThreadLedger,
-  saveVerificationThreadLedger,
   upsertVerificationThreadState,
   matchesVerificationThreadCompletion,
-  parseVerificationThreadLedger,
   type VerificationObjectionJournalEntry,
   type VerificationThreadLedger,
   type VerificationThreadState,
   type VerificationThreadCompletion,
-} from "../../agentWork/verificationThreadLedger.ts";
+} from "../../state/verificationThreadLedger.ts";
 import {
+  intentIdentity,
   operationIntentMarker,
   verificationObjectionAnswerOperationKey,
   verificationThreadOperationKey,
-  publishOnce,
-  type OperationIntentRecovery,
-} from "../../agentWork/publishOnce.ts";
-import {
-  getOperationIntent,
-  type OperationIntentRow,
-} from "../../agentWork/operationIntentRepository.ts";
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
+import type { PublishIntentRow, PublishRecovery } from "../../state/publish.ts";
 import { AppError, isAppError } from "../../errors/appError.ts";
-import { isRecord } from "../../util/typeGuards.ts";
 import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
 
 type PublishVerificationParams = {
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly installationId: number;
@@ -75,7 +66,6 @@ type PublishVerificationParams = {
   readonly changedFilePathsTruncated?: boolean;
   readonly changedMembershipComplete?: boolean;
   readonly policyResult: RepoPolicyResult;
-  readonly leaseEpoch: number | null;
 };
 
 function withStubMarker(body: string, operationMarker?: string) {
@@ -117,111 +107,40 @@ function dismissedReplyBody(
 }
 
 async function recoverVerificationMutation(params: {
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
+  readonly resourceKey: string;
   readonly workItemId: string;
   readonly headSha: string;
   readonly verdict: VerificationVerdict["verdict"];
-  readonly intent: OperationIntentRow;
-  readonly publishRecordId: string | null;
+  readonly intent: PublishIntentRow;
   readonly prSurface: PrSurface;
   readonly marker: string;
   readonly rootCommentId: number;
   readonly requiresResolved: boolean;
   readonly requiresStub: boolean;
-  readonly stubCommentId?: number;
   readonly threadNodeId?: string;
   readonly expectedBody: string;
 }) {
-  if (params.publishRecordId != null) {
-    const { rows } = await params.pool.query<{ detail: unknown }>(
-      `SELECT detail FROM publish_records WHERE id = $1 AND work_item_id = $2
-        AND review_lens = $3 AND step = 'verification_thread_actions' AND status = 'completed'`,
-      [params.publishRecordId, params.workItemId, VERIFICATION_PUBLISH_LENS],
-    );
-    const receipt = parseVerificationThreadLedger(rows[0]?.detail).threads[
-      String(params.rootCommentId)
-    ]?.completion;
-    if (
-      matchesVerificationThreadCompletion(receipt, {
-        workItemId: params.workItemId,
-        operationKey: params.intent.operationKey,
-        headSha: params.headSha,
-        verdict: params.verdict,
-        requiresStub: params.requiresStub,
-      })
-    ) {
-      return ((
-        pinnedReturn:
-          | OperationIntentRecovery<number | undefined>
-          | Promise<OperationIntentRecovery<number | undefined>>,
-      ) => pinnedReturn)({ kind: "reconciled", value: receipt?.stubCommentId });
-    }
+  const receipt = loadVerificationThreadLedger(params.publication.db, {
+    resourceKey: params.resourceKey,
+  }).threads[String(params.rootCommentId)]?.completion;
+  if (
+    matchesVerificationThreadCompletion(receipt, {
+      workItemId: params.workItemId,
+      operationKey: params.intent.operation_key,
+      headSha: params.headSha,
+      verdict: params.verdict,
+      requiresStub: params.requiresStub,
+    })
+  ) {
+    return ((pinnedReturn: PublishRecovery | Promise<PublishRecovery>) => pinnedReturn)({
+      found: true,
+      value: receipt?.stubCommentId ?? null,
+    });
   }
-  const childEvidenceMatches =
-    params.intent.detail.headSha === params.headSha &&
-    params.intent.detail.verdict === params.verdict &&
-    typeof params.intent.detail.requiresStub === "boolean";
-  const { rows } = childEvidenceMatches
-    ? await params.pool.query<{
-        operation_key: string;
-        mutation_kind: string;
-        detail: Record<string, unknown>;
-      }>(
-        `SELECT operation_key, mutation_kind, detail FROM operation_intents
-      WHERE work_item_id = $1 AND detail->>'parentOperationKey' = $2
-        AND detail ? '__result'
-      LIMIT 16`,
-        [params.workItemId, params.intent.operationKey],
-      )
-    : { rows: [] };
   let stubCommentId: number | undefined;
   let stubProven = !params.requiresStub;
   let resolved = !params.requiresResolved;
-  for (const child of rows) {
-    const detail = child.detail;
-    if (!isRecord(detail)) continue;
-    const method = detail.surfaceMethod;
-    if (
-      typeof method !== "string" ||
-      typeof detail.inputHash !== "string" ||
-      !/^[a-f0-9]{64}$/.test(detail.inputHash) ||
-      detail.parentOperationKey !== params.intent.operationKey ||
-      child.operation_key !==
-        `${params.intent.operationKey}:surface:${method}:${detail.inputHash}` ||
-      child.mutation_kind !== `github.pr_surface.${method}`
-    )
-      continue;
-    if (
-      method === "resolveInlineReviewThread" &&
-      detail.threadId === params.threadNodeId &&
-      detail.__result === null
-    )
-      resolved = true;
-    if (detail.operationMarker !== params.marker) continue;
-    if (method === "editReviewComment" && detail.commentId === params.stubCommentId) {
-      if (detail.__result === true) {
-        stubProven = true;
-        stubCommentId = params.stubCommentId;
-      } else if (
-        detail.__result === false &&
-        (params.verdict === "fixed" || params.verdict === "already-resolved")
-      ) {
-        stubProven = true;
-      }
-    }
-    if (
-      method === "replyAt" &&
-      detail.replyTargetKind === "inlineReviewThread" &&
-      detail.inReplyToId === params.rootCommentId &&
-      isRecord(detail.__result) &&
-      typeof detail.__result.commentId === "number" &&
-      Number.isSafeInteger(detail.__result.commentId) &&
-      detail.__result.commentId > 0
-    ) {
-      stubProven = true;
-      stubCommentId = detail.__result.commentId;
-    }
-  }
   if (!stubProven) {
     const botLogin = await params.prSurface.getBotLogin();
     const { comments, truncated } = await params.prSurface.listReviewComments();
@@ -246,15 +165,8 @@ async function recoverVerificationMutation(params: {
       throw new Error("Verification resolution recovery is unavailable or incomplete");
     }
   }
-  if ((!stubProven || !resolved) && rows.length >= 16) {
-    throw new Error("Verification child receipt recovery is capped");
-  }
-  return ((
-    pinnedReturn:
-      | OperationIntentRecovery<number | undefined>
-      | Promise<OperationIntentRecovery<number | undefined>>,
-  ) => pinnedReturn)(
-    stubProven && resolved ? { kind: "reconciled", value: stubCommentId } : { kind: "absent" },
+  return ((pinnedReturn: PublishRecovery | Promise<PublishRecovery>) => pinnedReturn)(
+    stubProven && resolved ? { found: true, value: stubCommentId ?? null } : { found: false },
   );
 }
 
@@ -314,20 +226,21 @@ async function upsertStubComment(params: {
 }
 
 async function persistThreadState(params: {
-  readonly pool: Pool;
+  readonly publication: FeaturePublication;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly ledger: VerificationThreadLedger;
   readonly rootCommentId: number;
   readonly state: VerificationThreadState;
-  readonly leaseEpoch: number | null;
 }) {
   const next = upsertVerificationThreadState(params.ledger, params.rootCommentId, params.state);
-  await saveVerificationThreadLedger(params.pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    ledger: next,
-    leaseEpoch: params.leaseEpoch,
+  params.publication.record({
+    lens: VERIFICATION_PUBLISH_LENS,
+    step: "verification_thread_actions",
+    detail: {
+      threads: next.threads,
+      ...(next.failureSignal != null ? { failureSignal: next.failureSignal } : {}),
+    },
   });
   return ((pinnedReturn: VerificationThreadLedger | Promise<VerificationThreadLedger>) =>
     pinnedReturn)(next);
@@ -379,11 +292,14 @@ async function withVerificationThreadOperation(
 ) {
   const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  const retained = await getOperationIntent(params.pool, params.workItemId, operationKey);
+  const retained = params.publication.intent(operationKey);
+  const retainedIdentity = intentIdentity(retained);
   if (
     retained != null &&
-    ((typeof retained.detail.headSha === "string" && retained.detail.headSha !== params.headSha) ||
-      (typeof retained.detail.verdict === "string" && retained.detail.verdict !== verdict.verdict))
+    ((typeof retainedIdentity.headSha === "string" &&
+      retainedIdentity.headSha !== params.headSha) ||
+      (typeof retainedIdentity.verdict === "string" &&
+        retainedIdentity.verdict !== verdict.verdict))
   ) {
     throw new AppError({
       domain: "operation_intent",
@@ -393,72 +309,72 @@ async function withVerificationThreadOperation(
     });
   }
   const requiresStub =
-    typeof retained?.detail.requiresStub === "boolean"
-      ? retained.detail.requiresStub
-      : retained != null &&
-          (retained.status === "outcome_unknown" ||
-            retained.status === "reconciled" ||
-            retained.detail.__mutating === true)
+    typeof retainedIdentity.requiresStub === "boolean"
+      ? retainedIdentity.requiresStub
+      : retained != null && retained.state !== "reserved" && retained.state !== "mutation_failed"
         ? true
         : requirements.requiresStub;
   const expectedStubId =
-    typeof retained?.detail.stubCommentId === "number"
-      ? retained.detail.stubCommentId
+    typeof retainedIdentity.stubCommentId === "number"
+      ? retainedIdentity.stubCommentId
       : requirements.stubCommentId;
   let childAccepted = false;
   let resolutionDenied = false;
-  const stubCommentId = await publishOnce<number | undefined>({
-    decodeResult: (value) => {
-      v.assert(v.optional(v.number()), value);
-      return value;
-    },
-    fence: fenceForEpoch(params.leaseEpoch),
-    client: params.pool,
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
-    operationKey,
-    mutationKind: "github.verification_thread",
-    allowsUndefinedResult: false,
-    detail: {
-      ...verificationIntentDetail(
-        params,
-        verdict.threadRootCommentId,
-        verdict.verdict,
-        operationMarker,
-      ),
-      requiresStub,
-      ...(expectedStubId != null ? { stubCommentId: expectedStubId } : {}),
-      ...(requirements.threadNodeId != null ? { threadNodeId: requirements.threadNodeId } : {}),
-    },
-    recover: async (intent, publishRecordId) => {
-      if (resolutionDenied) return { kind: "absent" };
-      return recoverVerificationMutation({
-        pool: params.pool,
-        workItemId: params.workItemId,
-        headSha: params.headSha,
-        verdict: verdict.verdict,
-        intent,
-        publishRecordId: publishRecordId ?? intent.publishRecordId,
-        prSurface: params.prSurface,
-        marker: operationMarker,
-        rootCommentId: verdict.threadRootCommentId,
-        requiresResolved,
+  const stubCommentId = await params.publication
+    .once<number | undefined>({
+      decodeResult: (value) => {
+        v.assert(v.nullish(v.number()), value);
+        return value ?? undefined;
+      },
+      allowsUndefinedResult: true,
+      resourceTarget: `thread:${verdict.threadRootCommentId}`,
+      blocksOverwrite: true,
+      operationKey,
+      mutationKind: "github.verification_thread",
+      identity: {
+        ...verificationIntentDetail(
+          params,
+          verdict.threadRootCommentId,
+          verdict.verdict,
+          operationMarker,
+        ),
         requiresStub,
-        stubCommentId: expectedStubId,
-        threadNodeId: requirements.threadNodeId,
-        expectedBody: requirements.body(operationMarker),
-      });
-    },
-    isKnownNoAcceptanceError: (error) => {
-      resolutionDenied =
-        isAppError(error) && error.code === "github.review_thread_resolution_denied";
-      return !childAccepted && isKnownNoAcceptanceMutationError(error);
-    },
-    mutate: () =>
-      mutate(operationMarker, () => {
-        childAccepted = true;
-      }),
-  });
+        ...(expectedStubId != null ? { stubCommentId: expectedStubId } : {}),
+        ...(requirements.threadNodeId != null ? { threadNodeId: requirements.threadNodeId } : {}),
+      },
+      recover: async (intent) => {
+        if (resolutionDenied) return { found: false };
+        return recoverVerificationMutation({
+          publication: params.publication,
+          resourceKey: params.resourceKey,
+          workItemId: params.workItemId,
+          headSha: params.headSha,
+          verdict: verdict.verdict,
+          intent,
+          prSurface: params.prSurface,
+          marker: operationMarker,
+          rootCommentId: verdict.threadRootCommentId,
+          requiresResolved,
+          requiresStub,
+          threadNodeId: requirements.threadNodeId,
+          expectedBody: requirements.body(operationMarker),
+        });
+      },
+      isKnownNoAcceptanceError: (error) => {
+        resolutionDenied =
+          isAppError(error) && error.code === "github.review_thread_resolution_denied";
+        return !childAccepted && isKnownNoAcceptanceMutationError(error);
+      },
+      mutate: () =>
+        mutate(operationMarker, () => {
+          childAccepted = true;
+        }),
+    })
+    .catch((error: unknown) => {
+      if (resolutionDenied && error instanceof Error && error.cause instanceof Error)
+        throw error.cause;
+      throw error;
+    });
   return ((
     pinnedReturn:
       | { readonly stubCommentId?: number; readonly completion: VerificationThreadCompletion }
@@ -624,72 +540,26 @@ function noteObjectionCounts(counts: ObjectionPublishCounts, posted: ObjectionPo
 }
 
 async function recoverObjectionAnswer(params: {
-  readonly pool: Pool;
-  readonly workItemId: string;
-  readonly intent: OperationIntentRow;
-  readonly publishRecordId: string | null;
+  readonly publication: FeaturePublication;
+  readonly resourceKey: string;
   readonly prSurface: PrSurface;
-  readonly operationMarker: string;
   readonly rootCommentId: number;
   readonly objectionCommentId: number;
   readonly updatedAt: string;
 }) {
-  if (params.publishRecordId != null) {
-    const { rows } = await params.pool.query<{ detail: unknown }>(
-      `SELECT detail FROM publish_records WHERE id = $1 AND work_item_id = $2
-        AND review_lens = $3 AND step = 'verification_thread_actions' AND status = 'completed'`,
-      [params.publishRecordId, params.workItemId, VERIFICATION_PUBLISH_LENS],
-    );
-    const entry = parseVerificationThreadLedger(rows[0]?.detail).threads[
-      String(params.rootCommentId)
-    ]?.objections?.find(
-      (objection) =>
-        objection.commentId === params.objectionCommentId &&
-        objection.updatedAt === params.updatedAt &&
-        objection.answerCommentId != null,
-    );
-    if (entry?.answerCommentId != null)
-      return ((
-        pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
-      ) => pinnedReturn)({ kind: "reconciled", value: entry.answerCommentId });
-  }
-  const { rows } = await params.pool.query<{
-    operation_key: string;
-    mutation_kind: string;
-    detail: Record<string, unknown>;
-  }>(
-    `SELECT operation_key, mutation_kind, detail FROM operation_intents
-      WHERE work_item_id = $1 AND detail->>'parentOperationKey' = $2
-        AND detail ? '__result'
-      LIMIT 16`,
-    [params.workItemId, params.intent.operationKey],
+  const entry = loadVerificationThreadLedger(params.publication.db, {
+    resourceKey: params.resourceKey,
+  }).threads[String(params.rootCommentId)]?.objections?.find(
+    (objection) =>
+      objection.commentId === params.objectionCommentId &&
+      objection.updatedAt === params.updatedAt &&
+      objection.answerCommentId != null,
   );
-  for (const child of rows) {
-    const detail = child.detail;
-    if (!isRecord(detail)) continue;
-    const method = detail.surfaceMethod;
-    if (
-      method !== "replyAt" ||
-      typeof detail.inputHash !== "string" ||
-      !/^[a-f0-9]{64}$/.test(detail.inputHash) ||
-      detail.parentOperationKey !== params.intent.operationKey ||
-      child.operation_key !==
-        `${params.intent.operationKey}:surface:${method}:${detail.inputHash}` ||
-      child.mutation_kind !== `github.pr_surface.${method}` ||
-      detail.operationMarker !== params.operationMarker ||
-      detail.replyTargetKind !== "inlineReviewThread" ||
-      detail.inReplyToId !== params.rootCommentId ||
-      !isRecord(detail.__result) ||
-      typeof detail.__result.commentId !== "number" ||
-      !Number.isSafeInteger(detail.__result.commentId) ||
-      detail.__result.commentId <= 0
-    ) {
-      continue;
-    }
-    return ((
-      pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
-    ) => pinnedReturn)({ kind: "reconciled", value: detail.__result.commentId });
-  }
+  if (entry?.answerCommentId != null)
+    return ((pinnedReturn: PublishRecovery | Promise<PublishRecovery>) => pinnedReturn)({
+      found: true,
+      value: entry.answerCommentId,
+    });
   const botLogin = await params.prSurface.getBotLogin();
   const listed = await params.prSurface.listReviewComments();
   if (listed.truncated) {
@@ -700,15 +570,9 @@ async function recoverObjectionAnswer(params: {
     renderObjectionAnswerMarker(params.objectionCommentId, params.updatedAt),
     (comment) => isBotAuthor(comment.authorLogin, botLogin),
   );
-  if (commentId != null)
-    return ((
-      pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
-    ) => pinnedReturn)({ kind: "reconciled", value: commentId });
-  if (rows.length >= 16)
-    throw new Error("Verification objection answer child receipt recovery is capped");
-  return ((
-    pinnedReturn: OperationIntentRecovery<number> | Promise<OperationIntentRecovery<number>>,
-  ) => pinnedReturn)({ kind: "absent" });
+  return ((pinnedReturn: PublishRecovery | Promise<PublishRecovery>) => pinnedReturn)(
+    commentId != null ? { found: true, value: commentId } : { found: false },
+  );
 }
 
 async function publishObjectionAnswer(params: {
@@ -724,16 +588,8 @@ async function publishObjectionAnswer(params: {
     params.decision.updatedAt,
   );
   const operationMarker = operationIntentMarker(operationKey, params.publish.workItemId);
-  const retained = await getOperationIntent(
-    params.publish.pool,
-    params.publish.workItemId,
-    operationKey,
-  );
-  if (
-    retained != null &&
-    typeof retained.detail.headSha === "string" &&
-    retained.detail.headSha !== params.publish.headSha
-  ) {
+  const retainedHead = intentIdentity(params.publish.publication.intent(operationKey)).headSha;
+  if (typeof retainedHead === "string" && retainedHead !== params.publish.headSha) {
     throw new AppError({
       domain: "operation_intent",
       kind: "mutation_outcome_unknown",
@@ -745,19 +601,15 @@ async function publishObjectionAnswer(params: {
       },
     });
   }
-  const commentId = await publishOnce<number>({
+  const commentId = await params.publish.publication.once<number>({
     decodeResult: (value) => {
       v.assert(v.pipe(v.number(), v.integer(), v.gtValue(0)), value);
       return value;
     },
-    fence: fenceForEpoch(params.publish.leaseEpoch),
-    client: params.publish.pool,
-    workItemId: params.publish.workItemId,
-    leaseEpoch: params.publish.leaseEpoch,
+    resourceTarget: `objection_answer:${params.decision.commentId}`,
     operationKey,
     mutationKind: "github.verification_objection_answer",
-    allowsUndefinedResult: false,
-    detail: {
+    identity: {
       rootCommentId: params.thread.rootCommentId,
       objectionCommentId: params.decision.commentId,
       updatedAt: params.decision.updatedAt,
@@ -766,14 +618,11 @@ async function publishObjectionAnswer(params: {
       reviewLens: VERIFICATION_PUBLISH_LENS,
       operationMarker,
     },
-    recover: (intent, publishRecordId) =>
+    recover: () =>
       recoverObjectionAnswer({
-        pool: params.publish.pool,
-        workItemId: params.publish.workItemId,
-        intent,
-        publishRecordId,
+        publication: params.publish.publication,
+        resourceKey: params.publish.resourceKey,
         prSurface: params.publish.prSurface,
-        operationMarker,
         rootCommentId: params.thread.rootCommentId,
         objectionCommentId: params.decision.commentId,
         updatedAt: params.decision.updatedAt,
@@ -932,14 +781,13 @@ async function postObjectionAnswers(params: {
 export async function publishVerification(params: PublishVerificationParams) {
   const degradation = new Set<VerificationDegradationReason>();
   if (params.changedFilePathsTruncated === true) degradation.add("compare_files_truncated");
-  let ledger = await loadVerificationThreadLedger(params.pool, {
+  let ledger = loadVerificationThreadLedger(params.publication.db, {
     resourceKey: params.resourceKey,
   });
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   const changedFiles = new Set(params.changedFilePaths);
   const changedMembershipComplete =
     params.changedMembershipComplete ?? params.changedFilePathsTruncated !== true;
-  const withThreadLock = threadMutationLock(params.pool, params.resourceKey);
   const objectionCounts: ObjectionPublishCounts = {
     answered: 0,
     notObjection: 0,
@@ -997,7 +845,7 @@ export async function publishVerification(params: PublishVerificationParams) {
           return nextStubCommentId;
         };
 
-        const locked = await withThreadLock(async () => {
+        const locked = await (async () => {
           const posted =
             decisions.length === 0
               ? null
@@ -1031,16 +879,15 @@ export async function publishVerification(params: PublishVerificationParams) {
               publishFixedResolution(receipt, operationMarker, accepted),
           );
           return { revisionMoved: false as const, posted, operation };
-        });
+        })();
         if (locked.revisionMoved) break;
         if (locked.posted != null) {
           noteObjectionCounts(objectionCounts, locked.posted);
           if (locked.posted.pageIncomplete) degradation.add("objection_detection_incomplete");
         }
         ledger = await persistThreadState({
-          pool: params.pool,
+          publication: params.publication,
           workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
@@ -1069,9 +916,8 @@ export async function publishVerification(params: PublishVerificationParams) {
           if (journal.length > 0) {
             objectionCounts.notObjection += journal.length;
             ledger = await persistThreadState({
-              pool: params.pool,
+              publication: params.publication,
               workItemId: params.workItemId,
-              leaseEpoch: params.leaseEpoch,
               resourceKey: params.resourceKey,
               ledger,
               rootCommentId: verdict.threadRootCommentId,
@@ -1080,7 +926,7 @@ export async function publishVerification(params: PublishVerificationParams) {
           }
           break;
         }
-        const locked = await withThreadLock(async () => {
+        const locked = await (async () => {
           const posted =
             decisions.length === 0
               ? null
@@ -1117,7 +963,7 @@ export async function publishVerification(params: PublishVerificationParams) {
               }),
           );
           return { posted, operation };
-        });
+        })();
         if (locked.posted?.revisionMoved) break;
         if (locked.posted != null) {
           noteObjectionCounts(objectionCounts, locked.posted);
@@ -1127,9 +973,8 @@ export async function publishVerification(params: PublishVerificationParams) {
           const journal = locked.posted?.journal ?? [];
           if (journal.length > 0) {
             ledger = await persistThreadState({
-              pool: params.pool,
+              publication: params.publication,
               workItemId: params.workItemId,
-              leaseEpoch: params.leaseEpoch,
               resourceKey: params.resourceKey,
               ledger,
               rootCommentId: verdict.threadRootCommentId,
@@ -1139,9 +984,8 @@ export async function publishVerification(params: PublishVerificationParams) {
           break;
         }
         ledger = await persistThreadState({
-          pool: params.pool,
+          publication: params.publication,
           workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
@@ -1167,7 +1011,7 @@ export async function publishVerification(params: PublishVerificationParams) {
         }
         const priorStubId = resolveStubCommentId(thread, prior);
         const decisions = objectionDecisionsFor(thread, params.payload);
-        const locked = await withThreadLock(async () => {
+        const locked = await (async () => {
           const posted =
             decisions.length === 0
               ? null
@@ -1212,16 +1056,15 @@ export async function publishVerification(params: PublishVerificationParams) {
             },
           );
           return { revisionMoved: false as const, posted, operation };
-        });
+        })();
         if (locked.revisionMoved) break;
         if (locked.posted != null) {
           noteObjectionCounts(objectionCounts, locked.posted);
           if (locked.posted.pageIncomplete) degradation.add("objection_detection_incomplete");
         }
         ledger = await persistThreadState({
-          pool: params.pool,
+          publication: params.publication,
           workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,

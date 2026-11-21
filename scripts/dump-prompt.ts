@@ -65,7 +65,7 @@ import {
   BOUND_POLICY_JUDGE_SYSTEM_PROMPT,
   buildBoundPolicyJudgeUserMessage,
 } from "../src/prompts/judge/prompt.ts";
-import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.ts";
+import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/runtime/durable/piTools.ts";
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.ts";
 import {
   buildSpecialistBriefTool,
@@ -93,7 +93,7 @@ import {
   buildSubmitTriageTool,
   createSubmitTriageState,
 } from "../src/agent/triage/submitTriageTool.ts";
-import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.ts";
+import { buildWorkspaceTools } from "../src/agent/runtime/durable/piTools.ts";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
@@ -206,9 +206,7 @@ async function dumpAll() {
     listCommittedDetails: () => [],
   };
   const local = buildWorkspaceTools(workspace.reader);
-  const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local, {
-    executorKind: "in_process",
-  }).piTools;
+  const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local).piTools;
   const specialist = [...codeModeLocal, buildSubmitFindingsReportPiTool()];
   const phaseRef = { current: "recon" } satisfies Parameters<typeof buildSpecialistBriefTool>[0];
   const ctx = {
@@ -319,9 +317,7 @@ async function dumpAll() {
       description: [...local.piTools, description],
       triage: [...triageWorkspace, triage],
       verification: [
-        ...hideWorkspaceToolsBehindCodeMode(verificationWorkspace, {
-          executorKind: "in_process",
-        }).piTools,
+        ...hideWorkspaceToolsBehindCodeMode(verificationWorkspace).piTools,
         verification,
       ],
       ciSummary: [],

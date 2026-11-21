@@ -1,7 +1,10 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { isRecord } from "../src/util/typeGuards.ts";
-import { normalizeContext } from "@earendil-works/pi-ai";
-import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.ts";
+import { normalizeContext, type Model } from "@earendil-works/pi-ai";
+import { stream as openAiCompletionsStream } from "@earendil-works/pi-ai/api/openai-completions";
+import { reviewPromptCacheKey } from "../src/review/orchestrator/hydrateReconPack.ts";
 import {
   DEFAULT_PROMPT_CACHE_POLICY,
   SESSION_CACHE_ID_MAX_LENGTH,
@@ -12,6 +15,7 @@ import {
   sessionRecordsPromptCacheBreak,
   specialistSharedCacheId,
   splitAnthropicSystemBlocks,
+  createPromptCacheTracker,
   type PromptCacheBreak,
 } from "../src/agent/runtime/promptCachePolicy.ts";
 import { buildAutomatedSystemPrompt } from "../src/prompts/correctness/prompt.ts";
@@ -297,26 +301,86 @@ describe("promptCachePolicy", () => {
 
   it("records a cache break on the second request only", () => {
     const recorded: PromptCacheBreak[] = [];
-    const session = createSessionStreamFn({ streamSimple: () => ({}) } as never, {
-      cacheRetention: "short",
-      sessionId: "session",
-      timeoutMs: 1,
-      maxRetries: 0,
-      maxRetryDelayMs: 0,
-      recordCacheBreak: (observed) => recorded.push(observed),
+    const input = {
+      role: "specialist" as const,
+      systemText: `${specialistSharedPrefix}\n\nalpha`,
+      tools: [],
+      record: (observed: PromptCacheBreak) => recorded.push(observed),
+    };
+    const first = createPromptCacheTracker(input);
+    const history = [{ role: "user", content: "hello", timestamp: 1 }];
+    first(history);
+    expect(recorded).toEqual([]);
+    const second = createPromptCacheTracker({
+      ...input,
+      systemText: `${specialistSharedPrefix}\n\nalXha`,
     });
-    const context = (roleBody: string) =>
-      normalizeContext({
-        systemPrompt: `${specialistSharedPrefix}\n\n${roleBody}`,
+    second(history);
+    expect(recorded).toEqual([]);
+    const third = createPromptCacheTracker(input);
+    third(history);
+    third([...history, { role: "assistant", content: "next", timestamp: 2 }]);
+    expect(recorded).toEqual([{ section: "append_only", byte: null }]);
+  });
+
+  it("sends prompt_cache_key on the wire for openai-completions", async () => {
+    const cacheKey = reviewPromptCacheKey({
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      reconPackHash: "h",
+    });
+    const captured: string[] = [];
+    const server: Server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.on("end", () => {
+        captured.push(Buffer.concat(chunks).toString("utf8"));
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.end(
+          'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"stub","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}\n\n' +
+            'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"stub","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+            "data: [DONE]\n\n",
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const model: Model<"openai-completions"> = {
+        id: "stub",
+        name: "Stub",
+        api: "openai-completions",
+        provider: "openai",
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        reasoning: false,
+        contextWindow: 128_000,
+        maxTokens: 8_000,
+        compat: { promptCacheKeyMode: "enabled" },
+      };
+      const context = normalizeContext({
+        systemPrompt: "system",
         messages: [{ role: "user", content: "hello", timestamp: 1 }],
         tools: [],
       });
-    session.streamFn({} as never, context("alpha"), undefined);
-    expect(recorded).toEqual([]);
-    session.streamFn({} as never, context("alXha"), undefined);
-    expect(recorded).toEqual([{ section: "role_body", byte: 2 }]);
-    expect(JSON.stringify(recorded)).not.toContain("alXha");
-    expect(JSON.stringify(recorded)).not.toContain(specialistSharedPrefix);
+      const events = openAiCompletionsStream(model, context, {
+        sessionId: cacheKey,
+        cacheRetention: "short",
+        apiKey: "test-key",
+      });
+      for await (const _event of events) {
+        void _event;
+      }
+      expect(captured.length).toBeGreaterThan(0);
+      const body = JSON.parse(captured[0] ?? "{}") as Record<string, unknown>;
+      expect(body.prompt_cache_key).toBe(cacheKey);
+      expect(cacheKey).toHaveLength(35);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("skips cache-break recording outside review sessions", () => {

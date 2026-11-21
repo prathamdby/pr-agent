@@ -1,79 +1,30 @@
-import {
-  type Config,
-  REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
-  SPECIALIST_MAX_TOOL_ROUNDS,
-  VALIDATION_REPAIR_ROUNDS,
-} from "../../settings/index.ts";
-import { AppError } from "../../errors/appError.ts";
-import type { AgentLifecycleEvent } from "../../agent/runtime/types.ts";
+import { type Config } from "../../settings/index.ts";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
 import { emitWorkSpan, safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.ts";
 import { specialistSpanFromContext } from "../../analytics/workSpan.ts";
 import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.ts";
-import {
-  classifyProviderError,
-  isCancelAbortError,
-  isProviderRefusalError,
-  type ProviderErrorKind,
-} from "../../agent/providers/providerErrors.ts";
-import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.ts";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.ts";
-import type { PiSession } from "../../agent/runtime/types.ts";
-import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.ts";
-import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
-import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.ts";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.ts";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.ts";
 import { testsFindingError } from "./testsEvidence.ts";
-import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.ts";
+import type { SpecialistId } from "./orchestratorTypes.ts";
 import type { EvidenceLedger } from "../findings/evidenceLedger.ts";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.ts";
 import { parseToolInput } from "../../agent/tools/parseToolInput.ts";
-import {
-  buildSpecialistSessionTools,
-  buildSubmitFindingsReportPiTool,
-  SUBMIT_FINDINGS_REPORT_NAME,
-  type SpecialistWorkspaceTools,
-} from "./specialistTools.ts";
+import { buildSubmitFindingsReportPiTool } from "./specialistTools.ts";
 import { automatedQualitySystemPrompt } from "../../prompts/quality/prompt.ts";
 import { automatedReviewTestsSystemPrompt } from "../../prompts/tests/prompt.ts";
 import { automatedSecuritySystemPrompt } from "../../prompts/security/prompt.ts";
 import { buildAutomatedSystemPrompt } from "../../prompts/correctness/prompt.ts";
 import { specialistSharedPrefix } from "../../prompts/shared/prefix.ts";
-import {
-  MISSING_REPORT_ERROR,
-  renderSpecialistReportRepair,
-  SPECIALIST_WRAP_UP_STEER,
-} from "../../prompts/shared/repair.ts";
-
-const MAX_SESSION_ATTEMPTS = 3;
-const INITIAL_JITTER_MAX_MS = 3_000;
-const RETRY_BACKOFF_BASE_MS = 500;
 
 export type RunSpecialistParams = {
-  readonly onValidatedReport?: (report: SpecialistReport) => Promise<void>;
   readonly cfg: Config;
   readonly cwd: string;
   readonly specialist: SpecialistId;
-  readonly briefMessage: string;
-  readonly systemPrompt?: string;
-  readonly systemPromptSharedHead?: string;
-  readonly promptCacheKey?: string;
-  readonly workspaceTools: SpecialistWorkspaceTools;
-  readonly timeoutMs: number;
-  readonly wrapUpAtMs?: number;
-  readonly onFirstModelResponse?: () => void;
-  readonly shouldContinue: () => boolean;
-  readonly signal?: AbortSignal;
-  readonly evidenceLedger?: EvidenceLedger;
-  readonly headSha?: string;
-  readonly checkoutCoverage?: CheckoutCoverage;
-  readonly isPathInCheckout?: (path: string) => boolean;
   readonly agentEvents?: AgentEventsContext;
-  readonly escalation?: EscalationPlan;
-  readonly createSession?: typeof createFeaturePiSession;
 };
 
-type SubmissionState = {
+export type SubmissionState = {
   report: SpecialistReport | null;
   validationError: string | null;
 };
@@ -94,72 +45,12 @@ function emitSpecialistStage(
   );
 }
 
-function timeoutError() {
-  return ((pinnedReturn: AppError) => pinnedReturn)(
-    new AppError({
-      domain: "review",
-      kind: "specialist_timeout",
-      message: "Specialist timeout deadline exceeded",
-    }),
-  );
-}
-
-function externalAbortError() {
-  return ((pinnedReturn: AppError) => pinnedReturn)(
-    new AppError({
-      domain: "review",
-      kind: "specialist_aborted",
-      message: "Specialist run aborted by external signal",
-    }),
-  );
-}
-
-function assertCanContinue(params: RunSpecialistParams, deadlineMs: number) {
-  if (params.signal?.aborted) throw externalAbortError();
-  if (!params.shouldContinue()) {
-    throw new AppError({
-      domain: "review",
-      kind: "specialist_stopped",
-      message: "Specialist run stopped before completion",
-    });
-  }
-  if (Date.now() >= deadlineMs) throw timeoutError();
-}
-
-function canContinue(params: RunSpecialistParams, deadlineMs: number) {
-  return ((pinnedReturn: boolean) => pinnedReturn)(
-    !params.signal?.aborted && params.shouldContinue() && Date.now() < deadlineMs,
-  );
-}
-
-async function waitBeforeStage(delayMs: number, params: RunSpecialistParams, deadlineMs: number) {
-  assertCanContinue(params, deadlineMs);
-  if (delayMs <= 0) return;
-
-  const remainingMs = deadlineMs - Date.now();
-  const waitMs = Math.min(delayMs, remainingMs);
-  let onAbort: (() => void) | undefined;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, waitMs);
-      onAbort = () => {
-        clearTimeout(timer);
-        reject(externalAbortError());
-      };
-      params.signal?.addEventListener("abort", onAbort, { once: true });
-      if (params.signal?.aborted) onAbort();
-    });
-  } finally {
-    if (onAbort) params.signal?.removeEventListener("abort", onAbort);
-  }
-  assertCanContinue(params, deadlineMs);
-}
-
-function buildSubmitTool(
+export function buildSubmitTool(
   state: SubmissionState,
   params: RunSpecialistParams,
   evidence?: {
     readonly ledger: EvidenceLedger;
+    readonly creditEvidence?: () => void;
     readonly headSha: string;
     readonly checkoutCoverage?: CheckoutCoverage;
     readonly isPathInCheckout?: (path: string) => boolean;
@@ -200,6 +91,7 @@ function buildSubmitTool(
     }
 
     let report = parsed.value;
+    if (evidence != null) evidence.creditEvidence?.();
     if (evidence != null && report.findings.length > 0) {
       const validationStartedAt = Date.now();
       const filtered = assertFindingsHaveEvidence(
@@ -261,392 +153,6 @@ function buildSubmitTool(
     readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
     readonly executor: AgentRunnerToolExecutor;
   }) => pinnedReturn)({ piTool, executor });
-}
-
-async function runWithinDeadline<T>(params: {
-  readonly run: () => Promise<T>;
-  readonly signal?: AbortSignal;
-  readonly deadlineMs: number;
-  readonly cancel?: () => Promise<void>;
-  readonly deferCleanup?: () => Promise<void>;
-  readonly onCleanupDeferred?: () => void;
-}) {
-  const remainingMs = params.deadlineMs - Date.now();
-  if (remainingMs <= 0) throw timeoutError();
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onExternalAbort: (() => void) | undefined;
-  type OperationResult =
-    | { readonly kind: "settled"; readonly value: T }
-    | { readonly kind: "rejected"; readonly error: unknown }
-    | { readonly kind: "cancelled"; readonly error: Error };
-  const cancelled = new Promise<OperationResult>((resolve) => {
-    timer = setTimeout(() => resolve({ kind: "cancelled", error: timeoutError() }), remainingMs);
-    onExternalAbort = () => resolve({ kind: "cancelled", error: externalAbortError() });
-    params.signal?.addEventListener("abort", onExternalAbort, { once: true });
-    if (params.signal?.aborted) onExternalAbort();
-  });
-
-  const operation = params.run();
-  const settled: Promise<OperationResult> = operation.then(
-    (value) => ({ kind: "settled", value }),
-    (error: unknown) => ({ kind: "rejected", error }),
-  );
-  try {
-    const result = await Promise.race([settled, cancelled]);
-    if (result.kind === "settled")
-      return ((pinnedReturn: T | Promise<T>) => pinnedReturn)(result.value);
-    if (result.kind === "rejected") throw result.error;
-    const cancel = params.cancel?.();
-    if (cancel) void cancel.catch(() => undefined);
-    if (params.deferCleanup) {
-      params.onCleanupDeferred?.();
-      void settled.then(() => params.deferCleanup?.()).catch(() => undefined);
-    }
-    throw result.error;
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (onExternalAbort) params.signal?.removeEventListener("abort", onExternalAbort);
-  }
-}
-
-async function createSessionWithinDeadline(
-  params: RunSpecialistParams,
-  deadlineMs: number,
-  submitTool: ReturnType<typeof buildSubmitTool>,
-  notifyFirstResponse: () => void,
-) {
-  const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
-  const creation = (params.createSession ?? createFeaturePiSession)({
-    role: "specialist",
-    specialistId: params.specialist,
-    cfg: params.cfg,
-    cwd: params.cwd,
-    systemPrompt: params.systemPrompt ?? SPECIALIST_SYSTEM_PROMPTS[params.specialist],
-    ...(params.systemPromptSharedHead != null
-      ? { systemPromptSharedHead: params.systemPromptSharedHead }
-      : {}),
-    ...(params.promptCacheKey != null ? { promptCacheKey: params.promptCacheKey } : {}),
-    tools: sessionTools.piTools,
-    executors: sessionTools.executors,
-    attemptModel: params.escalation?.model,
-    hostSignal: params.signal,
-    sessionContext: params.agentEvents,
-    ...(params.onFirstModelResponse
-      ? {
-          eventSink: (event: AgentLifecycleEvent) => {
-            if (
-              event.kind === "usage" ||
-              event.kind === "tool" ||
-              event.kind === "completion" ||
-              event.kind === "failure" ||
-              event.kind === "cancellation"
-            )
-              notifyFirstResponse();
-          },
-        }
-      : {}),
-  });
-  return ((pinnedReturn: PiSession | Promise<PiSession>) => pinnedReturn)(
-    runWithinDeadline({
-      run: () => creation,
-      signal: params.signal,
-      deadlineMs,
-      deferCleanup: async () => {
-        const session = await creation;
-        await session.abort().catch(() => undefined);
-        await session.dispose().catch(() => undefined);
-      },
-    }),
-  );
-}
-
-async function runAttempt(
-  params: RunSpecialistParams,
-  deadlineMs: number,
-  notifyFirstResponse: () => void,
-) {
-  assertCanContinue(params, deadlineMs);
-  const state: SubmissionState = { report: null, validationError: null };
-  const submitTool = buildSubmitTool(
-    state,
-    params,
-    params.evidenceLedger && params.headSha
-      ? {
-          ledger: params.evidenceLedger,
-          headSha: params.headSha,
-          checkoutCoverage: params.checkoutCoverage,
-          isPathInCheckout: params.isPathInCheckout,
-          specialist: params.specialist,
-          agentEvents: params.agentEvents,
-          cfg: params.cfg,
-        }
-      : undefined,
-  );
-  const session = await createSessionWithinDeadline(
-    params,
-    deadlineMs,
-    submitTool,
-    notifyFirstResponse,
-  );
-  let cleanupDeferred = false;
-
-  const send = async (
-    activeSession: PiSession,
-    prompt: string,
-    opts?: {
-      readonly maxToolRounds?: number;
-      readonly stopAtMs?: number;
-      readonly traceValidationRepair?: boolean;
-      readonly reservedTerminalTool?: string;
-    },
-  ) => {
-    const turn = await runWithinDeadline({
-      run: () =>
-        activeSession.send(prompt, {
-          ...opts,
-          phase: "specialist",
-          checkpointId: `${activeSession.role}:specialist`,
-        }),
-      signal: params.signal,
-      deadlineMs,
-      cancel: () => activeSession.abort(),
-      deferCleanup: () => activeSession.dispose(),
-      onCleanupDeferred: () => {
-        cleanupDeferred = true;
-      },
-    });
-    recordAgentTurnMetrics(turn, { specialist: true });
-    return ((pinnedReturn: AgentRunnerTurn | Promise<AgentRunnerTurn>) => pinnedReturn)(turn);
-  };
-
-  try {
-    assertCanContinue(params, deadlineMs);
-    let wrappedUp = false;
-    const investigationRounds = escalatedToolRounds(
-      REVIEW_SPECIALIST_WRAP_UP_TOOL_ROUNDS,
-      params.escalation,
-    );
-    const turn = await send(session, params.briefMessage, {
-      maxToolRounds: investigationRounds,
-      reservedTerminalTool: SUBMIT_FINDINGS_REPORT_NAME,
-      ...(params.wrapUpAtMs != null ? { stopAtMs: params.wrapUpAtMs } : {}),
-    });
-    if (turn.end === "tool_budget") wrappedUp = true;
-    if (params.wrapUpAtMs != null && Date.now() >= params.wrapUpAtMs) wrappedUp = true;
-
-    if (!state.report && wrappedUp && canContinue(params, deadlineMs)) {
-      await send(session, SPECIALIST_WRAP_UP_STEER, {
-        maxToolRounds: Math.max(
-          1,
-          escalatedToolRounds(SPECIALIST_MAX_TOOL_ROUNDS, params.escalation) - investigationRounds,
-        ),
-        reservedTerminalTool: SUBMIT_FINDINGS_REPORT_NAME,
-      });
-    }
-
-    if (!state.report) {
-      state.validationError ??= MISSING_REPORT_ERROR;
-      assertCanContinue(params, deadlineMs);
-      await runValidationRepairLoop({
-        rounds: VALIDATION_REPAIR_ROUNDS,
-        shouldContinue: () => canContinue(params, deadlineMs) && state.report === null,
-        getValidationError: () => state.validationError,
-        clearValidationError: () => {
-          state.validationError = null;
-        },
-        repair: async (validationError) => {
-          assertCanContinue(params, deadlineMs);
-          await runSubmitOnlyRound(
-            session,
-            renderSpecialistReportRepair(validationError),
-            (active, prompt, options) =>
-              send(active, prompt, { ...options, traceValidationRepair: true }),
-          );
-          if (!state.report && !state.validationError) {
-            state.validationError = MISSING_REPORT_ERROR;
-          }
-        },
-      });
-    }
-
-    if (!state.report) {
-      assertCanContinue(params, deadlineMs);
-      throw new AppError({
-        domain: "review",
-        kind: "specialist_invalid_report",
-        message: state.validationError ?? "Specialist did not submit a valid report",
-      });
-    }
-    if (params.wrapUpAtMs != null && Date.now() >= params.wrapUpAtMs) wrappedUp = true;
-    return ((
-      pinnedReturn:
-        | { readonly report: SpecialistReport; readonly wrappedUp: boolean }
-        | Promise<{ readonly report: SpecialistReport; readonly wrappedUp: boolean }>,
-    ) => pinnedReturn)({ report: state.report, wrappedUp });
-  } finally {
-    if (!cleanupDeferred) await session.dispose();
-  }
-}
-
-function failureOutcome(params: {
-  readonly specialist: SpecialistId;
-  readonly startedAtMs: number;
-  readonly deadlineMs: number;
-  readonly attempts: number;
-  readonly classification: ProviderErrorKind;
-  readonly cause: unknown;
-}) {
-  return ((pinnedReturn: SpecialistOutcome) => pinnedReturn)({
-    kind: "failed",
-    specialist: params.specialist,
-    durationMs: Date.now() - params.startedAtMs,
-    error: new AppError({
-      domain: "review",
-      kind: "specialist_failed",
-      message: `${params.specialist} specialist failed after ${params.attempts} attempt(s)`,
-      context: {
-        specialist: params.specialist,
-        classification: params.classification,
-        attempts: params.attempts,
-        deadlineHit: Date.now() >= params.deadlineMs,
-      },
-      cause: params.cause,
-    }),
-  });
-}
-
-function failureFacts(outcome: SpecialistOutcome) {
-  if (outcome.kind !== "failed")
-    return ((
-      pinnedReturn: Pick<
-        Parameters<typeof specialistSpanFromContext>[0],
-        "classification" | "attempts" | "deadlineHit"
-      >,
-    ) => pinnedReturn)({});
-  const { classification, attempts, deadlineHit } = outcome.error.context;
-  return ((
-    pinnedReturn: Pick<
-      Parameters<typeof specialistSpanFromContext>[0],
-      "classification" | "attempts" | "deadlineHit"
-    >,
-  ) => pinnedReturn)({
-    ...(typeof classification === "string" ? { classification } : {}),
-    ...(typeof attempts === "number" ? { attempts } : {}),
-    ...(typeof deadlineHit === "boolean" ? { deadlineHit } : {}),
-  });
-}
-
-async function runSpecialistOutcome(params: RunSpecialistParams) {
-  const startedAtMs = Date.now();
-  const deadlineMs = startedAtMs + params.timeoutMs;
-  let firstResponseNotified = false;
-  const notifyFirstResponse = () => {
-    if (firstResponseNotified) return;
-    firstResponseNotified = true;
-    params.onFirstModelResponse?.();
-  };
-  let attempts = 0;
-  let ordinaryRetryUsed = false;
-  let lastError: unknown = new AppError({
-    domain: "review",
-    kind: "specialist_not_started",
-    message: "Specialist did not start",
-  });
-  let classification: ProviderErrorKind = "unknown";
-
-  try {
-    const jitterMs = Math.floor(Math.random() * INITIAL_JITTER_MAX_MS);
-    await waitBeforeStage(jitterMs, params, deadlineMs);
-  } catch (error) {
-    lastError = error;
-    classification = classifyProviderError(error);
-    return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(
-      failureOutcome({
-        specialist: params.specialist,
-        startedAtMs,
-        deadlineMs,
-        attempts,
-        classification,
-        cause: lastError,
-      }),
-    );
-  }
-
-  while (attempts < MAX_SESSION_ATTEMPTS) {
-    try {
-      assertCanContinue(params, deadlineMs);
-      attempts += 1;
-      const { report, wrappedUp } = await runAttempt(params, deadlineMs, notifyFirstResponse);
-      notifyFirstResponse();
-      const durationMs = Date.now() - startedAtMs;
-      return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)({
-        kind: wrappedUp ? "partial" : "complete",
-        specialist: params.specialist,
-        report,
-        durationMs,
-      });
-    } catch (error) {
-      lastError = error;
-      classification = classifyProviderError(error);
-      notifyFirstResponse();
-    }
-
-    if (
-      isCancelAbortError(lastError) ||
-      isProviderRefusalError(lastError) ||
-      classification === "cancelled" ||
-      params.signal?.aborted ||
-      attempts >= MAX_SESSION_ATTEMPTS ||
-      !canContinue(params, deadlineMs)
-    ) {
-      break;
-    }
-
-    if (classification === "rate_limit" || classification === "timeout") {
-      try {
-        await waitBeforeStage(
-          RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1),
-          params,
-          deadlineMs,
-        );
-      } catch (error) {
-        lastError = error;
-        classification = classifyProviderError(error);
-        break;
-      }
-      continue;
-    }
-
-    if (ordinaryRetryUsed) break;
-    ordinaryRetryUsed = true;
-  }
-
-  return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(
-    failureOutcome({
-      specialist: params.specialist,
-      startedAtMs,
-      deadlineMs,
-      attempts,
-      classification,
-      cause: lastError,
-    }),
-  );
-}
-
-export async function runSpecialist(params: RunSpecialistParams) {
-  const outcome = await runSpecialistOutcome(params);
-  if (outcome.kind !== "failed") {
-    await params.onValidatedReport?.(outcome.report);
-  }
-  emitSpecialistStage(params, {
-    stage: "run",
-    outcome: outcome.kind,
-    latencyMs: outcome.durationMs,
-    ...(outcome.kind === "failed" ? { errorReason: outcome.error.code } : {}),
-    ...failureFacts(outcome),
-  });
-  return ((pinnedReturn: SpecialistOutcome | Promise<SpecialistOutcome>) => pinnedReturn)(outcome);
 }
 
 export const SPECIALIST_SYSTEM_PROMPTS = {

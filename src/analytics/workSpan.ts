@@ -1,5 +1,22 @@
 import { randomUUID } from "node:crypto";
-import type { AgentEventInsertRow } from "../agentWork/agentEventsRepository.ts";
+
+export type AgentEventInsertRow = {
+  readonly workItemId?: string | null;
+  readonly installationId?: number | null;
+  readonly owner?: string | null;
+  readonly repo?: string | null;
+  readonly prNumber?: number | null;
+  readonly sessionRole?: string | null;
+  readonly eventKind: string;
+  readonly phase?: string | null;
+  readonly checkpointId?: string | null;
+  readonly toolName?: string | null;
+  readonly provider?: string | null;
+  readonly model?: string | null;
+  readonly ok?: boolean | null;
+  readonly failureCode?: string | null;
+  readonly detail?: Readonly<Record<string, unknown>>;
+};
 
 export type WorkSpanContext = {
   readonly workItemId: string;

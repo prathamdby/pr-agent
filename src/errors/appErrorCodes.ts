@@ -63,7 +63,9 @@ export const APP_ERROR_KINDS = {
   ],
   operation_intent: [
     "description_identity_conflict",
+    "mutation_conflict",
     "mutation_failed",
+    "mutation_gate_failed",
     "mutation_outcome_unknown",
     "persist_no_row",
     "publish_record_lookup_failed",
@@ -147,7 +149,18 @@ export const APP_ERROR_KINDS = {
     "tool_wrong_phase",
     "work_item_id_required",
   ],
-  runtime: ["session_disposed", "session_send_failed"],
+  runtime: [
+    "session_deadline_exceeded",
+    "session_disposed",
+    "session_send_failed",
+    "storage_pragma_mismatch",
+  ],
+  state: [
+    "sqlite_busy",
+    "sqlite_pragma_mismatch",
+    "sqlite_version_unsupported",
+    "sqlite_writer_lock_held",
+  ],
   settings: [
     "models_json_load_error",
     "models_json_model_not_found",

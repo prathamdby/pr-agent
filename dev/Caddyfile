@@ -2,20 +2,11 @@
 	local_certs
 }
 
-http://web.localhost {
-	redir https://web.localhost{uri} permanent
+http://pr-agent.localhost {
+	redir https://pr-agent.localhost{uri} permanent
 }
 
-https://web.localhost {
+https://pr-agent.localhost {
 	tls internal
-	reverse_proxy pr-agent-web:7224
-}
-
-http://worker.localhost {
-	redir https://worker.localhost{uri} permanent
-}
-
-https://worker.localhost {
-	tls internal
-	reverse_proxy pr-agent-worker:7225
+	reverse_proxy pr-agent:7224
 }

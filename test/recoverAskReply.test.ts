@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findExistingAskReplyComment } from "../src/agent/ask/recoverAskReply.ts";
-import { askReplyOperationKey, operationIntentMarker } from "../src/agentWork/publishOnce.ts";
+import { askReplyOperationKey, operationIntentMarker } from "../src/state/featurePublication.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 
 describe("findExistingAskReplyComment", () => {

@@ -1,8 +1,6 @@
-import type { PrResource } from "../agentWork/types.ts";
+import type { PrResource, ReplyTarget } from "../agentWork/types.ts";
 import type { Config, GithubReactionContent } from "../settings/index.ts";
-import type { OperationIntentRow } from "../agentWork/operationIntentRepository.ts";
-import type { OperationIntentRecovery } from "../agentWork/publishOnce.ts";
-import type { ReplyTarget } from "../agentWork/types.ts";
+import type { OperationIntentRecovery, OperationIntentRow } from "./recoverPrSurfaceMutation.ts";
 import type { InstallationToken } from "./appAuth.ts";
 import type { ReviewCapabilityPolicy } from "./installationCapabilities.ts";
 import type { CiStatusSourcesResult } from "./ciStatus.ts";

@@ -286,6 +286,33 @@ export type AgentWorkItemCore =
   | TriageWorkItemCore
   | VerificationWorkItemCore;
 
+export type SlashCommandInput = {
+  readonly headers: WebhookHeaders;
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly repositorySizeKb?: number;
+  readonly prNumber: number;
+  readonly commentId: number;
+  readonly commenterId: number;
+  readonly commenterLogin?: string;
+  readonly body: string;
+  readonly command: string;
+  readonly replyTarget: ReplyTarget;
+  readonly codeAnchor?: CodeAnchor;
+  readonly triageScope?: "all" | "thread";
+  readonly triageMode?: TriageMode;
+  readonly excludeThreadRootCommentIds?: readonly number[];
+  readonly threadAnchorCommentId?: number;
+  readonly needsThreadRootResolution?: boolean;
+  readonly botLogin?: string;
+};
+
+export type ReviewQueuePosition = {
+  readonly position: number;
+  readonly total: number;
+};
+
 export function isWorkItemType<T extends WorkType>(
   item: AgentWorkItem,
   type: T,

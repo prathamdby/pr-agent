@@ -1163,14 +1163,11 @@ describe("workspace git fetch over HTTP", () => {
         expect(JSON.stringify(telemetry)).not.toContain("SYNTHETICSILENTFETCHTOKEN");
 
         const spans: Array<Record<string, unknown>> = [];
-        const drain = initTraces(
-          makeTestConfig({ runtime: { role: "worker" }, posthog: { projectToken: "phc" } }),
-          {
-            capture: (input) => spans.push(input.properties),
-            flush: async () => undefined,
-            shutdown: async () => undefined,
-          },
-        );
+        const drain = initTraces(makeTestConfig({ posthog: { projectToken: "phc" } }), {
+          capture: (input) => spans.push(input.properties),
+          flush: async () => undefined,
+          shutdown: async () => undefined,
+        });
         await startWorkTrace(
           {
             executionId: "proof-execution",

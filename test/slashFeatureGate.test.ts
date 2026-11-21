@@ -1,22 +1,18 @@
-import { DeliveryTx } from "../src/agentWork/intake/delivery.ts";
-import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
-import {
-  applySlashCommandIntake as applySlash,
-  type SlashCommandInput,
-} from "../src/agentWork/intake/slashIntake.ts";
-import type { AckJobData } from "../src/agentWork/types.ts";
+import { afterEach, describe, expect, it } from "vitest";
+import type { AckJobData, SlashCommandInput } from "../src/agentWork/types.ts";
+import { runDelivery } from "../src/state/intake.ts";
 import { makeTestConfig } from "./helpers/config.ts";
+import { openSqliteAppState } from "./integration/db.ts";
 
-const features = makeTestConfig().features;
+const baseCfg = makeTestConfig();
+const features = baseCfg.features;
 
 function makeInput(command: string) {
   return ((pinnedReturn: SlashCommandInput) => pinnedReturn)({
     headers: {
       event: "issue_comment",
-      delivery: `d-${command}`,
-      rawBody: Buffer.from("{}"),
+      delivery: `d-${command}-${Math.random()}`,
+      rawBody: Buffer.from(`{"command":"${command}"}`),
     },
     installationId: 42,
     owner: "acme",
@@ -30,41 +26,23 @@ function makeInput(command: string) {
   });
 }
 
-function makeClient() {
-  return ((pinnedReturn: PoolClient) => pinnedReturn)({
-    query: vi.fn(async (sql: string) => {
-      if (sql.includes("INSERT INTO webhook_event_replays")) {
-        return { rows: [{ body_sha256: "hash" }] };
-      }
-      if (sql.includes("INSERT INTO webhook_events")) {
-        return { rows: [{ id: "event-1" }] };
-      }
-      if (sql.includes("INSERT INTO agent_work_items")) {
-        return { rows: [{ id: "work-1", created: true }] };
-      }
-      return { rows: [] };
-    }),
-  } as unknown as PoolClient);
-}
-
-function makeBoss(sent: { queue: string; data: unknown }[]) {
-  return ((pinnedReturn: PgBoss) => pinnedReturn)({
-    send: vi.fn(async (queue: string, data: unknown) => {
-      sent.push({ queue, data });
-      return "job-1";
-    }),
-    findJobs: vi.fn(async () => []),
-    deleteJob: vi.fn(async () => ({ rows: [] })),
-    cancel: vi.fn(async () => ({ rows: [] })),
-  } as unknown as PgBoss);
-}
-
 describe("slash command feature gating", () => {
+  const handles: Array<{ close: () => void }> = [];
+
+  function openDb() {
+    const handle = openSqliteAppState();
+    handles.push(handle);
+    return handle.db;
+  }
+
+  afterEach(() => {
+    while (handles.length > 0) handles.pop()?.close();
+  });
+
   it.each(["ask", "describe", "triage", "verify"] as const)(
     "replies with a disabled notice for /%s when its feature is off",
-    async (command) => {
-      const sent: { queue: string; data: unknown }[] = [];
-      const boss = makeBoss(sent);
+    (command) => {
+      const db = openDb();
       const offFeatures = {
         ...features,
         ask: "off",
@@ -73,68 +51,70 @@ describe("slash command feature gating", () => {
         verification: "off",
       } as const;
 
-      const events = await applySlashCommandIntake(
-        boss,
-        makeClient(),
-        makeInput(command),
-        offFeatures,
+      const result = runDelivery(
+        db,
+        { features: offFeatures, ask: baseCfg.ask },
+        { kind: "slash", input: makeInput(command) },
+        1_700_000_000_000,
       );
 
-      expect(events.map((event) => event.name)).toContain("ignored_disabled_slash_command");
-      const ack = sent[0]?.data as AckJobData;
+      expect(result.events.map((event) => event.name)).toContain("ignored_disabled_slash_command");
+      const ackRow = db.prepare(`SELECT payload_json FROM work_runs WHERE kind = 'ack'`).get() as
+        | { payload_json: string }
+        | undefined;
+      expect(ackRow).toBeDefined();
+      const ack = JSON.parse(ackRow?.payload_json ?? "{}") as AckJobData;
       expect(ack.reply?.body).toBe(
         `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`,
       );
     },
   );
 
-  it("still enqueues /review when all other features are off", async () => {
-    const sent: { queue: string; data: unknown }[] = [];
-    const boss = makeBoss(sent);
+  it("still enqueues /review when all other features are off", () => {
+    const db = openDb();
+    const result = runDelivery(
+      db,
+      {
+        features: { ...features, ask: "off", describe: "off", triage: "off" },
+        ask: baseCfg.ask,
+      },
+      { kind: "slash", input: makeInput("review") },
+      1_700_000_000_000,
+    );
 
-    const events = await applySlashCommandIntake(boss, makeClient(), makeInput("review"), {
-      ...features,
-      ask: "off",
-      describe: "off",
-      triage: "off",
-    });
-
-    expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
+    expect(result.events.map((event) => event.name)).toContain("agent_work_enqueued");
   });
 
-  it("enqueues /describe normally when the feature is manual", async () => {
-    const sent: { queue: string; data: unknown }[] = [];
-    const boss = makeBoss(sent);
+  it("enqueues /describe normally when the feature is manual", () => {
+    const db = openDb();
+    const result = runDelivery(
+      db,
+      {
+        features: { ...features, describe: "manual" },
+        ask: baseCfg.ask,
+      },
+      { kind: "slash", input: makeInput("describe") },
+      1_700_000_000_000,
+    );
 
-    const events = await applySlashCommandIntake(boss, makeClient(), makeInput("describe"), {
-      ...features,
-      describe: "manual",
-    });
-
-    expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
+    expect(result.events.map((event) => event.name)).toContain("agent_work_enqueued");
   });
 
   it.each(["manual", "auto"] as const)(
     "enqueues /verify normally when verification is %s",
-    async (mode) => {
-      const sent: { queue: string; data: unknown }[] = [];
-      const boss = makeBoss(sent);
+    (mode) => {
+      const db = openDb();
+      const result = runDelivery(
+        db,
+        {
+          features: { ...features, verification: mode },
+          ask: baseCfg.ask,
+        },
+        { kind: "slash", input: makeInput("verify") },
+        1_700_000_000_000,
+      );
 
-      const events = await applySlashCommandIntake(boss, makeClient(), makeInput("verify"), {
-        ...features,
-        verification: mode,
-      });
-
-      expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
+      expect(result.events.map((event) => event.name)).toContain("agent_work_enqueued");
     },
   );
 });
-
-function applySlashCommandIntake(
-  boss: PgBoss,
-  client: PoolClient,
-  input: SlashCommandInput,
-  features: import("../src/settings/index.ts").Features,
-) {
-  return applySlash(boss, new DeliveryTx(client, input.headers), input, features);
-}

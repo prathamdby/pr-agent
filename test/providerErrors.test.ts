@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "../src/errors/appError.ts";
 import { classifyProviderError } from "../src/agent/providers/providerErrors.ts";
-import { CodeModeHostHalt } from "../src/agent/execution/hostHalt.ts";
+import { CodeModeHostHalt } from "../src/agent/runtime/durable/codemodeCaps.ts";
 
 describe("classifyProviderError", () => {
   it("classifies auth failures", () => {

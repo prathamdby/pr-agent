@@ -2,11 +2,9 @@
 globs:
   - "src/effect/**"
   - "src/webhook/**"
-  - "src/agentWork/intake/**"
-  - "src/agentWork/runtime.ts"
+  - "src/state/intake.ts"
   - "src/commands/**"
   - "src/index.ts"
-  - "src/worker.ts"
   - "test/architectureRules.test.ts"
 ---
-`src/index.ts` splits roles on `cfg.runtime.role`. The web fiber (`src/effect/server.ts`) serves `/health`, `/ready`, and `POST /webhooks` and does intake only: verify, parse, `toIntakeCommand` (`src/webhook/intakeCommand.ts`), then one `AgentWorkScheduler.submit` into `runDelivery` (`src/agentWork/intake/delivery.ts`) and `200` after commit. Bot identity is resolved only for an auth-required command. `DeliveryTx.withReviewIntake` owns lock then separate lifecycle read; final decisions are selected before event insertion. Transactional events flush only after commit. Reactions, progress stubs, slash replies, comments, checks, and labels are worker work: `executeAckJob` on `ACK_QUEUE` or a durable executor. Work items carry `installationId`; the worker mints the token inside `PrSurface` at execution time (`src/github/prSurface.ts`). `test/architectureRules.test.ts` walks from `src/effect/server.ts` and fails if it reaches `src/agent/runtime/piSession.ts` or `modelsJson.ts`.
+One Node 24 process (`src/index.ts`) runs both the HTTP server (`src/effect/server.ts`) and the durable runtime (`src/agent/runtime/durable/boot.ts`), but intake stays cleanly separated from agent execution. The web module (`src/effect/server.ts`) serves `/health`, `/ready`, and `POST /webhooks` and does intake only: verify, parse, `toIntakeCommand` (`src/webhook/intakeCommand.ts`), then one `WebhookIntake.submit` into `src/state/intake.ts` (`BEGIN IMMEDIATE`) and `200` after commit. Bot identity and authorization lookups happen before opening the SQLite transaction. Reactions, progress stubs, slash replies, comments, checks, and labels run asynchronously via the dispatcher (`src/agent/runtime/durable/dispatcher.ts`). Work runs carry `installationId`; execution mints the token inside `PrSurface` (`src/github/prSurface.ts`). `test/architectureRules.test.ts` walks from `src/effect/server.ts` and fails if it reaches `src/agent/runtime/piSession.ts` or `modelsJson.ts`.

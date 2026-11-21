@@ -1,10 +1,12 @@
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
 import { logWarn } from "../../evlog.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { ReviewCancelAttribution, AnyReviewLens } from "../../settings/index.ts";
-import { createReviewSummaryComment } from "../publish/reviewSummaryComment.ts";
+import {
+  createReviewSummaryComment,
+  type SummaryCommentCoordination,
+} from "../publish/reviewSummaryComment.ts";
+import type { ReviewHeadCiPort } from "../publish/reviewPublishSession.ts";
+import { waitingCiSummary } from "../ci/ciFacts.ts";
 import type { WorkSource } from "../reviewSchema.ts";
 import {
   renderReviewCancelledNotice,
@@ -17,10 +19,23 @@ type ProgressTickRevision = 1 | 2 | 3 | 4 | 5 | 6;
 type SpecialistStatusTick = Extract<SpecialistTickState, { readonly kind: "specialists" }>;
 type TerminalTick = Extract<SpecialistTickState, { readonly kind: "terminal" }>;
 
-type TickProgressCommentBase = {
-  readonly pool: Pool;
-  readonly workItemId: string;
-  readonly resourceKey: string;
+type TickCoordination = { readonly coordination: SummaryCommentCoordination };
+
+function summaryWriter(
+  args: TickCoordination & { readonly prSurface: PrSurface; readonly mode: AnyReviewLens },
+) {
+  return createReviewSummaryComment({
+    prSurface: args.prSurface,
+    reviewLens: args.mode,
+    coordination: args.coordination,
+  });
+}
+
+function tickWorkItemId(args: TickCoordination) {
+  return args.coordination.workItemId;
+}
+
+type TickProgressCommentBase = TickCoordination & {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -29,8 +44,7 @@ type TickProgressCommentBase = {
   readonly source: WorkSource;
   readonly prSurface: PrSurface;
   readonly hintCommentId?: number | null;
-  readonly installationId?: number;
-  readonly boss?: PgBoss;
+  readonly headCi?: ReviewHeadCiPort;
 };
 
 export type TickProgressCommentArgs = TickProgressCommentBase &
@@ -45,10 +59,7 @@ export type TickProgressCommentArgs = TickProgressCommentBase &
       }
   );
 
-export type WriteCancelledProgressCommentArgs = {
-  readonly pool: Pool;
-  readonly workItemId: string;
-  readonly resourceKey: string;
+export type WriteCancelledProgressCommentArgs = TickCoordination & {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -60,22 +71,8 @@ export type WriteCancelledProgressCommentArgs = {
 
 export async function tickProgressComment(args: TickProgressCommentArgs) {
   try {
-    const rendered = await loadRenderableHeadCi(
-      args.pool,
-      args.owner,
-      args.repo,
-      args.headSha,
-      args.installationId,
-    );
-    const summary = createReviewSummaryComment({
-      prSurface: args.prSurface,
-      reviewLens: args.mode,
-      coordination: {
-        pool: args.pool,
-        resourceKey: args.resourceKey,
-        workItemId: args.workItemId,
-      },
-    });
+    const rendered = (await args.headCi?.load(args.headSha)) ?? waitingCiSummary(0);
+    const summary = summaryWriter(args);
     const write = {
       body: renderReviewProgressComment({
         mode: args.mode,
@@ -85,7 +82,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs) {
         ciVersion: rendered.version,
         tickState: args.tickState,
         progressRevision: args.progressRevision,
-        progressWorkItemId: args.workItemId,
+        progressWorkItemId: tickWorkItemId(args),
       }),
       hintCommentId: args.hintCommentId,
       ciHeadSha: args.headSha,
@@ -96,16 +93,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs) {
     } else {
       await summary.tick({ ...write, progressRevision: args.progressRevision });
     }
-    await requestHeadCiProjection(
-      args.boss,
-      {
-        installationId: args.installationId ?? 0,
-        owner: args.owner,
-        repo: args.repo,
-        headSha: args.headSha,
-      },
-      { kind: "when_due", pool: args.pool, renderedVersion: rendered.version },
-    );
+    args.headCi?.requestProjection(args.headSha, rendered.version);
   } catch (error) {
     logWarn("review_progress_tick_failed", {
       mode: args.mode,
@@ -120,19 +108,11 @@ export async function tickProgressComment(args: TickProgressCommentArgs) {
 
 export async function writeCancelledProgressComment(args: WriteCancelledProgressCommentArgs) {
   try {
-    await createReviewSummaryComment({
-      prSurface: args.prSurface,
-      reviewLens: args.mode,
-      coordination: {
-        pool: args.pool,
-        resourceKey: args.resourceKey,
-        workItemId: args.workItemId,
-      },
-    }).conclude({
+    await summaryWriter(args).conclude({
       body: renderReviewCancelledNotice({
         attribution: args.attribution,
         progressRevision: 7,
-        progressWorkItemId: args.workItemId,
+        progressWorkItemId: tickWorkItemId(args),
       }),
       hintCommentId: args.hintCommentId,
     });

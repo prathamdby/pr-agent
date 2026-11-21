@@ -1,9 +1,12 @@
-import type { Pool } from "pg";
+import type { DatabaseSync } from "node:sqlite";
+import { loadHeadCiProjectionRow } from "../state/prHeadCiState.ts";
 import type { CiWorkTelemetry } from "../analytics/workCompleted.ts";
 import { parseCiAuthoredCache, isCheckFactFailing } from "../review/ci/ciFacts.ts";
-import { loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.ts";
+import type { PrHeadCiStateRow } from "./prHeadCiState.ts";
 
-export function ciWorkTelemetryFromRow(row: PrHeadCiStateRow | null) {
+export function ciWorkTelemetryFromRow(
+  row: Pick<PrHeadCiStateRow, "rollup" | "checks" | "authored"> | null,
+) {
   if (row == null) {
     return ((pinnedReturn: CiWorkTelemetry) => pinnedReturn)({
       rollup: "none",
@@ -19,19 +22,18 @@ export function ciWorkTelemetryFromRow(row: PrHeadCiStateRow | null) {
   });
 }
 
-export async function loadCiWorkTelemetry(
-  pool: Pool,
+export function loadCiWorkTelemetryFromState(
+  db: DatabaseSync,
   owner: string,
   repo: string,
   headSha: string,
 ) {
   try {
-    const row = await loadPrHeadCiState(pool, owner, repo, headSha);
-    return ((pinnedReturn: CiWorkTelemetry | Promise<CiWorkTelemetry>) => pinnedReturn)(
-      ciWorkTelemetryFromRow(row),
+    return ((pinnedReturn: CiWorkTelemetry) => pinnedReturn)(
+      ciWorkTelemetryFromRow(loadHeadCiProjectionRow(db, { owner, repo, headSha })),
     );
   } catch {
-    return ((pinnedReturn: CiWorkTelemetry | Promise<CiWorkTelemetry>) => pinnedReturn)({
+    return ((pinnedReturn: CiWorkTelemetry) => pinnedReturn)({
       rollup: "none",
       failingCount: 0,
       authored: false,

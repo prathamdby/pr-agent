@@ -4,11 +4,10 @@
   "allow": [
     "src/settings/envReaders.ts",
     "src/evlog.ts",
-    "src/agent/runtime/modelsJsonCatalog.ts",
+    "src/agent/runtime/durable/modelsJsonCatalog.ts",
     "src/github/appAuth.ts",
     "src/github/installationToken.ts",
-    "src/prWorkspace/repositoryReader.ts",
-    "src/agentWork/durableJob.ts"
+    "src/prWorkspace/repositoryReader.ts"
   ],
   "mustCatch": ["const value = process.env.FOO;", "const value = process[\"env\"].FOO;"]
 }

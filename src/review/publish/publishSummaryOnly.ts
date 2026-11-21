@@ -7,22 +7,19 @@ import {
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   publishOnce,
-} from "../../agentWork/publishOnce.ts";
-import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.ts";
+} from "../../state/publish.ts";
 import {
   closeOutcomeForCoverage,
-  reviewVerdict,
   summaryCommentVerdictMeta,
 } from "../../agentWork/reviewVerdict.ts";
+import { reviewVerdictSurfaces } from "./reviewVerdictSurfaces.ts";
 import { logDebug, logWarn } from "../../evlog.ts";
 import type { PrReviewComment } from "../../github/prSurface.ts";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.ts";
-import { publicationAttemptRejected } from "../../github/reviewErrors.ts";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.ts";
 import { tryPublishCloseOutcomeReview } from "./publishCloseOutcomeReview.ts";
 import {
   carriedReaffirmedFindings,
-  createFindingLedger,
   decidingCoverageReason,
   type AcceptedPlacement,
   type FindingLedger,
@@ -48,15 +45,6 @@ import { createReviewSummaryComment } from "./reviewSummaryComment.ts";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import {
-  settleRejectedPublication,
-  snapshotFindingLedger,
-  type RecoveryDecision,
-} from "../recovery/reviewRecovery.ts";
-import { getOperationIntent } from "../../agentWork/operationIntentRepository.ts";
-import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.ts";
-import { validateReviewPayload } from "../findings/reviewFindingValidator.ts";
-import { fenceForEpoch } from "../../agentWork/writeFence.ts";
-import {
   buildFindingView,
   findingCheck,
   type FindingCheck,
@@ -69,18 +57,6 @@ export type PublishSummaryOnlyResult =
       readonly check: FindingCheck;
     }
   | { readonly kind: "stopped"; readonly reason: PublishStopReason };
-
-function persistedCoverage(coverage: ReviewCoverage) {
-  if (coverage.kind === "full") return { kind: "full" as const };
-  if (coverage.kind === "none") return { kind: "none" as const, failed: [...coverage.failed] };
-  return {
-    kind: "partial" as const,
-    note: coverage.note,
-    ...(coverage.failed != null ? { failed: [...coverage.failed] } : {}),
-    ...(coverage.paths != null ? { paths: [...coverage.paths] } : {}),
-    ...(coverage.unjudged != null ? { unjudged: [...coverage.unjudged] } : {}),
-  };
-}
 
 function actionLineCoverage(coverage: Exclude<ReviewCoverage, { readonly kind: "none" }>) {
   if (coverage.kind === "full")
@@ -102,42 +78,9 @@ export async function publishReviewSummaryOnly(
     readonly ledger: FindingLedger;
     readonly coverage?: ReviewCoverage;
     readonly staleReview?: boolean;
-    readonly recoveryDecision?: RecoveryDecision;
   },
 ) {
-  if (requestedInput.recoveryDecision == null) {
-    session.recovery?.throwIfPublicationUnresolved("publish_summary_failed");
-  } else if (
-    requestedInput.recoveryDecision.settled?.artifact.kind === "publication_settled" &&
-    requestedInput.recoveryDecision.settled.artifact.outcome === "stopped"
-  ) {
-    return ((pinnedReturn: PublishSummaryOnlyResult | Promise<PublishSummaryOnlyResult>) =>
-      pinnedReturn)({ kind: "stopped", reason: "superseded" });
-  }
-  const retained = session.recovery?.canReuseSummary()
-    ? await session.recovery.load("final-summary")
-    : null;
-  const saved =
-    retained?.artifact.kind === "final_summary" && retained.artifact.inputs?.kind === "summary"
-      ? { payload: retained.artifact.payload, inputs: retained.artifact.inputs }
-      : undefined;
-  const input = saved
-    ? {
-        ...requestedInput,
-        payload: saved.payload,
-        ledger: createFindingLedger(saved.inputs.ledger),
-        coverage: saved.inputs.coverage,
-        staleReview: saved.inputs.staleReview,
-      }
-    : requestedInput;
-  if (saved) {
-    const validation = validateReviewPayload({
-      payload: input.payload,
-      cachedDiffIndex: session.cachedDiffIndex,
-      enforceInlineAnchorValidation: false,
-    });
-    if (!validation.ok) reviewArtifactInvalid("saved_summary_validation");
-  }
+  const input = requestedInput;
   const coverage = input.coverage ?? { kind: "full" };
   if (coverage.kind === "none") {
     throw new AppError({
@@ -228,11 +171,10 @@ export async function publishReviewSummaryOnly(
 
   const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryCoordination = session.recordPublishStep?.summaryCommentCoordination;
-  const ciPool = session.pool ?? summaryCoordination?.pool;
   const renderedCi =
-    ciPool == null
+    session.headCi == null
       ? { summary: undefined, version: 0 }
-      : await loadRenderableHeadCi(ciPool, owner, repo, headSha, session.installationId);
+      : await session.headCi.load(headSha);
   const ciSummary = renderedCi.summary;
   const durationMs = resolveReviewWallClockMs({
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
@@ -288,31 +230,6 @@ export async function publishReviewSummaryOnly(
           reviewSummaryOperationKey(coordination.resourceKey, mode),
           coordination.workItemId,
         );
-  const inputs = saved?.inputs ?? {
-    kind: "summary" as const,
-    ledger: snapshotFindingLedger(input.ledger),
-    coverage: persistedCoverage(coverage),
-    staleReview: input.staleReview ?? false,
-    judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
-    briefFallback: session.recovery?.getBriefFallback() ?? false,
-  };
-  await session.recovery?.saveSummary(input.payload, inputs);
-  const recoveryDecision =
-    input.recoveryDecision ??
-    (await session.recovery?.prepare(
-      input.payload,
-      summaryOperationKey ?? `summary:${owner}/${repo}#${prNumber}`,
-      inputs,
-    )) ??
-    null;
-  if (input.recoveryDecision?.settled && summaryCoordination) {
-    const intent = await getOperationIntent(
-      summaryCoordination.pool,
-      summaryCoordination.workItemId,
-      summaryOperationKey ?? reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
-    );
-    if (!intent) reviewArtifactInvalid("settled_summary_receipt_missing");
-  }
   const summaryBodyForPublish =
     summaryOperationMarker == null ? summaryBody : `${summaryBody}\n${summaryOperationMarker}`;
   const runSummaryUpsert = () =>
@@ -329,48 +246,44 @@ export async function publishReviewSummaryOnly(
     summaryCoordination == null
       ? runSummaryUpsert()
       : publishOnce<{ readonly id: number; readonly updated: boolean }>({
+          db: summaryCoordination.db,
+          workId: summaryCoordination.workItemId,
+          prKey: summaryCoordination.resourceKey,
+          resourceTarget: `summary_comment:${mode}`,
+          ...(summaryCoordination.laneEpoch !== undefined
+            ? { laneEpoch: summaryCoordination.laneEpoch }
+            : {}),
+          ...(summaryCoordination.shutdownRequested !== undefined
+            ? { shutdownRequested: summaryCoordination.shutdownRequested }
+            : {}),
+          ...(summaryCoordination.signal !== undefined
+            ? { signal: summaryCoordination.signal }
+            : {}),
           decodeResult: decodeProgressComment,
-          fence: fenceForEpoch(summaryCoordination.leaseEpoch),
-          client: summaryCoordination.pool,
-          workItemId: summaryCoordination.workItemId,
           operationKey:
             summaryOperationKey ?? reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
           mutationKind: "github.summary_comment",
-          leaseEpoch: summaryCoordination.leaseEpoch,
-          detail: {
+          identity: {
             step: "summary_comment",
             resourceKey: summaryCoordination.resourceKey,
             reviewLens: mode,
             ...(summaryOperationMarker != null ? { operationMarker: summaryOperationMarker } : {}),
           },
-          recover: () =>
-            recoverMarkedProgressComment(session.prSurface, {
+          recover: async () => {
+            const recovered = await recoverMarkedProgressComment(session.prSurface, {
               operationMarker: summaryOperationMarker ?? undefined,
               sentinel: summarySentinel,
               knownExistingId: knownSummaryCommentRef?.id,
-            }),
+            });
+            return recovered.kind === "reconciled"
+              ? { found: true as const, value: recovered.value }
+              : { found: false as const };
+          },
           isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: runSummaryUpsert,
         });
-  let summary: Awaited<typeof summaryPromise>;
-  let currentLabels: Awaited<typeof labelsPromise>;
-  try {
-    [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
-  } catch (error) {
-    if (recoveryDecision && publicationAttemptRejected(error)) {
-      await settleRejectedPublication(session.recovery, recoveryDecision, error);
-    } else if (recoveryDecision) {
-      session.recovery?.rememberUnresolvedPublication(error);
-    }
-    throw error;
-  }
-  if (ciPool != null) {
-    await requestHeadCiProjection(
-      session.boss,
-      { installationId: session.installationId ?? 0, owner, repo, headSha },
-      { kind: "when_due", pool: ciPool, renderedVersion: renderedCi.version },
-    );
-  }
+  const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  session.headCi?.requestProjection(headSha, renderedCi.version);
   const summaryOnlyCount = input.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
   ).length;
@@ -391,7 +304,6 @@ export async function publishReviewSummaryOnly(
       }),
     },
   });
-  await session.recovery?.settle(recoveryDecision, summary.id);
   logDebug("review_published_summary", {
     mode,
     owner,
@@ -403,19 +315,17 @@ export async function publishReviewSummaryOnly(
 
   const settledOutcome =
     closeOutcome.kind === "not_published" ? { kind: "published" as const, ...check } : closeOutcome;
-  if (session.verdict != null) {
-    await reviewVerdict({
-      pool: session.verdict.pool,
+  const verdictTarget = session.publish;
+  if (verdictTarget != null) {
+    await reviewVerdictSurfaces({
+      target: verdictTarget,
       prSurface: session.prSurface,
       owner,
       repo,
       prNumber,
-      workItemId: session.verdict.workItemId,
-      resourceKey: session.verdict.resourceKey,
       reviewLens: mode,
       headSha,
-      leaseEpoch: session.verdict.leaseEpoch,
-      commitStatusEnabled: session.cfg.features.commitStatus,
+      commitStatusEnabled: session.commitStatusEnabled ?? session.cfg.features.commitStatus,
       summaryCommentId: summary.id,
     }).close(settledOutcome);
   }
@@ -424,9 +334,8 @@ export async function publishReviewSummaryOnly(
     outcome: settledOutcome,
     headSha,
     summaryCommentId: summary.id,
-    workItemId: session.verdict?.workItemId ?? session.workItemId,
-    pool: session.verdict?.pool ?? session.pool,
-    leaseEpoch: session.verdict?.leaseEpoch,
+    ...(verdictTarget != null ? { target: verdictTarget } : {}),
+    reviewLens: mode,
     owner,
     repo,
     prNumber,
@@ -481,25 +390,26 @@ export async function publishReviewSummaryOnly(
         if (summaryCoordination == null) {
           await publishLabels();
         } else {
-          await publishOnce<void>({
-            fence: fenceForEpoch(summaryCoordination.leaseEpoch),
-            client: summaryCoordination.pool,
-            workItemId: summaryCoordination.workItemId,
+          await publishOnce({
+            db: summaryCoordination.db,
+            workId: summaryCoordination.workItemId,
+            prKey: summaryCoordination.resourceKey,
+            resourceTarget: "labels",
+            ...(summaryCoordination.laneEpoch !== undefined
+              ? { laneEpoch: summaryCoordination.laneEpoch }
+              : {}),
+            ...(summaryCoordination.shutdownRequested !== undefined
+              ? { shutdownRequested: summaryCoordination.shutdownRequested }
+              : {}),
             operationKey: reviewLabelsOperationKey(summaryCoordination.resourceKey),
             mutationKind: "github.review_labels",
-            leaseEpoch: summaryCoordination.leaseEpoch,
+            blocksOverwrite: true,
+            failClosed: true,
             allowsUndefinedResult: true,
-            detail: {
+            identity: {
               step: "labels",
               resourceKey: summaryCoordination.resourceKey,
               desiredLabels: next,
-            },
-            recover: async () => {
-              const labels = await session.prSurface.getLabels();
-              const desired = new Set(next);
-              return labels.length === next.length && labels.every((label) => desired.has(label))
-                ? { kind: "reconciled" as const, value: undefined }
-                : { kind: "absent" as const };
             },
             isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
             mutate: publishLabels,

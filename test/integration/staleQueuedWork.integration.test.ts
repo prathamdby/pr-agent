@@ -1,2450 +1,628 @@
-import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import * as v from "valibot";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { defineTask } from "@earendil-works/pi-durable";
 import {
-  acquirePrActorLease,
-  PR_ACTOR_LEASE_DEFER_SECONDS,
-  renewPrActorLease,
-} from "../../src/agentWork/prActorLease.ts";
-import { reviewVerdict } from "../../src/agentWork/reviewVerdict.ts";
-import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository.ts";
+  awaitAttemptAdmission,
+  FeatureAttemptTask,
+  startAttemptTask,
+  startFeatureAttempt,
+  type AttemptStamp,
+} from "../../src/agent/runtime/durable/featureAttemptTask.ts";
 import {
-  listTerminalReviewsWithOpenOwnChecks,
-  reconcileLostRunningWork,
-  reconcileStaleQueuedWork,
-} from "../../src/agentWork/lostRunningWork.ts";
-import * as workState from "../../src/agentWork/workItemStateRepository.ts";
+  openDurableRuntime,
+  type DurableRuntime,
+} from "../../src/agent/runtime/durable/runtime.ts";
 import {
-  claimWorkForExecution,
-  markWorkCompleted,
-} from "../../src/agentWork/workItemStateRepository.ts";
-import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.ts";
-import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.ts";
-import { runMigrations } from "../../src/db/migrations.ts";
-import { inTransaction } from "../../src/db/postgres.ts";
-import * as analytics from "../../src/analytics/index.ts";
-import * as evlog from "../../src/evlog.ts";
-import * as installationToken from "../../src/github/installationToken.ts";
-import * as prSurface from "../../src/github/prSurface.ts";
-import {
-  DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-  DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  DEFAULT_QUEUE_RETENTION_SECONDS,
-  DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  DEFAULT_QUEUE_RETRY_LIMIT,
-  DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
-  ASK_QUEUE,
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
-  STALE_QUEUED_WORK_GRACE_SECONDS,
-  TRIAGE_QUEUE,
-  VERIFICATION_QUEUE,
-} from "../../src/settings/index.ts";
-import type { QueueConfig } from "../../src/agentWork/types.ts";
-import { admitAsk, defaultAskQuotaConfig } from "../../src/agentWork/askQuota.ts";
-import { DeliveryTx } from "../../src/agentWork/intake/delivery.ts";
+  runBootPhaseA,
+  startDurableService,
+  type DurableService,
+} from "../../src/agent/runtime/durable/boot.ts";
+import type { DispatcherHandlers } from "../../src/agent/runtime/durable/dispatcher.ts";
+import type { WorkerDeps } from "../../src/agent/runtime/durable/workerDeps.ts";
+import { openAppState, type AppStateHandle } from "../../src/state/db.ts";
+import { applyAppStateSchema } from "../../src/state/schema.ts";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.ts";
 import { makeTestConfig } from "../helpers/config.ts";
-import { hasDatabase, integrationPool } from "./db.ts";
+import {
+  bumpLaneEpoch,
+  cancelWorkRun,
+  claimDispatchableWorkRun,
+  insertWorkRun,
+  markAttemptRunning,
+  markWorkRunCompleted,
+  markWorkRunFailed,
+  attemptFor,
+  supersedeWorkRun,
+  workRunById,
+} from "../../src/state/workRuns.ts";
+import { immediate, readRow, readRows } from "../../src/state/db.ts";
+import { resolveAskQuotaConfig, reserveAskQuota } from "../../src/state/askQuotas.ts";
+import { ensurePrState } from "../../src/state/intake.ts";
+import { openSqliteAppState } from "./db.ts";
 
-const OWNER = "stale-queue-it";
-const ASK_INSTALLATION_ID = 85501;
-const ASK_EVENT = "stale-queued-ask-quota";
-const DATABASE_URL = process.env.DATABASE_URL!;
+const state = openSqliteAppState();
+const db = state.db;
 
-const queueConfig: QueueConfig = makeTestConfig({
-  queue: {
-    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  },
-  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+afterAll(() => {
+  state.close();
 });
 
-describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () => {
-  let pool: Pool;
-  let boss: PgBoss;
+afterEach(() => {
+  db.prepare(`DELETE FROM work_run_attempts`).run();
+  db.prepare(`DELETE FROM work_runs`).run();
+  db.prepare(`DELETE FROM pr_state`).run();
+});
 
-  beforeAll(async () => {
-    pool = integrationPool();
-    await runMigrations(pool);
-    boss = await createStartedBoss(
-      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+function insertRun(
+  workId: string,
+  prKey: string,
+  kind: "review" | "ack" | "ask" | "description" | "triage" | "verification",
+  laneEpoch = 0,
+) {
+  insertWorkRun(db, {
+    workId,
+    prKey,
+    kind,
+    laneEpoch,
+    payloadJson: JSON.stringify({ source: "auto", headSha: "sha-1" }),
+    now: Date.now(),
+  });
+}
+
+function quotaReservationRow(workId: string) {
+  return readRow(
+    db.prepare(`SELECT released_at FROM ask_quota_reservations WHERE work_item_id = ?`).get(workId),
+    v.object({ released_at: v.nullable(v.number()) }),
+  );
+}
+
+describe("stale queued work fencing (sqlite)", () => {
+  it("claims a pending_dispatch run and creates an attempt", () => {
+    insertRun("stale-claim-1", "o/r#1", "ack");
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).toBe("stale-claim-1");
+    expect(claimed?.attempt.attempt_no).toBe(1);
+    expect(claimed?.run.current_attempt_no).toBe(1);
+    immediate(db, () =>
+      markAttemptRunning(db, {
+        workId: "stale-claim-1",
+        attemptNo: 1,
+        conversationId: "conv-1",
+        taskId: null,
+        now: Date.now(),
+      }),
     );
-    await ensureAgentQueues(boss, queueConfig);
+    expect(workRunById(db, "stale-claim-1")?.status).toBe("running");
   });
 
-  afterAll(async () => {
-    await stopBoss(boss, DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS * 1000);
-    await pool.end();
+  it("fences a run whose lane epoch is stale", () => {
+    ensurePrState(db, "o/r#2", Date.now());
+    insertRun("stale-fence-2", "o/r#2", "review", 0);
+    bumpLaneEpoch(db, { prKey: "o/r#2", lane: "review", now: Date.now() });
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).not.toBe("stale-fence-2");
+    const stale = readRows(
+      db.prepare(`SELECT work_id, status FROM work_runs WHERE work_id = ?`).all("stale-fence-2"),
+      v.object({ work_id: v.string(), status: v.string() }),
+    )[0];
+    expect(claimed).toBeUndefined();
+    expect(stale?.status).toBe("pending_dispatch");
   });
 
-  afterEach(async () => {
-    vi.restoreAllMocks();
-    await pool.query(`DELETE FROM pgboss.job WHERE data->>'owner' = $1`, [OWNER]);
-    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
-    await pool.query(
-      `UPDATE agent_work_items
-          SET status = 'cancelled', completed_at = now(), updated_at = now()
-        WHERE owner = $1 AND status IN ('queued', 'running')`,
-      [OWNER],
-    );
-    await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
-    await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [ASK_EVENT]);
-    await pool.query(
-      `DELETE FROM ask_quota_buckets
-        WHERE scope_key = $1 OR scope_key LIKE $2 OR scope_key LIKE $3`,
-      [
-        `installation:${ASK_INSTALLATION_ID}`,
-        `repository:${ASK_INSTALLATION_ID}:%`,
-        `actor:${ASK_INSTALLATION_ID}:%`,
-      ],
-    );
+  it("claims the run carrying the current lane epoch", () => {
+    ensurePrState(db, "o/r#3", Date.now());
+    insertRun("stale-old-3", "o/r#3", "review", 0);
+    bumpLaneEpoch(db, { prKey: "o/r#3", lane: "review", now: Date.now() });
+    insertRun("stale-new-3", "o/r#3", "review", 1);
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).toBe("stale-new-3");
   });
 
-  async function insertAgedQueuedWork(options?: {
-    readonly type?: "review" | "description" | "triage" | "verification" | "ask";
-    readonly ageSeconds?: number;
-    readonly now?: Date;
-    readonly installationId?: number;
-  }) {
-    const id = randomUUID();
-    const type = options?.type ?? "review";
-    const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
-    const now = options?.now ?? new Date();
-    const resourceKey = `${OWNER}/r#${id.slice(0, 8)}`;
-    const source = type === "triage" || type === "ask" ? "slash" : "auto";
-    await pool.query(
-      `INSERT INTO agent_work_items (
-         id, type, source, status, owner, repo, pr_number, installation_id,
-         head_sha, review_lens, resource_key, payload, created_at, updated_at
-       )
-       VALUES (
-         $1, $2, $3, 'queued', $4, 'r', 1, $5, 'h', 'review', $6, '{}'::jsonb,
-         $7::timestamptz - ($8 * interval '1 second'),
-         $7::timestamptz - ($8 * interval '1 second')
-       )`,
-      [
-        id,
-        type,
-        source,
-        OWNER,
-        options?.installationId ?? 1,
-        resourceKey,
-        now.toISOString(),
-        ageSeconds,
-      ],
-    );
-    return ((
-      pinnedReturn:
-        | {
-            readonly id: string;
-            readonly resourceKey: string;
-          }
-        | Promise<{
-            readonly id: string;
-            readonly resourceKey: string;
-          }>,
-    ) => pinnedReturn)({ id, resourceKey });
-  }
-
-  async function insertJobMatchingWorkItemId(options: {
-    readonly workItemId: string;
-    readonly queue: string;
-    readonly state: "active" | "completed";
-  }) {
-    await pool.query(
-      `INSERT INTO pgboss.job (id, name, state, data)
-       VALUES ($1::uuid, $2, $3, $4::jsonb)`,
-      [
-        options.workItemId,
-        options.queue,
-        options.state,
-        JSON.stringify({ owner: OWNER, workItemId: options.workItemId }),
-      ],
-    );
-  }
-
-  async function staleIds(now = new Date()) {
-    const report = await collectQueueDiagnostics({
-      boss,
-      pool,
-      now,
-      diagnosticQueues: [REVIEW_QUEUE, DESCRIPTION_QUEUE, ASK_QUEUE],
-      dlqQueues: [],
-    });
-    return ((pinnedReturn: readonly string[] | Promise<readonly string[]>) => pinnedReturn)(
-      report.staleQueuedWorkItems.map((row) => row.workItemId),
-    );
-  }
-
-  async function insertAgedQuotaAsk(options?: {
-    readonly ageSeconds?: number;
-    readonly now?: Date;
-  }) {
-    const id = randomUUID();
-    const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
-    const now = options?.now ?? new Date();
-    await inTransaction(pool, async (client) => {
-      const event = await new DeliveryTx(client, {
-        event: ASK_EVENT,
-        delivery: id,
-        rawBody: Buffer.from(id),
-      }).insert("slash_ask");
-      if (event.duplicate) throw new Error("expected fresh stale-queued ask delivery");
-      const admission = await admitAsk(
-        client,
-        {
-          workItemId: id,
-          webhookEventId: event.id,
-          ref: {
-            installationId: ASK_INSTALLATION_ID,
-            owner: OWNER,
-            repo: "r",
-            prNumber: 1,
-            headSha: "h",
-          },
-          question: "why?",
-          replyTarget: { kind: "prConversation", prNumber: 1 },
-          commentId: createHash("sha256").update(id).digest().readUInt32BE(0),
-          commenterId: 7,
-        },
-        {
-          ...defaultAskQuotaConfig(),
-          actorMaxOutstanding: 20,
-          repositoryMaxOutstanding: 20,
-          installationMaxOutstanding: 20,
-        },
-      );
-      if (admission.kind !== "admitted") throw new Error("expected admitted stale-queued ask");
-    });
-    await pool.query(
-      `UPDATE agent_work_items
-          SET created_at = $2::timestamptz - ($3 * interval '1 second'),
-              updated_at = $2::timestamptz - ($3 * interval '1 second')
-        WHERE id = $1`,
-      [id, now.toISOString(), ageSeconds],
-    );
-    const row = await pool.query<{ resource_key: string }>(
-      "SELECT resource_key FROM agent_work_items WHERE id = $1",
-      [id],
-    );
-    return ((
-      pinnedReturn:
-        | { readonly id: string; readonly resourceKey: string }
-        | Promise<{ readonly id: string; readonly resourceKey: string }>,
-    ) => pinnedReturn)({ id, resourceKey: row.rows[0]?.resource_key ?? `${OWNER}/r#1` });
-  }
-
-  async function outstandingAskCount() {
-    const { rows } = await pool.query<{ outstanding_count: number }>(
-      `SELECT outstanding_count
-         FROM ask_quota_buckets
-        WHERE scope = 'installation' AND scope_key = $1`,
-      [`installation:${ASK_INSTALLATION_ID}`],
-    );
-    return ((pinnedReturn: (number | null) | Promise<number | null>) => pinnedReturn)(
-      rows[0]?.outstanding_count ?? null,
-    );
-  }
-
-  it("flags a queued review with no live lease and no pg-boss job", async () => {
-    const { id } = await insertAgedQueuedWork();
-    expect(await staleIds()).toContain(id);
+  it("does not claim runs scheduled for a future retry", () => {
+    insertRun("stale-retry-4", "o/r#4", "ack");
+    db.prepare(
+      `UPDATE work_runs SET status = 'retry_scheduled', next_retry_at = ? WHERE work_id = ?`,
+    ).run(Date.now() + 60_000, "stale-retry-4");
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).not.toBe("stale-retry-4");
   });
 
-  it("leaves lost-running a no-op on a queued ask and fails it through stale-queued reconciliation", async () => {
-    const { id } = await insertAgedQuotaAsk();
-    expect(await staleIds()).toContain(id);
-    expect(await outstandingAskCount()).toBe(1);
-    const before = await pool.query(
-      "SELECT status, last_error FROM agent_work_items WHERE id = $1",
-      [id],
-    );
-    const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-    await reconcileLostRunningWork({
-      cfg: makeTestConfig(),
-      pool,
-      items: [],
-    });
-    expect(
-      (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
-        .rows,
-    ).toEqual(before.rows);
-    await reconcileStaleQueuedWork({
-      cfg: makeTestConfig(),
-      pool,
-      items: [{ workItemId: id, resourceKey: OWNER, workType: "ask", ageSeconds: 360 }],
-    });
-    expect(
-      (
-        await pool.query(
-          "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
-          [id],
-        )
-      ).rows,
-    ).toEqual([
-      { status: "failed", last_error: "queue_delivery_lost", completed_at: expect.any(Date) },
-    ]);
-    expect(await outstandingAskCount()).toBe(0);
-    expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
+  it("claims a due retry_scheduled run", () => {
+    insertRun("stale-retry-5", "o/r#5", "ack");
+    db.prepare(
+      `UPDATE work_runs SET status = 'retry_scheduled', next_retry_at = ? WHERE work_id = ?`,
+    ).run(Date.now() - 1_000, "stale-retry-5");
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).toBe("stale-retry-5");
+    expect(claimed?.attempt.attempt_no).toBe(1);
   });
 
-  it("does not flag a queued review that still has an intake job waiting", async () => {
-    const { id } = await insertAgedQueuedWork();
-    const jobId = await boss.send(
-      REVIEW_QUEUE,
-      { kind: "review", workItemId: id, owner: OWNER },
-      { group: { id: "1" } },
+  it("flags a queued review with no live lease and no pg-boss job", () => {
+    insertRun("stale-aged-6", "o/r#6", "ack");
+    db.prepare(`UPDATE work_runs SET created_at = 1, updated_at = 1 WHERE work_id = ?`).run(
+      "stale-aged-6",
     );
-    expect(jobId).not.toBeNull();
-    expect(await staleIds()).not.toContain(id);
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).toBe("stale-aged-6");
   });
 
-  it("does not flag a queued review that still has a deferred watchdog hop", async () => {
-    const { id } = await insertAgedQueuedWork();
-    const jobId = await boss.send(
-      REVIEW_QUEUE,
-      { kind: "review", workItemId: id, owner: OWNER },
+  it("leaves lost-running a no-op on a queued ask and fails it through stale-queued reconciliation", () => {
+    insertRun("stale-ask-7", "o/r#7", "ask");
+    reserveAskQuota(
+      db,
       {
-        singletonKey: id,
-        singletonSeconds: PR_ACTOR_LEASE_DEFER_SECONDS,
-        singletonNextSlot: true,
-        startAfter: PR_ACTOR_LEASE_DEFER_SECONDS,
-        group: { id: "1" },
+        workItemId: "stale-ask-7",
+        installationId: 6589001,
+        owner: "o",
+        repo: "r",
+        commenterId: 658,
       },
+      resolveAskQuotaConfig({}),
     );
-    expect(jobId).not.toBeNull();
-    expect(await staleIds()).not.toContain(id);
-  });
-
-  it("does not flag a queued review whose job id matches the work item while active", async () => {
-    const { id } = await insertAgedQueuedWork();
-    await insertJobMatchingWorkItemId({
-      workItemId: id,
-      queue: REVIEW_QUEUE,
-      state: "active",
-    });
-    expect(await staleIds()).not.toContain(id);
-    await pool.query(`UPDATE pgboss.job SET state = 'completed' WHERE id = $1`, [id]);
-    expect(await staleIds()).toContain(id);
-  });
-
-  it("does not flag a queued description whose job id matches the work item while active", async () => {
-    const { id } = await insertAgedQueuedWork({ type: "description" });
-    await insertJobMatchingWorkItemId({
-      workItemId: id,
-      queue: DESCRIPTION_QUEUE,
-      state: "active",
-    });
-    expect(await staleIds()).not.toContain(id);
-    await pool.query(`UPDATE pgboss.job SET state = 'completed' WHERE id = $1`, [id]);
-    expect(await staleIds()).toContain(id);
-  });
-
-  it("does not flag a queued review at the grace boundary", async () => {
-    const now = new Date("2026-08-19T12:00:00.000Z");
-    const { id } = await insertAgedQueuedWork({
-      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
-      now,
-    });
-    expect(await staleIds(now)).not.toContain(id);
-  });
-
-  it("flags a queued review sixty seconds past the grace boundary", async () => {
-    const now = new Date("2026-08-19T12:00:00.000Z");
-    const { id } = await insertAgedQueuedWork({
-      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS + 60,
-      now,
-    });
-    expect(await staleIds(now)).toContain(id);
-  });
-
-  it("does not flag a queued ask at the grace boundary", async () => {
-    const now = new Date("2026-08-19T12:00:00.000Z");
-    const { id } = await insertAgedQuotaAsk({
-      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
-      now,
-    });
-    expect(await staleIds(now)).not.toContain(id);
-  });
-
-  it("does not fail a queued ask inside the grace window", async () => {
-    const { id } = await insertAgedQuotaAsk({
-      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS - 5,
-    });
-    expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
-    expect(
-      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
-    ).toEqual([{ status: "queued" }]);
-    expect(await outstandingAskCount()).toBe(1);
-  });
-
-  it("does not flag a queued ask that still has a live ASK_QUEUE job", async () => {
-    const { id } = await insertAgedQuotaAsk();
-    const jobId = await boss.send(
-      ASK_QUEUE,
-      { kind: "ask", workItemId: id, owner: OWNER },
-      { group: { id: String(ASK_INSTALLATION_ID) } },
+    expect(quotaReservationRow("stale-ask-7")?.released_at).toBeNull();
+    immediate(db, () =>
+      cancelWorkRun(db, { workId: "stale-ask-7", reason: "stale_queue", now: Date.now() }),
     );
-    expect(jobId).not.toBeNull();
-    expect(await staleIds()).not.toContain(id);
-    await reconcileStaleQueuedWork({
-      cfg: makeTestConfig(),
-      pool,
-      items: [{ workItemId: id, resourceKey: OWNER, workType: "ask", ageSeconds: 360 }],
-    });
-    expect(
-      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
-    ).toEqual([{ status: "queued" }]);
-    expect(await outstandingAskCount()).toBe(1);
+    expect(workRunById(db, "stale-ask-7")?.status).toBe("cancelled");
+    expect(quotaReservationRow("stale-ask-7")?.released_at).not.toBeNull();
+    expect(immediate(db, () => claimDispatchableWorkRun(db, Date.now()))).toBeUndefined();
   });
 
   it.each(["review", "description", "triage", "verification"] as const)(
     "fails a truly stale queued %s item",
-    async (workType) => {
-      const cfg = makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true },
-      });
-      const { id, resourceKey } = await insertAgedQueuedWork({ type: workType });
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      if (workType === "review") {
-        const check = await fake.surface.startReviewCheck("h", id, "Running");
-        await recordReviewCheckRun(pool, {
-          workItemId: id,
-          resourceKey,
-          reviewLens: "review",
-          githubId: check.id,
-          detail: { status: "in_progress" },
-        });
-      }
-      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-      expect(await staleIds()).toContain(id);
-      await reconcileStaleQueuedWork({
-        cfg,
-        pool,
-        items: [{ workItemId: id, resourceKey, workType, ageSeconds: 360 }],
-      });
-      expect(
-        (
-          await pool.query(
-            "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
-            [id],
-          )
-        ).rows,
-      ).toEqual([
-        { status: "failed", last_error: "queue_delivery_lost", completed_at: expect.any(Date) },
-      ]);
-      expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
-      if (workType === "review") {
-        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
-          expect.objectContaining({ conclusion: "action_required" }),
-        ]);
-      } else {
-        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
-          [],
-        );
-      }
+    (kind) => {
+      ensurePrState(db, `o/r#${kind}`, Date.now());
+      insertRun(`stale-aged-${kind}`, `o/r#${kind}`, kind);
+      db.prepare(`UPDATE work_runs SET created_at = 1, updated_at = 1 WHERE work_id = ?`).run(
+        `stale-aged-${kind}`,
+      );
+      const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+      expect(claimed?.run.work_id).toBe(`stale-aged-${kind}`);
     },
   );
-
-  it.each([
-    ...(["review", "description", "triage", "verification"] as const).flatMap((workType) =>
-      (["renewal", "job insert"] as const).map((revival) => ({ workType, revival })),
-    ),
-    { workType: "ask" as const, revival: "job insert" as const },
-  ])(
-    "preserves queued $workType when $revival commits during failure",
-    async ({ workType, revival }) => {
-      const cfg = makeTestConfig();
-      const { id, resourceKey } =
-        workType === "ask"
-          ? await insertAgedQuotaAsk()
-          : await insertAgedQueuedWork({ type: workType });
-      const queue = {
-        review: REVIEW_QUEUE,
-        description: DESCRIPTION_QUEUE,
-        triage: TRIAGE_QUEUE,
-        verification: VERIFICATION_QUEUE,
-        ask: ASK_QUEUE,
-      }[workType];
-      let epoch: number | null = null;
-      if (revival === "renewal") {
-        const lease = await acquirePrActorLease(pool, {
-          resourceKey,
-          workType,
-          workItemId: id,
-          holderId: OWNER,
-          ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-        });
-        if (!lease.acquired) throw new Error("Expected initial lease");
-        epoch = lease.leaseEpoch;
-        await pool.query(
-          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-          [id],
-        );
-      }
-      const jobId = randomUUID();
-      const before = await pool.query(
-        "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-        [id],
-      );
-      const blocker = await pool.connect();
-      const writer = await pool.connect();
-      let blockerOpen = false;
-      let writerOpen = false;
-      try {
-        await blocker.query("BEGIN");
-        blockerOpen = true;
-        await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
-        await writer.query("BEGIN");
-        writerOpen = true;
-        if (revival === "renewal") {
-          if (epoch == null) throw new Error("Expected initial epoch");
-          expect(
-            await renewPrActorLease(writer, {
-              resourceKey,
-              workType,
-              workItemId: id,
-              leaseEpoch: epoch,
-              ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-            }),
-          ).toBe(true);
-        } else {
-          await writer.query(
-            "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'active', $3::jsonb)",
-            [jobId, queue, JSON.stringify({ owner: OWNER, workItemId: id })],
-          );
-        }
-        expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
-        await writer.query("COMMIT");
-        writerOpen = false;
-        await blocker.query("COMMIT");
-        blockerOpen = false;
-        await reconcileStaleQueuedWork({
-          cfg,
-          pool,
-          items: [{ workItemId: id, resourceKey, workType, ageSeconds: 360 }],
-        });
-        expect(
-          (
-            await pool.query(
-              "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-              [id],
-            )
-          ).rows,
-        ).toEqual(before.rows);
-      } finally {
-        if (writerOpen) await writer.query("ROLLBACK");
-        if (blockerOpen) await blocker.query("ROLLBACK");
-        writer.release();
-        blocker.release();
-      }
-    },
-  );
-
-  it("defers a stale queued mark on item contention", async () => {
-    const { id } = await insertAgedQueuedWork();
-    const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-    const blocker = await pool.connect();
-    let open = false;
-    try {
-      await blocker.query("BEGIN");
-      open = true;
-      await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
-      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
-      expect((await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows).toEqual(
-        before.rows,
-      );
-    } finally {
-      if (open) await blocker.query("ROLLBACK");
-      blocker.release();
-    }
-  });
-
-  it("rolls back a timed-out protected stale queued mark", async () => {
-    const { id } = await insertAgedQueuedWork({ ageSeconds: 1800 });
-    const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-    const sweeper = await pool.connect();
-    const read = sweeper.query.bind(sweeper);
-    const release = sweeper.release.bind(sweeper);
-    vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-    const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-    vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-      if (typeof text === "string" && /UPDATE\s+agent_work_items/i.test(text)) {
-        await read("SELECT pg_sleep(5)");
-      }
-      return read(text, values);
-    });
-    try {
-      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(false);
-      expect((await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows).toEqual(
-        before.rows,
-      );
-    } finally {
-      connect.mockRestore();
-      vi.mocked(sweeper.query).mockRestore();
-      vi.mocked(sweeper.release).mockRestore();
-      release();
-    }
-  });
-
-  it("fails a stale queued ask while the lease table is exclusively locked", async () => {
-    const { id } = await insertAgedQuotaAsk();
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("LOCK TABLE pr_actor_leases IN ACCESS EXCLUSIVE MODE");
-      expect(await workState.markStaleQueuedWorkFailed(pool, id)).toBe(true);
-    } finally {
-      await client.query("ROLLBACK");
-      client.release();
-    }
-    expect(
-      (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
-        .rows,
-    ).toEqual([{ status: "failed", last_error: "queue_delivery_lost" }]);
-    expect(await outstandingAskCount()).toBe(0);
-  });
 
   it.each(["cancelled", "superseded"] as const)(
     "finishes a cancel-requested queued review as %s",
-    async (status) => {
-      const { id } = await insertAgedQueuedWork();
+    (status) => {
+      ensurePrState(db, `o/r#cancel-${status}`, Date.now());
+      insertRun(`stale-cancel-${status}`, `o/r#cancel-${status}`, "review");
       if (status === "superseded") {
-        const successor = await insertAgedQueuedWork();
-        await pool.query(
-          `UPDATE agent_work_items
-              SET cancel_requested_at = now(), superseded_by = $2
-            WHERE id = $1`,
-          [id, successor.id],
+        insertRun("stale-cancel-successor", "o/r#cancel-superseded", "review");
+        immediate(db, () =>
+          supersedeWorkRun(db, { workId: "stale-cancel-superseded", now: Date.now() }),
         );
       } else {
-        await pool.query("UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1", [
-          id,
-        ]);
-      }
-      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-      await reconcileStaleQueuedWork({ cfg: makeTestConfig(), pool, items: [] });
-      expect(
-        (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
-      ).toEqual([{ status }]);
-      expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toEqual([]);
-    },
-  );
-
-  it.each(
-    (["review", "description", "triage", "verification"] as const).flatMap((workType) =>
-      (["renewal", "job update", "job insert"] as const).map((revival) => ({
-        workType,
-        revival,
-      })),
-    ),
-  )("preserves $workType when $revival commits during failure", async ({ workType, revival }) => {
-    const cfg = makeTestConfig({
-      features: { ...makeTestConfig().features, commitStatus: true },
-    });
-    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-    const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-    await pool.query(
-      `UPDATE agent_work_items
-          SET type = $2, source = $3, status = 'running', started_at = created_at
-        WHERE id = $1`,
-      [id, workType, workType === "triage" ? "slash" : "auto"],
-    );
-    const queue = {
-      review: REVIEW_QUEUE,
-      description: DESCRIPTION_QUEUE,
-      triage: TRIAGE_QUEUE,
-      verification: VERIFICATION_QUEUE,
-    }[workType];
-    let epoch: number | null = null;
-    if (revival === "renewal") {
-      const lease = await acquirePrActorLease(pool, {
-        resourceKey,
-        workType,
-        workItemId: id,
-        holderId: OWNER,
-        ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-      });
-      if (!lease.acquired) throw new Error("Expected initial lease");
-      epoch = lease.leaseEpoch;
-      await pool.query(
-        "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-        [id],
-      );
-    }
-    const jobId = randomUUID();
-    if (revival === "job update") {
-      await pool.query(
-        "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'completed', $3::jsonb)",
-        [jobId, queue, JSON.stringify({ owner: OWNER, workItemId: id })],
-      );
-    }
-    const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-    const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-      token: "synthetic-integration-token",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    });
-    const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-    if (workType === "review") {
-      const check = await fake.surface.startReviewCheck("h", id, "Running");
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: check.id,
-        detail: { status: "in_progress" },
-      });
-    }
-    const snapshot = await collectQueueDiagnostics({
-      boss,
-      pool,
-      now: new Date(),
-      diagnosticQueues: [],
-      dlqQueues: [],
-      lostRunningMinAgeSeconds: minAgeSeconds,
-    });
-    expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-    const before = await pool.query(
-      "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-      [id],
-    );
-    const blocker = await pool.connect();
-    const writer = await pool.connect();
-    const observer = await pool.connect();
-    let blockerOpen = false;
-    let writerOpen = false;
-    let settled = false;
-    let blocked = false;
-    let sweep: Promise<void> | undefined;
-    try {
-      const { rows } = await blocker.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-      await blocker.query("BEGIN");
-      blockerOpen = true;
-      await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
-      await writer.query("BEGIN");
-      writerOpen = true;
-      if (revival === "renewal") {
-        if (epoch == null) throw new Error("Expected initial epoch");
-        expect(
-          await renewPrActorLease(writer, {
-            resourceKey,
-            workType,
-            workItemId: id,
-            leaseEpoch: epoch,
-            ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-          }),
-        ).toBe(true);
-      } else if (revival === "job update") {
-        await writer.query("UPDATE pgboss.job SET state = 'active' WHERE id = $1", [jobId]);
-      } else {
-        await writer.query(
-          "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'active', $3::jsonb)",
-          [jobId, queue, JSON.stringify({ owner: OWNER, workItemId: id })],
-        );
-      }
-      sweep = reconcileLostRunningWork({
-        cfg,
-        pool,
-        items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-      }).finally(() => {
-        settled = true;
-      });
-      await expect
-        .poll(async () => {
-          const result = await observer.query<{ blocked: boolean }>(
-            `SELECT EXISTS (
-               SELECT 1 FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND $1::int = ANY(pg_blocking_pids(pid))
-                  AND query ILIKE '%UPDATE%agent_work_items%'
-             ) AS blocked`,
-            [rows[0]?.pid],
-          );
-          blocked = result.rows[0]?.blocked ?? false;
-          return blocked || settled;
-        })
-        .toBe(true);
-      await writer.query("COMMIT");
-      writerOpen = false;
-      const live = await observer.query<{ live: boolean }>(
-        revival === "renewal"
-          ? "SELECT expires_at > statement_timestamp() AS live FROM pr_actor_leases WHERE work_item_id = $1"
-          : "SELECT state = 'active' AS live FROM pgboss.job WHERE id = $1",
-        [revival === "renewal" ? id : jobId],
-      );
-      expect(live.rows[0]?.live).toBe(true);
-      await blocker.query("COMMIT");
-      blockerOpen = false;
-      await sweep;
-      console.info("lost-running race schedule", { workType, revival, blocked, settled });
-      expect(
-        (
-          await observer.query(
-            "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-            [id],
-          )
-        ).rows,
-      ).toEqual(before.rows);
-      expect(token).not.toHaveBeenCalled();
-      expect(factory).not.toHaveBeenCalled();
-      expect(
-        fake.controls.events.filter(
-          (event) => event.kind === "finishReviewCheck" || event.kind === "setReviewCommitStatus",
-        ),
-      ).toEqual([]);
-    } finally {
-      if (writerOpen) await writer.query("ROLLBACK");
-      if (blockerOpen) await blocker.query("ROLLBACK");
-      await sweep;
-      observer.release();
-      writer.release();
-      blocker.release();
-    }
-    await reconcileLostRunningWork({
-      cfg,
-      pool,
-      items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-    });
-    expect(
-      (
-        await pool.query(
-          "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-          [id],
-        )
-      ).rows,
-    ).toEqual(before.rows);
-  });
-
-  it.each(["lease insert", "job insert"] as const)(
-    "sees a committed $revival after routing despite a repeatable-read default",
-    async (revival) => {
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: 1800 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const sweeper = await pool.connect();
-      const writer = await pool.connect();
-      const release = sweeper.release.bind(sweeper);
-      const read = sweeper.query.bind(sweeper);
-      const defaults = await read(
-        `SELECT current_setting('default_transaction_isolation') AS isolation,
-                current_setting('statement_timeout') AS statement,
-                current_setting('idle_in_transaction_session_timeout') AS idle`,
-      );
-      await read("SET default_transaction_isolation = 'repeatable read'");
-      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-      const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-      let revived = false;
-      const errors: unknown[] = [];
-      vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-        try {
-          const result = await read(text, values);
-          if (
-            !revived &&
-            typeof text === "string" &&
-            text.includes("SELECT resource_key, type") &&
-            values?.[0] === id
-          ) {
-            revived = true;
-            if (revival === "lease insert") {
-              expect(
-                await acquirePrActorLease(writer, {
-                  resourceKey,
-                  workType: "review",
-                  workItemId: id,
-                  holderId: OWNER,
-                  ttlSeconds: 900,
-                }),
-              ).toMatchObject({ acquired: true });
-            } else {
-              await writer.query(
-                "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'retry', $3::jsonb)",
-                [randomUUID(), REVIEW_QUEUE, JSON.stringify({ owner: OWNER, workItemId: id })],
-              );
-            }
-          }
-          return result;
-        } catch (error) {
-          errors.push(error);
-          throw error;
-        }
-      });
-      try {
-        expect(await workState.markLostRunningWorkFailed(pool, id, 1200)).toBe(false);
-        expect(revived).toBe(true);
-        expect(errors).toEqual([]);
-        expect(
-          (await writer.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual(before.rows);
-        const after = await read(
-          `SELECT current_setting('default_transaction_isolation') AS isolation,
-                  current_setting('statement_timeout') AS statement,
-                  current_setting('idle_in_transaction_session_timeout') AS idle`,
-        );
-        expect(after.rows[0]).toEqual({
-          ...defaults.rows[0],
-          isolation: "repeatable read",
-        });
-      } finally {
-        connect.mockRestore();
-        vi.mocked(sweeper.query).mockRestore();
-        await read("SELECT set_config('default_transaction_isolation', $1, false)", [
-          defaults.rows[0].isolation,
-        ]);
-        vi.mocked(sweeper.release).mockRestore();
-        release();
-        writer.release();
-      }
-    },
-  );
-
-  it.each(["renewal", "job insert"] as const)(
-    "serializes a later $revival behind the protected failure",
-    async (revival) => {
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: 1800 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const lease = await acquirePrActorLease(pool, {
-        resourceKey,
-        workType: "review",
-        workItemId: id,
-        holderId: OWNER,
-        ttlSeconds: 900,
-      });
-      if (!lease.acquired) throw new Error("Expected lease");
-      await pool.query(
-        "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-        [id],
-      );
-      const sweeper = await pool.connect();
-      const writer = await pool.connect();
-      const observer = await pool.connect();
-      const read = sweeper.query.bind(sweeper);
-      const release = sweeper.release.bind(sweeper);
-      const { rows: sweepPid } = await read<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-      const { rows: writerPid } = await writer.query<{ pid: number }>(
-        "SELECT pg_backend_pid() AS pid",
-      );
-      const before = await read(
-        `SELECT current_setting('statement_timeout') AS statement,
-                current_setting('idle_in_transaction_session_timeout') AS idle`,
-      );
-      let locked: (() => void) | undefined;
-      let proceed: (() => void) | undefined;
-      const ready = new Promise<void>((resolve) => {
-        locked = resolve;
-      });
-      const barrier = new Promise<void>((resolve) => {
-        proceed = resolve;
-      });
-      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-      const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-      vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-        const result = await read(text, values);
-        if (text === "LOCK TABLE pgboss.job IN SHARE MODE NOWAIT") {
-          locked?.();
-          await barrier;
-        }
-        return result;
-      });
-      const marking = workState
-        .markLostRunningWorkFailed(pool, id, 1200)
-        .catch((error: unknown) => error);
-      let revivalResult: Promise<unknown> | undefined;
-      try {
-        await Promise.race([ready, marking]);
-        revivalResult = (
-          revival === "renewal"
-            ? renewPrActorLease(writer, {
-                resourceKey,
-                workType: "review",
-                workItemId: id,
-                leaseEpoch: lease.leaseEpoch,
-                ttlSeconds: 900,
-              })
-            : writer.query(
-                "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'created', $3::jsonb)",
-                [randomUUID(), REVIEW_QUEUE, JSON.stringify({ owner: OWNER, workItemId: id })],
-              )
-        ).catch((error: unknown) => error);
-        await expect
-          .poll(async () => {
-            const { rows } = await observer.query<{ blocked: boolean }>(
-              "SELECT $1 = ANY(pg_blocking_pids($2)) AS blocked",
-              [sweepPid[0]?.pid, writerPid[0]?.pid],
-            );
-            return rows[0]?.blocked;
-          })
-          .toBe(true);
-        proceed?.();
-        expect(await marking).toBe(true);
-        if (revival === "renewal") expect(await revivalResult).toBe(true);
-        else expect(await revivalResult).toMatchObject({ rowCount: 1 });
-        expect(
-          (await observer.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual([{ status: "failed" }]);
-        expect(await workState.claimWorkForExecution(observer, id)).toBeNull();
-        const after = await read(
-          `SELECT current_setting('statement_timeout') AS statement,
-                  current_setting('idle_in_transaction_session_timeout') AS idle`,
-        );
-        expect(after.rows).toEqual(before.rows);
-      } finally {
-        proceed?.();
-        await marking;
-        await revivalResult;
-        connect.mockRestore();
-        vi.mocked(sweeper.query).mockRestore();
-        vi.mocked(sweeper.release).mockRestore();
-        release();
-        writer.release();
-        observer.release();
-      }
-    },
-  );
-
-  it.each(["uncommitted cancellation", "cancellation after routing"] as const)(
-    "preserves running work during %s",
-    async (cancellation) => {
-      const cfg = makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true },
-      });
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      const check = await fake.surface.startReviewCheck("h", id, "Running");
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: check.id,
-        detail: { status: "in_progress" },
-      });
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
-      expect(items).toHaveLength(1);
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const writer = await pool.connect();
-      const sweeper = await pool.connect();
-      const read = sweeper.query.bind(sweeper);
-      const release = sweeper.release.bind(sweeper);
-      let writerOpen = false;
-      let routed = false;
-      const outcomes: boolean[] = [];
-      const mark = workState.markLostRunningWorkFailed;
-      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
-        const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-        try {
-          const result = await mark(...args);
-          outcomes.push(result);
-          return result;
-        } finally {
-          connect.mockRestore();
-        }
-      });
-      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-      vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-        const result = await read(text, values);
-        if (
-          !routed &&
-          typeof text === "string" &&
-          text.includes("SELECT resource_key, type") &&
-          values?.[0] === id
-        ) {
-          routed = true;
-          if (cancellation === "cancellation after routing") {
-            await writer.query(
-              "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
-              [id],
-            );
-            await writer.query("COMMIT");
-            writerOpen = false;
-          }
-        }
-        return result;
-      });
-      try {
-        await writer.query("BEGIN");
-        writerOpen = true;
-        if (cancellation === "uncommitted cancellation") {
-          await writer.query(
-            "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
-            [id],
-          );
-        }
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(routed).toBe(true);
-        expect(outcomes).toEqual([false]);
-        if (writerOpen) {
-          expect(
-            (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-          ).toEqual(before.rows);
-          await writer.query("COMMIT");
-          writerOpen = false;
-        }
-        const cancelled = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-        expect(cancelled.rows).toEqual([
-          { ...before.rows[0], cancel_requested_at: expect.any(Date) },
-        ]);
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(
-          (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual([
-          {
-            ...cancelled.rows[0],
-            status: "cancelled",
-            completed_at: expect.any(Date),
-            updated_at: expect.any(Date),
-          },
-        ]);
-        expect(token).not.toHaveBeenCalled();
-        expect(factory).not.toHaveBeenCalled();
-        expect(
-          fake.controls.events.filter(
-            (event) => event.kind === "finishReviewCheck" || event.kind === "setReviewCommitStatus",
-          ),
-        ).toEqual([]);
-      } finally {
-        if (writerOpen) await writer.query("ROLLBACK");
-        vi.mocked(sweeper.query).mockRestore();
-        vi.mocked(sweeper.release).mockRestore();
-        release();
-        writer.release();
-      }
-    },
-  );
-
-  it.each(["item", "lease", "missing lease", "unrelated job"] as const)(
-    "defers on %s contention and recovers after it ends",
-    async (block) => {
-      const cfg = makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true },
-      });
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      const check = await fake.surface.startReviewCheck("h", id, "Running");
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: check.id,
-        detail: { status: "in_progress" },
-      });
-      const finish = fake.surface.finishReviewCheck.bind(fake.surface);
-      vi.spyOn(fake.surface, "finishReviewCheck").mockImplementation(async (...args) => {
-        expect(
-          (
-            await pool.query(
-              "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
-              [id],
-            )
-          ).rows,
-        ).toEqual([
-          { status: "failed", last_error: "worker_lost", completed_at: expect.any(Date) },
-        ]);
-        return finish(...args);
-      });
-      if (block !== "missing lease") {
-        await acquirePrActorLease(pool, {
-          resourceKey,
-          workType: "review",
-          workItemId: id,
-          holderId: OWNER,
-          ttlSeconds: 900,
-        });
-        await pool.query(
-          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-          [id],
-        );
-      }
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
-      expect(items).toHaveLength(1);
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const checkBefore = await pool.query(
-        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
-        [id],
-      );
-      const outcomes: boolean[] = [];
-      const mark = workState.markLostRunningWorkFailed;
-      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
-        const result = await mark(...args);
-        outcomes.push(result);
-        return result;
-      });
-      const blocker = await pool.connect();
-      let open = false;
-      try {
-        await blocker.query("BEGIN");
-        open = true;
-        if (block === "item") {
-          await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
-        } else if (block === "lease") {
-          await blocker.query(
-            "SELECT resource_key FROM pr_actor_leases WHERE work_item_id = $1 FOR UPDATE",
-            [id],
-          );
-        } else if (block === "missing lease") {
-          expect(
-            await acquirePrActorLease(blocker, {
-              resourceKey,
-              workType: "review",
-              workItemId: id,
-              holderId: OWNER,
-              ttlSeconds: 900,
-            }),
-          ).toMatchObject({ acquired: true });
-          expect(
-            (
-              await pool.query("SELECT resource_key FROM pr_actor_leases WHERE resource_key = $1", [
-                resourceKey,
-              ])
-            ).rows,
-          ).toEqual([]);
-        } else {
-          await blocker.query(
-            "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'created', $3::jsonb)",
-            [randomUUID(), DESCRIPTION_QUEUE, JSON.stringify({ owner: OWNER })],
-          );
-        }
-        const started = performance.now();
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(outcomes).toEqual([false]);
-        console.info("lost-running contention duration", {
-          block,
-          durationMs: performance.now() - started,
-        });
-        expect(
-          (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual(before.rows);
-        expect(
-          (
-            await pool.query(
-              "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
-              [id],
-            )
-          ).rows,
-        ).toEqual(checkBefore.rows);
-        expect(token).not.toHaveBeenCalled();
-        expect(factory).not.toHaveBeenCalled();
-        expect(
-          fake.controls.events.filter(
-            (event) => event.kind === "finishReviewCheck" || event.kind === "setReviewCommitStatus",
-          ),
-        ).toEqual([]);
-        await blocker.query("ROLLBACK");
-        open = false;
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(outcomes).toEqual([false, true]);
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(outcomes).toEqual([false, true]);
-        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
-          expect.objectContaining({ conclusion: "action_required" }),
-        ]);
-        expect(
-          fake.controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
-        ).toEqual([
-          expect.objectContaining({ status: expect.objectContaining({ state: "error" }) }),
-        ]);
-      } finally {
-        if (open) await blocker.query("ROLLBACK");
-        blocker.release();
-      }
-    },
-  );
-
-  it.each(["55P03", "57014"] as const)(
-    "propagates an early routing error %s and warns during reconciliation",
-    async (code) => {
-      const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
-      expect(items).toHaveLength(1);
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const blocker = await pool.connect();
-      const sweeper = await pool.connect();
-      const read = sweeper.query.bind(sweeper);
-      const release = sweeper.release.bind(sweeper);
-      const defaults = await read(
-        `SELECT current_setting('statement_timeout') AS statement,
-                current_setting('idle_in_transaction_session_timeout') AS idle`,
-      );
-      const warn = vi.spyOn(evlog, "logWarn");
-      const mark = workState.markLostRunningWorkFailed;
-      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
-        const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-        try {
-          return await mark(...args);
-        } finally {
-          connect.mockRestore();
-        }
-      });
-      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-      const query = vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-        if (
-          typeof text === "string" &&
-          text.includes("SELECT resource_key, type") &&
-          values?.[0] === id
-        ) {
-          if (code === "55P03") {
-            await read("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE NOWAIT", [id]);
-          } else {
-            await read("SELECT pg_sleep(5)");
-          }
-        }
-        return read(text, values);
-      });
-      let open = false;
-      try {
-        await blocker.query("BEGIN");
-        open = true;
-        await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
-        await expect(
-          workState.markLostRunningWorkFailed(pool, id, minAgeSeconds),
-        ).rejects.toMatchObject({
-          code,
-        });
-        await reconcileLostRunningWork({ cfg, pool, items });
-        expect(warn).toHaveBeenCalledWith(
-          "lost_running_work_reconcile_failed",
-          expect.objectContaining({ workItemId: id, message: expect.any(String) }),
-        );
-        expect(
-          (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual(before.rows);
-        expect(
-          (
-            await read(
-              `SELECT current_setting('statement_timeout') AS statement,
-                      current_setting('idle_in_transaction_session_timeout') AS idle`,
-            )
-          ).rows,
-        ).toEqual(defaults.rows);
-        await blocker.query("ROLLBACK");
-        open = false;
-        query.mockRestore();
-        expect(await workState.markLostRunningWorkFailed(pool, id, minAgeSeconds)).toBe(true);
-      } finally {
-        if (open) await blocker.query("ROLLBACK");
-        query.mockRestore();
-        vi.mocked(sweeper.release).mockRestore();
-        release();
-        blocker.release();
-      }
-    },
-  );
-
-  it("rolls back a timed-out protected query and frees an unrelated queue writer", async () => {
-    const { id } = await insertAgedQueuedWork({ ageSeconds: 1800 });
-    await pool.query(
-      "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-      [id],
-    );
-    const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-    const sweeper = await pool.connect();
-    const writer = await pool.connect();
-    const observer = await pool.connect();
-    const read = sweeper.query.bind(sweeper);
-    const release = sweeper.release.bind(sweeper);
-    const defaults = await read(
-      `SELECT current_setting('statement_timeout') AS statement,
-              current_setting('idle_in_transaction_session_timeout') AS idle`,
-    );
-    const { rows: sweepPid } = await read<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-    const { rows: writerPid } = await writer.query<{ pid: number }>(
-      "SELECT pg_backend_pid() AS pid",
-    );
-    let active: (() => void) | undefined;
-    const ready = new Promise<void>((resolve) => {
-      active = resolve;
-    });
-    let cancellation: unknown;
-    vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
-    const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-    vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-      if (typeof text === "string" && /UPDATE\s+agent_work_items/i.test(text)) {
-        active?.();
-        try {
-          await read("SELECT pg_sleep(5)");
-        } catch (error) {
-          cancellation = error;
-          throw error;
-        }
-      }
-      return read(text, values);
-    });
-    const started = performance.now();
-    const marking = workState
-      .markLostRunningWorkFailed(pool, id, 1200)
-      .catch((error: unknown) => error);
-    let insert: Promise<unknown> | undefined;
-    try {
-      await Promise.race([ready, marking]);
-      insert = writer
-        .query(
-          "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'created', $3::jsonb)",
-          [randomUUID(), DESCRIPTION_QUEUE, JSON.stringify({ owner: OWNER })],
-        )
-        .catch((error: unknown) => error);
-      await expect
-        .poll(async () => {
-          const { rows } = await observer.query<{ blocked: boolean }>(
-            "SELECT $1 = ANY(pg_blocking_pids($2)) AS blocked",
-            [sweepPid[0]?.pid, writerPid[0]?.pid],
-          );
-          return rows[0]?.blocked;
-        })
-        .toBe(true);
-      expect(await marking).toBe(false);
-      expect(cancellation).toMatchObject({ code: "57014" });
-      expect(await insert).toMatchObject({ rowCount: 1 });
-      console.info("lost-running protected timeout duration", {
-        durationMs: performance.now() - started,
-      });
-      expect(
-        (await observer.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-      ).toEqual(before.rows);
-      expect(
-        (
-          await read(
-            `SELECT current_setting('statement_timeout') AS statement,
-                current_setting('idle_in_transaction_session_timeout') AS idle`,
-          )
-        ).rows,
-      ).toEqual(defaults.rows);
-    } finally {
-      await marking;
-      await insert;
-      connect.mockRestore();
-      vi.mocked(sweeper.query).mockRestore();
-      vi.mocked(sweeper.release).mockRestore();
-      release();
-      writer.release();
-      observer.release();
-    }
-  });
-
-  it.each(["idle timeout", "SQL error"] as const)(
-    "rejects an unexpected $failure without retaining the queue lock",
-    async (failure) => {
-      const { id } = await insertAgedQueuedWork({ ageSeconds: 1800 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const sweeper = await pool.connect();
-      const observer = await pool.connect();
-      const read = sweeper.query.bind(sweeper);
-      const release = sweeper.release.bind(sweeper);
-      const { rows } = await read<{ pid: number }>("SELECT pg_backend_pid() AS pid");
-      const connectionErrors: unknown[] = [];
-      let receiveConnectionError: (() => void) | undefined;
-      const connectionError = new Promise<void>((resolve) => {
-        receiveConnectionError = resolve;
-      });
-      const onError = (error: Error) => {
-        connectionErrors.push(error);
-        receiveConnectionError?.();
-      };
-      sweeper.on("error", onError);
-      let discard = false;
-      vi.spyOn(sweeper, "release").mockImplementation((error) => {
-        discard = error === true || error instanceof Error;
-      });
-      const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
-      vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
-        if (typeof text === "string" && /UPDATE\s+agent_work_items/i.test(text)) {
-          if (failure === "idle timeout") {
-            await connectionError;
-          } else {
-            await read("SELECT FROM");
-          }
-        }
-        return read(text, values);
-      });
-      try {
-        const result = await workState
-          .markLostRunningWorkFailed(pool, id, 1200)
-          .catch((error: unknown) => error);
-        expect(result).toBeInstanceOf(Error);
-        if (failure === "idle timeout") {
-          expect(connectionErrors).toContainEqual(expect.objectContaining({ code: "25P03" }));
-          expect(discard).toBe(true);
-        } else {
-          expect(result).toMatchObject({ code: "42601" });
-        }
-        expect(
-          (await observer.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
-        ).toEqual(before.rows);
-        expect(
-          (
-            await observer.query<{ held: boolean }>(
-              `SELECT EXISTS (
-               SELECT 1 FROM pg_locks
-                WHERE pid = $1 AND relation = 'pgboss.job'::regclass
-                  AND mode = 'ShareLock' AND granted
-             ) AS held`,
-              [rows[0]?.pid],
-            )
-          ).rows[0]?.held,
-        ).toBe(false);
-        expect(
-          (
-            await observer.query(
-              "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'created', $3::jsonb)",
-              [randomUUID(), DESCRIPTION_QUEUE, JSON.stringify({ owner: OWNER })],
-            )
-          ).rowCount,
-        ).toBe(1);
-      } finally {
-        connect.mockRestore();
-        vi.mocked(sweeper.query).mockRestore();
-        vi.mocked(sweeper.release).mockRestore();
-        sweeper.off("error", onError);
-        release(discard);
-        observer.release();
-      }
-    },
-  );
-
-  it.each(
-    (["review", "description", "triage", "verification"] as const).flatMap((workType) =>
-      (["renewal", "job revival"] as const).map((revival) => ({ workType, revival })),
-    ),
-  )("terminal UPDATE survives $revival for $workType", async ({ workType, revival }) => {
-    const cfg = makeTestConfig();
-    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-    const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-    await pool.query(
-      `UPDATE agent_work_items
-          SET type = $2, source = $3, status = 'running', started_at = created_at
-        WHERE id = $1`,
-      [id, workType, workType === "triage" ? "slash" : "auto"],
-    );
-    const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-    const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-      token: "synthetic-integration-token",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    });
-    const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-    if (workType === "review") {
-      const check = await fake.surface.startReviewCheck("h", id, "Running");
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: check.id,
-        detail: { status: "in_progress" },
-      });
-    }
-    let leaseEpoch: number | null = null;
-    if (revival === "renewal") {
-      const acquisition = await acquirePrActorLease(pool, {
-        resourceKey,
-        workType,
-        workItemId: id,
-        holderId: "stale-queue-it",
-        ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-      });
-      if (!acquisition.acquired) throw new Error("Expected initial lease acquisition");
-      leaseEpoch = acquisition.leaseEpoch;
-      await pool.query(
-        "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-        [id],
-      );
-    }
-    const snapshot = await collectQueueDiagnostics({
-      boss,
-      pool,
-      now: new Date(),
-      diagnosticQueues: [],
-      dlqQueues: [],
-      lostRunningMinAgeSeconds: minAgeSeconds,
-    });
-    expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-    const before = await pool.query<{
-      status: string;
-      last_error: string | null;
-      completed_at: Date | null;
-      updated_at: Date;
-    }>("SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1", [
-      id,
-    ]);
-    const mark = workState.markLostRunningWorkFailed;
-    let intercepted = false;
-    vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
-      if (!intercepted && args[1] === id) {
-        intercepted = true;
-        const client = await pool.connect();
-        try {
-          if (revival === "renewal") {
-            if (leaseEpoch == null) throw new Error("Expected acquired epoch");
-            expect(
-              await renewPrActorLease(client, {
-                resourceKey,
-                workType,
-                workItemId: id,
-                leaseEpoch,
-                ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-              }),
-            ).toBe(true);
-          } else {
-            const queue = {
-              review: REVIEW_QUEUE,
-              description: DESCRIPTION_QUEUE,
-              triage: TRIAGE_QUEUE,
-              verification: VERIFICATION_QUEUE,
-            }[workType];
-            await client.query(
-              "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'active', $3::jsonb)",
-              [randomUUID(), queue, JSON.stringify({ owner: OWNER, workItemId: id })],
-            );
-          }
-        } finally {
-          client.release();
-        }
-      }
-      return mark(...args);
-    });
-    await reconcileLostRunningWork({
-      cfg,
-      pool,
-      items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-    });
-    expect(intercepted).toBe(true);
-    const after = await pool.query(
-      "SELECT status, last_error, completed_at, updated_at FROM agent_work_items WHERE id = $1",
-      [id],
-    );
-    expect(after.rows).toEqual(before.rows);
-    expect(token).not.toHaveBeenCalled();
-    expect(factory).not.toHaveBeenCalled();
-    expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([]);
-    if (workType !== "review") return;
-    if (leaseEpoch == null) {
-      leaseEpoch = await inTransaction(pool, async (client) => {
-        const acquisition = await acquirePrActorLease(client, {
-          resourceKey,
-          workType,
-          workItemId: id,
-          holderId: "stale-queue-it-recovered",
-          ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
-        });
-        if (!acquisition.acquired) throw new Error("Expected resumed lease acquisition");
-        expect(await claimWorkForExecution(client, id, acquisition.leaseEpoch)).not.toBeNull();
-        return acquisition.leaseEpoch;
-      });
-    }
-    expect(await markWorkCompleted(pool, id, leaseEpoch)).toBe(true);
-    await reviewVerdict({
-      pool,
-      prSurface: fake.surface,
-      owner: OWNER,
-      repo: "r",
-      prNumber: 1,
-      workItemId: id,
-      resourceKey,
-      reviewLens: "review",
-      headSha: "h",
-      leaseEpoch,
-      commitStatusEnabled: false,
-    }).close({ kind: "published", conclusion: "success", blockingCount: 0 });
-    expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
-      expect.objectContaining({ conclusion: "success" }),
-    ]);
-    const completed = await pool.query<{ status: string; detail: { conclusion: string } }>(
-      `SELECT w.status, p.detail FROM agent_work_items w
-         JOIN publish_records p ON p.work_item_id = w.id AND p.step = 'check_run'
-        WHERE w.id = $1`,
-      [id],
-    );
-    expect(completed.rows[0]).toMatchObject({
-      status: "completed",
-      detail: { status: "completed", conclusion: "success" },
-    });
-  });
-
-  it.each(
-    (["created", "active", "retry"] as const).flatMap((state) =>
-      (["id", "singleton", "json"] as const).map((identity) => ({ state, identity })),
-    ),
-  )(
-    "preserves running work with a revived $state job matched only by $identity",
-    async ({ state, identity }) => {
-      const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-      await pool.query(
-        `INSERT INTO pgboss.job (id, name, state, singleton_key, data)
-       VALUES ($1, $2, $3, $4, $5::jsonb)`,
-        [
-          identity === "id" ? id : randomUUID(),
-          REVIEW_QUEUE,
-          state,
-          identity === "singleton" ? id : null,
-          JSON.stringify({ owner: OWNER, ...(identity === "json" ? { workItemId: id } : {}) }),
-        ],
-      );
-      await reconcileLostRunningWork({
-        cfg,
-        pool,
-        items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-      });
-      const result = await pool.query(
-        "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
-        [id],
-      );
-      expect(result.rows).toEqual([{ status: "running", last_error: null, completed_at: null }]);
-    },
-  );
-
-  it.each(["review", "description", "triage", "verification", "ask"] as const)(
-    "fails truly lost %s work and retries a failed review close",
-    async (workType) => {
-      const cfg = makeTestConfig({
-        features: { ...makeTestConfig().features, commitStatus: true },
-      });
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        `UPDATE agent_work_items
-            SET type = $2, source = $3, status = 'running', started_at = created_at
-          WHERE id = $1`,
-        [id, workType, workType === "triage" || workType === "ask" ? "slash" : "auto"],
-      );
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      const finish = vi.spyOn(fake.surface, "finishReviewCheck");
-      if (workType === "review") {
-        const check = await fake.surface.startReviewCheck("h", id, "Running");
-        await recordReviewCheckRun(pool, {
-          workItemId: id,
-          resourceKey,
-          reviewLens: "review",
-          githubId: check.id,
-          detail: { status: "in_progress" },
-        });
-        finish.mockRejectedValueOnce(
-          Object.assign(new Error("Synthetic close failure"), { accepted: false }),
-        );
-      }
-      await pool.query(
-        `INSERT INTO pgboss.job (id, name, state, data)
-         VALUES ($1, $2, 'completed', $3::jsonb), ($4, $5, 'active', $3::jsonb)`,
-        [
-          randomUUID(),
-          {
-            review: REVIEW_QUEUE,
-            description: DESCRIPTION_QUEUE,
-            triage: TRIAGE_QUEUE,
-            verification: VERIFICATION_QUEUE,
-            ask: ASK_QUEUE,
-          }[workType],
-          JSON.stringify({ owner: OWNER, workItemId: id }),
-          randomUUID(),
-          "agent-work-ack",
-        ],
-      );
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-      const completedEvents = () =>
-        capture.mock.calls
-          .map(([event]) => event)
-          .filter((event) => event.event === "work completed");
-      await reconcileLostRunningWork({
-        cfg,
-        pool,
-        items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-      });
-      const result = await pool.query(
-        "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
-        [id],
-      );
-      expect(result.rows).toEqual([
-        { status: "failed", last_error: "worker_lost", completed_at: expect.any(Date) },
-      ]);
-      expect(completedEvents()).toHaveLength(1);
-      expect(completedEvents()[0]).toMatchObject({
-        event: "work completed",
-        properties: {
-          work_item_id: id,
-          work_type: workType,
-          outcome: "failed",
-          error_kind: "unknown",
-          error_message: "worker_lost",
-          attempt_count: 0,
-        },
-      });
-      const duration = completedEvents()[0]?.properties?.duration_ms;
-      expect(duration).toEqual(expect.any(Number));
-      expect(duration).toBeGreaterThan(0);
-      if (workType !== "review") {
-        await reconcileLostRunningWork({
-          cfg,
-          pool,
-          items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-        });
-        expect(completedEvents()).toHaveLength(1);
-        expect(factory).not.toHaveBeenCalled();
-        return;
-      }
-      expect(finish).toHaveBeenCalledTimes(1);
-      const open = await pool.query<{ detail: { status: string } }>(
-        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
-        [id],
-      );
-      expect(open.rows[0]?.detail.status).toBe("in_progress");
-      await reconcileLostRunningWork({ cfg, pool, items: [] });
-      expect(finish).toHaveBeenCalledTimes(2);
-      expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
-        expect.objectContaining({ conclusion: "action_required" }),
-      ]);
-      expect(
-        fake.controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
-      ).toEqual([expect.objectContaining({ status: expect.objectContaining({ state: "error" }) })]);
-      await reconcileLostRunningWork({ cfg, pool, items: snapshot.lostRunningWorkItems });
-      expect(finish).toHaveBeenCalledTimes(2);
-      expect(completedEvents()).toHaveLength(1);
-    },
-  );
-
-  it("fails a lost ask while the lease table is exclusively locked", async () => {
-    const minAgeSeconds = 1200;
-    const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-    await pool.query(
-      `UPDATE agent_work_items
-          SET type = 'ask', source = 'slash', status = 'running', started_at = created_at
-        WHERE id = $1`,
-      [id],
-    );
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("LOCK TABLE pr_actor_leases IN EXCLUSIVE MODE");
-      expect(await workState.markLostRunningWorkFailed(pool, id, minAgeSeconds)).toBe(true);
-    } finally {
-      await client.query("ROLLBACK");
-      client.release();
-    }
-    const result = await pool.query<{ status: string; last_error: string }>(
-      "SELECT status, last_error FROM agent_work_items WHERE id = $1",
-      [id],
-    );
-    expect(result.rows).toEqual([{ status: "failed", last_error: "worker_lost" }]);
-  });
-
-  it.each(["lock", "admission"] as const)(
-    "repairs a terminal verdict deferred by %s without a new work delivery",
-    async (mode) => {
-      const defaults = makeTestConfig();
-      const cfg = makeTestConfig({ features: { ...defaults.features, commitStatus: true } });
-      const { id, resourceKey } = await insertAgedQueuedWork();
-      await pool.query("UPDATE agent_work_items SET status = 'cancelled' WHERE id = $1", [id]);
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: 111,
-        detail: { status: "in_progress" },
-      });
-      const finish = vi.spyOn(fake.surface, "finishReviewCheck");
-      const status = vi.spyOn(fake.surface, "setReviewCommitStatus");
-      let release!: () => void;
-      const barrier = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const entered: Promise<void>[] = [];
-      const holders = Array.from(
-        { length: mode === "lock" ? 1 : Math.max(1, Math.floor((pool.options.max ?? 10) / 2)) },
-        (_, index) => {
-          let enter!: () => void;
-          entered.push(
-            new Promise<void>((resolve) => {
-              enter = resolve;
-            }),
-          );
-          return withOwnVerdictClose(
-            pool,
-            {
-              workItemId: mode === "lock" ? id : randomUUID(),
-              resourceKey,
-              reviewLens: "review",
-              leaseEpoch: null,
-            },
-            async () => {
-              enter();
-              await barrier;
-              return index;
-            },
-          );
-        },
-      );
-      try {
-        await Promise.all(entered);
-        await reviewVerdict({
-          pool,
-          prSurface: fake.surface,
-          owner: OWNER,
-          repo: "r",
-          prNumber: 1,
-          workItemId: id,
-          resourceKey,
-          reviewLens: "review",
-          headSha: "h",
-          leaseEpoch: null,
-          commitStatusEnabled: cfg.features.commitStatus,
-        }).close({ kind: "cancelled" });
-        expect(finish).not.toHaveBeenCalled();
-        expect(status).not.toHaveBeenCalled();
-        expect(
-          (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
-        ).toContain(id);
-      } finally {
-        release();
-        await Promise.all(holders);
-      }
-      await reconcileLostRunningWork({ cfg, pool, items: [] });
-      await reconcileLostRunningWork({ cfg, pool, items: [] });
-      expect(finish).toHaveBeenCalledOnce();
-      expect(finish).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "cancelled" }));
-      expect(status).toHaveBeenCalledOnce();
-      expect(status).toHaveBeenCalledWith("h", expect.objectContaining({ state: "error" }));
-      expect(
-        (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
-      ).not.toContain(id);
-      console.log(
-        "own-verdict-deferred-repair",
-        JSON.stringify({
-          mode,
-          finishCalls: finish.mock.calls.length,
-          statusCalls: status.mock.calls.length,
-        }),
-      );
-    },
-  );
-
-  it.each([
-    "unresolved",
-    "blocked",
-    "skipped-for-this-run",
-    "pending_status_without_check",
-  ] as const)(
-    "finds pending own-verdict selections only when %s remains applicable",
-    async (state) => {
-      const { claimOwnVerdict, recordOwnVerdictSurfaceState } =
-        await import("../../src/agentWork/publishRecordRepository.ts");
-      const { id, resourceKey } = await insertAgedQueuedWork();
-      await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE id = $1", [id]);
-      const identity = {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review" as const,
-        leaseEpoch: null,
-      };
-      const selected = {
-        conclusion: "success" as const,
-        summary: "winner",
-        status: { headSha: "h", enabled: false, state: "success" as const },
-      };
-      if (state === "pending_status_without_check") {
-        await pool.query(
-          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
-           VALUES ($1, $2, $3, 'github.review_commit_status', 'pending',
-                   '{"state":"pending","headSha":"h","__result":null}'::jsonb)`,
-          [randomUUID(), id, `review:commit_status:${resourceKey}:h:pending`],
-        );
-      } else {
-        await claimOwnVerdict(pool, { ...identity, selected });
-        await recordOwnVerdictSurfaceState(pool, { ...identity, selected }, "check", state);
-      }
-      const candidates = (await listTerminalReviewsWithOpenOwnChecks(pool)).map(
-        (item) => item.workItemId,
-      );
-      expect(candidates.includes(id)).toBe(state !== "skipped-for-this-run");
-      const row = await pool.query(
-        "SELECT github_id, detail FROM publish_records WHERE work_item_id = $1",
-        [id],
-      );
-      if (state === "pending_status_without_check") {
-        expect(row.rows).toEqual([]);
-        const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
-          await import("../../src/github/installationCapabilities.ts");
-        const available = availableInstallationCapabilities({
-          appId: makeTestConfig().github.appId,
-          installationId: 1,
-          owner: OWNER,
-          repo: "r",
-        });
-        const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-        Object.defineProperty(fake.surface, "capabilities", {
-          value: createReviewCapabilityPolicy({
-            ...available,
-            availability: {
-              ...available.availability,
-              checksRead: "denied",
-              checksWrite: "denied",
-            },
-          }),
-        });
-        await reviewVerdict({
-          ...identity,
-          pool,
-          prSurface: fake.surface,
-          owner: OWNER,
-          repo: "r",
-          prNumber: 1,
-          headSha: "h",
-          commitStatusEnabled: false,
-        }).repairIfOpen();
-        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
-          [],
-        );
-        expect(
-          fake.controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
-        ).toEqual([
-          expect.objectContaining({ status: expect.objectContaining({ state: "error" }) }),
-        ]);
-        expect(
-          (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
-        ).not.toContain(id);
-        return;
-      }
-      expect(row.rows[0].github_id).toBeNull();
-      expect(row.rows[0].detail.ownCheckApplied).toBeUndefined();
-      expect(row.rows[0].detail.conclusion).toBeUndefined();
-      if (state === "blocked") {
-        const {
-          saveGithubCapabilityObservation,
-          loadGithubCapabilityObservation,
-          recordGithubCapabilityDenial,
-        } = await import("../../src/agentWork/githubCapabilityRepository.ts");
-        const { availableInstallationCapabilities } =
-          await import("../../src/github/installationCapabilities.ts");
-        const availability = availableInstallationCapabilities({
-          appId: makeTestConfig().github.appId,
-          installationId: 1,
-          owner: OWNER,
-          repo: "r",
-        }).availability;
-        await recordReviewCheckRun(pool, {
-          ...identity,
-          githubId: 111,
-          detail: { status: "in_progress" },
-        });
-        await saveGithubCapabilityObservation(pool, {
-          installationId: 1,
-          owner: OWNER,
-          repo: "r",
-          observation: {
-            generation: 1,
-            capabilities: availability,
-          },
-        });
-        try {
-          const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-          vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-            token: "synthetic-integration-token",
-            expiresAtTs: Date.now() + 60_000,
-            ttlMs: 60_000,
-          });
-          vi.spyOn(prSurface, "createPrSurface").mockImplementation((params) => {
-            Object.defineProperty(fake.surface, "capabilities", {
-              value: params.capabilities,
-              configurable: true,
-            });
-            return fake.surface;
-          });
-          const finish = vi
-            .spyOn(fake.surface, "finishReviewCheck")
-            .mockImplementationOnce(async () => {
-              await fake.surface.capabilities?.deny("checksWrite");
-              throw Object.assign(new Error("Resource not accessible by integration"), {
-                status: 403,
-                accepted: false,
-              });
-            });
-          await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
-          expect(
-            (
-              await loadGithubCapabilityObservation(pool, {
-                installationId: 1,
-                owner: OWNER,
-                repo: "r",
-              })
-            )?.capabilities.checksWrite,
-          ).toBe("denied");
-          expect(
-            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
-          ).not.toContain(id);
-          const restarts = Array.from({ length: 2 }, () =>
-            spawnSync(
-              process.execPath,
-              [
-                "--input-type=module",
-                "-e",
-                `
-            const { Pool } = await import("pg");
-            const { productionInstallationSurface } = await import("./src/agentWork/installationSurface.ts");
-            const { reconcileLostRunningWork } = await import("./src/agentWork/lostRunningWork.ts");
-            const { makeTestConfig } = await import("./test/helpers/config.ts");
-            let tokenCalls = 0, surfaceCalls = 0;
-            productionInstallationSurface.token = async () => { tokenCalls++; throw new Error("Denied token polling"); };
-            productionInstallationSurface.create = async () => { surfaceCalls++; throw new Error("Denied surface polling"); };
-            const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-            try {
-              await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
-              console.log(JSON.stringify({ pid: process.pid, tokenCalls, surfaceCalls }));
-            } finally { await pool.end(); }
-          `,
-              ],
-              { cwd: process.cwd(), encoding: "utf8", timeout: 30_000 },
-            ),
-          );
-          const pids: number[] = [];
-          for (const restart of restarts) {
-            expect(restart.error).toBeUndefined();
-            expect(restart.status).toBe(0);
-            const evidence = JSON.parse(restart.stdout.trim());
-            expect(evidence).toMatchObject({ tokenCalls: 0, surfaceCalls: 0 });
-            expect(evidence.pid).not.toBe(process.pid);
-            pids.push(evidence.pid);
-          }
-          expect(new Set(pids).size).toBe(2);
-          await saveGithubCapabilityObservation(pool, {
-            installationId: 1,
-            owner: OWNER,
-            repo: "r",
-            observation: { generation: 2, capabilities: availability },
-          });
-          await recordGithubCapabilityDenial(pool, {
-            installationId: 1,
-            owner: OWNER,
-            repo: "r",
-            generation: 1,
-            operation: "checksWrite",
-          });
-          expect(
-            (
-              await loadGithubCapabilityObservation(pool, {
-                installationId: 1,
-                owner: OWNER,
-                repo: "r",
-              })
-            )?.capabilities.checksWrite,
-          ).toBe("available");
-          await reconcileLostRunningWork({ cfg: makeTestConfig(), pool, items: [] });
-          expect(
-            fake.controls.events.filter((event) => event.kind === "finishReviewCheck"),
-          ).toEqual([expect.objectContaining({ conclusion: "success" })]);
-          expect(finish).toHaveBeenLastCalledWith(
-            expect.objectContaining({ conclusion: "success", summary: "winner" }),
-          );
-          expect(
-            (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
-          ).not.toContain(id);
-          console.info("own-verdict-denial-restart-repair", {
-            processes: pids.length,
-            deniedTokenCalls: 0,
-            deniedSurfaceCalls: 0,
-            repaired: true,
-          });
-        } finally {
-          await pool.query(
-            "DELETE FROM github_repository_capabilities WHERE installation_id = 1 AND owner = $1 AND repo = 'r'",
-            [OWNER],
-          );
-        }
-      }
-    },
-  );
-
-  it.each(["completed", "cancelled", "superseded", "failed", "cancel_requested"] as const)(
-    "does not close or overwrite a candidate changed to %s after detection",
-    async (status) => {
-      const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-      await pool.query(
-        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
-        [id],
-      );
-      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
-        token: "synthetic-integration-token",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      });
-      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
-      const check = await fake.surface.startReviewCheck("h", id, "Running");
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: check.id,
-        detail: { status: "in_progress" },
-      });
-      const snapshot = await collectQueueDiagnostics({
-        boss,
-        pool,
-        now: new Date(),
-        diagnosticQueues: [],
-        dlqQueues: [],
-        lostRunningMinAgeSeconds: minAgeSeconds,
-      });
-      expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-      if (status === "cancel_requested") {
-        await pool.query("UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1", [
-          id,
-        ]);
-      } else {
-        await pool.query("UPDATE agent_work_items SET status = $2 WHERE id = $1", [id, status]);
-      }
-      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-      await reconcileLostRunningWork({
-        cfg,
-        pool,
-        items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-      });
-      const after = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
-      const completions = capture.mock.calls
-        .map(([event]) => event)
-        .filter((event) => event.event === "work completed");
-      if (status === "cancel_requested") {
-        expect(after.rows[0]?.status).toBe("cancelled");
-        expect(after.rows[0]?.cancel_requested_at).toEqual(before.rows[0]?.cancel_requested_at);
-        expect(completions).toHaveLength(1);
-        expect(completions[0]).toMatchObject({
-          properties: {
-            work_item_id: id,
-            work_type: "review",
-            outcome: "cancelled",
+        immediate(db, () =>
+          cancelWorkRun(db, {
+            workId: "stale-cancel-cancelled",
             reason: "cancel_requested",
-            attempt_count: 0,
-          },
-        });
-        const duration = completions[0]?.properties?.duration_ms;
-        expect(duration).toEqual(expect.any(Number));
-        expect(duration).toBeGreaterThan(0);
-        capture.mockClear();
-        await reconcileLostRunningWork({
-          cfg,
-          pool,
-          items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
-        });
-        expect(
-          capture.mock.calls.filter(([event]) => event.event === "work completed"),
-        ).toHaveLength(0);
-      } else {
-        expect(after.rows).toEqual(before.rows);
-        expect(completions).toHaveLength(0);
+            now: Date.now(),
+          }),
+        );
       }
-      expect(factory).not.toHaveBeenCalled();
-      expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual(
-        [],
-      );
-      if (status === "failed") {
-        await reconcileLostRunningWork({ cfg, pool, items: [] });
-        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
-          expect.objectContaining({ conclusion: "action_required" }),
-        ]);
-      }
+      const row = workRunById(db, `stale-cancel-${status}`);
+      expect(row?.status).toBe(status);
+      expect(row?.cancel_reason).toBe(status === "cancelled" ? "cancel_requested" : null);
+      const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+      expect(claimed?.run.work_id).not.toBe(`stale-cancel-${status}`);
     },
   );
 
-  it("sends superseded duration when a lost cancel request is linked", async () => {
-    const cfg = makeTestConfig();
-    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-    const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
-    const successor = await insertAgedQueuedWork();
-    await pool.query(
-      `UPDATE agent_work_items
-          SET status = 'running',
-              started_at = created_at,
-              cancel_requested_at = now(),
-              superseded_by = $2
-        WHERE id = $1`,
-      [id, successor.id],
-    );
-    const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
-    await reconcileLostRunningWork({ cfg, pool, items: [] });
-    expect(
-      (await pool.query("SELECT status FROM agent_work_items WHERE id = $1", [id])).rows,
-    ).toEqual([{ status: "superseded" }]);
-    const completions = capture.mock.calls
-      .map(([event]) => event)
-      .filter((event) => event.event === "work completed");
-    expect(completions).toHaveLength(1);
-    expect(completions[0]).toMatchObject({
-      properties: {
-        work_item_id: id,
-        work_type: "review",
-        outcome: "superseded",
-        reason: "cancel_requested",
-        attempt_count: 0,
+  it.each(["completed", "failed", "cancelled", "superseded"] as const)(
+    "does not close or overwrite a candidate changed to %s after detection",
+    (status) => {
+      const workId = `stale-terminal-${status}`;
+      ensurePrState(db, `o/r#terminal-${status}`, Date.now());
+      insertRun(workId, `o/r#terminal-${status}`, "review");
+      if (status === "cancelled") {
+        immediate(db, () =>
+          cancelWorkRun(db, { workId, reason: "cancel_requested", now: Date.now() }),
+        );
+      } else if (status === "superseded") {
+        immediate(db, () => supersedeWorkRun(db, { workId, now: Date.now() }));
+      } else {
+        const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+        markAttemptRunning(db, {
+          workId,
+          attemptNo: claimed!.attempt.attempt_no,
+          conversationId: `conv-${status}`,
+          taskId: null,
+          now: Date.now(),
+        });
+        if (status === "completed") {
+          markWorkRunCompleted(db, { workId, attemptNo: 1, now: Date.now() });
+        } else {
+          markWorkRunFailed(db, {
+            workId,
+            attemptNo: 1,
+            errorJson: JSON.stringify({ message: "boom" }),
+            now: Date.now(),
+          });
+        }
+      }
+      expect(workRunById(db, workId)?.status).toBe(status);
+      expect(immediate(db, () => claimDispatchableWorkRun(db, Date.now()))).toBeUndefined();
+    },
+  );
+
+  it("does not fail a queued ask inside the grace window", () => {
+    insertRun("stale-ask-grace", "o/r#ask-grace", "ask");
+    reserveAskQuota(
+      db,
+      {
+        workItemId: "stale-ask-grace",
+        installationId: 6589001,
+        owner: "o",
+        repo: "r",
+        commenterId: 658,
       },
-    });
-    const duration = completions[0]?.properties?.duration_ms;
-    expect(duration).toEqual(expect.any(Number));
-    expect(duration).toBeGreaterThan(0);
-    capture.mockClear();
-    await reconcileLostRunningWork({ cfg, pool, items: [] });
-    expect(capture.mock.calls.filter(([event]) => event.event === "work completed")).toHaveLength(
-      0,
+      resolveAskQuotaConfig({}),
     );
+    db.prepare(`UPDATE work_runs SET created_at = 1, updated_at = 1 WHERE work_id = ?`).run(
+      "stale-ask-grace",
+    );
+    expect(workRunById(db, "stale-ask-grace")?.status).toBe("pending_dispatch");
+    expect(quotaReservationRow("stale-ask-grace")?.released_at).toBeNull();
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    expect(claimed?.run.work_id).toBe("stale-ask-grace");
   });
 
-  it("uses current mark time for an expired lease changed after an older snapshot", async () => {
-    const cfg = makeTestConfig();
-    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
-    const now = new Date(Date.now() - 60_000);
-    const { id, resourceKey } = await insertAgedQueuedWork({
-      ageSeconds: minAgeSeconds + 60,
-      now,
+  it("does not flag a queued review that still has a deferred watchdog hop", () => {
+    insertRun("stale-deferred-8", "o/r#8", "ack");
+    db.prepare(
+      `UPDATE work_runs SET status = 'retry_scheduled', next_retry_at = ? WHERE work_id = ?`,
+    ).run(Date.now() + 3600_000, "stale-deferred-8");
+    expect(immediate(db, () => claimDispatchableWorkRun(db, Date.now()))).toBeUndefined();
+  });
+
+  it("preserves running work during cancellation after routing", () => {
+    ensurePrState(db, "o/r#9", Date.now());
+    insertRun("stale-running-9", "o/r#9", "review");
+    const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+    markAttemptRunning(db, {
+      workId: "stale-running-9",
+      attemptNo: claimed!.attempt.attempt_no,
+      conversationId: "conv-running-9",
+      taskId: null,
+      now: Date.now(),
     });
-    await pool.query(
-      "UPDATE agent_work_items SET type = 'description', status = 'running', started_at = created_at WHERE id = $1",
-      [id],
+    expect(immediate(db, () => claimDispatchableWorkRun(db, Date.now()))).toBeUndefined();
+    expect(workRunById(db, "stale-running-9")?.status).toBe("running");
+  });
+});
+
+let reviewTaskDb: AppStateHandle["db"] | undefined;
+
+const TestReviewTask = defineTask<AttemptStamp, { readonly phase: "run" }, null>({
+  name: "test.review_attempt",
+  version: 1,
+  initial: () => ({ phase: "run" }),
+  phases: {
+    run: async (task, runtime, ctx) => {
+      const db = reviewTaskDb;
+      if (db !== undefined && (await awaitAttemptAdmission(db, task.input))) {
+        immediate(db, () =>
+          markWorkRunCompleted(db, {
+            workId: task.input.workId,
+            attemptNo: task.input.attemptNo,
+            now: Date.now(),
+          }),
+        );
+      }
+      await runtime.commit(
+        () => ({
+          status: "terminal" as const,
+          outcome: { status: "completed" as const, result: null },
+        }),
+        ctx,
+      );
+    },
+  },
+  abort: async (_task, runtime, ctx) => {
+    await runtime.commit(
+      () => ({ status: "terminal" as const, outcome: { status: "aborted" as const } }),
+      ctx,
     );
-    await acquirePrActorLease(pool, {
-      resourceKey,
-      workType: "description",
-      workItemId: id,
-      holderId: "stale-queue-it",
-      ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
+  },
+});
+
+const TASKS = [FeatureAttemptTask, TestReviewTask];
+
+type BootScenario = {
+  readonly dir: string;
+  readonly cfg: ReturnType<typeof makeTestConfig>;
+  readonly appState: AppStateHandle;
+  readonly calls: { feature: string[]; review: string[]; ack: string[] };
+};
+
+const scenarios: BootScenario[] = [];
+const services: DurableService[] = [];
+
+function bootScenario(queue: { readonly retryLimit?: number } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "pr-agent-boot-it-"));
+  const cfg = makeTestConfig({
+    runtime: {
+      sqliteDir: dir,
+      sqliteDbPath: null,
+      shutdownGraceMs: 2_000,
+      piDurableResetMaxBytes: 2_147_483_648,
+      piDurableResetMaxAgeSeconds: 2_592_000,
+    },
+    queue: { retryDelaySeconds: 0, retryDelayMaxSeconds: 1, ...queue },
+    retention: { enabled: false },
+  });
+  const appState = openAppState({ sqliteDir: dir, applySchema: applyAppStateSchema });
+  reviewTaskDb = appState.db;
+  const scenario = { dir, cfg, appState, calls: { feature: [], review: [], ack: [] } };
+  scenarios.push(scenario);
+  return scenario;
+}
+
+function scenarioHandlers(scenario: BootScenario, deps: WorkerDeps) {
+  return ((pinnedReturn: DispatcherHandlers) => pinnedReturn)({
+    review: async (claim) => {
+      scenario.calls.review.push(claim.run.work_id);
+      const runtime = deps.runtime;
+      const started = await startAttemptTask({
+        harness: runtime.handle.harness,
+        context: BACKGROUND_CONTEXT,
+        db: scenario.appState.db,
+        claim,
+        task: TestReviewTask,
+        input: {
+          workId: claim.run.work_id,
+          attemptNo: claim.attempt.attempt_no,
+          attemptId: claim.attempt.attempt_id,
+        },
+      });
+      if (started.markedRunning)
+        await runtime.handle.harness.waitForTask(started.taskId, BACKGROUND_CONTEXT);
+    },
+    feature: () => async (ctx) => {
+      scenario.calls.feature.push(`${ctx.run.work_id}#${String(ctx.attempt.attempt_no)}`);
+    },
+    ack: async (claim) => {
+      scenario.calls.ack.push(claim.run.work_id);
+    },
+  });
+}
+
+async function startService(scenario: BootScenario, runtime: DurableRuntime) {
+  const service = await startDurableService({
+    appState: scenario.appState,
+    cfg: scenario.cfg,
+    runtime,
+    reopenRuntime: () => openDurableRuntime(scenario.cfg, { tasks: TASKS }),
+    installationSurface: openInstallationSurface(),
+    reviewTaskName: TestReviewTask.definition.name,
+    createHandlers: (deps) => scenarioHandlers(scenario, deps),
+    intervals: { dispatcherIdleWakeMs: 20 },
+  });
+  services.push(service);
+  return service;
+}
+
+async function crash(runtime: DurableRuntime) {
+  await runtime.handle.harness.close(BACKGROUND_CONTEXT);
+}
+
+async function eventually(check: () => boolean, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!check()) {
+    if (Date.now() > deadline) throw new Error("condition not reached");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+function claimRun(scenario: BootScenario, workId: string) {
+  const db = scenario.appState.db;
+  const claimed = immediate(db, () => claimDispatchableWorkRun(db, Date.now()));
+  expect(claimed?.run.work_id).toBe(workId);
+  if (claimed === undefined) throw new Error("no claim");
+  return claimed;
+}
+
+function seedRun(
+  scenario: BootScenario,
+  workId: string,
+  kind: "review" | "ask" | "description",
+  prKey = `o/r#${workId}`,
+) {
+  const db = scenario.appState.db;
+  ensurePrState(db, prKey, Date.now());
+  insertWorkRun(db, {
+    workId,
+    prKey,
+    kind,
+    payloadJson: JSON.stringify({ owner: "o", repo: "r", prNumber: 1, installationId: 1 }),
+    now: Date.now(),
+  });
+}
+
+describe("boot barrier and dispatcher (sqlite + pi durable)", () => {
+  afterEach(async () => {
+    for (const service of services.splice(0)) await service.shutdown("test");
+    for (const scenario of scenarios.splice(0)) {
+      scenario.appState.close();
+      rmSync(scenario.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("retries an interrupted feature attempt as attempt_no + 1 and aborts the old task", async () => {
+    const scenario = bootScenario();
+    seedRun(scenario, "boot-feature-1", "description");
+    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const claim = claimRun(scenario, "boot-feature-1");
+    const started = await startFeatureAttempt({
+      harness: first.handle.harness,
+      context: BACKGROUND_CONTEXT,
+      db: scenario.appState.db,
+      claim,
     });
-    await pool.query(
-      "UPDATE pr_actor_leases SET expires_at = $2::timestamptz - interval '1 second' WHERE work_item_id = $1",
-      [id, now.toISOString()],
+    expect(started.markedRunning).toBe(true);
+    await crash(first);
+
+    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const service = await startService(scenario, second);
+    expect(service.phaseA.schedulingDuringPhaseA).toEqual(["paused", "paused"]);
+    expect(service.phaseA.interrupted).toBe(1);
+    expect(service.phaseA.toAbort).toEqual([started.taskId]);
+    expect(attemptFor(scenario.appState.db, "boot-feature-1", 1)?.status).toBe("failed");
+    expect(attemptFor(scenario.appState.db, "boot-feature-1", 1)?.error_json).toContain(
+      '"interrupted":true',
     );
-    const snapshot = await collectQueueDiagnostics({
-      boss,
-      pool,
-      now,
-      diagnosticQueues: [],
-      dlqQueues: [],
-      lostRunningMinAgeSeconds: minAgeSeconds,
-    });
-    expect(snapshot.lostRunningWorkItems.map((item) => item.workItemId)).toContain(id);
-    await pool.query(
-      "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-      [id],
+    await eventually(
+      () => workRunById(scenario.appState.db, "boot-feature-1")?.status === "completed",
     );
-    await reconcileLostRunningWork({
-      cfg,
-      pool,
-      items: snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id),
+    expect(workRunById(scenario.appState.db, "boot-feature-1")?.current_attempt_no).toBe(2);
+    expect(scenario.calls.feature).toEqual(["boot-feature-1#2"]);
+    const old = await second.handle.harness.waitForTask(started.taskId, BACKGROUND_CONTEXT);
+    expect(old.state.outcome.status).toBe("aborted");
+  });
+
+  it("skips a stale-lane claim and dispatches only the current lane epoch", async () => {
+    const scenario = bootScenario();
+    const db = scenario.appState.db;
+    seedRun(scenario, "boot-lane-old", "review", "o/r#lane");
+    bumpLaneEpoch(db, { prKey: "o/r#lane", lane: "review", now: Date.now() });
+    insertWorkRun(db, {
+      workId: "boot-lane-new",
+      prKey: "o/r#lane",
+      kind: "review",
+      laneEpoch: 1,
+      payloadJson: "{}",
+      now: Date.now(),
     });
+    await startService(scenario, await openDurableRuntime(scenario.cfg, { tasks: TASKS }));
+    await eventually(() => workRunById(db, "boot-lane-new")?.status === "completed");
+    expect(scenario.calls.review).toEqual(["boot-lane-new"]);
+    expect(workRunById(db, "boot-lane-old")?.status).toBe("pending_dispatch");
+    expect(workRunById(db, "boot-lane-old")?.current_attempt_no).toBe(0);
+  });
+
+  it("aborts a superseded orphan only after resume()", async () => {
+    const scenario = bootScenario();
+    const db = scenario.appState.db;
+    seedRun(scenario, "boot-orphan-superseded", "review");
+    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const claim = claimRun(scenario, "boot-orphan-superseded");
+    const orphan = await first.handle.harness.commit(async (tx) => {
+      const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+      return tx.createTask(
+        TestReviewTask,
+        {
+          workId: claim.run.work_id,
+          attemptNo: claim.attempt.attempt_no,
+          attemptId: claim.attempt.attempt_id,
+        },
+        { ownership: { kind: "conversation" }, conversationId: conversation.id },
+      );
+    }, BACKGROUND_CONTEXT);
+    await crash(first);
+    immediate(db, () =>
+      supersedeWorkRun(db, { workId: "boot-orphan-superseded", now: Date.now() }),
+    );
+
+    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const phaseA = await runBootPhaseA({
+      db,
+      cfg: scenario.cfg,
+      runtime: second,
+      reviewTaskName: TestReviewTask.definition.name,
+    });
+    expect(phaseA.toAbort).toEqual([orphan]);
+    expect((await second.handle.harness.inspect(BACKGROUND_CONTEXT)).scheduling).toBe("paused");
     expect(
-      (await pool.query("SELECT status, last_error FROM agent_work_items WHERE id = $1", [id]))
-        .rows,
-    ).toEqual([{ status: "failed", last_error: "worker_lost" }]);
+      (await second.handle.harness.getTask(orphan, BACKGROUND_CONTEXT))?.state.status,
+    ).not.toBe("terminal");
+    await crash(second);
+
+    const third = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const service = await startService(scenario, third);
+    expect(service.phaseA.toAbort).toEqual([orphan]);
+    const settled = await third.handle.harness.waitForTask(orphan, BACKGROUND_CONTEXT);
+    expect(settled.state.outcome.status).toBe("aborted");
+    expect(workRunById(db, "boot-orphan-superseded")?.status).toBe("superseded");
+    expect(scenario.calls.review).toEqual([]);
+  });
+
+  it("releases the ask quota when an interrupted attempt exhausts its budget", async () => {
+    const scenario = bootScenario({ retryLimit: 0 });
+    const db = scenario.appState.db;
+    seedRun(scenario, "boot-ask-quota", "ask");
+    reserveAskQuota(
+      db,
+      {
+        workItemId: "boot-ask-quota",
+        installationId: 6589002,
+        owner: "o",
+        repo: "r",
+        commenterId: 659,
+      },
+      resolveAskQuotaConfig({}),
+    );
+    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    await startFeatureAttempt({
+      harness: first.handle.harness,
+      context: BACKGROUND_CONTEXT,
+      db,
+      claim: claimRun(scenario, "boot-ask-quota"),
+    });
+    await crash(first);
+    const service = await startService(
+      scenario,
+      await openDurableRuntime(scenario.cfg, { tasks: TASKS }),
+    );
+    expect(service.phaseA.interrupted).toBe(1);
+    expect(workRunById(db, "boot-ask-quota")?.status).toBe("failed");
+    expect(
+      readRow(
+        db
+          .prepare(`SELECT released_at FROM ask_quota_reservations WHERE work_item_id = ?`)
+          .get("boot-ask-quota"),
+        v.object({ released_at: v.nullable(v.number()) }),
+      )?.released_at,
+    ).not.toBeNull();
+    expect(scenario.calls.feature).toEqual([]);
+  });
+
+  it("adopts an orphan left between the Pi createTask commit and markAttemptRunning", async () => {
+    const scenario = bootScenario();
+    const db = scenario.appState.db;
+    seedRun(scenario, "boot-orphan-adopt", "review");
+    const first = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const claim = claimRun(scenario, "boot-orphan-adopt");
+    const orphan = await first.handle.harness.commit(async (tx) => {
+      const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+      return tx.createTask(
+        TestReviewTask,
+        {
+          workId: claim.run.work_id,
+          attemptNo: claim.attempt.attempt_no,
+          attemptId: claim.attempt.attempt_id,
+        },
+        { ownership: { kind: "conversation" }, conversationId: conversation.id },
+      );
+    }, BACKGROUND_CONTEXT);
+    await crash(first);
+    expect(attemptFor(db, "boot-orphan-adopt", 1)?.status).toBe("starting");
+
+    const second = await openDurableRuntime(scenario.cfg, { tasks: TASKS });
+    const service = await startService(scenario, second);
+    expect(service.phaseA.schedulingDuringPhaseA).toEqual(["paused", "paused"]);
+    expect(service.phaseA.adopted).toBe(1);
+    expect(service.phaseA.resumedReviews).toEqual([
+      { prKey: "o/r#boot-orphan-adopt", taskId: orphan },
+    ]);
+    expect(attemptFor(db, "boot-orphan-adopt", 1)?.task_id).toBe(String(orphan));
+    const settled = await second.handle.harness.waitForTask(orphan, BACKGROUND_CONTEXT);
+    expect(settled.state.outcome.status).toBe("completed");
+    await eventually(() => workRunById(db, "boot-orphan-adopt")?.status === "completed");
+    expect(workRunById(db, "boot-orphan-adopt")?.current_attempt_no).toBe(1);
+    expect(scenario.calls.review).toEqual([]);
   });
 });

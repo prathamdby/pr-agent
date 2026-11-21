@@ -1,45 +1,126 @@
-import { Data, Effect } from "effect";
-import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
-import { LOG_MAX_WIDE_EVENTS, loadConfig } from "./settings/index.ts";
-import { initAnalytics } from "./analytics/index.ts";
-import { initEvlog, logInfo } from "./evlog.ts";
+import { Effect, Fiber } from "effect";
+import { LOG_MAX_WIDE_EVENTS, loadConfig, type Config } from "./settings/index.ts";
+import { initAnalytics, shutdownAnalytics } from "./analytics/index.ts";
+import { initEvlog, logError, logInfo } from "./evlog.ts";
 import { sanitizeErrorForTelemetry } from "./errors/appError.ts";
+import { initTraces } from "./traces/recorder.ts";
+import { openAppState } from "./state/db.ts";
+import { applyAppStateSchema } from "./state/schema.ts";
+import { productionInstallationSurface } from "./agentWork/installationSurface.ts";
+import { prewarmAppBotIdentity } from "./github/appAuth.ts";
+import { getSharedDurableRuntime, openDurableRuntime } from "./agent/runtime/durable/runtime.ts";
+import { FeatureAttemptTask } from "./agent/runtime/durable/featureAttemptTask.ts";
+import { intentSurfaceFromWorkRuns, startDurableService } from "./agent/runtime/durable/boot.ts";
+import {
+  createAckHandler,
+  createFeatureExecutors,
+  runDueCiProjections,
+} from "./agent/runtime/durable/featureExecutors.ts";
+import {
+  ReviewOrchestratorTask,
+  createReviewAttemptHandler,
+} from "./agent/runtime/durable/reviewOrchestratorTask.ts";
+import { makeSqliteWebhookIntake } from "./effect/webhookIntake.ts";
+import { startEffectWebhookServer } from "./effect/server.ts";
 
-class StartupConfigInvalid extends Data.TaggedError("StartupConfigInvalid")<{
-  readonly message: string;
-}> {}
+const DURABLE_TASKS = [FeatureAttemptTask, ReviewOrchestratorTask];
 
-const boot = Effect.fn("process.boot")(function* () {
-  const cfg = yield* Effect.tryPromise({
-    try: () => loadConfig(),
-    catch: (cause) =>
-      new StartupConfigInvalid({ message: sanitizeErrorForTelemetry(cause).message }),
+async function startSingleProcess(cfg: Config) {
+  const appState = openAppState({
+    sqliteDir: cfg.runtime.sqliteDir,
+    ...(cfg.runtime.sqliteDbPath !== null ? { dbPath: cfg.runtime.sqliteDbPath } : {}),
+    applySchema: applyAppStateSchema,
   });
-  yield* Effect.sync(() => {
-    initEvlog(cfg.logging.level, {
-      maxWideEvents: LOG_MAX_WIDE_EVENTS,
-      pretty: cfg.logging.pretty,
-      redact: cfg.logging.redact,
+  try {
+    const runtime = await getSharedDurableRuntime(cfg, { tasks: DURABLE_TASKS });
+    const installationSurface = productionInstallationSurface;
+    const service = await startDurableService({
+      appState,
+      cfg,
+      runtime,
+      reopenRuntime: () => openDurableRuntime(cfg, { tasks: DURABLE_TASKS }),
+      installationSurface,
+      reviewTaskName: ReviewOrchestratorTask.definition.name,
+      createHandlers: (deps) => ({
+        review: createReviewAttemptHandler(deps),
+        feature: createFeatureExecutors(deps),
+        ack: createAckHandler(deps),
+      }),
+      createCiProjectionRunner: (deps) => async (now) => {
+        runDueCiProjections(deps, now);
+      },
+      surfaceFor: intentSurfaceFromWorkRuns({ db: appState.db, cfg, installationSurface }),
     });
+    return { appState, service };
+  } catch (error) {
+    appState.close();
+    throw error;
+  }
+}
+
+async function main() {
+  let cfg: Config;
+  try {
+    cfg = await loadConfig();
+  } catch (error) {
+    process.stderr.write(`StartupConfigInvalid: ${sanitizeErrorForTelemetry(error).message}\n`);
+    return 1;
+  }
+  initEvlog(cfg.logging.level, {
+    maxWideEvents: LOG_MAX_WIDE_EVENTS,
+    pretty: cfg.logging.pretty,
+    redact: cfg.logging.redact,
   });
-  yield* Effect.promise(() =>
-    initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host }),
-  );
+  await initAnalytics({ projectToken: cfg.posthog.projectToken, host: cfg.posthog.host });
+  const closeTraces = initTraces(cfg);
   logInfo("boot", {
-    role: cfg.runtime.role,
     provider: cfg.models.provider,
     model: cfg.models.model,
+    sqliteDir: cfg.runtime.sqliteDir,
   });
-  if (cfg.runtime.role === "worker") {
-    const { startAgentWorker } = yield* Effect.promise(() => import("./worker.ts"));
-    yield* startAgentWorker(cfg);
-    return;
+  let started: Awaited<ReturnType<typeof startSingleProcess>>;
+  try {
+    started = await startSingleProcess(cfg);
+  } catch (error) {
+    logError("boot_failed", { message: sanitizeErrorForTelemetry(error).message });
+    await closeTraces();
+    await shutdownAnalytics();
+    return 1;
   }
-  const [{ prewarmAppBotIdentity }, { startEffectWebhookServer }] = yield* Effect.promise(() =>
-    Promise.all([import("./github/appAuth.ts"), import("./effect/server.ts")]),
-  );
+  const { appState, service } = started;
   prewarmAppBotIdentity(cfg);
-  yield* startEffectWebhookServer(cfg);
-});
+  const server = Effect.runFork(
+    startEffectWebhookServer(
+      cfg,
+      makeSqliteWebhookIntake({
+        db: appState.db,
+        cfg,
+        accepting: service.acceptingWebhooks,
+        ready: service.ready,
+        afterCommit: service.afterIntakeCommit,
+      }),
+    ),
+  );
+  logInfo("http_listening", { port: cfg.runtime.port });
+  const onSignal = (signal: NodeJS.Signals) => {
+    void service.shutdown(signal);
+  };
+  process.once("SIGTERM", onSignal);
+  process.once("SIGINT", onSignal);
+  const exitCode = await service.exited;
+  await Effect.runPromise(Fiber.interrupt(server));
+  await closeTraces();
+  await shutdownAnalytics();
+  logInfo("process_exit", { exitCode });
+  return exitCode;
+}
 
-NodeRuntime.runMain(boot());
+void main().then(
+  (code) => {
+    process.exit(code);
+  },
+  (error: unknown) => {
+    process.stderr.write(`fatal: ${sanitizeErrorForTelemetry(error).message}\n`);
+    process.exit(1);
+  },
+);

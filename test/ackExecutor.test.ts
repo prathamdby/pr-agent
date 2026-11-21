@@ -1,27 +1,91 @@
-const publicationWrites = vi.hoisted(() => ({
-  write: vi
-    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
-    .mockResolvedValue(undefined),
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  openExecutorDurableHarness,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+import type { ReviewSurfacePublisher } from "../src/agentWork/executors/featureExecution.ts";
+const recordPublishStep = vi.fn();
+const legacy = vi.hoisted(() => ({
+  getProgressCommentOwner: vi.fn<(...args: unknown[]) => unknown>(() => null),
+  getReviewQueuePosition: vi.fn<(...args: unknown[]) => unknown>(() => null),
+  getWorkItemCore: vi.fn<(...args: unknown[]) => unknown>(() => ({
+    id: "wi-1",
+    status: "running",
+    type: "review",
+  })),
+  loadRenderableHeadCi: vi.fn<(...args: unknown[]) => unknown>(() => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  requestHeadCiProjection: vi.fn<(...args: unknown[]) => unknown>(() => false),
+  closeReviewVerdictsForWorkItems: vi.fn(async (..._args: unknown[]) => undefined),
+  reviewVerdict: vi.fn((..._args: unknown[]) => ({
+    pending: vi.fn(async () => 123),
+    close: vi.fn(async () => undefined),
+    repairIfOpen: vi.fn(async () => undefined),
+  })),
+  nextGithubCapabilityObservationGeneration: vi.fn(() => 1),
+  recordGithubCapabilityDenial: vi.fn(() => true),
+  saveGithubCapabilityObservation: vi.fn<(...args: unknown[]) => unknown>(() => true),
+  loadGithubCapabilityObservation: vi.fn<(...args: unknown[]) => unknown>(() => ({
+    generation: 1,
+    capabilities: {
+      pullRequestsRead: "available",
+      contentsRead: "available",
+      reviewWrite: "available",
+      commentsWrite: "available",
+      checksRead: "available",
+      checksWrite: "available",
+      statusesRead: "available",
+      statusesWrite: "available",
+      actionsRead: "available",
+      labelsRead: "available",
+      labelsWrite: "available",
+      reactionsWrite: "available",
+    },
+  })),
 }));
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        write: publicationWrites.write,
-      }),
-  };
-});
-const recordPublishStep = publicationWrites.write;
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+const {
+  getProgressCommentOwner,
+  getReviewQueuePosition,
+  getWorkItemCore,
+  loadRenderableHeadCi,
+  closeReviewVerdictsForWorkItems,
+  reviewVerdict,
+  loadGithubCapabilityObservation,
+  saveGithubCapabilityObservation,
+} = legacy;
+vi.mock("../src/state/githubCapabilities.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/state/githubCapabilities.ts")>()),
+  nextGithubCapabilityObservationGeneration: legacy.nextGithubCapabilityObservationGeneration,
+  recordGithubCapabilityDenial: legacy.recordGithubCapabilityDenial,
+  saveGithubCapabilityObservation: legacy.saveGithubCapabilityObservation,
+  loadGithubCapabilityObservation: legacy.loadGithubCapabilityObservation,
+}));
+vi.mock("../src/state/prHeadCiState.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/state/prHeadCiState.ts")>()),
+  loadRenderableHeadCi: legacy.loadRenderableHeadCi,
+  requestHeadCiProjection: legacy.requestHeadCiProjection,
+}));
+vi.mock("../src/state/featurePublication.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/state/featurePublication.ts")>()),
+  progressCommentOwner: (...args: unknown[]) => {
+    const owner = legacy.getProgressCommentOwner(...args) as {
+      readonly workItemId: string;
+      readonly generation?: number;
+    } | null;
+    return owner == null ? null : { workId: owner.workItemId, generation: owner.generation ?? 0 };
+  },
+  reviewQueuePosition: (...args: unknown[]) => legacy.getReviewQueuePosition(...args),
+  workRunStatus: (...args: unknown[]) => {
+    const core = legacy.getWorkItemCore(...args) as { readonly status: string } | null;
+    if (core == null) return undefined;
+    return core.status === "queued" ? "pending_dispatch" : core.status;
+  },
+}));
 import { makeTestConfig } from "./helpers/config.ts";
-import { executeAckJob } from "../src/agentWork/executors/ackExecutor.ts";
+import { runAckJob } from "../src/agentWork/executors/ackExecutor.ts";
 import type { AckJobData } from "../src/agentWork/types.ts";
 import {
   DEFERRED_HEAD_SHA,
@@ -47,51 +111,6 @@ vi.mock("../src/github/installationToken.ts", async (importOriginal) => ({
 vi.mock("../src/github/appAuth.ts", () => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
-vi.mock("../src/agentWork/githubCapabilityRepository.ts", () => ({
-  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
-  recordGithubCapabilityDenial: vi.fn(async () => true),
-  loadGithubCapabilityObservation: vi.fn(async () => ({
-    generation: 1,
-    capabilities: {
-      pullRequestsRead: "available",
-      contentsRead: "available",
-      reviewWrite: "available",
-      commentsWrite: "available",
-      checksRead: "available",
-      checksWrite: "available",
-      statusesRead: "available",
-      statusesWrite: "available",
-      actionsRead: "available",
-      labelsRead: "available",
-      labelsWrite: "available",
-      reactionsWrite: "available",
-    },
-  })),
-  saveGithubCapabilityObservation: vi.fn(async () => true),
-}));
-
-vi.mock("../src/agentWork/ciProjection.ts", () => ({
-  loadRenderableHeadCi: vi.fn(async () => ({
-    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
-    version: 0,
-  })),
-  requestHeadCiProjection: vi.fn(async () => "skipped"),
-}));
-
-vi.mock("../src/agentWork/publishRecordRepository.ts", () => ({
-  getSummaryCommentGithubId: vi.fn(async () => null),
-  getProgressCommentOwner: vi.fn(async () => null),
-  claimSummaryCommentCreation: vi.fn(async () => true),
-}));
-
-vi.mock("../src/agentWork/workItemStateRepository.ts", () => ({
-  getReviewQueuePosition: vi.fn(async () => null),
-  getWorkItemCore: vi.fn(async () => ({
-    id: "wi-1",
-    status: "running",
-    type: "review",
-  })),
-}));
 
 const summaryWrite = vi.hoisted(() =>
   vi.fn(async (_params: { readonly body: string; readonly [key: string]: unknown }) => ({
@@ -100,53 +119,9 @@ const summaryWrite = vi.hoisted(() =>
   })),
 );
 
-vi.mock("../src/review/publish/reviewSummaryComment.ts", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.ts")>();
-  return {
-    ...actual,
-    createReviewSummaryComment: (
-      deps: Parameters<typeof actual.createReviewSummaryComment>[0],
-    ) => ({
-      tick: (write: { readonly body: string; readonly progressRevision: number }) =>
-        summaryWrite({
-          prSurface: deps.prSurface,
-          reviewLens: deps.reviewLens,
-          ...deps.coordination,
-          ...write,
-        }),
-      conclude: (write: { readonly body: string }) =>
-        summaryWrite({
-          prSurface: deps.prSurface,
-          reviewLens: deps.reviewLens,
-          ...deps.coordination,
-          ...write,
-          progressRevision: 7,
-        }),
-    }),
-  };
-});
-
-vi.mock("../src/agentWork/reviewVerdict.ts", () => ({
-  closeReviewVerdictsForWorkItems: vi.fn(async () => undefined),
-  reviewVerdict: vi.fn(() => ({
-    pending: vi.fn(async () => 123),
-    close: vi.fn(async () => undefined),
-    repairIfOpen: vi.fn(async () => undefined),
-  })),
-}));
-
 vi.mock("../src/evlog.ts", () => ({
   logWarn: vi.fn(),
 }));
-
-import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.ts";
-import { getProgressCommentOwner } from "../src/agentWork/publishRecordRepository.ts";
-import {
-  getReviewQueuePosition,
-  getWorkItemCore,
-} from "../src/agentWork/workItemStateRepository.ts";
-import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../src/agentWork/reviewVerdict.ts";
 
 import {
   renderReviewProgressComment,
@@ -164,15 +139,57 @@ import {
   createReviewCapabilityPolicy,
   unknownInstallationCapabilities,
 } from "../src/github/installationCapabilities.ts";
-import {
-  loadGithubCapabilityObservation,
-  saveGithubCapabilityObservation,
-} from "../src/agentWork/githubCapabilityRepository.ts";
 import { productionInstallationSurface } from "../src/agentWork/installationSurface.ts";
 import { AppError } from "../src/errors/appError.ts";
 
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
-const pool = {} as Pool;
+const pool = { pool: true };
+let harness: ExecutorDurableHarness;
+
+const reviewPublisher: ReviewSurfacePublisher = {
+  tickProgressSummary: async (params) => {
+    if (params.shouldPublish !== undefined && !params.shouldPublish()) return;
+    await summaryWrite({
+      prSurface: params.prSurface,
+      reviewLens: params.reviewLens,
+      pool,
+      resourceKey: params.resourceKey,
+      workItemId: params.workItemId,
+      body: params.body,
+      progressRevision: params.progressRevision,
+      ...(params.ciHeadSha !== undefined ? { ciHeadSha: params.ciHeadSha } : {}),
+      ...(params.ciVersion !== undefined ? { ciVersion: params.ciVersion } : {}),
+    });
+  },
+  pendingVerdict: async (params) => {
+    await legacy.reviewVerdict({ ...params, pool, summaryCommentId: null }).pending();
+  },
+  closeCancelledVerdicts: async (params) => {
+    await legacy.closeReviewVerdictsForWorkItems(pool, {
+      ...params,
+      outcome: { kind: "cancelled" },
+    });
+  },
+  repairOwnVerdictIfOpen: async () => undefined,
+};
+
+async function executeAckJob(config: typeof cfg, _pool: unknown, data: AckJobData) {
+  await runAckJob(
+    {
+      db: harness.db,
+      cfg: config,
+      installationSurface: productionInstallationSurface,
+      publication: testPublication(harness.db, {
+        workId: `ack-${Math.random()}`,
+        kind: "ack",
+        onRecord: recordPublishStep,
+      }),
+      reviewPublisher,
+      now: Date.now,
+    },
+    data,
+  );
+}
 
 function ackData() {
   return ((pinnedReturn: AckJobData) => pinnedReturn)({
@@ -190,8 +207,12 @@ function ackData() {
 }
 
 describe("executeAckJob", () => {
+  afterEach(() => {
+    harness.close();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    harness = openExecutorDurableHarness();
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
   });
@@ -221,7 +242,7 @@ describe("executeAckJob", () => {
 
   it("refreshes a stored observation that never confirmed access", async () => {
     const scope = { appId: cfg.github.appId, installationId: 42, owner: "o", repo: "r" };
-    vi.mocked(loadGithubCapabilityObservation).mockResolvedValueOnce({
+    vi.mocked(loadGithubCapabilityObservation).mockReturnValueOnce({
       generation: 1,
       capabilities: unknownInstallationCapabilities(scope, "1").availability,
     });
@@ -233,7 +254,7 @@ describe("executeAckJob", () => {
     await executeAckJob(cfg, pool, ackData());
     expect(preflight).toHaveBeenCalledTimes(1);
     expect(saveGithubCapabilityObservation).toHaveBeenCalledWith(
-      pool,
+      expect.anything(),
       expect.objectContaining({ observation }),
     );
     expect(
@@ -268,9 +289,13 @@ describe("executeAckJob", () => {
   it("posts eyes on every ack target", async () => {
     await expect(executeAckJob(cfg, pool, ackData())).resolves.toBeUndefined();
 
-    expect(surfaceBundle.controls.reactions).toHaveLength(1);
-    expect(surfaceBundle.controls.reactions[0]?.targets).toEqual(ackData().targets);
-    expect(surfaceBundle.controls.reactions[0]?.kind).toBe(GITHUB_REACTION_EYES);
+    expect(surfaceBundle.controls.reactions).toHaveLength(ackData().targets.length);
+    expect(surfaceBundle.controls.reactions.flatMap((reaction) => reaction.targets)).toEqual(
+      ackData().targets,
+    );
+    expect(surfaceBundle.controls.reactions.every((r) => r.kind === GITHUB_REACTION_EYES)).toBe(
+      true,
+    );
   });
 
   it("adds plus-one after ack-only replies with no durable work item", async () => {
@@ -281,8 +306,8 @@ describe("executeAckJob", () => {
 
     expect(surfaceBundle.controls.replies).toHaveLength(1);
     expect(surfaceBundle.controls.replies[0]?.body).toBe("help");
-    expect(surfaceBundle.controls.reactions).toHaveLength(2);
-    expect(surfaceBundle.controls.reactions[1]?.kind).toBe(GITHUB_REACTION_PLUS_ONE);
+    expect(surfaceBundle.controls.reactions).toHaveLength(2 * ackData().targets.length);
+    expect(surfaceBundle.controls.reactions.at(-1)?.kind).toBe(GITHUB_REACTION_PLUS_ONE);
   });
 
   it("does not plus-one when a durable work item will own the outcome reaction", async () => {
@@ -292,8 +317,10 @@ describe("executeAckJob", () => {
       reply: { target: { kind: "prConversation", prNumber: 1 }, body: "hint" },
     });
 
-    expect(surfaceBundle.controls.reactions).toHaveLength(1);
-    expect(surfaceBundle.controls.reactions[0]?.kind).toBe(GITHUB_REACTION_EYES);
+    expect(surfaceBundle.controls.reactions).toHaveLength(ackData().targets.length);
+    expect(surfaceBundle.controls.reactions.every((r) => r.kind === GITHUB_REACTION_EYES)).toBe(
+      true,
+    );
   });
 
   it("uses coordinated summary upsert for progress with work item id", async () => {
@@ -346,7 +373,7 @@ describe("executeAckJob", () => {
   });
 
   it("includes queue position on the queued progress stub when lookup succeeds", async () => {
-    vi.mocked(getReviewQueuePosition).mockResolvedValueOnce({ position: 2, total: 10 });
+    vi.mocked(getReviewQueuePosition).mockReturnValueOnce({ position: 2, total: 10 });
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -354,14 +381,16 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(getReviewQueuePosition).toHaveBeenCalledWith(pool, "wi-1");
+    expect(getReviewQueuePosition).toHaveBeenCalledWith(expect.anything(), "wi-1");
     const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
     expect(body).toContain("#2 of 10");
   });
 
   it("omits queue position when lookup fails and still posts the stub", async () => {
-    vi.mocked(getReviewQueuePosition).mockRejectedValueOnce(new Error("db down"));
+    vi.mocked(getReviewQueuePosition).mockImplementationOnce(() => {
+      throw new Error("db down");
+    });
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -394,7 +423,7 @@ describe("executeAckJob", () => {
   });
 
   it("no-ops progress when the work item is superseded", async () => {
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-stale",
       status: "superseded",
       type: "review",
@@ -411,7 +440,7 @@ describe("executeAckJob", () => {
   });
 
   it("executes acknowledgements in reverse order without letting A overwrite B", async () => {
-    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, id: string) => {
+    vi.mocked(getWorkItemCore).mockImplementation((_pool, id) => {
       if (id === "wi-b") {
         return { id: "wi-b", status: "running", type: "review" } as Awaited<
           ReturnType<typeof getWorkItemCore>
@@ -421,7 +450,7 @@ describe("executeAckJob", () => {
         ReturnType<typeof getWorkItemCore>
       >;
     });
-    vi.mocked(getProgressCommentOwner).mockResolvedValueOnce(null);
+    vi.mocked(getProgressCommentOwner).mockReturnValueOnce(null);
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -444,12 +473,12 @@ describe("executeAckJob", () => {
   });
 
   it("skips progress when another work item already owns the comment", async () => {
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-a",
       status: "running",
       type: "review",
     } as Awaited<ReturnType<typeof getWorkItemCore>>);
-    vi.mocked(getProgressCommentOwner).mockResolvedValueOnce({
+    vi.mocked(getProgressCommentOwner).mockReturnValueOnce({
       workItemId: "wi-b",
       generation: 1,
     });
@@ -516,10 +545,11 @@ describe("executeAckJob", () => {
 
     await executeAckJob(cfg, pool, data);
 
-    expect(surfaceBundle.controls.reactions).toContainEqual({
-      targets: data.cancelTriage.targets,
-      kind: GITHUB_REACTION_MINUS_ONE,
-    });
+    expect(
+      surfaceBundle.controls.reactions
+        .filter((reaction) => reaction.kind === GITHUB_REACTION_MINUS_ONE)
+        .flatMap((reaction) => reaction.targets),
+    ).toEqual(data.cancelTriage.targets);
     expect(surfaceBundle.controls.replies).toContainEqual({
       target: data.cancelTriage.replyTarget,
       body: triageCancelledNotice(data.cancelTriage.attribution),
@@ -731,7 +761,7 @@ describe("executeAckJob", () => {
       "ack_cancel_comment_failed",
       expect.objectContaining({
         workItemId: "wi-cancel",
-        message: "edit 403",
+        message: expect.stringContaining("Mutation outcome unknown"),
       }),
     );
     expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
@@ -751,7 +781,7 @@ describe("executeAckJob", () => {
       progressWorkItemId: "wi-old",
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-new",
       status: "queued",
       type: "review",
@@ -798,7 +828,7 @@ describe("executeAckJob", () => {
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
     vi.spyOn(surfaceBundle.surface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-new",
       status: "queued",
       type: "review",
@@ -818,7 +848,10 @@ describe("executeAckJob", () => {
 
     expect(logWarn).toHaveBeenCalledWith(
       "ack_cancel_comment_failed",
-      expect.objectContaining({ workItemId: "wi-old", message: "edit 403" }),
+      expect.objectContaining({
+        workItemId: "wi-old",
+        message: expect.stringContaining("Mutation outcome unknown"),
+      }),
     );
     expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
@@ -844,7 +877,7 @@ describe("executeAckJob", () => {
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
     vi.mocked(closeReviewVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-new",
       status: "queued",
       type: "review",
@@ -880,7 +913,7 @@ describe("executeAckJob", () => {
     vi.spyOn(surfaceBundle.surface, "findProgressComment").mockRejectedValueOnce(
       new Error("lookup boom"),
     );
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-new",
       status: "queued",
       type: "review",
@@ -914,11 +947,11 @@ describe("executeAckJob", () => {
   });
 
   it("renders waiting for CI when the ack snapshot sees no checks yet", async () => {
-    vi.mocked(loadRenderableHeadCi).mockResolvedValueOnce({
+    vi.mocked(loadRenderableHeadCi).mockReturnValueOnce({
       summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
       version: 0,
     });
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+    vi.mocked(getWorkItemCore).mockReturnValueOnce({
       id: "wi-1",
       status: "queued",
       type: "review",

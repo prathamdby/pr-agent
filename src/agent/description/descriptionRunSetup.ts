@@ -4,7 +4,7 @@ import type { Config } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.ts";
 import { createAskPathGate } from "../ask/askSafety.ts";
-import { buildWorkspaceTools } from "../tools/workspaceToolset.ts";
+import { buildWorkspaceTools } from "../runtime/durable/piTools.ts";
 import {
   descriptionSystemPrompt,
   buildDescriptionUserContent,
@@ -16,7 +16,7 @@ import {
   createSubmitDescriptionState,
   type SubmitDescriptionState,
 } from "./submitDescriptionTool.ts";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
+import type { FeaturePublication } from "../../state/featurePublication.ts";
 
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;
@@ -44,7 +44,7 @@ export function buildDescriptionRunSetup(params: {
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  operationIntent?: OperationIntentContext;
+  publication?: FeaturePublication;
 }) {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, workspace } = params;
 
@@ -69,7 +69,7 @@ export function buildDescriptionRunSetup(params: {
       knownPaths,
       shouldAbortPublish: params.shouldAbortPublish,
       recordPublishStep: params.recordPublishStep,
-      operationIntent: params.operationIntent,
+      publication: params.publication,
     });
 
   let submitBundle = buildSubmit();

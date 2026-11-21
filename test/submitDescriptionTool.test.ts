@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/prompts/description/prompt.ts";
 import {
   buildSubmitDescriptionTool,
@@ -8,24 +7,19 @@ import {
 import { makeTestConfig } from "./helpers/config.ts";
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 
-vi.mock("../src/agentWork/operationIntentRepository.ts", () => ({
-  persistOperationIntent: vi.fn(),
-  mergeOperationIntentDetail: vi.fn(),
-  reconcileOperationIntent: vi.fn(),
-  findInFlightMutatingIntent: vi.fn(async () => null),
-}));
-
 import {
-  mergeOperationIntentDetail,
-  persistOperationIntent,
-  reconcileOperationIntent,
-} from "../src/agentWork/operationIntentRepository.ts";
+  legacyIntentStore,
+  openExecutorDurableHarness,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+import type { FeaturePublication } from "../src/state/featurePublication.ts";
 const updatePullRequest = vi.fn();
 
-const pool = {} as Pool;
+let harness: ExecutorDurableHarness;
 
 function buildTool(
-  operationIntent?: { client: Pool; workItemId: string; resourceKey: string },
+  publication?: FeaturePublication,
   extras?: { mapMode?: "omit" | "read_first"; knownPaths?: ReadonlySet<string> },
 ) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -38,41 +32,18 @@ function buildTool(
     state: createSubmitDescriptionState(),
     mapMode: extras?.mapMode ?? "read_first",
     knownPaths: extras?.knownPaths,
-    operationIntent,
+    publication,
   });
 }
 
 describe("submitDescription tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(persistOperationIntent).mockResolvedValue({
-      id: "intent-1",
-      workItemId: "wi-1",
-      operationKey: "description:pr_body:o/r#1",
-      mutationKind: "github.pr_body",
-      status: "pending",
-      publishRecordId: null,
-      detail: {},
-    });
-    vi.mocked(mergeOperationIntentDetail).mockResolvedValue({
-      id: "intent-1",
-      workItemId: "wi-1",
-      operationKey: "description:pr_body:o/r#1",
-      mutationKind: "github.pr_body",
-      status: "pending",
-      publishRecordId: null,
-      detail: {},
-    });
-    vi.mocked(reconcileOperationIntent).mockResolvedValue({
-      id: "intent-1",
-      workItemId: "wi-1",
-      operationKey: "description:pr_body:o/r#1",
-      mutationKind: "github.pr_body",
-      status: "reconciled",
-      publishRecordId: null,
-      detail: {},
-    });
+    harness = openExecutorDurableHarness();
     updatePullRequest.mockResolvedValue({ prNumber: 1 });
+  });
+  afterEach(() => {
+    harness.close();
   });
 
   it("keeps its parameter schema identical across builds", () => {
@@ -82,41 +53,9 @@ describe("submitDescription tool", () => {
   });
 
   it("wraps publish in operation-intent persistence when context is provided", async () => {
-    const calls: string[] = [];
-    vi.mocked(persistOperationIntent).mockImplementation(async () => {
-      calls.push("persist");
-      return {
-        id: "intent-1",
-        workItemId: "wi-1",
-        operationKey: "description:pr_body:o/r#1",
-        mutationKind: "github.pr_body",
-        status: "pending",
-        publishRecordId: null,
-        detail: {},
-      };
-    });
-    updatePullRequest.mockImplementation(async () => {
-      calls.push("publish");
-      return { prNumber: 1 };
-    });
-    vi.mocked(reconcileOperationIntent).mockImplementation(async () => {
-      calls.push("reconcile");
-      return {
-        id: "intent-1",
-        workItemId: "wi-1",
-        operationKey: "description:pr_body:o/r#1",
-        mutationKind: "github.pr_body",
-        status: "reconciled",
-        publishRecordId: null,
-        detail: {},
-      };
-    });
-
-    const { executor } = buildTool({
-      client: pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
+    const { executor } = buildTool(
+      testPublication(harness.db, { workId: "wi-1", kind: "description" }),
+    );
     const result = await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
     expect(result).toEqual({
@@ -125,15 +64,14 @@ describe("submitDescription tool", () => {
       titleUpdated: true,
       bodyUpdated: true,
     });
-    expect(calls).toEqual(["persist", "publish", "reconcile"]);
-    expect(persistOperationIntent).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        operationKey: "description:pr_body:o/r#1",
-        mutationKind: "github.pr_body",
-      }),
-    );
+    expect(updatePullRequest).toHaveBeenCalledTimes(1);
+    expect(
+      await legacyIntentStore(harness.db).getOperationIntent(
+        undefined,
+        "wi-1",
+        "description:pr_body:o/r#1",
+      ),
+    ).toMatchObject({ status: "reconciled", mutationKind: "github.pr_body" });
   });
 
   it("publishes without operation-intent persistence when context is omitted", async () => {
@@ -141,8 +79,9 @@ describe("submitDescription tool", () => {
     await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
     expect(updatePullRequest).toHaveBeenCalledTimes(1);
-    expect(persistOperationIntent).not.toHaveBeenCalled();
-    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+    expect(harness.db.prepare("SELECT COUNT(*) AS n FROM publish_intents").get()).toEqual({
+      n: 0,
+    });
   });
 
   it("publishes the shared base example and keeps its legal visual", async () => {

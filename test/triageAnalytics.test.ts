@@ -21,19 +21,9 @@ describe("CI state telemetry", () => {
   it("maps an unknown rollup to incomplete and emits ci state changed only on a move", () => {
     expect(
       ciWorkTelemetryFromRow({
-        owner: "o",
-        repo: "r",
-        headSha: "abc123",
         checks: {},
         rollup: "unknown",
-        version: 3,
         authored: null,
-        prNumbers: [],
-        truncated: false,
-        seededAt: null,
-        projectionRepairPending: false,
-        firstSeenAt: new Date(),
-        updatedAt: new Date(),
       }),
     ).toEqual({
       rollup: "unknown",

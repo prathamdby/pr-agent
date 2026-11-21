@@ -5,104 +5,125 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const WORKER = path.join(ROOT, "src", "agentWork", "worker.ts");
-const DEFINITIONS = path.join(ROOT, "src", "agentWork", "workDefinition.ts");
+const DISPATCHER = path.join(ROOT, "src", "agent", "runtime", "durable", "dispatcher.ts");
+const FEATURE_TASK = path.join(ROOT, "src", "agent", "runtime", "durable", "featureAttemptTask.ts");
+const FEATURE_EXECUTORS = path.join(
+  ROOT,
+  "src",
+  "agent",
+  "runtime",
+  "durable",
+  "featureExecutors.ts",
+);
+const REVIEW_TASK = path.join(
+  ROOT,
+  "src",
+  "agent",
+  "runtime",
+  "durable",
+  "reviewOrchestratorTask.ts",
+);
+const BOOT = path.join(ROOT, "src", "agent", "runtime", "durable", "boot.ts");
 const TYPES = path.join(ROOT, "src", "agentWork", "types.ts");
-const WRITE_FENCE = path.join(ROOT, "src", "agentWork", "writeFence.ts");
 
-const workerSrc = fs.readFileSync(WORKER, "utf8");
-const definitionsSrc = fs.readFileSync(DEFINITIONS, "utf8");
+const dispatcherSrc = fs.readFileSync(DISPATCHER, "utf8");
+const featureTaskSrc = fs.readFileSync(FEATURE_TASK, "utf8");
+const featureExecutorsSrc = fs.readFileSync(FEATURE_EXECUTORS, "utf8");
+const reviewTaskSrc = fs.readFileSync(REVIEW_TASK, "utf8");
+const bootSrc = fs.readFileSync(BOOT, "utf8");
 const typesSrc = fs.readFileSync(TYPES, "utf8");
-const fenceSrc = fs.readFileSync(WRITE_FENCE, "utf8");
 
-const QUEUE_FILES = [path.join(ROOT, "src", "settings", "queueConstants.ts")];
+const dispatchBlock =
+  /const DISPATCH_KINDS:\s*readonly WorkRunKind\[\]\s*=\s*\[([\s\S]*?)\];/.exec(
+    dispatcherSrc,
+  )?.[1] ?? "";
+const dispatchKinds = [...dispatchBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
-const queueValues = Object.fromEntries(
-  QUEUE_FILES.flatMap((file) => {
-    const src = fs.readFileSync(file, "utf8");
-    return [...src.matchAll(/export const (\w+_QUEUE) = "([^"]+)"/g)].map((m) => [m[1], m[2]]);
-  }),
-);
+const serializedBlock =
+  /export const PR_SERIALIZED_KINDS:\s*ReadonlySet<WorkRunKind>\s*=\s*new Set\(\[([\s\S]*?)\]\);/.exec(
+    featureTaskSrc,
+  )?.[1] ?? "";
+const serializedKinds = new Set([...serializedBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
 
-const workTypes = [...typesSrc.matchAll(/export type WorkType = ([^;]+);/g)][0]?.[1] ?? "";
+const featureKindsBlock =
+  /export const FEATURE_WORK_KINDS\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(featureTaskSrc)?.[1] ?? "";
+const featureKinds = new Set([...featureKindsBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
 
-const registrations = [
-  ...workerSrc.matchAll(
-    /register(?:Plain|Metadata)Queue<(\w+)>\(\s*boss,\s*executions,\s*(\w+),[\s\S]*?\(job\) => (\w+)\(/g,
-  ),
-].map((m) => ({ data: m[1], queueConst: m[2], executor: m[3] }));
+const workTypeDecl = /export type WorkType = ([^;]+);/.exec(typesSrc)?.[1] ?? "";
+const declaredWorkTypes = [...workTypeDecl.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 
-const retentionRegistered = /registerPlainQueue\(\s*boss,\s*executions,\s*RETENTION_QUEUE,/.test(
-  workerSrc,
-);
-const retention = retentionRegistered
-  ? [{ data: "retention sweep", queueConst: "RETENTION_QUEUE", executor: "runRetention" }]
-  : [];
+const executorImports = new Map();
+for (const match of featureExecutorsSrc.matchAll(/import\s*\{([^}]+)\}\s*from\s*"([^"]+)"/g)) {
+  const resolved = path.relative(ROOT, path.resolve(path.dirname(FEATURE_EXECUTORS), match[2]));
+  for (const name of match[1].split(",").map((s) => s.trim())) {
+    if (name.length > 0) executorImports.set(name, resolved);
+  }
+}
 
-const executorFiles = {
-  executeAckJob: "src/agentWork/executors/ackExecutor.ts",
-  executeCiProjectionJob: "src/agentWork/executors/ciProjectionExecutor.ts",
-  runRetention: "src/agentWork/retention.ts",
+const executorByKind = {
+  review: {
+    lane: "reviewOrchestratorTask",
+    executor: `ReviewOrchestratorTask (${path.relative(ROOT, REVIEW_TASK)})`,
+  },
+  ask: {
+    lane: "featureAttemptTask",
+    executor: `createAskFeatureExecution (${executorImports.get("createAskFeatureExecution") ?? "unknown"})`,
+  },
+  description: {
+    lane: "featureAttemptTask",
+    executor: `createDescriptionFeatureExecution (${executorImports.get("createDescriptionFeatureExecution") ?? "unknown"})`,
+  },
+  triage: {
+    lane: "featureAttemptTask",
+    executor: `createTriageFeatureExecution (${executorImports.get("createTriageFeatureExecution") ?? "unknown"})`,
+  },
+  verification: {
+    lane: "featureAttemptTask",
+    executor: `createVerificationFeatureExecution (${executorImports.get("createVerificationFeatureExecution") ?? "unknown"})`,
+  },
+  ack: {
+    lane: "dispatcher",
+    executor: `runAckJob (${executorImports.get("runAckJob") ?? "unknown"})`,
+  },
+  ci_projection: {
+    lane: "featureAttemptTask",
+    executor: `runCiProjectionJob (${executorImports.get("runCiProjectionJob") ?? "unknown"})`,
+  },
 };
 
-for (const match of definitionsSrc.matchAll(
-  /import \{ (create\w+WorkExecution) \} from "([^"]+)"/g,
-)) {
-  executorFiles[match[1]] = path.relative(ROOT, path.resolve(path.dirname(DEFINITIONS), match[2]));
-}
-
-const workQueueBlock = /export const WORK_QUEUES = \{([\s\S]*?)\}/.exec(typesSrc)?.[1] ?? "";
-const typeToQueueConst = Object.fromEntries(
-  [...workQueueBlock.matchAll(/(\w+):\s*(\w+_QUEUE)/g)].map((match) => [match[1], match[2]]),
-);
-const unleasedBlock = /export const UNLEASED_WORK_TYPES = \[([\s\S]*?)\]/.exec(fenceSrc)?.[1] ?? "";
-const unleasedTypes = [...unleasedBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-
-const durableRegistrations = [
-  ...definitionsSrc.matchAll(/(\w+): define\(\s*\{([\s\S]*?)\},\s*(create\w+WorkExecution)\(/g),
-].map((match) => ({
-  data: match[1],
-  queueConst: typeToQueueConst[match[1]],
-  executor: match[3],
-}));
-const declaredTypes = [...workTypes.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 if (
-  !workerSrc.includes("createWorkDefinitions") ||
-  durableRegistrations.length !== declaredTypes.length ||
-  durableRegistrations.some((row) => !row.queueConst || !declaredTypes.includes(row.data)) ||
-  declaredTypes.some((type) => typeToQueueConst[type] == null) ||
-  unleasedTypes.some((type) => !declaredTypes.includes(type))
+  !reviewTaskSrc.includes("export const ReviewOrchestratorTask") ||
+  declaredWorkTypes.some((type) => !dispatchKinds.includes(type)) ||
+  dispatchKinds.some((kind) => !Object.hasOwn(executorByKind, kind)) ||
+  [...featureKinds].some((kind) => !dispatchKinds.includes(kind))
 ) {
-  throw new Error("Durable work definitions do not cover the registered WorkType union");
+  throw new Error("Durable dispatcher kinds do not cover the declared WorkType union");
 }
 
-const leased = Object.entries(typeToQueueConst)
-  .filter(([type]) => !unleasedTypes.includes(type))
-  .map(([, queueConst]) => queueConst);
+const rows = dispatchKinds.map((kind) => ({
+  workKind: kind,
+  lane: executorByKind[kind].lane,
+  executor: executorByKind[kind].executor,
+  serialization: serializedKinds.has(kind) ? "per-PR mutex" : "concurrent",
+}));
 
-const rows = [...registrations, ...durableRegistrations, ...retention].map((r) => {
-  const queue = queueValues[r.queueConst] ?? r.queueConst;
-  const workType = Object.keys(queueValues).find((k) => k === r.queueConst)
-    ? workTypes.includes(r.queueConst.replace("_QUEUE", "").toLowerCase())
-      ? r.queueConst.replace("_QUEUE", "").toLowerCase()
-      : "auxiliary"
-    : "auxiliary";
-  return {
-    workType,
-    queue,
-    executor: `${r.executor} (${executorFiles[r.executor] ?? "unknown"})`,
-    leased: leased.includes(r.queueConst) ? "leased" : "unleased",
-  };
-});
+if (bootSrc.includes("runRetention")) {
+  rows.push({
+    workKind: "retention",
+    lane: "daily timer",
+    executor: "runRetention (src/state/retention.ts)",
+    serialization: "background",
+  });
+}
 
 const lines = [
   "# Feature map",
   "",
   "Generated by `npm run gen:feature-map`. Do not hand-edit: `test/featureMap.test.ts` fails on drift.",
   "",
-  "| Work type | Queue | Executor | Lease |",
-  "| --------- | ----- | -------- | ----- |",
-  ...rows.map((r) => `| ${r.workType} | ${r.queue} | ${r.executor} | ${r.leased} |`),
+  "| Work kind | Lane | Executor | Serialization |",
+  "| --------- | ---- | -------- | ------------- |",
+  ...rows.map((r) => `| ${r.workKind} | ${r.lane} | ${r.executor} | ${r.serialization} |`),
   "",
 ];
 

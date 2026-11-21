@@ -5,7 +5,7 @@ import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanit
 
 const analyticsMocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
-  appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
+  loggedAgentEvents: [] as Array<Record<string, unknown>>,
   recordExecutionSpan: vi.fn(),
 }));
 
@@ -19,18 +19,14 @@ vi.mock("../src/analytics/index.ts", () => ({
   captureException: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
-    appendAgentEvents: analyticsMocks.appendAgentEvents,
-    safeAppendAgentEvents: (
-      client: unknown,
-      cfg: { agentEvents: { enabled: boolean } },
-      rows: unknown[],
-    ) => {
-      if (!cfg.agentEvents.enabled || rows.length === 0) return;
-      void analyticsMocks.appendAgentEvents(client, rows);
+    logInfo: (event: string, data?: Record<string, unknown>) => {
+      if (event === "agent_event" && data != null) {
+        analyticsMocks.loggedAgentEvents.push(data);
+      }
     },
   };
 });
@@ -348,14 +344,13 @@ describe("work span projection", () => {
 
 describe("durable lifecycle span sink", () => {
   const context: AgentEventsContext = {
-    pool: {} as AgentEventsContext["pool"],
     ...spanContext,
   };
   const cfg = makeTestConfig({ agentEvents: { enabled: true } });
 
   beforeEach(() => {
     analyticsMocks.captureEvent.mockClear();
-    analyticsMocks.appendAgentEvents.mockClear();
+    analyticsMocks.loggedAgentEvents.length = 0;
     analyticsMocks.recordExecutionSpan.mockClear();
   });
 
@@ -386,17 +381,17 @@ describe("durable lifecycle span sink", () => {
       inputTokens: 12,
       outputTokens: 4,
     });
-    expect(analyticsMocks.appendAgentEvents).toHaveBeenCalledWith(expect.anything(), [
+    expect(analyticsMocks.loggedAgentEvents[0]).toEqual(
       expect.objectContaining({
         eventKind: "completion",
         detail: expect.objectContaining({ end: "tool_budget" }),
       }),
-    ]);
+    );
     expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
     expect(analyticsMocks.recordExecutionSpan).not.toHaveBeenCalled();
   });
 
-  it("writes the same publish span id to Postgres and PostHog", () => {
+  it("writes the same publish span id to structured logs and PostHog", () => {
     safeEmitPublishEvent(context, cfg, {
       specialist: "correctness",
       batchId: "batch-9",
@@ -413,23 +408,23 @@ describe("durable lifecycle span sink", () => {
     expect(draft.latencyMs).toBe(250);
     expect(draft.extra.publish_step).toBe("batch-9");
     expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
-    const rows = analyticsMocks.appendAgentEvents.mock.calls[0]?.[1] as
-      | Array<{
+    const row = analyticsMocks.loggedAgentEvents[0] as
+      | {
           eventKind: string;
           detail: { spanId: string; parentSpanId: string; latencyMs: number };
-        }>
+        }
       | undefined;
-    expect(rows?.[0]?.eventKind).toBe("publish");
-    expect(rows?.[0]?.detail.spanId).toBe(draft.spanId);
-    expect(rows?.[0]?.detail.parentSpanId).toBe("wi-span");
-    expect(rows?.[0]?.detail.latencyMs).toBe(250);
+    expect(row?.eventKind).toBe("publish");
+    expect(row?.detail.spanId).toBe(draft.spanId);
+    expect(row?.detail.parentSpanId).toBe("wi-span");
+    expect(row?.detail.latencyMs).toBe(250);
   });
 });
 
 describe("cache token telemetry round-trip", () => {
   beforeEach(() => {
     analyticsMocks.captureEvent.mockClear();
-    analyticsMocks.appendAgentEvents.mockClear();
+    analyticsMocks.loggedAgentEvents.length = 0;
     analyticsMocks.recordExecutionSpan.mockClear();
   });
   const cacheTokens = {
@@ -547,14 +542,13 @@ describe("cache token telemetry round-trip", () => {
     if (completion?.kind !== "completion") throw new Error("expected a completion event");
     const record = agentAuditRecordFromLifecycleEvent(completion);
     const rowContext: AgentEventsContext = {
-      pool: {} as AgentEventsContext["pool"],
       ...spanContext,
     };
     const row = lifecycleAuditToInsertRow(rowContext, record, completion.role);
     expect(row.detail).toEqual(expect.objectContaining(cacheTokens));
   });
 
-  it("projects cache fields to matching Postgres rows and PostHog props", () => {
+  it("projects cache fields to matching structured log rows and PostHog props", () => {
     const span = llmSpanFromSession({
       context: spanContext,
       phase: "recon",
@@ -569,9 +563,8 @@ describe("cache token telemetry round-trip", () => {
     expect(row.detail).toEqual(expect.objectContaining(cacheTokens));
   });
 
-  it("emits cache fields through the durable sink to both Postgres and PostHog", () => {
+  it("emits cache fields through the durable sink without PostHog double-emit", () => {
     const sinkContext: AgentEventsContext = {
-      pool: {} as AgentEventsContext["pool"],
       ...spanContext,
     };
     const sink = createDurableLifecycleEventSink(
@@ -592,19 +585,19 @@ describe("cache token telemetry round-trip", () => {
     });
     if (!completion) throw new Error("expected a sanitized completion event");
     sink(completion);
-    expect(analyticsMocks.appendAgentEvents).toHaveBeenCalledTimes(2);
-    expect(analyticsMocks.appendAgentEvents).toHaveBeenNthCalledWith(1, expect.anything(), [
+    expect(analyticsMocks.loggedAgentEvents).toHaveLength(2);
+    expect(analyticsMocks.loggedAgentEvents[0]).toEqual(
       expect.objectContaining({
         eventKind: "completion",
         detail: expect.objectContaining(cacheTokens),
       }),
-    ]);
-    expect(analyticsMocks.appendAgentEvents).toHaveBeenNthCalledWith(2, expect.anything(), [
+    );
+    expect(analyticsMocks.loggedAgentEvents[1]).toEqual(
       expect.objectContaining({
         eventKind: "generation",
         detail: expect.objectContaining(cacheTokens),
       }),
-    ]);
+    );
     expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
     expect(analyticsMocks.recordExecutionSpan).not.toHaveBeenCalled();
   });

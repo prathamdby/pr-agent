@@ -1,6 +1,5 @@
-import { productionInstallationSurface } from "../installationSurface.ts";
-import { unfencedSurface } from "../writeFence.ts";
-import { createPublishContext } from "../publishOnce.ts";
+import type { DatabaseSync } from "node:sqlite";
+import type { InstallationSurface } from "../installationSurface.ts";
 import {
   type Config,
   REVIEW_SUMMARY_SENTINEL,
@@ -9,14 +8,8 @@ import {
   isAnyReviewLens,
   LEGACY_REVIEW_SUMMARY_SENTINELS,
 } from "../../settings/index.ts";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../../evlog.ts";
 import { type PrConversationComment, type PrSurface } from "../../github/prSurface.ts";
-import {
-  getSharedRateLimitCircuit,
-  isSharedRateLimitCircuitOpen,
-} from "../../github/sharedRateLimitCircuit.ts";
 import {
   injectVerificationFailureIntoCiCell,
   renderVerificationFailureBlock,
@@ -36,24 +29,27 @@ import {
 } from "../../review/run/commentMarkers.ts";
 import { captureCiStateChanged } from "../../analytics/workCompleted.ts";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.ts";
-import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.ts";
-import { requestHeadCiProjection } from "../ciProjection.ts";
 import {
   asPrNumbers,
-  clearProjectionRepairPending,
+  clearHeadCiProjectionRepair,
   headCiListingPhase,
-  listPrNumbersForHeadFromWorkItems,
+  listPrNumbersForHeadFromRuns,
   listTerminalReviewsForHead,
-  loadPrHeadCiState,
-  newestHeadShaForResource,
-  refreshPrHeadCiFromGithubSnapshot,
-  seedPrHeadCiStateFromSnapshot,
-  storePrNumbersForHead,
-  type PrHeadCiStateRow,
-} from "../prHeadCiState.ts";
-
-import { getProgressCommentOwner } from "../publishRecordRepository.ts";
-import { getWorkItemCore } from "../workItemStateRepository.ts";
+  loadHeadCiProjectionRow,
+  newestHeadShaForPr,
+  refreshHeadCiFromSnapshot,
+  requestHeadCiProjection,
+  seedHeadCiFromSnapshot,
+  storeHeadCiPrNumbers,
+  type HeadCiProjectionRow,
+} from "../../state/prHeadCiState.ts";
+import {
+  latestPublishStep,
+  progressCommentOwner,
+  workRunStatus,
+  type FeaturePublication,
+} from "../../state/featurePublication.ts";
+import { isRateLimitCircuitOpen, readRateLimitCircuit } from "../../state/rateLimitCircuits.ts";
 import { prResourceKey, type CiProjectionJobData } from "../types.ts";
 import { errorMessage } from "../../errors/errorMessage.ts";
 import {
@@ -64,7 +60,7 @@ import {
   saveGithubCapabilityObservation,
   nextGithubCapabilityObservationGeneration,
   type GithubCiSourceAvailability,
-} from "../githubCapabilityRepository.ts";
+} from "../../state/githubCapabilities.ts";
 import {
   capabilityObservationUnconfirmed,
   createReviewCapabilityPolicy,
@@ -72,6 +68,25 @@ import {
 } from "../../github/installationCapabilities.ts";
 import type { CiStatusSourcesResult } from "../../github/ciStatus.ts";
 import { ciSourcesComplete } from "../../review/ci/ciFacts.ts";
+import { passthroughMutationBoundary } from "./featureCapabilities.ts";
+import type { FeatureSessionFactory, ReviewSurfacePublisher } from "./featureExecution.ts";
+
+export type CiProjectionDependencies = {
+  readonly db: DatabaseSync;
+  readonly cfg: Config;
+  readonly installationSurface: InstallationSurface;
+  readonly publication: FeaturePublication;
+  readonly reviewPublisher?: ReviewSurfacePublisher;
+  readonly createSession?: FeatureSessionFactory;
+  readonly now: () => number;
+};
+
+const TERMINAL_OWN_CHECK_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "superseded",
+]);
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
@@ -82,7 +97,7 @@ export type CiProjectionSurfaceFactory = (prNumber: number) => Promise<PrSurface
 export type CiProjectionPrResult = "current" | "updated" | "retry" | "irrelevant";
 
 async function resolvePrNumbers(params: {
-  readonly pool: Pool;
+  readonly db: DatabaseSync;
   readonly owner: string;
   readonly repo: string;
   readonly headSha: string;
@@ -90,12 +105,7 @@ async function resolvePrNumbers(params: {
   readonly listPulls: () => Promise<readonly { readonly number: number }[]>;
 }) {
   const stored = asPrNumbers(params.stored);
-  const fromWork = await listPrNumbersForHeadFromWorkItems(
-    params.pool,
-    params.owner,
-    params.repo,
-    params.headSha,
-  );
+  const fromWork = listPrNumbersForHeadFromRuns(params.db, params);
   const pulls = await params.listPulls();
   return ((pinnedReturn: number[] | Promise<number[]>) => pinnedReturn)([
     ...new Set([...stored, ...fromWork, ...pulls.map((pull) => pull.number).filter((n) => n > 0)]),
@@ -103,38 +113,35 @@ async function resolvePrNumbers(params: {
 }
 
 async function reconcileOwnVerdicts(params: {
-  readonly cfg: Config;
-  readonly pool: Pool;
+  readonly deps: CiProjectionDependencies;
   readonly prSurface: PrSurface;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
 }) {
-  const items = await listTerminalReviewsForHead(
-    params.pool,
-    params.owner,
-    params.repo,
-    params.prNumber,
-    params.headSha,
-  );
+  const publisher = params.deps.reviewPublisher;
+  if (publisher === undefined) return;
+  const items = listTerminalReviewsForHead(params.deps.db, {
+    prKey: prResourceKey(params.owner, params.repo, params.prNumber),
+    prNumber: params.prNumber,
+    headSha: params.headSha,
+  });
   for (const item of items) {
     if (!isAnyReviewLens(item.reviewLens)) continue;
     try {
-      await reviewVerdict({
-        pool: params.pool,
+      await publisher.repairOwnVerdictIfOpen({
+        publication: params.deps.publication,
         prSurface: params.prSurface,
         owner: params.owner,
         repo: params.repo,
         prNumber: params.prNumber,
+        commitStatusEnabled: params.deps.cfg.features.commitStatus,
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens: item.reviewLens,
         headSha: params.headSha,
-        leaseEpoch: null,
-        commitStatusEnabled: params.cfg.features.commitStatus,
-        summaryCommentId: null,
-      }).repairIfOpen();
+      });
     } catch (error) {
       logWarn("ci_projection_own_verdict_failed", {
         workItemId: item.id,
@@ -145,18 +152,39 @@ async function reconcileOwnVerdicts(params: {
   }
 }
 
-async function verificationFailureActive(pool: Pool, resourceKey: string, headSha: string) {
-  const detail = await createPublishContext(pool, {
-    resourceKey: resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-  }).latest("verification_failure");
-  if (detail == null) return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
-  if (detail.active === false)
-    return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(false);
-  return ((pinnedReturn: boolean | Promise<boolean>) => pinnedReturn)(detail.headSha === headSha);
+function verificationFailureActive(db: DatabaseSync, resourceKey: string, headSha: string) {
+  const detail = latestPublishStep(
+    db,
+    resourceKey,
+    VERIFICATION_PUBLISH_LENS,
+    "verification_failure",
+  );
+  if (detail == null) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  if (detail.active === false) return ((pinnedReturn: boolean) => pinnedReturn)(false);
+  return ((pinnedReturn: boolean) => pinnedReturn)(detail.headSha === headSha);
 }
 
-function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean) {
+function editCommentOnce(params: {
+  readonly publication: FeaturePublication;
+  readonly prSurface: PrSurface;
+  readonly resourceKey: string;
+  readonly commentId: number;
+  readonly body: string;
+  readonly operation: string;
+}) {
+  return params.publication.once({
+    decodeResult: () => undefined,
+    allowsUndefinedResult: true,
+    prKey: params.resourceKey,
+    resourceTarget: `comment:${params.commentId}`,
+    blocksOverwrite: true,
+    operationKey: `ci_projection:${params.operation}:${params.commentId}`,
+    mutationKind: "github.ci_projection_comment_edit",
+    mutate: () => params.prSurface.editComment(params.commentId, params.body),
+  });
+}
+
+function renderProjectedCell(row: HeadCiProjectionRow, injectFailure: boolean) {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
     sourceAvailability: row.sourceAvailability,
@@ -169,7 +197,7 @@ function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean) {
   return ((pinnedReturn: string | null) => pinnedReturn)(cell);
 }
 
-function projectedActionPhrase(row: PrHeadCiStateRow) {
+function projectedActionPhrase(row: HeadCiProjectionRow) {
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
     sourceAvailability: row.sourceAvailability,
@@ -178,6 +206,7 @@ function projectedActionPhrase(row: PrHeadCiStateRow) {
 }
 
 async function patchTriageRollupComments(params: {
+  readonly publication: FeaturePublication;
   readonly comments: readonly PrConversationComment[];
   readonly prSurface: PrSurface;
   readonly owner: string;
@@ -185,7 +214,7 @@ async function patchTriageRollupComments(params: {
   readonly prNumber: number;
   readonly headSha: string;
   readonly version: number;
-  readonly rollup: PrHeadCiStateRow["rollup"];
+  readonly rollup: HeadCiProjectionRow["rollup"];
 }) {
   const nextMarker = renderCiRollupMarker(params.headSha, params.version, params.rollup);
   const targets = params.comments.filter((comment) =>
@@ -201,7 +230,14 @@ async function patchTriageRollupComments(params: {
     );
     if (writeBody == null) continue;
     try {
-      await params.prSurface.editComment(comment.id, writeBody);
+      await editCommentOnce({
+        publication: params.publication,
+        prSurface: params.prSurface,
+        resourceKey: prResourceKey(params.owner, params.repo, params.prNumber),
+        commentId: comment.id,
+        body: writeBody,
+        operation: `triage_rollup:${params.headSha}:${params.version}`,
+      });
       updated = true;
     } catch (error) {
       logWarn("ci_projection_triage_rollup_failed", {
@@ -232,7 +268,7 @@ function findHeadSummaryComments(comments: readonly PrConversationComment[], hea
 }
 
 async function findSupersededSummaryComment(params: {
-  readonly pool: Pool;
+  readonly db: DatabaseSync;
   readonly prSurface: PrSurface;
   readonly comments: readonly PrConversationComment[];
   readonly headSha: string;
@@ -261,8 +297,8 @@ async function findSupersededSummaryComment(params: {
         | (PrConversationComment | "retry" | null)
         | Promise<PrConversationComment | "retry" | null>,
     ) => pinnedReturn)(null);
-  const owner = await getWorkItemCore(params.pool, workItemId);
-  if (owner == null || asTerminalOwnCheckStatus(owner.status) == null)
+  const ownerStatus = workRunStatus(params.db, workItemId);
+  if (ownerStatus === undefined || !TERMINAL_OWN_CHECK_STATUSES.has(ownerStatus))
     return ((
       pinnedReturn:
         | (PrConversationComment | "retry" | null)
@@ -304,16 +340,15 @@ function aggregatePrResults(results: readonly CiProjectionPrResult[]) {
 }
 
 async function projectOnePr(params: {
-  readonly cfg: Config;
-  readonly pool: Pool;
-  readonly boss: PgBoss;
+  readonly deps: CiProjectionDependencies;
   readonly data: CiProjectionJobData;
-  readonly row: PrHeadCiStateRow;
+  readonly row: HeadCiProjectionRow;
   readonly prNumber: number;
   readonly prSurface: PrSurface;
 }) {
   const resourceKey = prResourceKey(params.data.owner, params.data.repo, params.prNumber);
-  const newest = await newestHeadShaForResource(params.pool, resourceKey);
+  const { db, publication } = params.deps;
+  const newest = newestHeadShaForPr(db, resourceKey);
   const staleHead = newest != null && newest !== params.data.headSha;
   if (staleHead) {
     logDebug("ci_projection_skipped_stale_head", {
@@ -327,8 +362,7 @@ async function projectOnePr(params: {
 
   if (!staleHead) {
     await reconcileOwnVerdicts({
-      cfg: params.cfg,
-      pool: params.pool,
+      deps: params.deps,
       prSurface: params.prSurface,
       owner: params.data.owner,
       repo: params.data.repo,
@@ -337,11 +371,7 @@ async function projectOnePr(params: {
     });
   }
 
-  const injectFailure = await verificationFailureActive(
-    params.pool,
-    resourceKey,
-    params.data.headSha,
-  );
+  const injectFailure = verificationFailureActive(db, resourceKey, params.data.headSha);
   const nextCell = renderProjectedCell(params.row, injectFailure);
   const actionPhrase = projectedActionPhrase(params.row);
 
@@ -361,6 +391,7 @@ async function projectOnePr(params: {
   }
 
   const triageResult = await patchTriageRollupComments({
+    publication,
     comments,
     prSurface: params.prSurface,
     owner: params.data.owner,
@@ -389,7 +420,7 @@ async function projectOnePr(params: {
   let supersededHead = false;
   if (targets.length === 0) {
     const superseded = await findSupersededSummaryComment({
-      pool: params.pool,
+      db,
       prSurface: params.prSurface,
       comments,
       headSha: params.data.headSha,
@@ -480,7 +511,14 @@ async function projectOnePr(params: {
     }
 
     try {
-      await params.prSurface.editComment(comment.id, writeApply.body);
+      await editCommentOnce({
+        publication,
+        prSurface: params.prSurface,
+        resourceKey,
+        commentId: comment.id,
+        body: writeApply.body,
+        operation: `cell:${params.data.headSha}:${params.row.version}:${secondRevision?.revision ?? 0}`,
+      });
     } catch (error) {
       logWarn("ci_projection_edit_failed", {
         owner: params.data.owner,
@@ -495,21 +533,20 @@ async function projectOnePr(params: {
     }
 
     sawUpdate = true;
-    const owner = await getProgressCommentOwner(params.pool, resourceKey, "review");
+    const owner = progressCommentOwner(db, resourceKey, "review");
     if (owner != null) {
-      await createPublishContext(params.pool, {
-        workItemId: owner.workItemId,
-        resourceKey,
-        reviewLens: "review",
+      publication.record({
+        workId: owner.workId,
+        prKey: resourceKey,
+        lens: "review",
         step: "ci_cell",
-        githubId: comment.id,
-        leaseEpoch: null,
         detail: {
           headSha: params.data.headSha,
           version: params.row.version,
           commentId: comment.id,
+          githubId: comment.id,
         },
-      }).record();
+      });
     }
     logDebug("ci_projection_patched", {
       owner: params.data.owner,
@@ -535,8 +572,8 @@ async function projectOnePr(params: {
 
 function captureListingRollupChange(
   data: CiProjectionJobData,
-  previousRollup: PrHeadCiStateRow["rollup"],
-  row: PrHeadCiStateRow,
+  previousRollup: HeadCiProjectionRow["rollup"],
+  row: HeadCiProjectionRow,
 ) {
   if (previousRollup === row.rollup) return;
   captureCiStateChanged({
@@ -551,11 +588,9 @@ function captureListingRollupChange(
 }
 
 async function applyGithubCiListingIfNeeded(params: {
-  readonly cfg: Config;
-  readonly pool: Pool;
-  readonly boss: PgBoss;
+  readonly deps: CiProjectionDependencies;
   readonly data: CiProjectionJobData;
-  readonly row: PrHeadCiStateRow | null;
+  readonly row: HeadCiProjectionRow | null;
   readonly prNumbers: readonly number[];
   readonly probeSurface: PrSurface;
   readonly createSurface: CiProjectionSurfaceFactory;
@@ -563,7 +598,7 @@ async function applyGithubCiListingIfNeeded(params: {
 }) {
   const phase = headCiListingPhase(params.row);
   if (phase === "none")
-    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+    return ((pinnedReturn: (HeadCiProjectionRow | null) | Promise<HeadCiProjectionRow | null>) =>
       pinnedReturn)(params.row);
 
   const surface =
@@ -582,7 +617,7 @@ async function applyGithubCiListingIfNeeded(params: {
         headSha: params.data.headSha,
         message,
       });
-      return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+      return ((pinnedReturn: (HeadCiProjectionRow | null) | Promise<HeadCiProjectionRow | null>) =>
         pinnedReturn)(null);
     }
     logWarn("ci_projection_pending_refresh_failed", {
@@ -591,11 +626,13 @@ async function applyGithubCiListingIfNeeded(params: {
       headSha: params.data.headSha,
       message,
     });
-    await requestHeadCiProjection(params.boss, params.data, {
-      kind: "after",
-      seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
-    });
-    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+    requestHeadCiProjection(
+      params.deps.db,
+      params.data,
+      { kind: "after", seconds: PENDING_CI_REFRESH_RETRY_SECONDS },
+      params.deps.now(),
+    );
+    return ((pinnedReturn: (HeadCiProjectionRow | null) | Promise<HeadCiProjectionRow | null>) =>
       pinnedReturn)(params.row);
   }
 
@@ -605,28 +642,30 @@ async function applyGithubCiListingIfNeeded(params: {
     headSha: params.data.headSha,
     checkRuns: snapshot.checkRuns,
     legacyStatuses: snapshot.legacyStatuses,
-    githubAppId: params.cfg.github.appId,
+    installationId: params.data.installationId,
+    githubAppId: params.deps.cfg.github.appId,
     checkRunsComplete:
       snapshot.checkRunsComplete !== false && snapshot.legacyStatusesComplete !== false,
   };
 
-  let listedRow: PrHeadCiStateRow;
+  let listedRow: HeadCiProjectionRow;
   if (phase === "seed") {
-    const seeded = await seedPrHeadCiStateFromSnapshot(params.pool, listing);
+    const seeded = seedHeadCiFromSnapshot(params.deps.db, listing, params.deps.now());
     captureListingRollupChange(params.data, seeded.previousRollup, seeded.row);
     listedRow = seeded.row;
   } else {
-    const refreshed = await refreshPrHeadCiFromGithubSnapshot(params.pool, listing);
+    const refreshed = refreshHeadCiFromSnapshot(params.deps.db, listing, params.deps.now());
     captureListingRollupChange(params.data, refreshed.previousRollup, refreshed.row);
     listedRow = refreshed.row;
   }
   if (params.availability == null)
-    return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+    return ((pinnedReturn: (HeadCiProjectionRow | null) | Promise<HeadCiProjectionRow | null>) =>
       pinnedReturn)(listedRow);
   for (const source of ["checks", "statuses"] as const) {
     const detail = snapshot.sources?.[source];
-    await recordGithubCiSourceRead(params.pool, {
+    recordGithubCiSourceRead(params.deps.db, {
       ...params.data,
+      now: params.deps.now(),
       source,
       generation: params.availability.generation,
       access:
@@ -639,32 +678,29 @@ async function applyGithubCiListingIfNeeded(params: {
           : snapshot.legacyStatusesComplete !== false),
     });
   }
-  const availability = await loadGithubCiSourceAvailability(params.pool, params.data);
-  const latest = await loadPrHeadCiState(
-    params.pool,
-    params.data.owner,
-    params.data.repo,
-    params.data.headSha,
-  );
+  const availability = loadGithubCiSourceAvailability(params.deps.db, params.data);
+  const latest = loadHeadCiProjectionRow(params.deps.db, params.data);
   const scopedRow = withSourceAvailability(latest ?? listedRow, availability);
   if (
     Object.values(snapshot.sources ?? {}).some((source) => source.access === "unknown") &&
     headCiListingPhase(scopedRow) !== "none"
   ) {
-    await requestHeadCiProjection(params.boss, params.data, {
-      kind: "after",
-      seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
-    });
+    requestHeadCiProjection(
+      params.deps.db,
+      params.data,
+      { kind: "after", seconds: PENDING_CI_REFRESH_RETRY_SECONDS },
+      params.deps.now(),
+    );
   }
-  return ((pinnedReturn: (PrHeadCiStateRow | null) | Promise<PrHeadCiStateRow | null>) =>
+  return ((pinnedReturn: (HeadCiProjectionRow | null) | Promise<HeadCiProjectionRow | null>) =>
     pinnedReturn)(scopedRow);
 }
 
 function withSourceAvailability(
-  row: PrHeadCiStateRow,
+  row: HeadCiProjectionRow,
   sourceAvailability: GithubCiSourceAvailability,
 ) {
-  return ((pinnedReturn: PrHeadCiStateRow) => pinnedReturn)({
+  return ((pinnedReturn: HeadCiProjectionRow) => pinnedReturn)({
     ...row,
     sourceAvailability,
     rollup:
@@ -674,21 +710,20 @@ function withSourceAvailability(
   });
 }
 
-export async function executeCiProjectionJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
+export async function runCiProjectionJob(
+  deps: CiProjectionDependencies,
   data: CiProjectionJobData,
   options?: {
     readonly createSurface?: CiProjectionSurfaceFactory;
     readonly author?: CiSummaryAuthor;
   },
 ) {
-  if (await isSharedRateLimitCircuitOpen(pool, data.installationId)) {
-    const circuit = await getSharedRateLimitCircuit(pool, data.installationId);
-    const openUntil = circuit?.openUntil.getTime() ?? Date.now() + 60_000;
-    const startAfter = Math.max(1, Math.ceil((openUntil - Date.now()) / 1000));
-    await requestHeadCiProjection(boss, data, { kind: "after", seconds: startAfter });
+  const { cfg, db } = deps;
+  if (isRateLimitCircuitOpen(db, data.installationId, deps.now())) {
+    const circuit = readRateLimitCircuit(db, data.installationId);
+    const openUntil = circuit?.openUntilMs ?? deps.now() + 60_000;
+    const startAfter = Math.max(1, Math.ceil((openUntil - deps.now()) / 1000));
+    requestHeadCiProjection(db, data, { kind: "after", seconds: startAfter }, deps.now());
     logDebug("ci_projection_deferred_rate_limit", {
       owner: data.owner,
       repo: data.repo,
@@ -699,20 +734,24 @@ export async function executeCiProjectionJob(
   }
 
   const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
-  let observation = await loadGithubCapabilityObservation(pool, scope);
-  let installation: Awaited<ReturnType<typeof productionInstallationSurface.token>> | undefined;
+  let observation = loadGithubCapabilityObservation(db, scope);
+  let installation: Awaited<ReturnType<InstallationSurface["token"]>> | undefined;
   if (
     (observation == null || capabilityObservationUnconfirmed(observation.capabilities)) &&
     options?.createSurface == null
   ) {
-    const generation = await nextGithubCapabilityObservationGeneration(pool);
-    const preflight = await productionInstallationSurface.preflight({ cfg, ...scope, generation });
-    await saveGithubCapabilityObservation(pool, { ...scope, observation: preflight.observation });
+    const generation = String(nextGithubCapabilityObservationGeneration(db));
+    const preflight = await deps.installationSurface.preflight({ cfg, ...scope, generation });
+    saveGithubCapabilityObservation(db, {
+      ...scope,
+      observation: preflight.observation,
+      now: deps.now(),
+    });
     installation = preflight.installation;
-    observation = await loadGithubCapabilityObservation(pool, scope);
+    observation = loadGithubCapabilityObservation(db, scope);
   }
   let scopedAvailability =
-    observation == null ? undefined : await loadGithubCiSourceAvailability(pool, data);
+    observation == null ? undefined : loadGithubCiSourceAvailability(db, data);
   let capabilityPolicy: ReturnType<typeof createReviewCapabilityPolicy> | undefined;
   if (observation != null) {
     const unknown = unknownInstallationCapabilities(
@@ -733,14 +772,14 @@ export async function executeCiProjectionJob(
         availability: scopedOperations,
       },
       async (operation) => {
-        await recordGithubCapabilityDenial(pool, { ...scope, generation, operation });
+        recordGithubCapabilityDenial(db, { ...scope, generation, operation, now: deps.now() });
       },
     );
     if (
       capabilityPolicy.access("pullRequestsRead") === "denied" ||
       capabilityPolicy.access("commentsWrite") === "denied"
     ) {
-      if (await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha)) {
+      if (clearHeadCiProjectionRepair(db, data, deps.now())) {
         logWarn("ci_projection_repair_unreachable", {
           owner: data.owner,
           repo: data.repo,
@@ -754,7 +793,7 @@ export async function executeCiProjectionJob(
   const createSurface: CiProjectionSurfaceFactory =
     options?.createSurface ??
     (async (prNumber) => {
-      return productionInstallationSurface.create({
+      return deps.installationSurface.create({
         cfg,
         installationId: data.installationId,
         owner: data.owner,
@@ -762,14 +801,14 @@ export async function executeCiProjectionJob(
         prNumber,
         installation,
         capabilities: capabilityPolicy,
-        mutationBoundary: unfencedSurface(),
+        mutationBoundary: passthroughMutationBoundary(),
       });
     });
 
-  let row = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
+  let row = loadHeadCiProjectionRow(db, data);
   const probeSurface = await createSurface(asPrNumbers(row?.prNumbers)[0] ?? 0);
   const prNumbers = await resolvePrNumbers({
-    pool,
+    db,
     owner: data.owner,
     repo: data.repo,
     headSha: data.headSha,
@@ -777,18 +816,16 @@ export async function executeCiProjectionJob(
     listPulls: () => probeSurface.listPullsForHead(data.headSha),
   });
   if (prNumbers.length > 0) {
-    await storePrNumbersForHead(pool, data.owner, data.repo, data.headSha, prNumbers);
+    storeHeadCiPrNumbers(db, { ...data, prNumbers }, deps.now());
   }
   if (observation != null) {
-    scopedAvailability = await loadGithubCiSourceAvailability(pool, data);
-    row = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
+    scopedAvailability = loadGithubCiSourceAvailability(db, data);
+    row = loadHeadCiProjectionRow(db, data);
     if (row != null) row = withSourceAvailability(row, scopedAvailability);
   }
 
-  row = await applyGithubCiListingIfNeeded({
-    cfg,
-    pool,
-    boss,
+  const listed = await applyGithubCiListingIfNeeded({
+    deps,
     data,
     row,
     prNumbers,
@@ -796,7 +833,8 @@ export async function executeCiProjectionJob(
     createSurface,
     availability: scopedAvailability,
   });
-  if (row == null) return;
+  if (listed == null) return;
+  let projected = listed;
 
   try {
     if (capabilityPolicy?.access("actionsRead") === "denied") {
@@ -808,12 +846,13 @@ export async function executeCiProjectionJob(
     } else {
       const authorSurface =
         prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
-      row = await authorHeadCiIfFactsChanged({
+      projected = await authorHeadCiIfFactsChanged({
         cfg,
-        pool,
+        db,
         prSurface: authorSurface,
-        row,
+        row: projected,
         author: options?.author,
+        ...(deps.createSession !== undefined ? { createSession: deps.createSession } : {}),
       });
     }
   } catch (error) {
@@ -830,16 +869,16 @@ export async function executeCiProjectionJob(
       owner: data.owner,
       repo: data.repo,
       headSha: data.headSha,
-      version: row.version,
+      version: projected.version,
     });
-    if (row.projectionRepairPending) {
+    if (projected.projectionRepairPending) {
       logWarn("ci_projection_repair_unreachable", {
         owner: data.owner,
         repo: data.repo,
         headSha: data.headSha,
         reason: "no_prs",
       });
-      await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha);
+      clearHeadCiProjectionRepair(db, data, deps.now());
     }
     return;
   }
@@ -849,11 +888,9 @@ export async function executeCiProjectionJob(
     const prSurface = await createSurface(prNumber);
     prResults.push(
       await projectOnePr({
-        cfg,
-        pool,
-        boss,
+        deps,
         data,
-        row,
+        row: projected,
         prNumber,
         prSurface,
       }),
@@ -861,10 +898,10 @@ export async function executeCiProjectionJob(
   }
 
   const aggregate = aggregatePrResults(prResults);
-  const latest = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
-  const versionMoved = latest != null && latest.version > row.version;
+  const latest = loadHeadCiProjectionRow(db, data);
+  const versionMoved = latest != null && latest.version > projected.version;
   if (aggregate === "retry" || versionMoved) {
-    await requestHeadCiProjection(boss, data, { kind: "debounced" });
+    requestHeadCiProjection(db, data, { kind: "debounced" }, deps.now());
     return;
   }
 
@@ -872,7 +909,7 @@ export async function executeCiProjectionJob(
     latest?.projectionRepairPending === true &&
     (aggregate === "current" || aggregate === "updated" || aggregate === "irrelevant")
   ) {
-    await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha);
+    clearHeadCiProjectionRepair(db, data, deps.now());
     logDebug("ci_projection_repair_cleared", {
       owner: data.owner,
       repo: data.repo,

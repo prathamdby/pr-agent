@@ -263,3 +263,28 @@ function sanitizeSessionCacheIdPart(part: string) {
     .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
   return ((pinnedReturn: string) => pinnedReturn)(cleaned.length > 0 ? cleaned : "x");
 }
+
+export type PromptCacheTrackerInput = {
+  readonly role: AgentSessionRole;
+  readonly systemText: string;
+  readonly tools: unknown;
+  readonly sharedHead?: string;
+  readonly record: (observed: PromptCacheBreak) => void;
+};
+
+export function createPromptCacheTracker(input: PromptCacheTrackerInput) {
+  let previous: PromptCacheSections | null = null;
+  return ((pinnedReturn: (history: unknown) => void) => pinnedReturn)((history) => {
+    if (!sessionRecordsPromptCacheBreak(input.role)) return;
+    const sections = promptCacheSections({
+      systemText: input.systemText,
+      tools: input.tools,
+      history,
+      ...(input.sharedHead !== undefined ? { sharedHead: input.sharedHead } : {}),
+    });
+    if (previous !== null) {
+      input.record(comparePromptCacheSections(previous, sections));
+    }
+    previous = sections;
+  });
+}

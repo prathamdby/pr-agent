@@ -2,11 +2,6 @@
   "id": "unleased-writers",
   "kind": "call",
   "identifier": "unleasedFence",
-  "allow": [
-    "src/agentWork/writeFence.ts",
-    "src/agentWork/workItemStateRepository.ts",
-    "src/agentWork/intake/workItemRepository.ts",
-    "src/agentWork/autoWorkEnqueue.ts"
-  ],
+  "allow": [],
   "mustCatch": ["unleasedFence();"]
 }

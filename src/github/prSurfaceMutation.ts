@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { currentOperationIntentKey } from "../agentWork/publishOnce.ts";
+import { currentOperationIntentKey } from "../state/publish.ts";
 import { throwIfAborted } from "../errors/appError.ts";
 import {
   extractPrSurfaceRecoverDetail,

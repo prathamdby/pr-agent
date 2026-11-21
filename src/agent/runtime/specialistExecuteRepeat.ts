@@ -1,7 +1,7 @@
 import { SPECIALIST_REPEATED_EXECUTE_NUDGE } from "../../prompts/shared/repair.ts";
 import { SPECIALIST_EXECUTE_NUDGE_AT, SPECIALIST_EXECUTE_STOP_AT } from "../../settings/index.ts";
 import { isRecord } from "../../util/typeGuards.ts";
-import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.ts";
+import { CODEMODE_TOOL_NAME } from "./durable/codemodeCaps.ts";
 
 export { SPECIALIST_REPEATED_EXECUTE_NUDGE };
 
@@ -36,7 +36,7 @@ export function specialistExecuteCalls(input: {
   const textById = new Map(input.results.map((result) => [result.toolCallId, result.text]));
   const calls: RepeatedExecuteCall[] = [];
   for (const call of input.calls) {
-    if (call.name !== CODE_MODE_EXECUTE_NAME) continue;
+    if (call.name !== CODEMODE_TOOL_NAME) continue;
     const args = call.arguments;
     if (!isRecord(args) || typeof args.code !== "string") continue;
 
@@ -59,7 +59,7 @@ export function createSpecialistExecuteRepeat() {
       const nudgeCodes: string[] = [];
       let stop = false;
       for (const call of observation.calls) {
-        if (call.toolName !== CODE_MODE_EXECUTE_NAME) continue;
+        if (call.toolName !== CODEMODE_TOOL_NAME) continue;
         const prior = streaks.get(call.code);
         const count = prior != null && prior.result === call.result ? prior.count + 1 : 1;
         const nudged = prior?.nudged === true;

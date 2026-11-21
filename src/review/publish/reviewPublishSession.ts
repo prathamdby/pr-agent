@@ -1,13 +1,11 @@
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.ts";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
+import type { PublishDb, PublishGate } from "../../state/publish.ts";
 import type { Config, AnyReviewLens } from "../../settings/index.ts";
 import type { PrSurface } from "../../github/prSurface.ts";
 import type { CachedPrDiffIndex } from "../../prWorkspace/reviewDiffIndex.ts";
+import type { RenderableHeadCi } from "../ci/ciFacts.ts";
 import type { ReviewPublishContext } from "../reviewSchema.ts";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.ts";
-import type { ReviewRecovery } from "../recovery/reviewRecovery.ts";
 import type { FindingInventory } from "../findingIdentity/findingInventory.ts";
 import {
   createReviewDuplicateCleanup,
@@ -18,15 +16,22 @@ export type PublishStopReason = "superseded" | "stale_head";
 
 export type ReviewPublishConfig = Pick<Config, "models" | "features" | "agentEvents" | "review">;
 
-type VerdictTarget = {
-  readonly pool: Pool;
+export type ReviewPublishTarget = {
+  readonly db: PublishDb;
   readonly workItemId: string;
   readonly resourceKey: string;
-  readonly leaseEpoch: number | null | undefined;
+  readonly laneEpoch?: number | null;
+  readonly shutdownRequested?: () => boolean;
+  readonly gate?: PublishGate;
+  readonly signal?: AbortSignal;
+};
+
+export type ReviewHeadCiPort = {
+  readonly load: (headSha: string) => Promise<RenderableHeadCi>;
+  readonly requestProjection: (headSha: string, renderedVersion: number) => void;
 };
 
 export type ReviewPublishSession = {
-  readonly recovery?: ReviewRecovery;
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly mode: AnyReviewLens;
@@ -39,18 +44,15 @@ export type ReviewPublishSession = {
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly agentEvents?: AgentEventsContext;
   readonly workItemId?: string;
-  readonly operationIntent?: OperationIntentContext;
-  readonly pool?: Pool;
-  readonly installationId?: number;
-  readonly boss?: PgBoss;
-  readonly verdict?: VerdictTarget;
+  readonly publish?: ReviewPublishTarget;
+  readonly headCi?: ReviewHeadCiPort;
+  readonly commitStatusEnabled?: boolean;
   readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
   readonly stopReason: () => Promise<PublishStopReason | undefined>;
   readonly policyAlert?: string;
 };
 
 export type ReviewPublishSessionInput = {
-  readonly recovery?: ReviewRecovery;
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly prSurface: PrSurface;
@@ -62,13 +64,9 @@ export type ReviewPublishSessionInput = {
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly agentEvents?: AgentEventsContext;
   readonly workItemId?: string;
-  readonly operationIntent?: OperationIntentContext;
-  readonly pool?: Pool;
-  readonly installationId?: number;
-  readonly boss?: PgBoss;
-  readonly verdictWorkItemId?: string;
-  readonly verdictResourceKey?: string;
-  readonly verdictLeaseEpoch?: number | null;
+  readonly publish?: ReviewPublishTarget;
+  readonly headCi?: ReviewHeadCiPort;
+  readonly commitStatusEnabled?: boolean;
   readonly resolveProgressCommentUrl?: () => Promise<string | undefined>;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
@@ -77,11 +75,7 @@ export type ReviewPublishSessionInput = {
 
 export function createReviewPublishSession(input: ReviewPublishSessionInput) {
   const coordination = input.recordPublishStep?.summaryCommentCoordination;
-  const verdictPool = input.pool ?? coordination?.pool;
-  const verdictWorkItemId = input.verdictWorkItemId ?? coordination?.workItemId;
-  const verdictResourceKey = input.verdictResourceKey ?? coordination?.resourceKey;
   return ((pinnedReturn: ReviewPublishSession) => pinnedReturn)({
-    recovery: input.recovery,
     cfg: input.cfg,
     ctx: input.ctx,
     mode: input.mode ?? "review",
@@ -93,20 +87,10 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput) {
     progressCommentIdHint: input.progressCommentIdHint,
     recordPublishStep: input.recordPublishStep,
     agentEvents: input.agentEvents,
-    workItemId: input.workItemId,
-    operationIntent: input.operationIntent,
-    pool: input.pool,
-    installationId: input.installationId,
-    boss: input.boss,
-    verdict:
-      verdictPool != null && verdictWorkItemId != null && verdictResourceKey != null
-        ? {
-            pool: verdictPool,
-            workItemId: verdictWorkItemId,
-            resourceKey: verdictResourceKey,
-            leaseEpoch: coordination != null ? coordination.leaseEpoch : input.verdictLeaseEpoch,
-          }
-        : undefined,
+    workItemId: input.workItemId ?? input.publish?.workItemId ?? coordination?.workItemId,
+    publish: input.publish ?? coordination,
+    headCi: input.headCi,
+    commitStatusEnabled: input.commitStatusEnabled,
     resolveProgressCommentUrl: input.resolveProgressCommentUrl ?? (async () => undefined),
     policyAlert: input.policyAlert,
     stopReason: async () => {

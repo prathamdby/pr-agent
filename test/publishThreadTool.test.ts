@@ -1,22 +1,20 @@
-import { Pool } from "pg";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const decisionRows = vi.hoisted(() => {
   const rows: Array<{ detail?: { severityRaised?: number; severityLowered?: number } }> = [];
   return { rows };
 });
 
-vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
-    safeAppendAgentEvents: (
-      _client: unknown,
-      cfg: { agentEvents: { enabled: boolean } },
-      rows: Array<{ detail?: { severityRaised?: number; severityLowered?: number } }>,
-    ) => {
-      if (!cfg.agentEvents.enabled) return;
-      decisionRows.rows.push(...rows);
+    logInfo: (event: string, data?: Record<string, unknown>) => {
+      if (event === "agent_event" && data != null) {
+        decisionRows.rows.push(
+          data as { detail?: { severityRaised?: number; severityLowered?: number } },
+        );
+      }
     },
   };
 });
@@ -42,7 +40,6 @@ import {
 import { createFakePrSurface } from "../src/github/prSurface.ts";
 import type { PrSurface } from "../src/github/prSurface.ts";
 const emptyInventory = completeFindingInventory();
-const eventPool = new Pool();
 
 let nextReviewId = 100;
 
@@ -121,7 +118,6 @@ function threadSession(
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
     agentEvents: {
-      pool: eventPool,
       workItemId: "wi-1",
       installationId: 1,
       owner: "o",
@@ -154,10 +150,6 @@ function buildTool(
 }
 
 describe("buildPublishThreadTool", () => {
-  afterAll(async () => {
-    await eventPool.end();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
     nextReviewId = 100;

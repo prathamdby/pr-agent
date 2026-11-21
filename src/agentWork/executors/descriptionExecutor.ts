@@ -1,5 +1,4 @@
-import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.ts";
-import { createPublishContext } from "../publishOnce.ts";
+import type { FeatureWorkDependencies, FeatureWorkExecution } from "./featureExecution.ts";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.ts";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.ts";
 import { logWarn } from "../../evlog.ts";
@@ -8,13 +7,13 @@ import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../set
 
 type DescriptionDegradationReason = "publish_not_completed";
 
-export function createDescriptionWorkExecution({ cfg, pool }: WorkExecutionDependencies) {
-  return ((pinnedReturn: WorkExecution<"description">) => pinnedReturn)({
+export function createDescriptionFeatureExecution({ cfg }: FeatureWorkDependencies) {
+  return ((pinnedReturn: FeatureWorkExecution<"description">) => pinnedReturn)({
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      return env.withAdmittedRepositoryView(
+      return env.withRepositoryView(
         {
           repositorySizeKb: payload.repositorySizeKb,
         },
@@ -31,22 +30,14 @@ export function createDescriptionWorkExecution({ cfg, pool }: WorkExecutionDepen
             workspace: repositoryView.workspace,
             escalation: env.escalation,
             shouldAbortPublish: env.shouldAbortPublish,
-            recordPublishStep: (detail) =>
-              createPublishContext(pool, {
-                workItemId: item.id,
-                resourceKey: item.resourceKey,
-                reviewLens: DESCRIPTION_PUBLISH_LENS,
+            recordPublishStep: async (detail) =>
+              env.publication.record({
+                lens: DESCRIPTION_PUBLISH_LENS,
                 step: "pr_body",
-                detail,
-                leaseEpoch: env.leaseEpoch,
-              }).record(),
-            operationIntent: {
-              client: pool,
-              workItemId: item.id,
-              resourceKey: item.resourceKey,
-              leaseEpoch: env.leaseEpoch,
-            },
-            sessionContext: env.durability,
+                ...(detail !== undefined ? { detail } : {}),
+              }),
+            publication: env.publication,
+            createSession: env.createSession,
             signal: env.signal,
           });
           if (!result.published && !result.publishSuperseded) {
@@ -87,17 +78,26 @@ export function createDescriptionWorkExecution({ cfg, pool }: WorkExecutionDepen
         },
       );
     },
-    onTerminalFailure: async (item, prSurface) => {
+    onTerminalFailure: async (item, prSurface, env) => {
       if (!prSurface) return;
       const payload = item.payload;
       if (payload.source !== "slash") {
         const { pullRequest } = await prSurface.getHead();
         if (prBodyHasAgentDescriptionBlock(pullRequest.body)) return;
       }
-      await prSurface.replyAt(
-        { kind: "prConversation", prNumber: item.prNumber },
-        DESCRIPTION_FAILURE_MESSAGE,
-      );
+      await env.publication.once({
+        decodeResult: () => undefined,
+        allowsUndefinedResult: true,
+        resourceTarget: "description_failure_reply",
+        operationKey: `description:failure_reply:${item.resourceKey}`,
+        mutationKind: "github.description_failure_reply",
+        mutate: async () => {
+          await prSurface.replyAt(
+            { kind: "prConversation", prNumber: item.prNumber },
+            DESCRIPTION_FAILURE_MESSAGE,
+          );
+        },
+      });
     },
   });
 }

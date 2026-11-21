@@ -10,7 +10,12 @@ import {
 import { isAppError } from "../errors/appError.ts";
 import type { AppErrorCode } from "../errors/appErrorCodes.ts";
 import { workspaceGitFailureKind } from "../prWorkspace/repositoryReader.ts";
-import { isStaleHeadReplacementExhausted } from "./reviewReschedule.ts";
+
+export function isStaleHeadReplacementExhausted(error: unknown) {
+  return ((pinnedReturn: boolean) => pinnedReturn)(
+    isAppError(error) && error.code === "review.stale_head_replacement_exhausted",
+  );
+}
 
 export type RetryDisposition = "transient" | "deterministic" | "terminal";
 

@@ -1,4 +1,6 @@
 import { vi, type Mock } from "vitest";
+import { DatabaseSync } from "node:sqlite";
+import { applyAppStateSchema } from "../../src/state/schema.ts";
 import type { ReviewPayload } from "../../src/review/reviewSchema.ts";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.ts";
 import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.ts";
@@ -143,4 +145,21 @@ export function createOwnVerdictCloseMock() {
     hasOwnVerdictSurfaceAcceptance: vi.fn(async () => false),
     hasUnresolvedDelegatedOwnStatus: vi.fn(async () => false),
   };
+}
+
+export function sqliteReviewCoordination(
+  params: { readonly workItemId?: string; readonly resourceKey?: string } = {},
+) {
+  const db = new DatabaseSync(":memory:");
+  applyAppStateSchema(db);
+  const workItemId = params.workItemId ?? "wi-1";
+  const resourceKey = params.resourceKey ?? "o/r#1";
+  db.prepare(
+    `INSERT INTO pr_state (pr_key, lifecycle_state, observed_at, updated_at) VALUES (?, 'open', 0, 0)`,
+  ).run(resourceKey);
+  db.prepare(
+    `INSERT INTO work_runs (work_id, pr_key, kind, lane, lane_epoch, status, current_attempt_no, payload_json, created_at, updated_at)
+     VALUES (?, ?, 'review', 'review', 0, 'running', 1, '{}', 0, 0)`,
+  ).run(workItemId, resourceKey);
+  return { db, workItemId, resourceKey };
 }

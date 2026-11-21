@@ -1,7 +1,47 @@
 import { randomUUID } from "node:crypto";
-import type { AgentEvent, AgentMessage } from "@earendil-works/pi-agent-core";
-import { contentText, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import type { AssistantMessageEvent, Message as AgentMessage } from "@earendil-works/pi-ai";
+
+export type SessionTraceEvent =
+  | { readonly type: "turn_start" }
+  | { readonly type: "message_start"; readonly message: AgentMessage }
+  | {
+      readonly type: "message_update";
+      readonly message: AgentMessage;
+      readonly assistantMessageEvent: AssistantMessageEvent;
+    }
+  | { readonly type: "message_end"; readonly message: AgentMessage }
+  | {
+      readonly type: "tool_execution_start";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly args: unknown;
+    }
+  | {
+      readonly type: "tool_execution_end";
+      readonly toolCallId: string;
+      readonly toolName?: string;
+      readonly result: unknown;
+      readonly isError: boolean;
+    };
+import type { Api, AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { isPlainObject } from "../../util/typeGuards.ts";
+
+function contentText(
+  content: string | readonly ({ readonly type: string; readonly text?: string } | object)[],
+) {
+  if (typeof content === "string") return ((pinnedReturn: string) => pinnedReturn)(content);
+  const parts: string[] = [];
+  for (const block of content) {
+    if (
+      "type" in block &&
+      block.type === "text" &&
+      "text" in block &&
+      typeof block.text === "string"
+    )
+      parts.push(block.text);
+  }
+  return ((pinnedReturn: string) => pinnedReturn)(parts.join(""));
+}
 import { logWarn } from "../../evlog.ts";
 import {
   boundText,
@@ -362,7 +402,8 @@ function createRecording(
 
   function usageFields(message: AssistantMessage) {
     const exact = exactUsageFromProviderUsage(message.usage);
-    const rates = Object.values(model.cost);
+    const costEntries = Array.isArray(model.cost) ? model.cost : [model.cost];
+    const rates = costEntries.flatMap((cost) => Object.values(cost as Record<string, number>));
     const catalogPriced = rates.some((cost) => Number.isFinite(cost) && cost > 0);
     const cost = message.usage.cost.total;
     const status: TraceStatus =
@@ -582,7 +623,7 @@ function createRecording(
     beginSend: (send: PiSessionSendOptions) => {
       opts = send;
     },
-    event: (event: AgentEvent) => {
+    event: (event: SessionTraceEvent) => {
       if (disposed) return;
       if (event.type === "turn_start") generation = openGeneration();
       if (event.type === "message_start") {

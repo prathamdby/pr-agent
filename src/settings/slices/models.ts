@@ -23,8 +23,6 @@ import {
   readPositiveNumber,
 } from "../envReaders.ts";
 
-const WEB_UNVALIDATED_PI_API = "web-unvalidated";
-
 const PI_THINKING_CEILINGS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 export type ModelsSlice = {
@@ -50,7 +48,7 @@ export type ProviderSlice = {
   readonly maxRetryDelayMs: number;
 };
 
-export async function readModelsSlice(role: "web" | "worker") {
+export async function readModelsSlice() {
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const piOrchestratorProvider = optionalEnv(
@@ -87,31 +85,28 @@ export async function readModelsSlice(role: "web" | "worker") {
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
-  let piApi = WEB_UNVALIDATED_PI_API;
-  if (role === "worker") {
-    const { assertPiModelSelection } = await import("../../agent/runtime/modelsJson.ts");
-    piApi = await assertPiModelSelection({
+  const { assertPiModelSelection } = await import("../../agent/runtime/durable/modelsJson.ts");
+  const piApi = await assertPiModelSelection({
+    modelsJsonPath,
+    piProvider,
+    piModel,
+    catalogCandidatePath,
+  });
+  if (piOrchestratorProvider || piOrchestratorModel) {
+    await assertPiModelSelection({
       modelsJsonPath,
-      piProvider,
-      piModel,
+      piProvider: piOrchestratorProvider || piProvider,
+      piModel: piOrchestratorModel || piModel,
       catalogCandidatePath,
     });
-    if (piOrchestratorProvider || piOrchestratorModel) {
-      await assertPiModelSelection({
-        modelsJsonPath,
-        piProvider: piOrchestratorProvider || piProvider,
-        piModel: piOrchestratorModel || piModel,
-        catalogCandidatePath,
-      });
-    }
-    if (piFallbackProvider && piFallbackModel) {
-      await assertPiModelSelection({
-        modelsJsonPath,
-        piProvider: piFallbackProvider,
-        piModel: piFallbackModel,
-        catalogCandidatePath,
-      });
-    }
+  }
+  if (piFallbackProvider && piFallbackModel) {
+    await assertPiModelSelection({
+      modelsJsonPath,
+      piProvider: piFallbackProvider,
+      piModel: piFallbackModel,
+      catalogCandidatePath,
+    });
   }
 
   return ((pinnedReturn: ModelsSlice | Promise<ModelsSlice>) => pinnedReturn)({

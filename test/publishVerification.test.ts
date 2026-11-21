@@ -1,54 +1,26 @@
-const publicationWrites = vi.hoisted(() => ({
-  write: vi
-    .fn<import("../src/agentWork/publishOnce.ts").PublishRecordStore["write"]>()
-    .mockResolvedValue(undefined),
-}));
-vi.mock("../src/agentWork/publishOnce.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.ts")>();
-  return {
-    ...actual,
-    createPublishContext: (
-      client: import("pg").Pool | import("pg").PoolClient,
-      identity: import("../src/agentWork/publishOnce.ts").PublicationIdentity,
-    ) =>
-      actual.createPublishContext(client, identity, {
-        ...actual.postgresPublishRecords,
-        write: publicationWrites.write,
-      }),
-  };
-});
-const recordPublishStep = publicationWrites.write;
-import { createFakePublishStore } from "../src/agentWork/fakePublishStore.ts";
-const publishStoreState = vi.hoisted(() => {
-  let store: import("../src/agentWork/publishOnce.ts").PublishIntentStore;
-  return {
-    get store() {
-      return store;
-    },
-    set store(value) {
-      store = value;
-    },
-  };
-});
-vi.mock("../src/agentWork/operationIntentRepository.ts", async () => {
-  const { operationIntentRepositoryMock } = await import("./helpers/operationIntentMock.ts");
-  return operationIntentRepositoryMock(publishStoreState);
-});
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  legacyIntentStore,
+  openExecutorDurableHarness,
+  seedPublishStep,
+  testPublication,
+  type ExecutorDurableHarness,
+} from "./helpers/executorDurableHarness.ts";
+import type { FeaturePublication } from "../src/state/featurePublication.ts";
+const recordPublishStep = vi.fn();
+let harness: ExecutorDurableHarness;
+const publishStoreState = {
+  get store() {
+    return legacyIntentStore(harness.db);
+  },
+};
 beforeEach(() => {
-  publishStoreState.store = createFakePublishStore();
+  harness = openExecutorDurableHarness();
 });
-vi.mock("../src/review/findingIdentity/threadMutationLock.ts", () => ({
-  threadMutationLock: () =>
-    ((
-      pinnedReturn: import("../src/review/findingIdentity/threadMutationLock.ts").ThreadMutationLock,
-    ) => pinnedReturn)((apply) => apply()),
-}));
-vi.mock("../src/agentWork/reconcilePendingIntents.ts", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  findCompletedPublishRecordId: vi.fn(async () => null),
-}));
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+afterEach(() => {
+  harness.close();
+});
+
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.ts";
 import { legacyFindingId } from "../src/review/findingIdentity/findingMarker.ts";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.ts";
@@ -70,38 +42,22 @@ import {
 } from "./helpers/publishPrSurface.ts";
 
 import {
-  advancePrHeadCiRevisionForVerificationSignal,
+  advanceHeadCiVersionForVerificationSignal as advancePrHeadCiRevisionForVerificationSignal,
   isEffectiveVerificationSignalTransition,
-} from "../src/agentWork/prHeadCiState.ts";
+} from "../src/state/prHeadCiState.ts";
 import {
   operationIntentMarker,
   verificationObjectionAnswerOperationKey,
-} from "../src/agentWork/publishOnce.ts";
+} from "../src/state/featurePublication.ts";
 import { renderObjectionAnswerMarker } from "../src/review/findingIdentity/findingMarker.ts";
 import type { FindingObjection } from "../src/review/run/reviewPriorFeedback.ts";
 import { AppError } from "../src/errors/appError.ts";
-import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.ts";
 
-vi.mock("../src/agentWork/ciProjection.ts", () => ({
-  requestHeadCiProjection: vi.fn().mockResolvedValue("enqueued"),
-}));
-
-vi.mock("../src/agentWork/prHeadCiState.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prHeadCiState.ts")>();
+vi.mock("../src/state/prHeadCiState.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/state/prHeadCiState.ts")>();
   return {
     ...actual,
-    advancePrHeadCiRevisionForVerificationSignal: vi
-      .fn()
-      .mockResolvedValue({ version: 1, bumped: true }),
-  };
-});
-
-vi.mock("../src/agentWork/prActorLease.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.ts")>();
-  return {
-    ...actual,
-    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
-    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
+    advanceHeadCiVersionForVerificationSignal: vi.fn(() => ({ version: 1, bumped: true })),
   };
 });
 
@@ -214,15 +170,22 @@ const thirdThread = {
   titleSnippet: "P1 · Unchanged path",
 } satisfies BotFindingThread;
 
-function pool(detail?: unknown) {
-  const client = {
-    query: vi.fn(async () => ({ rows: [] })),
-    release: vi.fn(),
-  };
-  return ((pinnedReturn: Pool) => pinnedReturn)({
-    query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
-    connect: vi.fn(async () => client),
-  } as unknown as Pool);
+function pool(detail?: Record<string, unknown>, workId = "wi") {
+  if (detail !== undefined) {
+    seedPublishStep(harness.db, {
+      workId: "prior",
+      lens: "verification",
+      step: "verification_thread_actions",
+      detail,
+    });
+    seedPublishStep(harness.db, {
+      workId: "prior",
+      lens: "verification",
+      step: "verification_failure",
+      detail,
+    });
+  }
+  return testPublication(harness.db, { workId, onRecord: recordPublishStep });
 }
 
 function resolutionMap(entries: readonly [number, ReviewThreadResolution][]) {
@@ -238,9 +201,8 @@ function baseParams(overrides: {
   readonly changedFilePaths?: readonly string[];
   readonly changedFilePathsTruncated?: boolean;
   readonly changedMembershipComplete?: boolean;
-  readonly pool?: Pool;
+  readonly pool?: FeaturePublication;
   readonly workItemId?: string;
-  readonly leaseEpoch?: number | null;
   readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
   readonly threads?: ReadonlyMap<number, ReviewThreadResolution>;
   readonly stubBodies?: Readonly<Record<number, string>>;
@@ -268,9 +230,8 @@ function baseParams(overrides: {
     fake.controls.setReviewCommentBody(Number(stubId), body);
   }
   return {
-    pool: overrides.pool ?? pool(),
+    publication: overrides.pool ?? pool(undefined, overrides.workItemId ?? "wi"),
     workItemId: overrides.workItemId ?? "wi",
-    leaseEpoch: overrides.leaseEpoch ?? 1,
     installationId: 1,
     resourceKey: "o/r#1",
     prSurface: fake.surface,
@@ -313,7 +274,7 @@ describe("publishVerification", () => {
       );
     await expect(publishVerification(params)).rejects.toBeDefined();
     expect(
-      await publishStoreState.store.getOperationIntent(params.pool, "wi", "verification:thread:1"),
+      await publishStoreState.store.getOperationIntent(undefined, "wi", "verification:thread:1"),
     ).toMatchObject({ status: "outcome_unknown" });
     await expect(publishVerification(params)).rejects.toBeDefined();
     expect(controls.replies).toHaveLength(1);
@@ -384,22 +345,24 @@ describe("publishVerification", () => {
         ],
       },
     });
-    vi.spyOn(params.prSurface, "resolveInlineReviewThread").mockRejectedValue(
-      new Error("Lost response"),
-    );
+    const resolveSpy = vi
+      .spyOn(params.prSurface, "resolveInlineReviewThread")
+      .mockRejectedValue(new Error("Lost response"));
     vi.spyOn(params.prSurface, "listInlineReviewThreads").mockResolvedValue({
       byRootCommentId: new Map(),
       threads: [],
       status: "partial",
       truncated: true,
     });
-    await expect(publishVerification(params)).rejects.toMatchObject({
+    const expectedRecoveryError = {
       code: "operation_intent.recovery_failed",
-    });
-    await expect(publishVerification(params)).rejects.toMatchObject({
-      code: "operation_intent.recovery_failed",
-      context: expect.not.objectContaining({ unknownResolution: "terminal" }),
-    });
+      cause: expect.objectContaining({
+        message: "Verification resolution recovery is unavailable or incomplete",
+      }),
+    };
+    await expect(publishVerification(params)).rejects.toMatchObject(expectedRecoveryError);
+    await expect(publishVerification(params)).rejects.toMatchObject(expectedRecoveryError);
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
@@ -417,22 +380,6 @@ describe("publishVerification", () => {
     await expect(publishVerification(params)).rejects.toBeDefined();
     expect(recordPublishStep).not.toHaveBeenCalled();
     expect(controls.replies).toHaveLength(0);
-  });
-
-  it("does not treat a capped child receipt read as absence", async () => {
-    const db = {
-      query: vi.fn(async () => ({ rows: Array.from({ length: 16 }, () => ({ detail: {} })) })),
-    } as unknown as Pool;
-    const params = baseParams({
-      pool: db,
-      inventory: [thread],
-      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "still open" }] },
-    });
-    vi.spyOn(params.prSurface, "replyAt").mockRejectedValue(new Error("Lost response"));
-    await expect(publishVerification(params)).rejects.toMatchObject({
-      code: "operation_intent.recovery_failed",
-    });
-    expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
   it("preserves actionable permanent denial even when later evidence reads are unavailable", async () => {
@@ -454,7 +401,7 @@ describe("publishVerification", () => {
     );
     await expect(publishVerification(params)).rejects.toBe(denial);
     expect(
-      await publishStoreState.store.getOperationIntent(params.pool, "wi", "verification:thread:1"),
+      await publishStoreState.store.getOperationIntent(undefined, "wi", "verification:thread:1"),
     ).toMatchObject({ status: "outcome_unknown" });
     expect(controls.replies).toHaveLength(1);
     expect(recordPublishStep).not.toHaveBeenCalled();
@@ -465,13 +412,13 @@ describe("publishVerification", () => {
       inventory: [thread],
       payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "still open" }] },
     });
-    await publishStoreState.store.persistOperationIntent(params.pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: "verification:thread:1",
       mutationKind: "github.verification_thread",
       detail: { verdict: "skipped" },
     });
-    await publishStoreState.store.reconcileOperationIntent(params.pool, {
+    await publishStoreState.store.reconcileOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: "verification:thread:1",
       status: "outcome_unknown",
@@ -503,7 +450,7 @@ describe("publishVerification", () => {
         verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
       },
     });
-    await publishStoreState.store.persistOperationIntent(params.pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: completion.operationKey,
       mutationKind: "github.verification_thread",
@@ -515,7 +462,6 @@ describe("publishVerification", () => {
         __mutating: true,
       },
     });
-    vi.mocked(findCompletedPublishRecordId).mockResolvedValueOnce("pub-exact");
     vi.spyOn(params.prSurface, "listReviewComments").mockRejectedValue(
       new Error("Read unavailable"),
     );
@@ -525,7 +471,7 @@ describe("publishVerification", () => {
     await expect(publishVerification(params)).resolves.toEqual({ degradation: [] });
     expect(controls.replies).toHaveLength(0);
     expect(
-      await publishStoreState.store.getOperationIntent(params.pool, "wi", completion.operationKey),
+      await publishStoreState.store.getOperationIntent(undefined, "wi", completion.operationKey),
     ).toMatchObject({ status: "reconciled", detail: { __result: 555 } });
   });
 
@@ -539,7 +485,7 @@ describe("publishVerification", () => {
         ],
       },
     });
-    await publishStoreState.store.persistOperationIntent(params.pool, {
+    await publishStoreState.store.persistOperationIntent(undefined, {
       workItemId: "wi",
       operationKey: "verification:thread:1",
       mutationKind: "github.verification_thread",
@@ -1129,22 +1075,15 @@ describe("publishVerification", () => {
   });
 
   it("loads ledger by resource key so prior stubs survive a new work item", async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          detail: {
-            threads: {
-              "1": { stubCommentId: 4242, lastVerdict: "skipped" },
-            },
-          },
-        },
-      ],
-    }));
+    const priorLedger = {
+      threads: {
+        "1": { stubCommentId: 4242, lastVerdict: "skipped" },
+      },
+    };
     await publishVerification(
       baseParams({
-        pool: { query } as unknown as Pool,
+        pool: pool(priorLedger, "wi-new"),
         workItemId: "wi-new",
-        leaseEpoch: 1,
         stubBodies: { 4242: `${VERIFICATION_STUB_MARKER}\nstub` },
         inventory: [thread],
         payload: {
@@ -1159,10 +1098,6 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("resource_key"),
-      expect.arrayContaining(["o/r#1"]),
-    );
     expect(
       controls.events.some((e) => e.kind === "editReviewComment" && e.commentId === 4242),
     ).toBe(true);
@@ -1429,7 +1364,7 @@ describe("publishVerification", () => {
     });
     seedLiveObjection();
     await publishVerification(params);
-    publishStoreState.store = createFakePublishStore();
+    harness.db.exec("DELETE FROM publish_intents");
 
     await publishVerification(params);
 
@@ -1583,13 +1518,11 @@ describe("publishVerificationFailure", () => {
     );
 
     const signal = await publishVerificationFailure({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1619,13 +1552,11 @@ describe("publishVerificationFailure", () => {
     );
 
     const signal = await publishVerificationFailure({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1640,13 +1571,11 @@ describe("publishVerificationFailure", () => {
     });
 
     const signal = await publishVerificationFailure({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1675,13 +1604,11 @@ describe("publishVerificationFailure", () => {
     );
 
     await clearVerificationFailureSignal({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: nextHead,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1695,6 +1622,7 @@ describe("publishVerificationFailure", () => {
     expect(advancePrHeadCiRevisionForVerificationSignal).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ headSha: nextHead, effective: false }),
+      expect.any(Number),
     );
     const edits = conversationEdits();
     expect(edits).toHaveLength(1);
@@ -1727,13 +1655,11 @@ describe("publishVerificationFailure", () => {
     vi.spyOn(params.prSurface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
 
     await clearVerificationFailureSignal({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: nextHead,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1761,13 +1687,11 @@ describe("publishVerificationFailure", () => {
     );
 
     await clearVerificationFailureSignal({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: nextHead,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 
@@ -1793,23 +1717,19 @@ describe("publishVerificationFailure", () => {
     );
 
     await publishVerificationFailure({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
     await publishVerificationFailure({
-      pool: params.pool,
+      publication: params.publication,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
-      leaseEpoch: 1,
-      boss: {} as import("pg-boss").PgBoss,
       installationId: 1,
     });
 

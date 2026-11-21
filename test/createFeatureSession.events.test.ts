@@ -1,8 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AgentEventInsertRow } from "../src/agentWork/agentEventsRepository.ts";
+import type { AgentEventInsertRow } from "../src/analytics/workSpan.ts";
 import { makeTestConfig } from "./helpers/config.ts";
 
-const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
+const { loggedEvents, logInfoMock, fakePiSession } = vi.hoisted(() => {
+  const loggedEvents: AgentEventInsertRow[] = [];
+  const logInfoMock = vi.fn((event: string, data?: Record<string, unknown>) => {
+    if (event === "agent_event" && data != null) {
+      loggedEvents.push(data as unknown as AgentEventInsertRow);
+    }
+  });
   function fakePiSession() {
     return ((pinnedReturn: {
       role: "orchestrator";
@@ -18,27 +24,14 @@ const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
       dispose: vi.fn(async () => undefined),
     });
   }
-  return {
-    appendAgentEvents: vi.fn(
-      async (_client: unknown, _rows: readonly AgentEventInsertRow[]) => undefined,
-    ),
-    fakePiSession,
-  };
+  return { loggedEvents, logInfoMock, fakePiSession };
 });
 
-vi.mock("../src/agentWork/agentEventsRepository.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.ts")>();
+vi.mock("../src/evlog.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.ts")>();
   return {
     ...actual,
-    appendAgentEvents,
-    safeAppendAgentEvents: (
-      client: unknown,
-      cfg: { agentEvents: { enabled: boolean } },
-      rows: readonly AgentEventInsertRow[],
-    ) => {
-      if (!cfg.agentEvents.enabled || rows.length === 0) return;
-      void appendAgentEvents(client, rows).catch(() => undefined);
-    },
+    logInfo: logInfoMock,
   };
 });
 
@@ -59,16 +52,16 @@ vi.mock("../src/agent/runtime/piSession.ts", () => ({
 
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.ts";
 import { createPiSession } from "../src/agent/runtime/piSession.ts";
-import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.ts";
+import { safeEmitAgentEvent } from "../src/agent/runtime/agentEventSink.ts";
 import { createFakePiSession } from "../src/agent/runtime/fakePiSession.ts";
 
 describe("createFeaturePiSession agent events", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loggedEvents.length = 0;
   });
 
   const sessionContext = {
-    pool: {} as never,
     workItemId: "wi-1",
     installationId: 99,
     owner: "acme",
@@ -87,9 +80,8 @@ describe("createFeaturePiSession agent events", () => {
       sessionContext,
     });
 
-    expect(appendAgentEvents).toHaveBeenCalledTimes(1);
-    const rows = appendAgentEvents.mock.calls[0]?.[1];
-    expect(rows?.[0]?.eventKind).toBe("turn");
+    expect(loggedEvents).toHaveLength(1);
+    expect(loggedEvents[0]?.eventKind).toBe("turn");
   });
 
   it("skips durable sink when agent events are disabled", async () => {
@@ -102,7 +94,7 @@ describe("createFeaturePiSession agent events", () => {
       executors: {},
       sessionContext,
     });
-    expect(appendAgentEvents).not.toHaveBeenCalled();
+    expect(loggedEvents).toHaveLength(0);
   });
 
   it.each([false, true])(
@@ -135,8 +127,7 @@ describe("createFeaturePiSession agent events", () => {
       await first.send("private prompt", { phase: "specialist", checkpointId: "same" });
       await first.send("private repair", { phase: "validation_repair", checkpointId: "same" });
       await second.send("another work", { phase: "specialist", checkpointId: "same" });
-      const rows = appendAgentEvents.mock.calls.flatMap((call) => call[1] ?? []);
-      const generations = rows.filter((row) => row.eventKind === "generation");
+      const generations = loggedEvents.filter((row) => row.eventKind === "generation");
       if (!enabled) {
         expect(generations).toEqual([]);
         return;
@@ -189,7 +180,9 @@ describe("createFeaturePiSession agent events", () => {
   });
 
   it("does not throw when writer fails", async () => {
-    appendAgentEvents.mockRejectedValueOnce(new Error("db down"));
+    logInfoMock.mockImplementationOnce(() => {
+      throw new Error("sink down");
+    });
     const cfg = makeTestConfig({ agentEvents: { enabled: true } });
 
     await expect(
@@ -203,7 +196,7 @@ describe("createFeaturePiSession agent events", () => {
       }),
     ).resolves.toBeDefined();
 
-    expect(appendAgentEvents).toHaveBeenCalledTimes(1);
+    expect(logInfoMock).toHaveBeenCalledTimes(1);
   });
 
   it("wires execute abort through session.abort", async () => {
@@ -231,21 +224,27 @@ describe("createFeaturePiSession agent events", () => {
   });
 });
 
-describe("safeAppendAgentEvents isolation", () => {
-  it("never throws to callers", async () => {
-    const pool = {
-      query: vi.fn(async () => {
-        throw new Error("write failed");
-      }),
-    };
+describe("safeEmitAgentEvent isolation", () => {
+  it("never throws to callers", () => {
+    logInfoMock.mockImplementationOnce(() => {
+      throw new Error("write failed");
+    });
     expect(() =>
-      safeAppendAgentEvents(pool as never, makeTestConfig({ agentEvents: { enabled: true } }), [
+      safeEmitAgentEvent(
+        {
+          workItemId: "wi-1",
+          installationId: 99,
+          owner: "acme",
+          repo: "app",
+          prNumber: 12,
+        },
+        makeTestConfig({ agentEvents: { enabled: true } }),
         {
           eventKind: "failure",
           provider: "openai",
           model: "gpt-4o-mini",
         },
-      ]),
+      ),
     ).not.toThrow();
   });
 });

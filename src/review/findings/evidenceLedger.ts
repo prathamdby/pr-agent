@@ -86,6 +86,7 @@ export function segmentsExcluding(
 }
 
 export function recordDeliveredFileRead(ledger: EvidenceLedger, params: DeliveredFileRead) {
+  ledger.noteOpened(params.path);
   if (params.content.length === 0 || params.startLine <= 0 || params.endLine <= 0) return;
   const lines = params.content.replace(/\r\n/g, "\n").split("\n");
   for (const [startLine, endLine] of segmentsExcluding(

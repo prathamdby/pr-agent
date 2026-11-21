@@ -13,7 +13,7 @@ import {
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.ts";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.ts";
-import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.ts";
+import { loadPrHeadCiState } from "../../state/prHeadCiState.ts";
 import type { AskCiState, AskRunParams, AskRunResult } from "./askRunTypes.ts";
 import { mergeExactUsage } from "../providers/usageMetadata.ts";
 import { classifyAskQuestionIntent } from "./askSafety.ts";
@@ -22,27 +22,22 @@ import {
   runWithRateLimitCircuit,
   wrapExecutorsWithRateLimitCircuit,
 } from "../../github/rateLimitCircuit.ts";
-import { openRunRateLimitCircuit } from "../runtime/rateLimitCircuit.ts";
+import { openRunRateLimitCircuit } from "../../state/rateLimitCircuits.ts";
 
-async function loadAskCiState(
-  pool: AskRunParams["pool"],
-  owner: string,
-  repo: string,
-  headSha: string,
-) {
-  if (pool == null)
-    return ((pinnedReturn: (AskCiState | undefined) | Promise<AskCiState | undefined>) =>
-      pinnedReturn)(undefined);
-  const row = await loadPrHeadCiState(pool, owner, repo, headSha);
+function loadAskCiState(db: AskRunParams["db"], owner: string, repo: string, headSha: string) {
+  if (db == null) return ((pinnedReturn: AskCiState | undefined) => pinnedReturn)(undefined);
+  const row = loadPrHeadCiState(db, { repoKey: `${owner}/${repo}`, headSha });
   if (row == null) {
-    return ((pinnedReturn: (AskCiState | undefined) | Promise<AskCiState | undefined>) =>
-      pinnedReturn)({ rollup: "none", version: 0, checks: [] });
+    return ((pinnedReturn: AskCiState | undefined) => pinnedReturn)({
+      rollup: "none",
+      version: 0,
+      checks: [],
+    });
   }
-  return ((pinnedReturn: (AskCiState | undefined) | Promise<AskCiState | undefined>) =>
-    pinnedReturn)({
-    rollup: row.rollup,
-    version: row.version,
-    checks: Object.values(row.checks).map((fact) => ({
+  return ((pinnedReturn: AskCiState | undefined) => pinnedReturn)({
+    rollup: row.state.rollup,
+    version: row.state.version,
+    checks: Object.values(row.state.checks).map((fact) => ({
       name: fact.name,
       status: fact.status,
       conclusion: fact.conclusion,
@@ -71,9 +66,9 @@ export async function runAskRun(params: AskRunParams) {
     });
   }
 
-  const circuit = await openRunRateLimitCircuit({
-    pool: params.sessionContext?.pool,
-    installationId: params.sessionContext?.installationId ?? 0,
+  const circuit = openRunRateLimitCircuit({
+    db: params.db,
+    installationId: params.installationId ?? 0,
     type: "ask",
   });
 
@@ -82,14 +77,15 @@ export async function runAskRun(params: AskRunParams) {
       const { bundle } = buildAskRunSetup(params);
       const executors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
 
-      const session = await createFeaturePiSession({
+      const session = await (params.createSession ?? createFeaturePiSession)({
         role: "ask",
         cfg,
         cwd: params.cwd,
         systemPrompt: buildAskSystemPrompt(),
         tools: bundle.piTools,
+        durableTools: bundle.durableTools,
+        toolMeta: bundle.toolMeta,
         executors,
-        sessionContext: params.sessionContext,
         hostSignal: params.signal,
       });
 
@@ -101,8 +97,7 @@ export async function runAskRun(params: AskRunParams) {
         };
         let usage: AskRunResult["usage"];
         const ciState =
-          params.ciState ??
-          (await loadAskCiState(params.pool, params.owner, params.repo, params.headSha));
+          params.ciState ?? loadAskCiState(params.db, params.owner, params.repo, params.headSha);
         const firstTurn = await session.send(buildAskUserContent({ ...params, ciState }), sendOpts);
         usage = mergeExactUsage(usage, firstTurn.usage);
         let answer = { text: firstTurn.text.trim(), end: firstTurn.end };

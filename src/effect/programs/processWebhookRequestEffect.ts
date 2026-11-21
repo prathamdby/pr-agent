@@ -1,5 +1,5 @@
 import { Data, Duration, Effect, Exit, Fiber, Ref } from "effect";
-import { AgentWorkScheduler } from "../../agentWork/scheduler.ts";
+import { WebhookIntake } from "../webhookIntake.ts";
 import type { WebhookHeaders } from "../../agentWork/types.ts";
 import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.ts";
 import { captureWebhookReceived } from "../../analytics/workCompleted.ts";
@@ -137,7 +137,7 @@ const dispatchGithubEvent = Effect.fn("webhook.dispatch")(function* (input: Disp
       },
     });
 
-    const scheduler = yield* AgentWorkScheduler;
+    const scheduler = yield* WebhookIntake;
     if (parsed.name === "ignored") recordEvent(intakeLog, "ignored_event", { event }, "debug");
     let command = toIntakeCommand(cfg, headers, parsed);
     if (command.kind === "auth_required") {
@@ -434,4 +434,4 @@ const handleWebhook = Effect.fn("webhook.handle")(function* (input: HandleWebhoo
 
 export const processWebhookPostRequestEffect: (
   input: HandleWebhookInput,
-) => Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler> = handleWebhook;
+) => Effect.Effect<WebhookResponseLike, never, WebhookIntake> = handleWebhook;

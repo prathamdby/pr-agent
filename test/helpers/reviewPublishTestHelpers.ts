@@ -110,14 +110,7 @@ export async function runTestPublishFlow(
     progressCommentIdHint: params.progressCommentIdHint,
     recordPublishStep: params.recordPublishStep,
     workItemId: params.workItemId ?? coordination?.workItemId,
-    operationIntent: coordination
-      ? {
-          client: coordination.pool,
-          workItemId: coordination.workItemId,
-          resourceKey: coordination.resourceKey,
-          leaseEpoch: coordination.leaseEpoch,
-        }
-      : undefined,
+    ...(coordination !== undefined ? { publish: coordination } : {}),
     resolveProgressCommentUrl: async () =>
       reviewCheckDetailsUrl(
         params.owner,
@@ -160,18 +153,33 @@ export function publishSummaryForTest(
     readonly findingInventory?: FindingInventory;
   } & Parameters<typeof publishReviewSummaryOnly>[1] & {
       readonly resourceKey?: string;
+      readonly pool?: unknown;
+      readonly boss?: unknown;
+      readonly installationId?: number;
       readonly leaseEpoch?: number | null;
     },
 ) {
-  const { payload, ledger, coverage, staleReview, resourceKey, leaseEpoch, ...sessionInput } =
-    params;
+  const {
+    payload,
+    ledger,
+    coverage,
+    staleReview,
+    resourceKey,
+    pool,
+    boss,
+    installationId,
+    leaseEpoch,
+    ...sessionInput
+  } = params;
+  void boss;
+  void installationId;
+  void resourceKey;
+  void pool;
+  void leaseEpoch;
   return publishReviewSummaryOnly(
     createReviewPublishSession({
       ...sessionInput,
       findingInventory: sessionInput.findingInventory ?? completeFindingInventory(),
-      verdictWorkItemId: sessionInput.verdictWorkItemId ?? sessionInput.workItemId,
-      verdictResourceKey: sessionInput.verdictResourceKey ?? resourceKey,
-      verdictLeaseEpoch: sessionInput.verdictLeaseEpoch ?? leaseEpoch,
     }),
     { payload, ledger, coverage, staleReview },
   );

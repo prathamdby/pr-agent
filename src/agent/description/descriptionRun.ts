@@ -17,8 +17,8 @@ import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.ts";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.ts";
 
 import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.ts";
-import type { OperationIntentContext } from "../../agentWork/publishOnce.ts";
-import type { FeatureSessionContext } from "../runtime/createFeatureSession.ts";
+import type { FeaturePublication } from "../../state/featurePublication.ts";
+import type { createFeaturePiSession } from "../runtime/createFeatureSession.ts";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
@@ -38,8 +38,8 @@ export async function runFullPrDescription(params: {
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  operationIntent?: OperationIntentContext;
-  sessionContext?: FeatureSessionContext;
+  publication?: FeaturePublication;
+  createSession?: typeof createFeaturePiSession;
   escalation?: EscalationPlan;
   signal?: AbortSignal;
 }) {
@@ -76,10 +76,10 @@ export async function runFullPrDescription(params: {
         tools: setup.piTools,
         executors: setup.executors,
         refreshBeforeTool: setup.refreshBeforeTool,
-        sessionContext: params.sessionContext,
         attemptModel: params.escalation?.model,
         hostSignal: params.signal,
       },
+      ...(params.createSession !== undefined ? { createSession: params.createSession } : {}),
     },
   );
 

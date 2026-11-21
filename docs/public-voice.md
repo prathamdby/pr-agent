@@ -7,7 +7,7 @@ Any behavior, env, feature-mode, host, or privacy change updates the matching pu
 The main site's human-facing copy is permission-gated (see [Non-negotiables](../AGENTS.md#non-negotiables)). When development makes that copy outdated, propose the smallest factual correction and stop until the user explicitly approves the exact wording. Keep its tone and wording otherwise. Continue updating README, docs, and agent-facing documentation without waiting for that approval. Match the voice below on every surface. Do not write a second register for the site or `/llms.txt`.
 
 - Speak to the operator. "A pull request is opened on your project." Not "Someone opens a pull request."
-- The README hook stays simple English. No web, worker, database, webhook, queue, Postgres, or HTTP status in the first paragraphs. Those words belong in Installation and later.
+- The README hook stays simple English. No process, database, SQLite, webhook, queue, or HTTP status in the first paragraphs. Those words belong in Installation and later.
 - Lead with what lands on the pull request, then why this App: you run it, no per-seat bill, you pick who reads the code.
 - Keep this README order: Features, Installation, Verification, Examples, Recommended hosts, Pratham's way of hosting, Local development, Data privacy, Documentation. Do not add a How it works section or a topology mermaid to the README. Topology stays in [docs/topology.md](topology.md).
 - The Features table names commands the operator types. State invalid modes next to it. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes. `FEATURE_ASK` and `FEATURE_TRIAGE` accept `off` or `manual`. `auto` aborts.

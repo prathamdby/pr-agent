@@ -4,7 +4,6 @@ import { TEST_PRIVATE_KEY_PEM } from "./testKey.ts";
 export const CONFIG_BASE_ENV = {
   GITHUB_APP_ID: "1",
   WEBHOOK_SECRET: "secret",
-  DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
 export async function loadConfigWithBaseEnv(extra: Record<string, string> = {}) {
@@ -26,7 +25,14 @@ export type TestConfigOverrides = {
 };
 
 const baseTestConfig: Config = {
-  runtime: { port: 0, databaseUrl: "postgres://test", role: "web" },
+  runtime: {
+    port: 0,
+    sqliteDir: "./data/test",
+    sqliteDbPath: null,
+    shutdownGraceMs: 25_000,
+    piDurableResetMaxBytes: 2_147_483_648,
+    piDurableResetMaxAgeSeconds: 2_592_000,
+  },
   github: { appId: "1", privateKey: "test-private-key" },
   webhook: { secret: "secret", timeoutMs: 10_000, maxBodyBytes: 25_000_000 },
   associations: {
@@ -73,7 +79,6 @@ const baseTestConfig: Config = {
     description: 1,
     triage: 1,
     verification: 1,
-    installationGroup: 2,
   },
   ask: {
     actorMaxOutstanding: 2,
@@ -93,19 +98,10 @@ const baseTestConfig: Config = {
     retryLimit: 3,
     retryDelaySeconds: 30,
     retryDelayMaxSeconds: 300,
-    expireInSeconds: 3600,
-    prActorLeaseTtlSeconds: 900,
-    prActorLeaseRenewalIntervalSeconds: 120,
-    heartbeatSeconds: 60,
-    pollingIntervalSeconds: 0.5,
-    retentionSeconds: 1_209_600,
-    deleteAfterSeconds: 604_800,
-    shutdownDrainTimeoutSeconds: 25,
   },
   retention: {
     webhookEventsSeconds: 2_592_000,
     agentWorkSeconds: 2_592_000,
-    cron: "17 3 * * *",
     enabled: true,
   },
   posthog: { projectToken: "", host: "" },

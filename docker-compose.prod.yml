@@ -1,21 +1,10 @@
-# Production override: require explicit Postgres credentials (no local defaults).
-# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Production override: no local defaults. The env file must be named explicitly.
+# Usage: PR_AGENT_ENV_FILE=/path/to/.env docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Set POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD in the env file.
-# DATABASE_URL is injected into the app containers as written.
-# If postgres stays in this compose file, use hostname `postgres`, not localhost.
-# localhost inside pr-agent-web / pr-agent-worker is the app container.
+# The pr-agent-data volume holds every durable byte (app_state.sqlite,
+# pi_durable.sqlite, and the single-writer lock). Back it up and never mount it
+# into a second container.
 services:
-  postgres:
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-
-  pr-agent-web:
-    environment:
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
-
-  pr-agent-worker:
-    environment:
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+  pr-agent:
+    env_file:
+      - ${PR_AGENT_ENV_FILE:?set PR_AGENT_ENV_FILE}
