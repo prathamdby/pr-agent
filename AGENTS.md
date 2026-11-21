@@ -7,7 +7,6 @@
 **Module** — [docs/development.md](docs/development.md). Layout, imports, prompts, or a new external service.
 **Behaviour** — [docs/operations.md](docs/operations.md). Deploy, scripts, or runtime behaviour.
 **Queue** — [docs/agent-work-ops.md](docs/agent-work-ops.md). Durable-work health or recovery.
-**ADR** — [docs/adr/](docs/adr/). A significant architecture decision.
 **Surfaces** — [docs/runtime-surfaces.md](docs/runtime-surfaces.md). Before you call a behavior change done.
 **Stack** — [docs/local-stack.md](docs/local-stack.md). Local Compose, `DATABASE_URL`, a webhook tunnel, or test data.
 **Ship** — [docs/ship.md](docs/ship.md). Proof before push, or a pull request.
@@ -61,11 +60,11 @@ This file gives agents the operating model for this repository. Direct maintaine
 
 - Put complexity at boundaries. Keep domain decisions in small, testable functions.
 - Prefer inferred TypeScript types and narrow domain types. Avoid `any`, broad casts, and duplicated representations.
-- Narrow from runtime evidence and check own literal keys. Backend lint locks this discipline ([ADR 0045](docs/adr/0045-type-narrowing-discipline.md)).
+- Narrow from runtime evidence and check own literal keys. Backend lint (typescript/no-explicit-any and typescript/no-non-null-assertion in `.oxlintrc.json`) locks this discipline.
 - Keep external parsing and validation at the boundary. Trust validated internal values.
 - Make operations idempotent. Assume a webhook, queue delivery, lease renewal, or publish step can run twice or stop halfway.
 - Keep call chains short. A wrapper must hide a real policy or adaptation or it should not exist.
-- No source comments. Encode constraints in names, types, guards, or an ADR ([ADR 0051](docs/adr/0051-no-source-comments.md)).
+- No source comments (pr-agent/no-comments in `scripts/lint/no-comments.mjs`). Encode constraints in a name, type, guard, or test.
 
 ## Check
 

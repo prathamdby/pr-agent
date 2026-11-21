@@ -28,16 +28,13 @@ workflow start consumes the awaiting row except when `workflow_start_admits` is
 false. An authorized approving PR review or slash review consumes the awaiting
 row once. Close/merge withdraws it. Delayed notices reread state under
 the progress-publication lock before writing. Details:
-[ADR 0042](adr/0042-review-approval-mode.md) and
 [review approvals](agent-work-ops.md#review-approvals).
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
 Interrupted mutation recovery requires exact evidence. Missing usable results
 stop terminally with `outcome_unknown`; failed/incomplete reads stay transient.
-Validated review artifacts are stored for a review that binds a base sha. They are not transcripts or evidence authority.
-See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) for recovery,
-child-only denial receipts, independent audit/analytics, and committed terminals.
+Validated review artifacts are stored for a review that binds a base sha. They are not transcripts or evidence authority; child-only denial receipts, audit/analytics, and committed terminals remain independent ([review reliability](operations.md#review-reliability-rollout)).
 
 Leased execution surfaces reread durable cancellation at entry and immediately
 before each mutation callback, then reassert lease ownership. Visible cancellation
@@ -85,8 +82,7 @@ comment writes when a seed or newer revision is needed. `requestHeadCiProjection
 owns enqueue. Projection joins shared facts with installation-scoped source access;
 unknown sources have bounded retries, denied sources do not poll, and restored
 sources need a fresh complete listing. Verification signal transitions share the
-head revision and enqueue transaction. See
-[ADR 0035](adr/0035-head-ci-state-projection.md).
+head revision and enqueue transaction.
 
 Ask work is deliberately unleased and relies on publish-record idempotency. Canonical ask intake resolves the triggering mention — installation, PR resource, comment surface, and comment ID — under a transaction-scoped advisory lock before quota admission, so repeated accepted deliveries of one mention quietly join its retained work item in any status instead of creating a sibling; the agreement ends when retention deletes the item. Triage may push a branch and uses separate publish records for thread actions.
 

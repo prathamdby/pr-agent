@@ -15,7 +15,7 @@ description: >
 
 Write one-gotcha `.mdc` files under `.pr-agent/` (leading dot). That
 directory is the only durable preference memory the product loads
-(`REPO_POLICY_DIRNAME` in `src/settings/reviewConstants.ts`, ADR 0017).
+(`REPO_POLICY_DIRNAME` in `src/settings/reviewConstants.ts`).
 
 A rule earns its slot only if a careful reviewer of this repo would miss
 the bug without it. Author for the current product. Do not author for a
@@ -37,7 +37,7 @@ No exceptions:
   the quality bar
 - Do not teach `execute({ code })`, QuickJS, `state`, cell lifecycle, or
   `Promise.all` in a rule body. Product prompts already own the harness
-  (`src/prompts/shared/tools.ts`, ADR 0033)
+  (`src/prompts/shared/tools.ts`)
 - Seed mode does not rewrite existing files
 - Refresh mode rebuilds named files from current code. It does not
   polish the old sentences
@@ -98,38 +98,14 @@ not author a path (`src/review/repoPolicy.ts`,
 **Agent instruction files.** Root `AGENTS.md`, `CLAUDE.md`, and `REVIEW.md` load in
 parallel with repo policy on orchestrated review only, and only when
 present. An absent file is not cited. Separate budgets. No `@include`.
-Ask, describe, triage, and verification do not load them (ADR 0019).
+Ask, describe, triage, and verification do not load them.
 
 **Evidence.** The local PR workspace at `headSha` is the only
-publishable code authority (ADR 0024). Findings that cite a path or line
+publishable code authority. Findings that cite a path or line
 must pass `assertFindingsHaveEvidence` against the work-item
 `EvidenceLedger`. Code Mode marshal records delivered file and diff
 ranges only, from the marshalled guest result, not the raw host read.
 Index and symbol hits are navigation hints.
-
-**Durable work.** Web intake commits `webhook_events` and
-`agent_work_items` before success. Workers run review, ask, description,
-triage, and verification. Ask is unleased and relies on publish-record
-idempotency plus admission quotas before insert (ADR 0031). The other
-four take a PR actor lease and fence mutations on the lease epoch
-(ADR 0006, ADR 0030). Persist an operation intent before PR-surface
-GitHub mutations (`publishOnce`). `publish_records` stay
-authoritative. Escalated retries follow `retryDispositionFor`
-(ADR 0034). Escalation never widens privilege.
-
-**Own verdict and CI.** `reviewVerdict(...).close` is the only writer for
-`PR Agent Review` and optional `pr-agent/review`. Findings conclude
-`failure` or `success`. Crash and unpublished runs conclude
-`action_required`. `check_run` and `status` deliveries write
-`pr_head_ci_state` in the same transaction as `webhook_events` and
-enqueue `ci-projection`. The projector is the only later CI-cell writer
-(ADR 0035). The model fills `headline` / `reason` / `fixHint` only.
-
-**Feature extras.** Triage preview and bulk apply are the same work
-type (ADR 0032). Bulk without a completed preview for that PR head is a
-report-only refusal. Description publish merges only the marked agent
-block. Server writing policy owns body scale, map mode, and flat
-`visuals[]` (ADR 0036).
 
 **Seams.** Features call `createFeaturePiSession` → `createPiSession`.
 They do not import `piSessionImpl.ts`. Features call `createPrSurface` /
@@ -140,8 +116,6 @@ landing package.
 **Large PRs.** Review budget tiers are advisory. They do not cancel an
 orchestrated run. Recon inspects changed files through execute cells.
 Truncated change sets continue with explicit truncation metadata.
-Lightweight docs-only auto completion skips the orchestrated run
-(ADR 0010). Slash `/review` is never exempted.
 
 ## Modes
 
@@ -170,7 +144,7 @@ Write the invariant a specialist can check with literal
 `searchWorkspace` and focused `readWorkspaceFile` calls across many
 changed files.
 
-- Name exact modules, constants, ADRs, and test files from this repo
+- Name exact modules, constants, and test files from this repo
 - Prefer tokens a literal grep can hit (`createPrSurface`,
   `publishOnce`, `FEATURE_REVIEW`)
 - Keep one concern so the Bound judge can attach one footer
@@ -198,7 +172,7 @@ Run once, in order. Do not wander.
    gist. Compute remaining slots.
 3. **Vocabulary.** Read `CONTEXT.md`. Use product terms only.
 4. **Harness.** Read `src/prompts/shared/tools.ts`,
-   `src/agent/codemode/guestCatalogue.ts`, ADR 0033, and
+   `src/agent/codemode/guestCatalogue.ts`, and
    `src/settings/codeModeConstants.ts`.
 5. **Layout.** Read `docs/development.md` plus
    `.pr-agent/module-layout.mdc`, `esm-imports.mdc`, and
@@ -208,14 +182,12 @@ Run once, in order. Do not wander.
 7. **Safety surfaces.** Inventory ask, triage, verification,
    structured-errors, site-isolation, topology-diagram,
    workspace-evidence, operation-intent, Pi, and PrSurface rules.
-8. **ADRs.** Skim `docs/adr/` titles. Open Accepted ADRs that encode
-   invariants the named files must carry.
-9. **Code anchors.** For each file or gap, grep `src/` and `test/`
+8. **Code anchors.** For each file or gap, grep `src/` and `test/`
    once. Prefer invariants already enforced in tests but missing or
    stale in policy.
-10. **Write.** Seed emits new files only. Refresh rewrites each named
-    file from the anchors. Validate each file against the contract
-    before the next.
+9. **Write.** Seed emits new files only. Refresh rewrites each named
+   file from the anchors. Validate each file against the contract
+   before the next.
 
 ## Rule file contract
 
@@ -227,7 +199,7 @@ globs:
   - "src/<area>/**"
 ---
 
-<imperative instruction ≤1000 chars; name modules, constants, ADRs, or test files from THIS repo>
+<imperative instruction ≤1000 chars; name modules, constants, or test files from THIS repo>
 ```
 
 | Field            | Rule                                                                         |
@@ -238,7 +210,7 @@ globs:
 | Body             | ≤1000 chars (`MAX_REPO_POLICY_INSTRUCTION_CHARS`); trim before save          |
 | File bytes       | ≤8 KiB; aggregate `.pr-agent/` ≤32 KiB; ≤20 files total                      |
 | Voice            | Imperative "do / do not"; one concern per file                               |
-| Evidence         | Cite resolvable repo paths (`src/...`, `test/...`, `docs/adr/00XX-...`)      |
+| Evidence         | Cite resolvable repo paths (`src/...`, `test/...`)                           |
 
 ### Good vs bad body
 
@@ -251,7 +223,7 @@ globs:
   - "src/agent/triage/**"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/architectureRules.test.ts`, ADR 0023).
+Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/architectureRules.test.ts`).
 
 ````
 </Good>
@@ -266,7 +238,7 @@ globs:
   - "src/agent/tools/**"
 ---
 
-The local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0024). Findings that cite a path or line must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`). Code Mode marshal records delivered file and diff ranges. `findFiles` and `resolveSymbol` hits are navigation hints. Confirm with `tools.readWorkspaceFile` before citing. A truncated host result cannot prove absence.
+The local PR workspace at the reviewed `headSha` is the sole publishable code authority. Findings that cite a path or line must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`). Code Mode marshal records delivered file and diff ranges. `findFiles` and `resolveSymbol` hits are navigation hints. Confirm with `tools.readWorkspaceFile` before citing. A truncated host result cannot prove absence.
 ````
 
 </Good>
@@ -324,13 +296,13 @@ For every written `.mdc`:
 | "Teach execute in the rule so specialists use Code Mode"   | Product prompts already teach the harness. A rule that restates it wastes the 1000-char cap and goes stale when bounds change. |
 | "Refresh means polish the old sentences"                   | Refresh rebuilds from code. Old prose is inventory only.                                                                       |
 | "alwaysApply everything so large PRs still see every rule" | The loader already matches globs to changed files. alwaysApply dilutes the Bound judge (default no).                           |
-| "Write for sequential native workspace tools / Acorn fuel" | Retired. ADR 0033. Review, ask, and verification investigate through `tools.*` inside execute cells.                           |
+| "Write for sequential native workspace tools / Acorn fuel" | Retired. Review, ask, and verification investigate through `tools.*` inside execute cells.                                     |
 
 ## Red flags. Stop
 
 - Writing `pr-agent/` (no dot), pointer READMEs there, `CONVENTIONS.md`,
   or `all-rules.mdc`
-- Restating TypeScript or Node platitudes with no `src/` or ADR anchor
+- Restating TypeScript or Node platitudes with no `src/` or `test/` anchor
 - Copying an existing `.mdc` under a new name
 - Skipping the inventory / remaining-slot math
 - Padding weak rules to exhaust remaining slots

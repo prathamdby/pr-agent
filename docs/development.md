@@ -8,7 +8,7 @@ loader drops a root instruction file over 32 KiB. Use pointers to this guide and
 the runbooks instead of duplicating their detail.
 
 Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
-Prompt wording follows [ADR 0053](adr/0053-prompt-module-layout.md#prompt-wording); ADR 0052 governs output prose.
+Prompt layout, imports, origin, and wording are enforced by `scripts/lint/prompts.mjs` and `scripts/lint/prompt-style.mjs`; `src/prompts/shared/communication.ts` owns output prose style.
 
 Lifecycle claim and feature admission have separate owners:
 `workItemStateRepository.ts::claimWorkForExecution` records lifecycle ownership
@@ -59,7 +59,7 @@ and enforces idempotent keys and ordered dependencies. It is not generic session
 storage. Effective-input digest assembly belongs to the review consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
 settlement refers to them and never substitutes for exact remote receipts.
 `findings/evidenceLedger.ts::revalidateEvidenceDescriptors` stages coverage until
-all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+all fresh governed range reads match.
 
 Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
 `src/traces/recorder.ts` owns the worker AI-trace queue and execution
@@ -68,7 +68,7 @@ one generation, tool, and compaction event per call, behind an always-present,
 nonthrowing observer. `src/analytics/posthogSink.ts` owns the AI capture client.
 `AgentWorkExecutionsLive(cfg)` drains that client inside the existing shutdown
 reserve. Credential redaction belongs to `src/traces/content.ts`. Traces never
-authorize recovery or publishing. See [ADR 0050](adr/0050-posthog-ai-traces.md).
+authorize recovery or publishing.
 `agentEventSink.ts` fans out independently to optional local audit and PostHog;
 missing generation usage remains absent. Specialist schema/validation/run spans
 are non-generation stages emitted as they settle. Durable terminal capture follows
@@ -138,7 +138,7 @@ The packages stay pinned together at exact 1.0.0.
 `error`) into a `tool.submit_rejected` tool error so the turn budget does not
 count it as finished. A provider `refusal` stop raises `provider.refusal`
 without retry. Anthropic-only request behavior is gated on the model's `api` or
-catalog compat flags ([ADR 0047](adr/0047-adaptive-thinking-prompt-and-request-profile.md)).
+catalog compat flags.
 `sendActivity.ts` owns each send's inactivity monitors and abortable retry waits,
 and releases all acquired timers when that send finishes. The existing
 `createPiSession.test.ts` and seam/compaction suites exercise this through the
@@ -171,7 +171,7 @@ per-webhook-event insertion conflict as the idempotency backstop. A losing
 reservation is removed after capacity release so the deferred foreign key
 cannot refer to work that was never inserted; rate debits remain unchanged.
 
-Pinned checkouts search through `src/prWorkspace/fff/workspaceSearch.ts`. It asks the fff host (`src/prWorkspace/fff/host.ts`, a forked child process and the only importer of `@ff-labs/fff-node`) for the paths fff indexes, sends every other allowed tracked path to `git grep`, and falls back to `git grep` for the whole call when the host fails. See [ADR 0048](adr/0048-fff-workspace-search.md). `gitGrepWorkspace` in `src/prWorkspace/repositoryReader.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Writable triage checkouts use it alone. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
+Pinned checkouts search through `src/prWorkspace/fff/workspaceSearch.ts`. It asks the fff host (`src/prWorkspace/fff/host.ts`, a forked child process and the only importer of `@ff-labs/fff-node`) for the paths fff indexes, sends every other allowed tracked path to `git grep`, and falls back to `git grep` for the whole call when the host fails. `gitGrepWorkspace` in `src/prWorkspace/repositoryReader.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Writable triage checkouts use it alone. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
 Pinned search retains at most 200 returned matches, including ranked output and
 fallback. The host supplies validated byte offsets, not truncated native
@@ -196,7 +196,6 @@ cancellation at entry and in the final callback, then reassert the epoch before
 the signal-checked mutation. Terminal hooks bypass only the durable cancellation
 read to preserve verdict cleanup. Gate failures before delegation remain
 retryable; after delegation, existing provider acceptance rules apply.
-See [ADR 0026](adr/0026-pr-surface-seam.md).
 
 `createReviewSummaryComment` in `reviewSummaryComment.ts` is the only writer of
 the review summary comment: progress ticks, the terminal summary, cancelled and
@@ -218,7 +217,6 @@ Verification holds it from fresh finding inventory through verdict publication;
 full-review terminal publication takes it after summary and own-verdict locks
 have released. Do not nest those locks on separate pool connections.
 Bounded terminal-review lock timeouts are best-effort skips.
-See [ADR 0020](adr/0020-orchestrated-review.md).
 
 `src/agentWork/reviewVerdict.ts::reviewVerdict` returns `{pending, close, repairIfOpen}`.
 It resolves summary details links and applies only the first selected verdict.
@@ -307,20 +305,16 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`, cons
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in prompt modules. Shared sections live in `src/prompts/shared/`: `prefix.ts` owns the byte-identical specialist instruction prefix, `safety.ts` owns trust framing and envelopes, `context.ts` renders shared runtime context, `communication.ts` owns prose style, `behavior.ts` owns shared review discipline, `output.ts` owns response contracts, `tools.ts` owns shared Code Mode harness guidance, and `repair.ts` owns the repair text used by all four specialists. Role prompts, user-message builders, run turns, and role-specific repair text live in `src/prompts/<role>/prompt.ts`, alongside harness and native-tool exports. Orchestrator turns, brief rendering, and trusted-context assembly live in `src/prompts/orchestrator/prompt.ts`, with its formatters in `context.ts`. Fetching stays in `src/review/run/reviewTrustedContext.ts`; path and size builders and accepted-finding slimming stay in review feature code. Correctness uses `src/prompts/correctness/prompt.ts`. Security, quality, and tests personas live in `src/prompts/{security,quality,tests}/prompt.ts`, and `src/prompts/shared/communication.ts` owns the shared reader-first and STE100 writing guidance for review, triage, ask, verification, description, and the CI author. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns. Inspect a persona's generated prompt with `npm run dump-prompt -- <persona>` (`scripts/dump-prompt.ts`); prompt changes are proven by inspected prompt output, not `check:code` alone. Model-facing tool schemas go through `toToolParameters` in `src/agent/tools/toolParams.ts`, which closes objects for the model and owns the shared parameter descriptions. Prompt style for adaptive-thinking models (goals and done-criteria, no unenforced caps, one copy of each contract) is recorded in [ADR 0047](adr/0047-adaptive-thinking-prompt-and-request-profile.md). The banned-pattern list and the prompt-only length targets for prose a person reads on the pull request are recorded in [ADR 0052](adr/0052-pr-voice-contract.md). The prompt module layout under `src/prompts/`, its section names, and the `pr-agent/prompt-layout` and `pr-agent/prompt-imports` lint rules are recorded in [ADR 0053](adr/0053-prompt-module-layout.md).
+Long investigator prompt blocks stay in prompt modules. Shared sections live in `src/prompts/shared/`: `prefix.ts` owns the byte-identical specialist instruction prefix, `safety.ts` owns trust framing and envelopes, `context.ts` renders shared runtime context, `communication.ts` owns prose style, `behavior.ts` owns shared review discipline, `output.ts` owns response contracts, `tools.ts` owns shared Code Mode harness guidance, and `repair.ts` owns the repair text used by all four specialists. Role prompts, user-message builders, run turns, and role-specific repair text live in `src/prompts/<role>/prompt.ts`, alongside harness and native-tool exports. Orchestrator turns, brief rendering, and trusted-context assembly live in `src/prompts/orchestrator/prompt.ts`, with its formatters in `context.ts`. Fetching stays in `src/review/run/reviewTrustedContext.ts`; path and size builders and accepted-finding slimming stay in review feature code. Correctness uses `src/prompts/correctness/prompt.ts`. Security, quality, and tests personas live in `src/prompts/{security,quality,tests}/prompt.ts`, and `src/prompts/shared/communication.ts` owns the shared reader-first and STE100 writing guidance for review, triage, ask, verification, description, and the CI author. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns. Inspect a persona's generated prompt with `npm run dump-prompt -- <persona>` (`scripts/dump-prompt.ts`); prompt changes are proven by inspected prompt output, not `check:code` alone. Model-facing tool schemas go through `toToolParameters` in `src/agent/tools/toolParams.ts`, which closes objects for the model and owns the shared parameter descriptions. Adaptive-thinking prompts state goals and done-criteria with no unenforced caps and one copy of each contract (`scripts/lint/prompt-style.mjs`). Reader-facing banned patterns and length targets live in `src/prompts/shared/communication.ts`. Prompt module layout under `src/prompts/`, its section names, and the `pr-agent/prompt-layout`, `pr-agent/prompt-imports`, and `pr-agent/prompt-sinks` lint rules live in `scripts/lint/prompts.mjs`.
 
 `npm run dump-prompt -- all` emits deterministic JSON for every role's system prompt
 and ordered tool definitions, including native workspace definitions hidden by
 Code Mode and the compaction prompts. It constructs definitions without running
 tools, creating sessions, or contacting providers. Compare its complete output
-before and after a refactor; an empty diff protects the stable prefixes from
-[ADR 0025](adr/0025-prompt-cache-stability.md), not provider cache hit rates.
-The four specialist prompts start with `specialistSharedPrefix`. An empty dump
-diff is the check for a structure-only move only. The wording check for this
-prefix is the ordered leftover in
-[ADR 0053](adr/0053-prompt-module-layout.md).
-The persisted-identity golden cases and module deletion verdicts are recorded in
-[ADR 0043](adr/0043-deep-module-map.md).
+before and after a refactor; an empty diff protects the stable prompt-cache
+prefixes, not provider cache hit rates. The four specialist prompts start with
+`specialistSharedPrefix` (`src/prompts/shared/prefix.ts`). An empty dump diff is
+the check for a structure-only move only.
 
 Concrete modules own the M1 interfaces. Workspace callers import
 `prRepositoryView.ts`, `localPrWorkspace.ts`, or `writablePrCheckout.ts` directly.
@@ -350,11 +344,11 @@ entry. Token refresh and credential-identity isolation remain product policy.
 
 ## Static guards and generated maps
 
-`npm run lint` and `npm run lint:backend` require zero warnings (`--deny-warnings`). Backend lint denies explicit `any` and non-null assertions. Narrow from runtime evidence using existing guards and control flow; literal tables check own keys. Typed publication results require a decoder; the erased PR-surface boundary returns `unknown`. `escape()` has one reviewed cast line and zero callers ([ADR 0045](adr/0045-type-narrowing-discipline.md)). The guard ledger also counts `(oxlint|eslint)-disable` markers under `lint-suppressions(src)` (4) and `lint-suppressions(test)` (0). These counts may shrink, not grow.
+`npm run lint` and `npm run lint:backend` require zero warnings (`--deny-warnings`). Backend lint denies explicit `any` and non-null assertions. Narrow from runtime evidence using existing guards and control flow; literal tables check own keys. Typed publication results require a decoder; the erased PR-surface boundary returns `unknown`. `escape()` has one reviewed cast line and zero callers. The guard ledger also counts `(oxlint|eslint)-disable` markers under `lint-suppressions(src)` (4) and `lint-suppressions(test)` (0). These counts may shrink, not grow.
 
 The explicit-any and non-null counters force the selected rule on after removing its config overrides. CLI `--deny` alone does not beat a file override. Escape calls with type arguments count too.
 
-Machine law lives in scripts plus tests, enforced by `npm run check:guards` (CI `check` job): `scripts/check-guard-ledger.mjs` compares pattern, file, and oxlint counts with the merge base and waits on the `guard-loosening` environment for a growth; `scripts/check-static-baseline.mjs` with `scripts/baselines/static-baseline.json` still checks the stored baseline; both counters build their oxlint config through `scripts/forcedOxlintConfig.mjs`; `scripts/check-domain-guards.mjs` checks migration numbering and feature-key parity. `scripts/check-agent-context.mjs` checks the `AGENTS.md` byte budget, the single topology diagram, and that disclosed pointers resolve. Syntax rows in `scripts/guards/` are enforced by `test/architectureRules.test.ts`. Linted source carries no comments: `pr-agent/no-comments` in `scripts/lint/no-comments.mjs` reports and fixes them, keeping only `oxlint-disable-next-line <rule> -- <reason>` and `/// <reference />` directives ([ADR 0051](adr/0051-no-source-comments.md)). The same lint step loads `@interfere/landmines` and errors on the seven adopted rules in [ADR 0063](adr/0063-landmines-oxlint-rules.md). `no-test-doubles`, `colocated-tests`, and `test-file-names` stay off because they contradict the Pi session seam, `PrSurface`, the root `test/` layout, or the tests reviewer directory. The single sanctioned cast is `escape()` in `src/util/escape.ts` ([ADR 0038](adr/0038-fail-on-growth-static-baseline.md), [ADR 0039](adr/0039-single-blessed-assertion-escape.md)). Architecture edges are rows in `test/architectureRules.test.ts` with walkers in `test/architectureRulesHelpers.ts` ([ADR 0040](adr/0040-in-repo-import-ruleset.md)). `docs/feature-map.md` is generated by `npm run gen:feature-map` and asserted by `test/featureMap.test.ts` ([ADR 0041](adr/0041-generated-feature-map.md)). `migrations/` owns the ordered SQL files. Scaffold one with `npm run gen:migration -- <snake_slug>`. Prove the durable path with `npm run verify` (disposable Postgres, artifact under `verify-artifacts/`).
+Machine law lives in scripts plus tests, enforced by `npm run check:guards` (CI `check` job): `scripts/check-guard-ledger.mjs` compares pattern, file, and oxlint counts with the merge base and waits on the `guard-loosening` environment for a growth; `scripts/check-static-baseline.mjs` with `scripts/baselines/static-baseline.json` still checks the stored baseline; both counters build their oxlint config through `scripts/forcedOxlintConfig.mjs`; `scripts/check-domain-guards.mjs` checks migration numbering, feature-key parity, banned packages, and disabled Landmines rules. `scripts/check-agent-context.mjs` checks agent context budgets, the single topology diagram, `.pr-agent/*.mdc` caps and repo-path anchors, and that disclosed pointers resolve. Syntax rows in `scripts/guards/` are enforced by `test/architectureRules.test.ts`. Linted source carries no comments: `pr-agent/no-comments` in `scripts/lint/no-comments.mjs` reports and fixes them, keeping only `oxlint-disable-next-line <rule> -- <reason>` and `/// <reference />` directives. The same lint step loads `@interfere/landmines` and errors on the seven adopted rules in `.oxlintrc.json`. `no-test-doubles`, `colocated-tests`, and `test-file-names` stay off because they contradict the Pi session seam, `PrSurface`, the root `test/` layout, or the tests reviewer directory. The single sanctioned cast is `escape()` in `src/util/escape.ts`. Architecture edges are rows in `test/architectureRules.test.ts` with walkers in `test/architectureRulesHelpers.ts`. `docs/feature-map.md` is generated by `npm run gen:feature-map` and asserted by `test/featureMap.test.ts`. `migrations/` owns the ordered SQL files. Scaffold one with `npm run gen:migration -- <snake_slug>`. Prove the durable path with `npm run verify` (disposable Postgres, artifact under `verify-artifacts/`).
 
 A depth-1 checkout has no `origin/main` history. The ledger fetches that ref and unshallows before it compares counts. Pattern rows are counted in process, one line at a time, because the check runner does not provide ripgrep.
 

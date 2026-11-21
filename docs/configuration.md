@@ -56,7 +56,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Agent events enabled       | `AGENT_EVENTS_ENABLED`           | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                            |
 | Agent events retention     | `AGENT_EVENTS_RETENTION_SECONDS` | `2592000`                | TTL delete for `agent_events` and `agent_feedback` by `recorded_at` (30d, same as work retention). `0` keeps rows forever. Work-item deletion still sets `work_item_id` null.                                                                                                                                                                                     |
 | Models catalog path        | `MODELS_JSON_PATH`               | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                          |
-| PostHog token              | `POSTHOG_PROJECT_TOKEN`          | empty                    | optional analytics and worker AI traces; empty token sends nothing and opens no trace client. Product events stay metadata. AI traces include credential-redacted repository text. Failed sink construction restores a no-op sink. OSS installs need no PostHog setup. See [ADR 0050](adr/0050-posthog-ai-traces.md)                                              |
+| PostHog token              | `POSTHOG_PROJECT_TOKEN`          | empty                    | optional analytics and worker AI traces; empty token sends nothing and opens no trace client. Product events stay metadata. AI traces include credential-redacted repository text. Failed sink construction restores a no-op sink. OSS installs need no PostHog setup.                                                                                            |
 | PostHog host               | `POSTHOG_HOST`                   | empty                    | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                                                                                                                                         |
 
 ## Ops (deployment-varying tuning)
@@ -64,7 +64,6 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 `REVIEW_RECOVERY_ENABLED` is not a setting. A process that still has the name
 in its environment boots, and the name is not read. Recovery runs for every
 review with a base sha. Migration 037 is already applied by startup. See
-[ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
 [rollout](operations.md#review-reliability-rollout).
 
 `REVIEW_TESTS_EVIDENCE` defaults to `false` and maps to `cfg.review.testsEvidence`.
@@ -78,8 +77,7 @@ rejected even when the pull request changes it.
 `cfg.review.checkFailSeverity`. Allowed values are `P0`, `P1`, `P2`, and `P3`.
 Open findings at that rank or stricter fail the check. `P3` fails only when
 the threshold is `P3`. An empty string is not the default. It throws
-`config.invalid_enum`. There is no `off` value. See
-[ADR 0058](adr/0058-judgment-owned-severity.md).
+`config.invalid_enum`. There is no `off` value.
 
 Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
 `REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
@@ -101,7 +99,7 @@ path blocks agent work.
 GitHub tokens, npm tokens, provider keys, and database URLs that include a
 password are redacted before send. Content can still contain proprietary
 code. These limits are private constants in `src/traces/recorder.ts`, not env
-knobs. See [ADR 0050](adr/0050-posthog-ai-traces.md).
+knobs.
 
 Migration 040 drops the old trace tables. That drop locks `agent_work_items`
 and fails after 3 seconds if the lock is busy. Retry when the lock clears.
@@ -343,7 +341,7 @@ Verification:
 
 ---
 
-Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The durable `agent_work_items.attempt_count` advances at fresh work admission, not lifecycle claim. The total remains `QUEUE_RETRY_LIMIT + 1`. Fresh work resumed from `running` counts, including workspace preparation and triage bulk replay. A committed admission interrupted before the provider is not refunded. At the cap, recovery-only completion is allowed; another fresh admission fails with `agent_work.attempts_exhausted`. Pre-admission infrastructure failures retain the pg-boss delivery bound and their original cause, without spending work retries. Deterministic missing-submit/report failures keep their existing single escalated replay when budget permits. See [ADR 0034](adr/0034-escalated-retries.md).
+Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The durable `agent_work_items.attempt_count` advances at fresh work admission, not lifecycle claim. The total remains `QUEUE_RETRY_LIMIT + 1`. Fresh work resumed from `running` counts, including workspace preparation and triage bulk replay. A committed admission interrupted before the provider is not refunded. At the cap, recovery-only completion is allowed; another fresh admission fails with `agent_work.attempts_exhausted`. Pre-admission infrastructure failures retain the pg-boss delivery bound and their original cause, without spending work retries. Deterministic missing-submit/report failures keep their existing single escalated replay when budget permits.
 
 Completed mutation recovery without a usable result is terminal before budget
 exhaustion. Failed or incomplete evidence reads remain transient, and genuine failure budgets
@@ -714,7 +712,7 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6                    |
 | `READ_SPILL_FILENAME_PREFIX`                     | `pr-agent-read-spill-` |
 
-Pinned searches run on the fff host with `git grep` for the remainder; writable triage searches use `git grep` alone ([ADR 0048](adr/0048-fff-workspace-search.md)). The `LOCAL_WORKSPACE_FFF_*` constants bound the host: scan and request deadlines, the paging budget, the indexed-file cap above which a checkout skips fff, live indexes per host, the file size fff reads, and the respawn backoff after a host dies. Both paths apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
+Pinned searches run on the fff host with `git grep` for the remainder; writable triage searches use `git grep` alone. The `LOCAL_WORKSPACE_FFF_*` constants bound the host: scan and request deadlines, the paging budget, the indexed-file cap above which a checkout skips fff, live indexes per host, the file size fff reads, and the respawn backoff after a host dies. Both paths apply `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to the result and the tool `maxResults` after parse. A buffer cut returns partial results with `truncated: true`, not proof of absence. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
 
 ### Code Mode
 
@@ -746,7 +744,7 @@ Review, ask, and verification expose one model-visible `execute` tool. Scripts c
 
 ### Removed settings
 
-`CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are not settings. See [ADR 0049](adr/0049-retire-code-index.md).
+`CODE_INDEX_MODE`, `CODE_INDEX_WAIT_MS`, and `CODE_INDEX_RETENTION_SECONDS` are not settings.
 
 ### Postgres pool
 
@@ -807,4 +805,4 @@ Private specialist orchestration constants (not exported from `src/settings/`): 
 Sessions run in memory. Durable work, operation intents, and publish records
 still own retries and publication recovery. Migration 036 drops only the unread
 agent checkpoint and session snapshot tables. Migration 037 adds the separate
-validated review artifact store described in ADR 0044, not replacement sessions.
+validated review artifact store (`review_run_artifacts`), not replacement sessions.
